@@ -1,0 +1,30 @@
+{
+  "rounds": [
+    {
+      "round": 1,
+      "action": "检查脚本生成草稿",
+      "issues": [
+        "存在登录、查询、配置等项目中不存在的通用流程",
+        "部分术语误替换为智能服务",
+        "章节重复且操作步骤与真实界面不完全对应"
+      ],
+      "fixed": true
+    },
+    {
+      "round": 2,
+      "action": "按真实项目重写操作手册",
+      "issues": [],
+      "fixed": true
+    },
+    {
+      "round": 3,
+      "action": "复核截图预留和软著字段一致性",
+      "issues": [],
+      "fixed": true
+    }
+  ],
+  "module_count": 7,
+  "software_name": "HoloGrip",
+  "version": "V1.0",
+  "screenshot_status": "pending"
+}

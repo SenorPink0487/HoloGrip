@@ -1,0 +1,90 @@
+{
+  "software_name": "HoloGrip",
+  "project_root": "E:\\桌面\\Homework\\创新创业项目\\math",
+  "instruction": "本文件只收集证据，不决定行业、功能或手册结构。请由模型阅读这些证据以及必要的项目源码后，另行编写业务理解模型稿。",
+  "documents": [
+    {
+      "path": "README.md",
+      "size": 550,
+      "headings": [
+        "Run and deploy your AI Studio app",
+        "Run Locally"
+      ],
+      "opening": "<div align=\"center\" <img width=\"1200\" height=\"475\" alt=\"GHBanner\" src=\"https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6\" / </div Run and deploy your AI Studio app This contains everything you need to run your app locally. View your app in AI Studio: https://ai.studio/apps/11c5684d-457b-4e92-9f82-df4b6b817309 Run Locally Prerequisites: Node.js 1. Install dependencies: npm install 2. Set the GEMINI API KEY in .env.local to your Gemini API key 3. Run the app: npm run dev"
+    }
+  ],
+  "code_evidence": {
+    "project_name": "math",
+    "software_name_candidate": "react example",
+    "frameworks": [
+      "React",
+      "Vite"
+    ],
+    "language": "React、TypeScript",
+    "routes": [
+      "/"
+    ],
+    "feature_name_candidates": [
+      "Canvas2D",
+      "MathModel",
+      "OverlayUI"
+    ],
+    "entry_files": [
+      "src/main.tsx"
+    ],
+    "page_files": [],
+    "component_files": [
+      "src/components/Canvas2D.tsx",
+      "src/components/MathModel.tsx",
+      "src/components/OverlayUI.tsx"
+    ],
+    "api_files": [],
+    "run_command_candidates": [
+      "npm run dev",
+      "npm run preview"
+    ],
+    "package": {
+      "name": "react-example",
+      "path": "package.json",
+      "version": "0.0.0",
+      "scripts": {
+        "dev": "vite --port=3000 --host=0.0.0.0",
+        "build": "vite build",
+        "preview": "vite preview",
+        "clean": "rm -rf dist",
+        "lint": "tsc --noEmit",
+        "tauri": "tauri",
+        "tauri:dev": "tauri dev",
+        "tauri:build": "tauri build"
+      },
+      "dependency_names": [
+        "@google/genai",
+        "@mediapipe/tasks-vision",
+        "@react-three/drei",
+        "@react-three/fiber",
+        "@tailwindcss/vite",
+        "@tauri-apps/cli",
+        "@types/express",
+        "@types/node",
+        "@types/three",
+        "@vitejs/plugin-react",
+        "autoprefixer",
+        "clsx",
+        "dotenv",
+        "express",
+        "lucide-react",
+        "motion",
+        "react",
+        "react-dom",
+        "tailwind-merge",
+        "tailwindcss",
+        "three",
+        "tsx",
+        "typescript",
+        "vite",
+        "zustand"
+      ]
+    }
+  },
+  "external_research_notes": ""
+}

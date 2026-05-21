@@ -1,0 +1,221 @@
+{
+  "software_name": "HoloGrip",
+  "version": "V1.0",
+  "project_root": "E:\\桌面\\Homework\\创新创业项目\\math",
+  "file_count": 22,
+  "material_line_count": 2262,
+  "source_line_count": 2218,
+  "selected_source_line_count": 2218,
+  "lines_per_page": 60,
+  "total_pages": 38,
+  "target_pages": 60,
+  "available_candidate_line_count": 2262,
+  "available_candidate_pages": 38,
+  "supplement_status": "候选源码不足60页，按全部代码材料生成",
+  "mode": "all_under_60_pages",
+  "selection_file": "软件著作权申请资料\\草稿\\代码文件选择.json",
+  "outputs": [
+    "代码-全部.md"
+  ],
+  "files": [
+    {
+      "path": "src/App.tsx",
+      "source_line_count": 230,
+      "selected_line_start": 1,
+      "selected_line_end": 230,
+      "selected_line_count": 230,
+      "material_line_start": 1,
+      "material_line_end": 232
+    },
+    {
+      "path": "src/main.tsx",
+      "source_line_count": 10,
+      "selected_line_start": 1,
+      "selected_line_end": 10,
+      "selected_line_count": 10,
+      "material_line_start": 233,
+      "material_line_end": 244
+    },
+    {
+      "path": "src/components/Canvas2D.tsx",
+      "source_line_count": 152,
+      "selected_line_start": 1,
+      "selected_line_end": 152,
+      "selected_line_count": 152,
+      "material_line_start": 245,
+      "material_line_end": 398
+    },
+    {
+      "path": "src/components/MathModel.tsx",
+      "source_line_count": 674,
+      "selected_line_start": 1,
+      "selected_line_end": 674,
+      "selected_line_count": 674,
+      "material_line_start": 399,
+      "material_line_end": 1074
+    },
+    {
+      "path": "src/components/OverlayUI.tsx",
+      "source_line_count": 431,
+      "selected_line_start": 1,
+      "selected_line_end": 431,
+      "selected_line_count": 431,
+      "material_line_start": 1075,
+      "material_line_end": 1507
+    },
+    {
+      "path": "src/lib/gemini.ts",
+      "source_line_count": 265,
+      "selected_line_start": 1,
+      "selected_line_end": 265,
+      "selected_line_count": 265,
+      "material_line_start": 1508,
+      "material_line_end": 1774
+    },
+    {
+      "path": "src/lib/geometry.ts",
+      "source_line_count": 63,
+      "selected_line_start": 1,
+      "selected_line_end": 63,
+      "selected_line_count": 63,
+      "material_line_start": 1775,
+      "material_line_end": 1839
+    },
+    {
+      "path": "src/lib/mediapipe.ts",
+      "source_line_count": 21,
+      "selected_line_start": 1,
+      "selected_line_end": 21,
+      "selected_line_count": 21,
+      "material_line_start": 1840,
+      "material_line_end": 1862
+    },
+    {
+      "path": "src/lib/utils.ts",
+      "source_line_count": 6,
+      "selected_line_start": 1,
+      "selected_line_end": 6,
+      "selected_line_count": 6,
+      "material_line_start": 1863,
+      "material_line_end": 1870
+    },
+    {
+      "path": "index.html",
+      "source_line_count": 13,
+      "selected_line_start": 1,
+      "selected_line_end": 13,
+      "selected_line_count": 13,
+      "material_line_start": 1871,
+      "material_line_end": 1885
+    },
+    {
+      "path": "src/store.ts",
+      "source_line_count": 150,
+      "selected_line_start": 1,
+      "selected_line_end": 150,
+      "selected_line_count": 150,
+      "material_line_start": 1886,
+      "material_line_end": 2037
+    },
+    {
+      "path": "vite.config.ts",
+      "source_line_count": 24,
+      "selected_line_start": 1,
+      "selected_line_end": 24,
+      "selected_line_count": 24,
+      "material_line_start": 2038,
+      "material_line_end": 2063
+    },
+    {
+      "path": "src/index.css",
+      "source_line_count": 1,
+      "selected_line_start": 1,
+      "selected_line_end": 1,
+      "selected_line_count": 1,
+      "material_line_start": 2064,
+      "material_line_end": 2066
+    },
+    {
+      "path": "src-tauri/Cargo.toml",
+      "source_line_count": 25,
+      "selected_line_start": 1,
+      "selected_line_end": 25,
+      "selected_line_count": 25,
+      "material_line_start": 2067,
+      "material_line_end": 2093
+    },
+    {
+      "path": "metadata.json",
+      "source_line_count": 7,
+      "selected_line_start": 1,
+      "selected_line_end": 7,
+      "selected_line_count": 7,
+      "material_line_start": 2094,
+      "material_line_end": 2102
+    },
+    {
+      "path": "package.json",
+      "source_line_count": 46,
+      "selected_line_start": 1,
+      "selected_line_end": 46,
+      "selected_line_count": 46,
+      "material_line_start": 2103,
+      "material_line_end": 2150
+    },
+    {
+      "path": "src-tauri/build.rs",
+      "source_line_count": 3,
+      "selected_line_start": 1,
+      "selected_line_end": 3,
+      "selected_line_count": 3,
+      "material_line_start": 2151,
+      "material_line_end": 2155
+    },
+    {
+      "path": "src-tauri/capabilities/default.json",
+      "source_line_count": 11,
+      "selected_line_start": 1,
+      "selected_line_end": 11,
+      "selected_line_count": 11,
+      "material_line_start": 2156,
+      "material_line_end": 2168
+    },
+    {
+      "path": "src-tauri/src/lib.rs",
+      "source_line_count": 16,
+      "selected_line_start": 1,
+      "selected_line_end": 16,
+      "selected_line_count": 16,
+      "material_line_start": 2169,
+      "material_line_end": 2186
+    },
+    {
+      "path": "src-tauri/src/main.rs",
+      "source_line_count": 6,
+      "selected_line_start": 1,
+      "selected_line_end": 6,
+      "selected_line_count": 6,
+      "material_line_start": 2187,
+      "material_line_end": 2194
+    },
+    {
+      "path": "src-tauri/tauri.conf.json",
+      "source_line_count": 37,
+      "selected_line_start": 1,
+      "selected_line_end": 37,
+      "selected_line_count": 37,
+      "material_line_start": 2195,
+      "material_line_end": 2233
+    },
+    {
+      "path": "tsconfig.json",
+      "source_line_count": 27,
+      "selected_line_start": 1,
+      "selected_line_end": 27,
+      "selected_line_count": 27,
+      "material_line_start": 2234,
+      "material_line_end": 2262
+    }
+  ],
+  "safe_software_filename": "HoloGrip"
+}
