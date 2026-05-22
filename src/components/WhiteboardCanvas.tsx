@@ -23,9 +23,8 @@ export function WhiteboardCanvas() {
   const isEraser = useARStore(state => state.isEraser);
   const setIsEraser = useARStore(state => state.setIsEraser);
   const triggerClearCanvas = useARStore(state => state.triggerClearCanvas);
-  
-  // 核心交互模式：'draw' (写画) 或 'interact' (穿透操作底层的函数、几何、工具箱等)
-  const [interactMode, setInteractMode] = useState<'draw' | 'interact'>('draw');
+  const interactMode = useARStore(state => state.interactMode);
+  const setInteractMode = useARStore(state => state.setInteractMode);
 
   // 悬浮画笔栏
   const dragControls = useDragControls();
@@ -142,7 +141,7 @@ export function WhiteboardCanvas() {
   // 根据当前 Tab 自动切换交互模式
   // 进入 2D 板块时自动切到操作模式（穿透画布），回白板时自动切到书写模式
   useEffect(() => {
-    if (activeTab === 'geometry' || activeTab === 'function' || activeTab === 'probability') {
+    if (activeTab === 'function') {
       setInteractMode('interact');
     } else if (activeTab === 'whiteboard') {
       setInteractMode('draw');
@@ -162,7 +161,7 @@ export function WhiteboardCanvas() {
         return;
       }
       if (e.code === 'Space') {
-        setInteractMode(prev => prev === 'draw' ? 'interact' : 'draw');
+        setInteractMode(useARStore.getState().interactMode === 'draw' ? 'interact' : 'draw');
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -216,24 +215,22 @@ export function WhiteboardCanvas() {
           <button
             onClick={() => setInteractMode('draw')}
             className={cn(
-              "p-2 rounded-lg text-xs font-medium transition-all flex flex-col items-center gap-1 w-12",
+              "p-2.5 rounded-lg transition-all flex items-center justify-center w-10 h-10",
               interactMode === 'draw' ? "bg-cyan-500/20 text-cyan-400" : "text-zinc-500 hover:text-white"
             )}
             title="书写模式 (Space)"
           >
             <Edit3 className="w-4 h-4" />
-            <span>书写</span>
           </button>
           <button
             onClick={() => setInteractMode('interact')}
             className={cn(
-              "p-2 rounded-lg text-xs font-medium transition-all flex flex-col items-center gap-1 w-12",
+              "p-2.5 rounded-lg transition-all flex items-center justify-center w-10 h-10",
               interactMode === 'interact' ? "bg-cyan-500/20 text-cyan-400" : "text-zinc-500 hover:text-white"
             )}
             title="操作模式 (Space)"
           >
             <Move className="w-4 h-4" />
-            <span>操作</span>
           </button>
         </div>
 
@@ -284,17 +281,14 @@ export function WhiteboardCanvas() {
 
         <div className="w-full h-px bg-white/10" />
 
-        {/* 橡皮擦 */}
+        {/* 橡皮擦: 在书写模式下擦笔迹, 在操作模式下擦几何对象 */}
         <button
-          onClick={() => {
-            setIsEraser(!isEraser);
-            setInteractMode('draw');
-          }}
+          onClick={() => setIsEraser(!isEraser)}
           className={cn(
             "p-2.5 rounded-xl transition-all duration-200",
-            isEraser ? "bg-white/20 text-white shadow-md" : "text-zinc-500 hover:text-white"
+            isEraser ? "bg-rose-500/20 text-rose-300 shadow-md ring-1 ring-rose-400/30" : "text-zinc-500 hover:text-white"
           )}
-          title="橡皮擦"
+          title={isEraser ? "退出橡皮擦" : "橡皮擦 (书写模式擦笔迹 / 操作模式擦几何)"}
         >
           <Eraser className="w-5 h-5" />
         </button>

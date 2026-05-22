@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Environment, Lightformer } from '@react-three/drei';
 import { initHandLandmarker } from './lib/mediapipe';
-import { useARStore, FormulaCard } from './store';
+import { useARStore } from './store';
 import { OverlayUI } from './components/OverlayUI';
 import { MathModel } from './components/MathModel';
 import { Canvas2D } from './components/Canvas2D';
@@ -15,8 +15,6 @@ import { WhiteboardCanvas } from './components/WhiteboardCanvas';
 import { GeometryBoard } from './components/GeometryBoard';
 import { FunctionExplorer } from './components/FunctionExplorer';
 import { ToolboxPanel } from './components/ToolboxPanel';
-import { EquationEditor } from './components/EquationEditor';
-import { ProbabilitySimulator } from './components/ProbabilitySimulator';
 import { FloatingWindow } from './components/FloatingWindow';
 
 // Import Ruler/Compass/Protractor/TriangleRuler for global whiteboard layer
@@ -24,86 +22,6 @@ import { Ruler } from './components/tools/Ruler';
 import { TriangleRuler } from './components/tools/TriangleRuler';
 import { Protractor } from './components/tools/Protractor';
 import { Compass } from './components/tools/Compass';
-
-function FormulaCardWidget({ card }: { card: FormulaCard }) {
-  const removeFormulaCard = useARStore(state => state.removeFormulaCard);
-  const updateFormulaCard = useARStore(state => state.updateFormulaCard);
-
-  const [pos, setPos] = useState({ x: card.x, y: card.y });
-  const dragStart = useRef({ x: 0, y: 0 });
-  const posStart = useRef({ x: 0, y: 0 });
-
-  const handlePointerDown = (e: React.PointerEvent) => {
-    const target = e.currentTarget as HTMLElement;
-    target.setPointerCapture(e.pointerId);
-    dragStart.current = { x: e.clientX, y: e.clientY };
-    posStart.current = { x: pos.x, y: pos.y };
-    e.stopPropagation();
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!e.currentTarget.hasPointerCapture(e.pointerId)) return;
-    const dx = e.clientX - dragStart.current.x;
-    const dy = e.clientY - dragStart.current.y;
-    setPos({ x: posStart.current.x + dx, y: posStart.current.y + dy });
-  };
-
-  const handlePointerUp = (e: React.PointerEvent) => {
-    e.currentTarget.releasePointerCapture(e.pointerId);
-    updateFormulaCard(card.id, { x: pos.x, y: pos.y });
-  };
-
-  return (
-    <div
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      style={{
-        position: 'absolute',
-        left: `${pos.x}px`,
-        top: `${pos.y}px`,
-        transform: `scale(${card.scale})`,
-        transformOrigin: 'top left',
-        zIndex: 25,
-      }}
-      className="p-5 rounded-2xl bg-zinc-950/80 backdrop-blur-2xl border border-white/10 shadow-[0_15px_35px_rgba(0,0,0,0.5)] flex flex-col gap-3 group pointer-events-auto select-none touch-none"
-    >
-      {/* Top bar with drag handle and delete button */}
-      <div className="flex items-center justify-between gap-6 border-b border-white/5 pb-2 cursor-grab active:cursor-grabbing">
-        <span className="text-[10px] text-zinc-500 font-bold tracking-wider">公式牌</span>
-        <div className="flex items-center gap-1.5 opacity-40 group-hover:opacity-100 transition-opacity pointer-events-auto" onPointerDown={e => e.stopPropagation()}>
-          <button
-            onClick={(e) => { e.stopPropagation(); updateFormulaCard(card.id, { scale: Math.max(0.6, card.scale - 0.1) }); }}
-            className="p-1 rounded bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
-            title="缩小"
-          >
-            <ZoomOut className="w-3 h-3" />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); updateFormulaCard(card.id, { scale: Math.min(3, card.scale + 0.1) }); }}
-            className="p-1 rounded bg-white/5 text-zinc-400 hover:text-white hover:bg-white/10 transition-colors"
-            title="放大"
-          >
-            <ZoomIn className="w-3 h-3" />
-          </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); removeFormulaCard(card.id); }}
-            className="p-1 rounded bg-red-500/10 text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-colors ml-1"
-            title="删除"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
-        </div>
-      </div>
-
-      {/* MathML Display */}
-      <div 
-        className="flex items-center justify-center py-2 px-4 bg-black/30 rounded-xl border border-white/5 min-w-[120px] min-h-[60px]"
-        dangerouslySetInnerHTML={{ __html: card.mathML }}
-      />
-    </div>
-  );
-}
 
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -117,15 +35,11 @@ export default function App() {
   // Zustand states for floating windows and tools
   const isToolboxOpen = useARStore(state => state.isToolboxOpen);
   const setToolboxOpen = useARStore(state => state.setToolboxOpen);
-  const isFormulaModalOpen = useARStore(state => state.isFormulaModalOpen);
-  const setFormulaModalOpen = useARStore(state => state.setFormulaModalOpen);
 
   const showRuler = useARStore(state => state.showRuler);
   const showTriangleRuler = useARStore(state => state.showTriangleRuler);
   const showProtractor = useARStore(state => state.showProtractor);
   const showCompass = useARStore(state => state.showCompass);
-
-  const formulaCards = useARStore(state => state.formulaCards);
 
   const penColor = useARStore(state => state.penColor);
   const penThickness = useARStore(state => state.penThickness);
@@ -362,8 +276,8 @@ export default function App() {
 
   return (
     <div className="relative w-full h-screen overflow-hidden bg-[#121316] select-none text-white transition-colors duration-300">
-      {/* 1. 微点底纹背景 (用于白板等 2D 教学模块) */}
-      {activeTab !== 'ar_3d' && (
+      {/* 1. 微点底纹背景 (用于白板等 2D 教学模块，不包括函数探究) */}
+      {activeTab !== 'ar_3d' && activeTab !== 'function' && (
         <div 
           className="absolute inset-0 pointer-events-none opacity-20" 
           style={{ 
@@ -385,7 +299,7 @@ export default function App() {
       )}
       
       {/* 3. 各个功能面板 (作为黑板背景层在非 AR 3D 模式下直接平铺) */}
-      {(activeTab === 'geometry' || activeTab === 'whiteboard') && (
+      {activeTab === 'whiteboard' && (
         <div className="absolute inset-0 z-[35]">
           <GeometryBoard />
         </div>
@@ -395,12 +309,7 @@ export default function App() {
           <FunctionExplorer />
         </div>
       )}
-      {activeTab === 'probability' && (
-        <div className="absolute inset-0 z-[35]">
-          <ProbabilitySimulator />
-        </div>
-      )}
-
+ 
       {activeTab !== 'ar_3d' && (
         <>
           <FloatingWindow 
@@ -415,11 +324,6 @@ export default function App() {
             <ToolboxPanel />
           </FloatingWindow>
 
-          {/* 全局公式牌 */}
-          {formulaCards.map(card => (
-            <FormulaCardWidget key={card.id} card={card} />
-          ))}
-
           {/* 全局作图工具层 (跨悬浮窗) */}
           {showRuler && <Ruler onDrawLine={drawLineOnWhiteboard} />}
           {showTriangleRuler && <TriangleRuler onDrawLine={drawLineOnWhiteboard} />}
@@ -427,9 +331,6 @@ export default function App() {
           {showCompass && <Compass onDrawArc={drawArcOnWhiteboard} />}
         </>
       )}
-
-      {/* 4. 公式选择器 (大屏居中遮罩模态框) */}
-      {isFormulaModalOpen && <EquationEditor />}
       
       {/* 4. 原有 3D AR 空间几何 */}
       {activeTab === 'ar_3d' && (
@@ -450,14 +351,14 @@ export default function App() {
           </Canvas>
         </div>
       )}
-
+ 
       {/* 5. 原有 3D AR 绘图层与手势识别 UI */}
       {activeTab === 'ar_3d' && <Canvas2D />}
       {activeTab === 'ar_3d' && <OverlayUI />}
-
-      {/* 6. 顶层穿透白板书写画布 (在非 AR 模式下都可供老师任意书写或写字板) */}
-      {activeTab !== 'ar_3d' && <WhiteboardCanvas />}
-
+ 
+      {/* 6. 顶层穿透白板书写画布 (仅在超级白板下供老师书写,函数探究单独隔离) */}
+      {activeTab === 'whiteboard' && <WhiteboardCanvas />}
+ 
       {/* 7. 全新底部苹果 Dock 菜单 */}
       <AppleDock />
     </div>

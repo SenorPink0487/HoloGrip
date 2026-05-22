@@ -3,11 +3,8 @@ import { useARStore, AppTab } from '../store';
 import { cn } from '../lib/utils';
 import { 
   PenTool, 
-  Triangle, 
   TrendingUp, 
   Briefcase, 
-  Binary, 
-  Dices, 
   Compass, 
   Trash2,
   Moon,
@@ -29,8 +26,6 @@ export function AppleDock() {
 
   const isToolboxOpen = useARStore(state => state.isToolboxOpen);
   const setToolboxOpen = useARStore(state => state.setToolboxOpen);
-  const isFormulaModalOpen = useARStore(state => state.isFormulaModalOpen);
-  const setFormulaModalOpen = useARStore(state => state.setFormulaModalOpen);
 
   const [theme, setTheme] = React.useState<'dark' | 'light'>('dark');
 
@@ -45,17 +40,13 @@ export function AppleDock() {
 
   const items: DockItem[] = [
     { tab: 'whiteboard', label: '超级白板', icon: <PenTool className="w-6 h-6" /> },
-    { tab: 'geometry', label: '动态几何', icon: <Triangle className="w-6 h-6" /> },
     { tab: 'function', label: '函数探究', icon: <TrendingUp className="w-6 h-6" /> },
     { tab: 'toolbox', label: '授课工具', icon: <Briefcase className="w-6 h-6" /> },
-    { tab: 'formula', label: '公式卡片', icon: <Binary className="w-6 h-6" /> },
-    { tab: 'probability', label: '概率发生', icon: <Dices className="w-6 h-6" /> },
     { tab: 'ar_3d', label: '空间AR', icon: <Compass className="w-6 h-6" /> },
   ];
 
   const getIsActive = (tab: AppTab) => {
     if (tab === 'toolbox') return isToolboxOpen;
-    if (tab === 'formula') return isFormulaModalOpen;
     return activeTab === tab;
   };
 
@@ -78,7 +69,6 @@ export function AppleDock() {
           onClick={() => {
             clearCanvas();
             clearModelLines();
-            useARStore.getState().clearFormulaCards();
           }}
           className="p-2.5 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-all duration-200 active:scale-90"
           title="清空画板内容"
@@ -105,11 +95,6 @@ export function AppleDock() {
                   setActiveTab('whiteboard');
                 }
                 setToolboxOpen(!isToolboxOpen);
-              } else if (item.tab === 'formula') {
-                if (activeTab === 'ar_3d') {
-                  setActiveTab('whiteboard');
-                }
-                setFormulaModalOpen(!isFormulaModalOpen);
               } else if (item.tab !== 'clear') {
                 setActiveTab(item.tab);
               }
