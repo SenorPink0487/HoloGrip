@@ -74,22 +74,14 @@ export function OverlayUI() {
   }, []);
 
   const handleTabClick = (tab: 'model' | 'pen') => {
-    if (activeTab === tab) {
-      if (tab === 'model') {
-        setModelPanelOpen(!isModelPanelOpen);
-      }
-      if (tab === 'pen') {
-        setPenPanelOpen(!isPenPanelOpen);
-      }
-    } else {
-      setActiveTab(tab);
-      if (tab === 'model') {
-        setModelPanelOpen(true);
-        setPenPanelOpen(false);
-      } else {
-        setPenPanelOpen(true);
-        setModelPanelOpen(false);
-      }
+    if (tab === 'model') {
+      const nextState = !isModelPanelOpen;
+      setModelPanelOpen(nextState);
+      if (nextState) setPenPanelOpen(false);
+    } else if (tab === 'pen') {
+      const nextState = !isPenPanelOpen;
+      setPenPanelOpen(nextState);
+      if (nextState) setModelPanelOpen(false);
     }
   };
 
@@ -225,11 +217,11 @@ export function OverlayUI() {
       )}
 
       {/* Main Categories Dock */}
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
+      <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
         <div className="flex items-center gap-2 p-2 rounded-[2rem] bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl">
           <div className="flex gap-2 px-2">
             <DockButton 
-              active={activeTab === 'model'} 
+              active={isModelPanelOpen} 
               onClick={() => handleTabClick('model')}
               label="3D Models"
             >
@@ -239,7 +231,7 @@ export function OverlayUI() {
             <div className="w-px h-8 bg-white/20 mx-2 self-center rounded-full" />
 
             <DockButton 
-              active={activeTab === 'pen'} 
+              active={isPenPanelOpen} 
               onClick={() => handleTabClick('pen')}
               label="Drawing Pen"
             >
@@ -252,8 +244,8 @@ export function OverlayUI() {
       {/* Model Selection Panel */}
       <div 
         className={cn(
-          "absolute bottom-28 left-1/2 -translate-x-1/2 z-30 pointer-events-auto transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
-          activeTab === 'model' && isModelPanelOpen ? "scale-100 opacity-100 translate-y-0" : "scale-90 opacity-0 translate-y-4 pointer-events-none"
+          "absolute bottom-48 left-1/2 -translate-x-1/2 z-30 pointer-events-auto transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
+          isModelPanelOpen ? "scale-100 opacity-100 translate-y-0" : "scale-90 opacity-0 translate-y-4 pointer-events-none"
         )}
       >
         <div className="flex items-center bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[1.5rem] p-2 gap-2">
@@ -320,8 +312,8 @@ export function OverlayUI() {
       {/* Pen Settings Panel */}
       <div 
         className={cn(
-          "absolute bottom-28 left-1/2 -translate-x-1/2 z-30 pointer-events-auto transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
-          activeTab === 'pen' && isPenPanelOpen ? "scale-100 opacity-100 translate-y-0" : "scale-90 opacity-0 translate-y-4 pointer-events-none"
+          "absolute bottom-48 left-1/2 -translate-x-1/2 z-30 pointer-events-auto transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
+          isPenPanelOpen ? "scale-100 opacity-100 translate-y-0" : "scale-90 opacity-0 translate-y-4 pointer-events-none"
         )}
       >
         <div className="flex flex-col bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[1.5rem] p-4 gap-4">

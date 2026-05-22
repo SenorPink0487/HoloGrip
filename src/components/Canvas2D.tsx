@@ -11,6 +11,7 @@ export function Canvas2D() {
   const lastControl = useRef<{ x: number, y: number } | null>(null);
 
   const activeTab = useARStore(state => state.activeTab);
+  const isPenPanelOpen = useARStore(state => state.isPenPanelOpen);
   const penColor = useARStore(state => state.penColor);
   const penThickness = useARStore(state => state.penThickness);
   const isEraser = useARStore(state => state.isEraser);
@@ -64,7 +65,7 @@ export function Canvas2D() {
 
   useEffect(() => {
     const unsub = useARStore.subscribe((state) => {
-      if (state.activeTab !== 'pen') {
+      if (state.activeTab !== 'ar_3d' || !state.isPenPanelOpen) {
         isDrawing.current = false;
         smoothedCursor.current = null;
         lastControl.current = null;
@@ -145,7 +146,7 @@ export function Canvas2D() {
       ref={canvasRef} 
       className={cn(
         "absolute inset-0 pointer-events-none z-20 transition-opacity duration-300",
-        activeTab === 'pen' ? "opacity-100" : "opacity-0"
+        activeTab === 'ar_3d' && isPenPanelOpen ? "opacity-100" : "opacity-0"
       )}
     />
   );

@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import type { AIVertex } from './lib/gemini';
 
 export type MathShape = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'pyramid';
-export type AppTab = 'model' | 'pen' | null;
+export type AppTab = 'whiteboard' | 'geometry' | 'function' | 'toolbox' | 'formula' | 'probability' | 'ar_3d';
 
 export interface HandState {
   cursor: THREE.Vector2;
@@ -26,6 +26,14 @@ export interface CustomModel {
   vertices: AIVertex[];   // 带标签的顶点
   faces: number[][];      // 面索引
   edges: number[][];      // 棱边索引对
+}
+
+export interface FormulaCard {
+  id: string;
+  mathML: string;
+  x: number;
+  y: number;
+  scale: number;
 }
 
 interface ARState {
@@ -51,6 +59,18 @@ interface ARState {
   modelLines: Array<[Point3D, Point3D]>;
   activeLineStart: Point3D | null;
 
+  // 新增多窗口与工具状态管理
+  isToolboxOpen: boolean;
+  isFormulaModalOpen: boolean;
+  focusedWindow: string | null;
+
+  showRuler: boolean;
+  showTriangleRuler: boolean;
+  showProtractor: boolean;
+  showCompass: boolean;
+
+  formulaCards: FormulaCard[];
+
   updateHands: (left: Partial<HandState>, right: Partial<HandState>) => void;
   setActiveModel: (m: MathShape | null) => void;
   setActiveCustomModel: (id: string | null) => void;
@@ -74,6 +94,21 @@ interface ARState {
   setActiveLineStart: (p: Point3D | null) => void;
   clearModelLines: () => void;
   removeModelLine: (index: number) => void;
+
+  // 新增控制方法
+  setToolboxOpen: (o: boolean) => void;
+  setFormulaModalOpen: (o: boolean) => void;
+  setFocusedWindow: (id: string | null) => void;
+
+  setShowRuler: (s: boolean) => void;
+  setShowTriangleRuler: (s: boolean) => void;
+  setShowProtractor: (s: boolean) => void;
+  setShowCompass: (s: boolean) => void;
+
+  addFormulaCard: (card: FormulaCard) => void;
+  removeFormulaCard: (id: string) => void;
+  updateFormulaCard: (id: string, partial: Partial<FormulaCard>) => void;
+  clearFormulaCards: () => void;
 }
 
 export const useARStore = create<ARState>((set) => ({
@@ -82,11 +117,12 @@ export const useARStore = create<ARState>((set) => ({
   activeModel: null,
   activeCustomModelId: null,
   customModels: [],
-  isLoaderVisible: true,
+  isLoaderVisible: false, // 默认隐藏 AI Spatial 初始化加载界面，防止卡住黑板
   isAnalyzing: false,
   modelScale: 2.5,
 
-  activeTab: null,
+  activeTab: 'whiteboard',
+
   isModelPanelOpen: false,
   isPenPanelOpen: false,
   penColor: '#ffffff',
@@ -98,6 +134,18 @@ export const useARStore = create<ARState>((set) => ({
 
   modelLines: [],
   activeLineStart: null,
+
+  // 新增状态初始值
+  isToolboxOpen: false,
+  isFormulaModalOpen: false,
+  focusedWindow: null,
+
+  showRuler: false,
+  showTriangleRuler: false,
+  showProtractor: false,
+  showCompass: false,
+
+  formulaCards: [],
 
   updateHands: (left, right) => set((state) => {
     if (left.cursor) state.leftHand.cursor.copy(left.cursor);
@@ -147,4 +195,21 @@ export const useARStore = create<ARState>((set) => ({
   setActiveLineStart: (p) => set({ activeLineStart: p }),
   clearModelLines: () => set({ modelLines: [], activeLineStart: null }),
   removeModelLine: (index) => set((state) => ({ modelLines: state.modelLines.filter((_, i) => i !== index) })),
+
+  // 新增控制方法实现
+  setToolboxOpen: (o) => set({ isToolboxOpen: o }),
+  setFormulaModalOpen: (o) => set({ isFormulaModalOpen: o }),
+  setFocusedWindow: (id) => set({ focusedWindow: id }),
+
+  setShowRuler: (s) => set({ showRuler: s }),
+  setShowTriangleRuler: (s) => set({ showTriangleRuler: s }),
+  setShowProtractor: (s) => set({ showProtractor: s }),
+  setShowCompass: (s) => set({ showCompass: s }),
+
+  addFormulaCard: (card) => set((state) => ({ formulaCards: [...state.formulaCards, card] })),
+  removeFormulaCard: (id) => set((state) => ({ formulaCards: state.formulaCards.filter(c => c.id !== id) })),
+  updateFormulaCard: (id, partial) => set((state) => ({
+    formulaCards: state.formulaCards.map(c => c.id === id ? { ...c, ...partial } : c)
+  })),
+  clearFormulaCards: () => set({ formulaCards: [] }),
 }));
