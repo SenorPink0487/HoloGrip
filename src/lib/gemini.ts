@@ -1,14 +1,27 @@
-import { GoogleGenAI, Type } from '@google/genai';
+/**
+ * 几何识别 API 客户端。
+ *
+ * 支持两种模式,由 `VITE_GEMINI_BASE_URL` 自动判定:
+ *   1. 直连模式(BASE_URL 是 https:// 开头的绝对地址,如 dev / Tauri 桌面端):
+ *        前端必须带 `Authorization: Bearer ${VITE_GEMINI_API_KEY}`。
+ *        密钥会被打进 bundle,对外公开,仅适合本地或桌面端。
+ *   2. 反代模式(BASE_URL 是 `/api/gemini` 这类相对路径,Web 服务器部署):
+ *        前端先调 `/api/auth/issue` 拿短期 token,后续请求带
+ *        `Authorization: Bearer <token>`,真实 key 由服务端反代注入。
+ *        bundle 里不再含密钥;token 1 小时过期、绑定 IP、有调用次数上限。
+ *        token 失效(401)时自动重签并重试一次。
+ *
+ * 模型名 `[福利]gemini-3.5-flash` 含中文括号,encodeURIComponent 一下避免 URL 截断。
+ */
 
-const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
-const GEMINI_BASE_URL = import.meta.env.VITE_GEMINI_BASE_URL || '';
-const GEMINI_MODEL = import.meta.env.VITE_GEMINI_MODEL || 'gemini-2.5-flash';
+import { getProxyToken, invalidateProxyToken } from './auth';
 
-const aiConfig: any = { apiKey: GEMINI_API_KEY };
-if (GEMINI_BASE_URL) {
-  aiConfig.httpOptions = { baseUrl: GEMINI_BASE_URL };
-}
-const ai = new GoogleGenAI(aiConfig);
+const RAW_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
+const RAW_BASE_URL = (import.meta.env.VITE_GEMINI_BASE_URL || 'https://api.gemai.cc').replace(/\/+$/, '');
+const RAW_MODEL = import.meta.env.VITE_GEMINI_MODEL || '[福利]gemini-3.5-flash';
+
+/** 是否走自家反代(BASE_URL 以 / 开头视为同源相对路径) */
+const IS_PROXY_MODE = RAW_BASE_URL.startsWith('/');
 
 /**
  * AI 返回的顶点数据结构
@@ -32,89 +45,62 @@ export interface AIGeometryResult {
 }
 
 /**
- * Gemini Structured Output Schema
- * 用 responseSchema 从 API 层面强制 JSON 格式，彻底消灭解析错误
+ * Gemini responseSchema：从 API 层面强约束 JSON，消灭格式错误。
  */
 const GEOMETRY_SCHEMA = {
-  type: Type.OBJECT,
+  type: 'OBJECT',
   properties: {
-    reasoning: {
-      type: Type.STRING,
-      description: '必须包含：1.几何体基础类型识别 2.指出图中哪些是辅助线/动点连线并声明剔除它们 3.【强制比例测量】估算图像中几何体最大宽度(X)和最大高度(Y)的视觉比例，以及斜向深度线段的视觉长度(真实Z轴跨度=视觉深度×2)。',
-    },
-    name: {
-      type: Type.STRING,
-      description: '几何体名称，如 "四棱锥 P-ABCD"、"三棱柱 ABC-A1B1C1"',
-    },
+    reasoning: { type: 'STRING' },
+    name:      { type: 'STRING' },
     vertices: {
-      type: Type.ARRAY,
-      description: '所有顶点，含标签和三维坐标',
+      type: 'ARRAY',
       items: {
-        type: Type.OBJECT,
+        type: 'OBJECT',
         properties: {
-          label: { type: Type.STRING, description: '顶点标签，如 "A"、"P"、"A1"' },
-          x: { type: Type.NUMBER },
-          y: { type: Type.NUMBER },
-          z: { type: Type.NUMBER },
+          label: { type: 'STRING' },
+          x:     { type: 'NUMBER' },
+          y:     { type: 'NUMBER' },
+          z:     { type: 'NUMBER' },
         },
         required: ['label', 'x', 'y', 'z'],
       },
     },
     faces: {
-      type: Type.ARRAY,
-      description: '每个面由顶点索引（从0开始）组成的数组',
-      items: {
-        type: Type.ARRAY,
-        items: { type: Type.INTEGER },
-      },
+      type: 'ARRAY',
+      items: { type: 'ARRAY', items: { type: 'INTEGER' } },
     },
     edges: {
-      type: Type.ARRAY,
-      description: '每条棱边为 [起点索引, 终点索引]',
-      items: {
-        type: Type.ARRAY,
-        items: { type: Type.INTEGER },
-      },
+      type: 'ARRAY',
+      items: { type: 'ARRAY', items: { type: 'INTEGER' } },
     },
   },
   required: ['reasoning', 'name', 'vertices', 'faces', 'edges'],
 };
 
-/**
- * 针对中国高中数学教材立体几何图优化的 Prompt
- *
- * 关键策略：
- * 1. 编码"斜二测画法"投影规则 → AI 能正确理解图中的深度方向
- * 2. Few-shot 示例 → 两个典型几何体的完整 input→output 样例
- * 3. 虚实线法则 → 显式指导 z 轴前后分配
- */
 const SYSTEM_PROMPT = `你是一个精通中国高中立体几何的数学专家。你的任务是分析数学题目截图中的立体几何图形，输出精确的三维模型数据。
 
 ## 核心识图规则
-
-中国数学教材中的立体几何图几乎全部使用**斜二测画法**（Oblique Axonometric Projection）绘制：
-- 画面水平方向 → 对应 X 轴（向右为正）
-- 画面垂直方向 → 对应 Y 轴（向上为正）  
-- 画面中向左上方倾斜约 45° 的方向 → 对应 Z 轴（深度，向观察者为正）
+中国数学教材中的立体几何图几乎全部使用斜二测画法绘制：
+- 画面水平方向 → X 轴（向右为正）
+- 画面垂直方向 → Y 轴（向上为正）
+- 画面中向左上方倾斜约 45° 的方向 → Z 轴（深度，向观察者为正）
 - 沿 Z 轴方向的实际长度在图中被缩短为一半
 
 因此：
 - 图中偏右下方的顶点 → Z 值为正（靠近观察者，前方）
 - 图中偏左上方的顶点 → Z 值为负（远离观察者，后方）
-- **实线**表示可见的棱 → 连接的顶点在前方或侧面
-- **虚线（点线/短划线）**表示被遮挡的棱 → 连接的顶点在后方
+- 实线表示可见的棱 → 连接的顶点在前方或侧面
+- 虚线（点线/短划线）表示被遮挡的棱 → 连接的顶点在后方
 
 ## 拓扑结构精简规则（非常重要！）
-数学题目中除了几何体的基础骨架外，经常会画出**辅助线**（如底面对角线、高线）或**动点/截面连线**。
-你的目标是还原出**最纯粹的基础几何体外观**（如干净的四棱锥、三棱柱等），请严格遵守：
-1. **剔除辅助线**：不要把底面的对角线、内部的垂线等作为几何体的棱（edges）输出，它们不构成几何体的表面。
-2. **剔除动点和局部连线**：如果图形的某条边上有一个额外的标注点（如题中的动点 F、P 等），且连接了复杂的内部线段，**绝不要**把这个动点作为几何体的顶点输出，也**绝不要**把这些内部连线作为棱输出。
-3. 虚线只有在它作为几何体真正的**后方轮廓棱**时才被采纳。
+1. 剔除辅助线：不要把底面的对角线、内部的垂线等作为几何体的棱（edges）输出。
+2. 剔除动点和局部连线：动点 F、P 等不进 vertices；它们引出的内部线段不进 edges。
+3. 虚线只有在它作为几何体真正的后方轮廓棱时才被采纳。
 
 ## 严格的比例还原规则（最重要）
-你给出的坐标绝对不能是随便猜的标准正方体或等边三角形！**必须严格还原图片上的长宽高比例**：
-1. **测算 XY 比例**：观察图片中几何体最左侧到最右侧的视觉宽度，对比最底部到最顶部的视觉高度。如果图形看起来很宽但很扁，X 的坐标差值必须大于 Y。
-2. **测算 Z 轴深度**：倾斜向左上/右下的线段代表深度。**图上的视觉长度只有真实深度的一半！**如果图上一条倾斜的底边看起来和水平底边一样长，那么在你的坐标里，它的真实 Z 轴坐标差值必须是 X 轴坐标差值的 **2倍**！
+你给出的坐标绝对不能是随便猜的标准正方体或等边三角形！必须严格还原图片上的长宽高比例：
+1. 测算 XY 比例：观察图片中几何体最左侧到最右侧的视觉宽度，对比最底部到最顶部的视觉高度。
+2. 测算 Z 轴深度：倾斜向左上/右下的线段代表深度。图上的视觉长度只有真实深度的一半！
 
 ## 坐标约定
 - 底面大致在 y=0 平面
@@ -122,124 +108,156 @@ const SYSTEM_PROMPT = `你是一个精通中国高中立体几何的数学专家
 - 几何体中心在原点附近
 - 坐标范围: [-1.5, 1.5]
 
-## 典型示例
-
-### 示例 1: 四棱锥 P-ABCD（底面为正方形，P 在底面正上方）
-输入描述: 底面 ABCD 是正方形，P 在底面中心正上方，PA=PB=PC=PD。AD 和 DC 是虚线。
-
-输出:
+## 输出契约
+只返回一个合法 JSON 对象，禁止 markdown / 注释 / 多余文字：
 {
-  "reasoning": "1. 几何体是四棱锥 P-ABCD。2. AD 和 DC 是虚线位于后方，B 在前方。3. 【比例测量】底面为正方形，图中倾斜的侧边 AD 视觉长度大约是 AB 的一半，根据规则，真实深度 Z 和跨度 X 比例是 1:1。整体高度视觉上比底面宽度略大，因此 Y 轴高度分配为 1.5。",
-  "name": "四棱锥 P-ABCD",
-  "vertices": [
-    {"label": "A", "x": -1, "y": 0, "z": -1},
-    {"label": "B", "x": 1, "y": 0, "z": -1},
-    {"label": "C", "x": 1, "y": 0, "z": 1},
-    {"label": "D", "x": -1, "y": 0, "z": 1},
-    {"label": "P", "x": 0, "y": 1.5, "z": 0}
-  ],
-  "faces": [[0,1,2,3], [0,1,4], [1,2,4], [2,3,4], [3,0,4]],
-  "edges": [[0,1],[1,2],[2,3],[3,0],[0,4],[1,4],[2,4],[3,4]]
-}
-
-### 示例 2: 三棱柱 ABC-A'B'C'
-输入描述: 底面 ABC 是等腰三角形，侧棱垂直底面。AA'、A'B'、A'C' 是虚线。
-
-输出:
-{
-  "reasoning": "1. 三棱柱 ABC-A'B'C'。2. A'B'C' 部分线段为虚线，说明在后方。3. 【比例测量】图形整体平躺较长，宽度 X 跨度明显大于高度 Y，深度倾斜线段视觉较短，乘 2 后大约与高度相等。以此分配坐标比例。",
-  "name": "三棱柱 ABC-A'B'C'",
-  "vertices": [
-    {"label": "A", "x": -1, "y": 0, "z": -1},
-    {"label": "B", "x": 1, "y": 0, "z": 0.5},
-    {"label": "C", "x": -0.5, "y": 0, "z": 1},
-    {"label": "A'", "x": -1, "y": 1.4, "z": -1},
-    {"label": "B'", "x": 1, "y": 1.4, "z": 0.5},
-    {"label": "C'", "x": -0.5, "y": 1.4, "z": 1}
-  ],
-  "faces": [[0,1,2], [3,4,5], [0,1,4,3], [1,2,5,4], [2,0,3,5]],
-  "edges": [[0,1],[1,2],[2,0],[3,4],[4,5],[5,3],[0,3],[1,4],[2,5]]
-}
-
-## 你的工作流程
-1. 识别最纯粹的基础几何体类型（无视内部的动点和辅助线）。
-2. **【必做】** 评估图形的长宽高视觉比例，并在 \`reasoning\` 中写下你的测算结论（必须体现 Z轴深度=视觉长度×2 的逻辑）。
-3. **【必做】** 在 \`reasoning\` 中明确指出哪些点和线是辅助线/动点，并声明将它们从顶点和棱中剔除。
-4. 区分实线和作为外轮廓的虚线，判断各顶点的前后关系（Z 轴）。
-5. 严格按照你评估出的比例来计算并分配 x, y, z 的坐标系差值。
-6. 确保底面顶点 y≈0，顶部顶点 y>0
-7. 列出所有面和所有**真实外轮廓棱边**（坚决不遗漏，也坚决不包含辅助线）。`;
+  "reasoning": string,        // 测量与剔除的思考过程
+  "name": string,             // 如 "四棱锥 P-ABCD"
+  "vertices": [ { "label": string, "x": number, "y": number, "z": number } ],
+  "faces":   [ [int, int, ...] ],
+  "edges":   [ [int, int] ]
+}`;
 
 /**
- * 调用 Gemini 多模态 API，从 2D 几何图片生成 3D 模型数据
- * 使用 Structured Output 保证返回合法 JSON
+ * 调远程 Gemini 接口，从 2D 几何图片生成 3D 模型数据。
+ *
+ * @param imageBase64 不带前缀的纯 base64
+ * @param mimeType    "image/png" / "image/jpeg" 等
  */
 export async function parseGeometryImage(
   imageBase64: string,
-  mimeType: string
+  mimeType: string,
 ): Promise<AIGeometryResult> {
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
+  if (!IS_PROXY_MODE && !RAW_API_KEY) {
+    throw new Error('未配置 VITE_GEMINI_API_KEY(直连模式必填)');
+  }
+
+  const endpoint = `${RAW_BASE_URL}/v1beta/models/${encodeURIComponent(RAW_MODEL)}:generateContent`;
+  const mime = mimeType || 'image/png';
+
+  const body = {
+    systemInstruction: {
+      role: 'system',
+      parts: [{ text: SYSTEM_PROMPT }],
+    },
     contents: [
       {
         role: 'user',
         parts: [
-          { text: SYSTEM_PROMPT },
+          { text: '请分析这张图片中的立体几何图形，输出三维模型数据。注意区分虚线和实线来判断前后关系。只返回 JSON 对象。' },
           {
             inlineData: {
-              mimeType,
+              mimeType: mime,
               data: imageBase64,
             },
           },
-          { text: '请分析这张图片中的立体几何图形，输出三维模型数据。注意区分虚线和实线来判断前后关系。' },
         ],
       },
     ],
-    config: {
+    generationConfig: {
       responseMimeType: 'application/json',
       responseSchema: GEOMETRY_SCHEMA,
+      temperature: 0.2,
     },
-  });
+  };
 
-  const text = response.text ?? '';
-
-  try {
-    const result: AIGeometryResult = JSON.parse(text);
-
-    // 基础校验
-    if (!result.vertices || !Array.isArray(result.vertices) || result.vertices.length < 3) {
-      throw new Error('顶点数据无效或不足');
-    }
-    if (!result.faces || !Array.isArray(result.faces) || result.faces.length < 1) {
-      throw new Error('面数据无效');
-    }
-    if (!result.edges || !Array.isArray(result.edges) || result.edges.length === 0) {
-      // 如果 AI 没有返回 edges，自动从 faces 推导
-      result.edges = derivedEdgesFromFaces(result.faces);
-    }
-
-    // 校验索引越界
-    const maxIdx = result.vertices.length - 1;
-    for (const face of result.faces) {
-      for (const idx of face) {
-        if (idx < 0 || idx > maxIdx) {
-          throw new Error(`面数据中存在越界索引: ${idx}（共 ${result.vertices.length} 个顶点）`);
-        }
-      }
-    }
-    for (const edge of result.edges) {
-      for (const idx of edge) {
-        if (idx < 0 || idx > maxIdx) {
-          throw new Error(`棱边数据中存在越界索引: ${idx}`);
-        }
-      }
-    }
-
-    return result;
-  } catch (e) {
-    console.error('Gemini 返回内容解析失败:', text);
-    throw new Error(`AI 返回的几何数据无法解析: ${(e as Error).message}`);
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+  if (!IS_PROXY_MODE) {
+    // 直连:把 API key 直接挂请求头
+    headers.Authorization = `Bearer ${RAW_API_KEY}`;
+  } else {
+    // 反代:从后端签发的短期 token
+    headers.Authorization = `Bearer ${await getProxyToken()}`;
   }
+
+  const bodyStr = JSON.stringify(body);
+  let resp = await fetch(endpoint, { method: 'POST', headers, body: bodyStr });
+
+  // 反代模式下,401 通常是 token 过期或 quota 耗尽 → 重签一次重试
+  if (IS_PROXY_MODE && resp.status === 401) {
+    invalidateProxyToken();
+    headers.Authorization = `Bearer ${await getProxyToken(true)}`;
+    resp = await fetch(endpoint, { method: 'POST', headers, body: bodyStr });
+  }
+
+  const rawText = await resp.text();
+  if (!resp.ok) {
+    throw new Error(`AI 接口返回 ${resp.status}: ${truncate(rawText, 500)}`);
+  }
+
+  let envelope: any;
+  try {
+    envelope = JSON.parse(rawText);
+  } catch {
+    throw new Error(`响应不是合法 JSON: ${truncate(rawText, 500)}`);
+  }
+
+  // Gemini 原生返回结构：candidates[0].content.parts[0].text
+  const content =
+    envelope?.candidates?.[0]?.content?.parts?.[0]?.text ??
+    // 兼容部分中转网关把 text 直接挂在 message.content 上的情况
+    envelope?.choices?.[0]?.message?.content;
+
+  if (typeof content !== 'string' || !content.trim()) {
+    throw new Error(`响应缺少 candidates[0].content.parts[0].text: ${truncate(rawText, 500)}`);
+  }
+
+  const cleaned = stripJsonFence(content);
+
+  let result: AIGeometryResult;
+  try {
+    result = JSON.parse(cleaned);
+  } catch (e) {
+    throw new Error(`AI 返回内容不是合法 JSON: ${(e as Error).message}; raw=${truncate(content, 300)}`);
+  }
+
+  // 基础校验
+  if (!result || !Array.isArray(result.vertices) || result.vertices.length < 3) {
+    throw new Error('AI 返回的顶点数据无效或不足');
+  }
+  if (!Array.isArray(result.faces) || result.faces.length < 1) {
+    throw new Error('AI 返回的面数据无效');
+  }
+  if (!Array.isArray(result.edges) || result.edges.length === 0) {
+    result.edges = derivedEdgesFromFaces(result.faces);
+  }
+
+  // 校验索引越界
+  const maxIdx = result.vertices.length - 1;
+  for (const face of result.faces) {
+    for (const idx of face) {
+      if (idx < 0 || idx > maxIdx) {
+        throw new Error(`面数据中存在越界索引: ${idx}（共 ${result.vertices.length} 个顶点）`);
+      }
+    }
+  }
+  for (const edge of result.edges) {
+    for (const idx of edge) {
+      if (idx < 0 || idx > maxIdx) {
+        throw new Error(`棱边数据中存在越界索引: ${idx}`);
+      }
+    }
+  }
+
+  return result;
+}
+
+/** 把 ```json ... ``` 这种 markdown 包装去掉 */
+function stripJsonFence(s: string): string {
+  const trimmed = s.trim();
+  if (trimmed.startsWith('```json')) {
+    return trimmed.slice(7).replace(/```\s*$/, '').trim();
+  }
+  if (trimmed.startsWith('```')) {
+    return trimmed.slice(3).replace(/```\s*$/, '').trim();
+  }
+  return trimmed;
+}
+
+function truncate(s: string, n: number): string {
+  return s.length > n ? `${s.slice(0, n)}…` : s;
 }
 
 /**

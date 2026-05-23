@@ -1,5 +1,5 @@
 {
-  "name": "Vision Math AR",
+  "name": "HoloGrip",
   "description": "An interactive desktop-class AR mathematics educational tool with real-time hand gesture interaction, inspired by Vision Pro interactions.",
   "requestFramePermissions": [
     "camera"

@@ -1,7 +1,8 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useARStore, HandState, MathShape } from '../store';
 import { cn } from '../lib/utils';
 import { Box, Circle, Cylinder, Cone, Triangle, PenTool, Cuboid, Palette, Eraser, Trash2, Unplug, Upload, X, Network } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { parseGeometryImage } from '../lib/gemini';
 import { normalizeVertices } from '../lib/geometry';
 
@@ -19,6 +20,8 @@ export function OverlayUI() {
   
   const isPenPanelOpen = useARStore(state => state.isPenPanelOpen);
   const setPenPanelOpen = useARStore(state => state.setPenPanelOpen);
+  const isPenActive = useARStore(state => state.isPenActive);
+  const setPenActive = useARStore(state => state.setPenActive);
   
   const penColor = useARStore(state => state.penColor);
   const setPenColor = useARStore(state => state.setPenColor);
@@ -38,6 +41,12 @@ export function OverlayUI() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cursor1Ref = useRef<HTMLDivElement>(null);
   const cursor2Ref = useRef<HTMLDivElement>(null);
+
+  // 待删除的自定义模型 ID（非 null 时弹出二次确认弹窗）
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const pendingDeleteModel = pendingDeleteId
+    ? customModels.find(m => m.id === pendingDeleteId) ?? null
+    : null;
 
   // Sync cursor visual
   useEffect(() => {
@@ -73,15 +82,53 @@ export function OverlayUI() {
     return unsub;
   }, []);
 
+  // 工具按钮 3 态循环：
+  //   未激活+面板关 → 激活+面板开 → 激活+面板关 → 未激活+面板关
+  // “激活”定义：
+  //   - 画笔：isPenActive=true（即便面板已收起，仍可写字）
+  //   - 模型：已选中某个模型（activeModel 或 activeCustomModelId）
   const handleTabClick = (tab: 'model' | 'pen') => {
-    if (tab === 'model') {
-      const nextState = !isModelPanelOpen;
-      setModelPanelOpen(nextState);
-      if (nextState) setPenPanelOpen(false);
-    } else if (tab === 'pen') {
-      const nextState = !isPenPanelOpen;
-      setPenPanelOpen(nextState);
-      if (nextState) setModelPanelOpen(false);
+    if (tab === 'pen') {
+      // 同时只展开一个面板：开画笔时关掉模型面板
+      if (!isPenActive && !isPenPanelOpen) {
+        // 第一态 → 第二态：激活并展开
+        setPenActive(true);
+        setPenPanelOpen(true);
+        setModelPanelOpen(false);
+      } else if (isPenActive && isPenPanelOpen) {
+        // 第二态 → 第三态：保持激活，仅收起面板
+        setPenPanelOpen(false);
+      } else {
+        // 第三态（或异常态）→ 第一态：取消激活
+        // 兼顾连线模式：dock 按钮亮起代表"绘图体系开启"，
+        // 因此关闭时也要把连线一并关掉，否则用户会困惑为何按钮仍亮。
+        setPenActive(false);
+        setPenPanelOpen(false);
+        if (useARStore.getState().isLineDrawingActive) {
+          setLineDrawingActive(false);
+        }
+      }
+    } else if (tab === 'model') {
+      const hasModel = activeModel !== null || activeCustomModelId !== null;
+      // 模型按钮 3 态循环：
+      //   未选中 + 面板关 → 选中 + 面板开 → 选中 + 面板关 → 未选中 + 面板关
+      // 由于"未选中 + 面板开"是用户从面板里没选就再点的边界情况，
+      // 视为第 3 态结束态，再点直接回到第 1 态（关面板）。
+      if (!hasModel && !isModelPanelOpen) {
+        // 第 1 态 → 展开面板，让用户从中选模型（不强制选第一个）
+        setModelPanelOpen(true);
+        setPenPanelOpen(false);
+      } else if (hasModel && isModelPanelOpen) {
+        // 第 2 态 → 第 3 态：保留模型，仅收起面板
+        setModelPanelOpen(false);
+      } else if (hasModel && !isModelPanelOpen) {
+        // 第 3 态 → 第 1 态：清除选中模型
+        setActiveModel(null);
+        setActiveCustomModel(null);
+      } else {
+        // 没选模型但面板已开：直接收起，回到第 1 态
+        setModelPanelOpen(false);
+      }
     }
   };
 
@@ -221,7 +268,7 @@ export function OverlayUI() {
         <div className="flex items-center gap-2 p-2 rounded-[2rem] bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl">
           <div className="flex gap-2 px-2">
             <DockButton 
-              active={isModelPanelOpen} 
+              active={activeModel !== null || activeCustomModelId !== null} 
               onClick={() => handleTabClick('model')}
               label="3D Models"
             >
@@ -231,7 +278,7 @@ export function OverlayUI() {
             <div className="w-px h-8 bg-white/20 mx-2 self-center rounded-full" />
 
             <DockButton 
-              active={isPenPanelOpen} 
+              active={isPenActive || isLineDrawingActive} 
               onClick={() => handleTabClick('pen')}
               label="Drawing Pen"
             >
@@ -285,9 +332,10 @@ export function OverlayUI() {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      removeCustomModel(cm.id);
+                      setPendingDeleteId(cm.id);
                     }}
                     className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="删除模型"
                   >
                     <X className="w-2.5 h-2.5 text-white" />
                   </button>
@@ -388,7 +436,11 @@ export function OverlayUI() {
                 <Eraser className="w-5 h-5" />
               </button>
               <button 
-                onClick={() => { clearCanvas(); useARStore.getState().clearModelLines(); }}
+                onClick={() => {
+                  clearCanvas();
+                  useARStore.getState().clearModelLines();
+                  useARStore.getState().clearSurfaceStrokes();
+                }}
                 className="p-2 rounded-full text-white/60 hover:bg-red-500/20 hover:text-red-400 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90"
                 title="Clear Everything"
               >
@@ -398,6 +450,47 @@ export function OverlayUI() {
           </div>
         </div>
       </div>
+
+      {/* 删除自定义模型的二次确认弹窗 */}
+      <AnimatePresence>
+        {pendingDeleteModel && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+              className="w-[360px] p-6 rounded-2xl bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl border border-black/10 dark:border-white/10 text-center shadow-2xl flex flex-col gap-4 text-zinc-800 dark:text-zinc-100"
+            >
+              <div className="flex justify-center text-red-500">
+                <Trash2 className="w-12 h-12" />
+              </div>
+              <h3 className="text-lg font-bold">删除该模型？</h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                即将删除自定义模型「{pendingDeleteModel.name}」。删除后模型上的所有笔迹与连线也会一并清除，且不可撤销。
+              </p>
+              <div className="flex gap-3 mt-2">
+                <button
+                  onClick={() => setPendingDeleteId(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-black/10 dark:border-white/10 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/5 active:scale-95 transition-all cursor-pointer"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    const id = pendingDeleteId;
+                    setPendingDeleteId(null);
+                    if (id) removeCustomModel(id);
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-red-600 to-rose-500 hover:from-red-500 hover:to-rose-400 text-white text-sm font-medium shadow-lg shadow-red-500/20 active:scale-95 transition-all cursor-pointer"
+                >
+                  确认删除
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Info hidden per requirements */}
     </>

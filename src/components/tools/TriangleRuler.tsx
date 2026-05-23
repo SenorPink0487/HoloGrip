@@ -1,12 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { RotateCw, Move } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { useARStore } from '../../store';
 
 interface TriangleRulerProps {
   onDrawLine?: (p1: { x: number; y: number }, p2: { x: number; y: number }) => void;
 }
 
 export function TriangleRuler({ onDrawLine }: TriangleRulerProps) {
+  const theme = useARStore(state => state.theme);
+  const isDark = theme === 'dark';
   // 三角板类型：'45' (等腰直角三角板) 或 '30' (30-60-90直角三角板)
   const [type, setType] = useState<'45' | '30'>('45');
   const [pos, setPos] = useState({ x: 450, y: 300 });
@@ -163,18 +166,18 @@ export function TriangleRuler({ onDrawLine }: TriangleRulerProps) {
         {type === '45' ? (
           <polygon
             points={`0,${size} ${size},${size} ${size},0`}
-            fill="rgba(255, 255, 255, 0.08)"
-            stroke="rgba(255, 255, 255, 0.25)"
+            fill={isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.65)"}
+            stroke={isDark ? "rgba(255, 255, 255, 0.25)" : "rgba(15, 23, 42, 0.25)"}
             strokeWidth="1.5"
-            className="backdrop-blur-xl"
+            className="backdrop-blur-xl transition-all duration-500"
           />
         ) : (
           <polygon
             points={`0,${size} ${size},${size} ${size},80`}
-            fill="rgba(255, 255, 255, 0.08)"
-            stroke="rgba(255, 255, 255, 0.25)"
+            fill={isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(255, 255, 255, 0.65)"}
+            stroke={isDark ? "rgba(255, 255, 255, 0.25)" : "rgba(15, 23, 42, 0.25)"}
             strokeWidth="1.5"
-            className="backdrop-blur-xl"
+            className="backdrop-blur-xl transition-all duration-500"
           />
         )}
 
@@ -182,16 +185,18 @@ export function TriangleRuler({ onDrawLine }: TriangleRulerProps) {
         {type === '45' ? (
           <polygon
             points={`50,${size - 50} ${size - 100},${size - 50} ${size - 100},100`}
-            fill="rgba(0, 0, 0, 0.3)"
-            stroke="rgba(255, 255, 255, 0.15)"
+            fill={isDark ? "rgba(0, 0, 0, 0.3)" : "rgba(248, 250, 252, 0.55)"}
+            stroke={isDark ? "rgba(255, 255, 255, 0.15)" : "rgba(15, 23, 42, 0.18)"}
             strokeWidth="1.5"
+            className="transition-all duration-500"
           />
         ) : (
           <polygon
             points={`60,${size - 50} ${size - 60},${size - 50} ${size - 60},120`}
-            fill="rgba(0, 0, 0, 0.3)"
-            stroke="rgba(255, 255, 255, 0.15)"
+            fill={isDark ? "rgba(0, 0, 0, 0.3)" : "rgba(248, 250, 252, 0.55)"}
+            stroke={isDark ? "rgba(255, 255, 255, 0.15)" : "rgba(15, 23, 42, 0.18)"}
             strokeWidth="1.5"
+            className="transition-all duration-500"
           />
         )}
 
@@ -208,8 +213,9 @@ export function TriangleRuler({ onDrawLine }: TriangleRulerProps) {
               y1={size}
               x2={x}
               y2={size - h}
-              stroke="rgba(255, 255, 255, 0.4)"
+              stroke={isDark ? "rgba(255, 255, 255, 0.4)" : "rgba(15, 23, 42, 0.45)"}
               strokeWidth="1"
+              className="transition-all duration-500"
             />
           );
         })}
@@ -217,7 +223,7 @@ export function TriangleRuler({ onDrawLine }: TriangleRulerProps) {
 
       {/* 操作按钮卡片（浮在三角板镂空中心） */}
       <div 
-        className="absolute flex flex-col items-center gap-1 p-1.5 rounded-xl bg-black/60 border border-white/10 z-10"
+        className="absolute flex flex-col items-center gap-1 p-1.5 rounded-xl bg-white/90 dark:bg-black/60 border border-slate-200 dark:border-white/10 z-10 shadow-lg dark:shadow-none transition-colors duration-500"
         style={{
           left: type === '45' ? '55%' : '65%',
           top: type === '45' ? '65%' : '60%',
@@ -227,7 +233,7 @@ export function TriangleRuler({ onDrawLine }: TriangleRulerProps) {
         <div className="flex gap-1">
           <button
             onClick={() => setType(type === '45' ? '30' : '45')}
-            className="px-2 py-0.5 rounded text-[9px] font-bold bg-white/10 text-white hover:bg-white/20 transition-all"
+            className="px-2 py-0.5 rounded text-[9px] font-bold bg-slate-200 dark:bg-white/10 text-slate-800 dark:text-white hover:bg-slate-300 dark:hover:bg-white/20 transition-all"
           >
             {type === '45' ? '45°三角板' : '30°三角板'}
           </button>
@@ -237,7 +243,7 @@ export function TriangleRuler({ onDrawLine }: TriangleRulerProps) {
           {/* 拖动 */}
           <div
             onMouseDown={handleDragStart}
-            className="p-1 rounded bg-white/10 text-white/50 hover:text-white cursor-move hover:bg-white/20"
+            className="p-1 rounded bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-white/50 hover:text-slate-800 dark:hover:text-white cursor-move hover:bg-slate-300 dark:hover:bg-white/20 transition-all"
             title="拖动平移"
           >
             <Move className="w-3 h-3" />
@@ -252,14 +258,13 @@ export function TriangleRuler({ onDrawLine }: TriangleRulerProps) {
           {/* 旋转 */}
           <div
             onMouseDown={handleRotateStart}
-            className="p-1 rounded bg-white/10 text-white/50 hover:text-white cursor-alias hover:bg-white/20"
+            className="p-1 rounded bg-slate-200 dark:bg-white/10 text-slate-500 dark:text-white/50 hover:text-slate-800 dark:hover:text-white cursor-alias hover:bg-slate-300 dark:hover:bg-white/20 transition-all"
             title="按住旋转"
           >
             <RotateCw className="w-3 h-3" />
           </div>
         </div>
       </div>
-
     </div>
   );
 }

@@ -25,9 +25,12 @@ export function WhiteboardCanvas() {
   const triggerClearCanvas = useARStore(state => state.triggerClearCanvas);
   const interactMode = useARStore(state => state.interactMode);
   const setInteractMode = useARStore(state => state.setInteractMode);
+  const theme = useARStore(state => state.theme);
+  const isDark = theme === 'dark';
 
   // 悬浮画笔栏
   const dragControls = useDragControls();
+  const [isDragging, setIsDragging] = useState(false);
 
   // 初始化和大小自适应
   useEffect(() => {
@@ -106,7 +109,8 @@ export function WhiteboardCanvas() {
       ctx.lineWidth = penThickness * 8; // 橡皮擦适当加宽
     } else {
       ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = penColor;
+      // 亮色模式下黑色画笔实际用白色在 canvas 上绘图，再通过 filter 反转滤镜还原为黑色，保持亮暗切换时已画出的线条均清晰可见
+      ctx.strokeStyle = (!isDark && penColor === '#09090b') ? '#ffffff' : penColor;
       ctx.lineWidth = penThickness;
     }
 
@@ -148,6 +152,15 @@ export function WhiteboardCanvas() {
     }
   }, [activeTab]);
 
+  // 自动根据亮暗色切换白色与黑色画笔，防止书写看不见
+  useEffect(() => {
+    if (theme === 'light' && penColor === '#ffffff') {
+      setPenColor('#09090b');
+    } else if (theme === 'dark' && penColor === '#09090b') {
+      setPenColor('#ffffff');
+    }
+  }, [theme, penColor, setPenColor]);
+
   // 大屏快捷键或手势切换画笔/操作模式
   useEffect(() => {
     // 允许通过空格键快速切换书写与操作模式
@@ -168,7 +181,7 @@ export function WhiteboardCanvas() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  if (activeTab === 'ar_3d') return null;
+  if (activeTab !== 'whiteboard' && activeTab !== 'function') return null;
 
   return (
     <>
@@ -188,6 +201,9 @@ export function WhiteboardCanvas() {
             ? "z-[36] pointer-events-auto cursor-crosshair" 
             : "z-20 pointer-events-none"
         )}
+        style={{
+          filter: isDark ? 'none' : 'invert(1) hue-rotate(180deg)'
+        }}
       />
 
       {/* 悬浮苹果美学画笔工具箱 */}
@@ -197,101 +213,192 @@ export function WhiteboardCanvas() {
         dragListener={false}
         dragMomentum={false}
         dragElastic={0}
+        onDragStart={() => setIsDragging(true)}
+        onDragEnd={() => setIsDragging(false)}
         initial={{ x: 100, y: 150 }}
         style={{ position: 'absolute', left: 0, top: 0 }}
-        className="absolute z-40 flex flex-col items-center gap-3 p-3 rounded-2xl bg-zinc-900/80 backdrop-blur-xl border border-white/10 shadow-[0_12px_40px_rgba(0,0,0,0.5)] select-none pointer-events-auto transition-shadow hover:shadow-[0_20px_50px_rgba(0,0,0,0.6)] cursor-default"
+        className={cn(
+          "absolute z-40 flex flex-col items-center gap-3 p-3 rounded-2xl backdrop-blur-xl border select-none pointer-events-auto cursor-default",
+          !isDragging && "transition-[background-color,border-color,color,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+          isDark
+            ? "bg-zinc-900/80 border-white/10 text-white shadow-[0_12px_40px_rgba(0,0,0,0.5)] hover:shadow-[0_20px_50px_rgba(0,0,0,0.6)]"
+            : "bg-white/80 border-black/10 text-zinc-800 shadow-[0_12px_40px_rgba(15,23,42,0.08)] hover:shadow-[0_20px_50px_rgba(15,23,42,0.15)]"
+        )}
       >
         {/* 顶部拖动条 */}
         <div
           onPointerDown={(e) => dragControls.start(e)}
-          className="w-full py-1.5 flex justify-center items-center cursor-grab active:cursor-grabbing hover:bg-white/5 rounded-t-2xl transition-colors"
+          className={cn(
+            "w-full py-1.5 flex justify-center items-center cursor-grab active:cursor-grabbing rounded-t-2xl transition-colors",
+            isDark ? "hover:bg-white/5" : "hover:bg-black/5"
+          )}
           title="拖动工具栏"
         >
-          <div className="w-12 h-1.5 rounded-full bg-white/20 group-hover:bg-white/40 transition-colors" />
+          <div className={cn("w-12 h-1.5 rounded-full transition-colors", isDark ? "bg-white/20" : "bg-black/15")} />
         </div>
 
         {/* 模式切换 (书写 vs 操作) */}
-        <div className="flex bg-white/5 rounded-xl p-1 gap-1">
+        <div className={cn("relative flex rounded-xl p-1 gap-1 transition-colors", isDark ? "bg-white/5" : "bg-black/5")}>
           <button
             onClick={() => setInteractMode('draw')}
             className={cn(
-              "p-2.5 rounded-lg transition-all flex items-center justify-center w-10 h-10",
-              interactMode === 'draw' ? "bg-cyan-500/20 text-cyan-400" : "text-zinc-500 hover:text-white"
+              "relative p-2.5 rounded-lg flex items-center justify-center w-10 h-10 transition-colors z-10",
+              interactMode === 'draw'
+                ? (isDark ? "text-cyan-400" : "text-cyan-600")
+                : (isDark ? "text-zinc-500 hover:text-white" : "text-zinc-400 hover:text-zinc-800")
             )}
             title="书写模式 (Space)"
           >
             <Edit3 className="w-4 h-4" />
+            {interactMode === 'draw' && (
+              <motion.div
+                layoutId="activeModeBg"
+                className={cn(
+                  "absolute inset-0 rounded-lg -z-10",
+                  isDark ? "bg-cyan-500/20" : "bg-cyan-500/15 shadow-sm"
+                )}
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
           </button>
           <button
             onClick={() => setInteractMode('interact')}
             className={cn(
-              "p-2.5 rounded-lg transition-all flex items-center justify-center w-10 h-10",
-              interactMode === 'interact' ? "bg-cyan-500/20 text-cyan-400" : "text-zinc-500 hover:text-white"
+              "relative p-2.5 rounded-lg flex items-center justify-center w-10 h-10 transition-colors z-10",
+              interactMode === 'interact'
+                ? (isDark ? "text-cyan-400" : "text-cyan-600")
+                : (isDark ? "text-zinc-500 hover:text-white" : "text-zinc-400 hover:text-zinc-800")
             )}
             title="操作模式 (Space)"
           >
             <Move className="w-4 h-4" />
+            {interactMode === 'interact' && (
+              <motion.div
+                layoutId="activeModeBg"
+                className={cn(
+                  "absolute inset-0 rounded-lg -z-10",
+                  isDark ? "bg-cyan-500/20" : "bg-cyan-500/15 shadow-sm"
+                )}
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
           </button>
         </div>
 
-        <div className="w-full h-px bg-white/10" />
+        <div className={cn("w-full h-px transition-colors", isDark ? "bg-white/10" : "bg-black/10")} />
 
         {/* 颜色面板 */}
-        <div className="flex flex-col gap-2">
-          {['#ffffff', '#ef4444', '#3b82f6', '#10b981', '#f59e0b'].map(color => (
-            <button
-              key={color}
-              onClick={() => {
-                setPenColor(color);
-                setIsEraser(false);
-                setInteractMode('draw');
-              }}
-              className={cn(
-                "w-7 h-7 rounded-full border-2 transition-transform duration-200",
-                penColor === color && !isEraser ? "border-white scale-110 shadow-lg" : "border-transparent scale-100 hover:scale-105"
-              )}
-              style={{ backgroundColor: color }}
-            />
-          ))}
+        <div className="flex flex-col gap-2.5 items-center">
+          {(isDark 
+            ? ['#ffffff', '#ef4444', '#3b82f6', '#10b981', '#f59e0b'] 
+            : ['#09090b', '#ef4444', '#3b82f6', '#10b981', '#f59e0b']
+          ).map(color => {
+            const isActive = penColor === color && !isEraser;
+            return (
+              <div key={color} className="relative flex items-center justify-center w-7 h-7">
+                <motion.button
+                  onClick={() => {
+                    setPenColor(color);
+                    setIsEraser(false);
+                    setInteractMode('draw');
+                  }}
+                  whileHover={{ scale: 1.18 }}
+                  whileTap={{ scale: 0.85 }}
+                  className={cn(
+                    "w-5.5 h-5.5 rounded-full shadow-sm cursor-pointer",
+                    isActive ? "shadow-md" : "hover:shadow-md"
+                  )}
+                  style={{ backgroundColor: color }}
+                />
+                {isActive && (
+                  <motion.div
+                    layoutId="activeColorRing"
+                    className={cn(
+                      "absolute inset-0 rounded-full border-2 -z-10",
+                      isDark ? "border-white" : "border-zinc-800"
+                    )}
+                    transition={{ type: "spring", stiffness: 300, damping: 22 }}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
 
-        <div className="w-full h-px bg-white/10" />
+        <div className={cn("w-full h-px transition-colors", isDark ? "bg-white/10" : "bg-black/10")} />
 
         {/* 画笔粗细 */}
-        <div className="flex flex-col gap-2 items-center bg-white/5 rounded-xl p-1.5">
-          {[3, 6, 12].map(thickness => (
-            <button
-              key={thickness}
-              onClick={() => {
-                setPenThickness(thickness);
-                setInteractMode('draw');
-              }}
-              className={cn(
-                "w-6 h-6 rounded-full transition-colors flex items-center justify-center",
-                penThickness === thickness ? "bg-white/20 text-white" : "text-zinc-500"
-              )}
-            >
-              <div 
-                className="bg-white rounded-full" 
-                style={{ width: `${Math.max(2, thickness / 1.5)}px`, height: `${Math.max(2, thickness / 1.5)}px` }}
-              />
-            </button>
-          ))}
+        <div className={cn("relative flex flex-col gap-2 items-center rounded-xl p-1.5 transition-colors", isDark ? "bg-white/5" : "bg-black/5")}>
+          {[3, 6, 12].map(thickness => {
+            const isActive = penThickness === thickness;
+            return (
+              <motion.button
+                key={thickness}
+                onClick={() => {
+                  setPenThickness(thickness);
+                  setInteractMode('draw');
+                }}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                className={cn(
+                  "relative w-6 h-6 rounded-full flex items-center justify-center z-10 transition-colors duration-200 cursor-pointer",
+                  isActive
+                    ? (isDark ? "text-white" : "text-zinc-900")
+                    : (isDark ? "text-zinc-500 hover:text-zinc-300" : "text-zinc-400 hover:text-zinc-700")
+                )}
+              >
+                <div
+                  className={cn(
+                    "rounded-full transition-all duration-200",
+                    isActive ? (isDark ? "bg-white" : "bg-zinc-800") : "bg-zinc-500"
+                  )}
+                  style={{ width: `${Math.max(2, thickness / 1.5)}px`, height: `${Math.max(2, thickness / 1.5)}px` }}
+                />
+                {isActive && (
+                  <motion.div
+                    layoutId="activeThicknessBg"
+                    className={cn(
+                      "absolute inset-0 rounded-full -z-10",
+                      isDark ? "bg-white/20" : "bg-black/10"
+                    )}
+                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                  />
+                )}
+              </motion.button>
+            );
+          })}
         </div>
 
-        <div className="w-full h-px bg-white/10" />
+        <div className={cn("w-full h-px transition-colors", isDark ? "bg-white/10" : "bg-black/10")} />
 
         {/* 橡皮擦: 在书写模式下擦笔迹, 在操作模式下擦几何对象 */}
-        <button
+        <motion.button
           onClick={() => setIsEraser(!isEraser)}
+          whileHover={{ 
+            rotate: [0, -6, 6, -6, 6, 0],
+            transition: { duration: 0.45, ease: "easeInOut" }
+          }}
+          whileTap={{ scale: 0.9 }}
           className={cn(
-            "p-2.5 rounded-xl transition-all duration-200",
-            isEraser ? "bg-rose-500/20 text-rose-300 shadow-md ring-1 ring-rose-400/30" : "text-zinc-500 hover:text-white"
+            "p-2.5 rounded-xl transition-colors duration-200 relative cursor-pointer",
+            isEraser
+              ? (isDark ? "text-rose-300 shadow-md ring-1 ring-rose-400/30" : "text-rose-600 shadow-sm ring-1 ring-rose-300/50")
+              : (isDark ? "text-zinc-500 hover:text-white" : "text-zinc-400 hover:text-zinc-800")
           )}
           title={isEraser ? "退出橡皮擦" : "橡皮擦 (书写模式擦笔迹 / 操作模式擦几何)"}
         >
+          {isEraser && (
+            <motion.div
+              layoutId="activeEraserBg"
+              className={cn(
+                "absolute inset-0 rounded-xl -z-10",
+                isDark ? "bg-rose-500/20" : "bg-rose-500/10"
+              )}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            />
+          )}
           <Eraser className="w-5 h-5" />
-        </button>
+        </motion.button>
       </motion.div>
     </>
   );

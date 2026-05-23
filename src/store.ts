@@ -3,7 +3,7 @@ import * as THREE from 'three';
 import type { AIVertex } from './lib/gemini';
 
 export type MathShape = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'pyramid';
-export type AppTab = 'whiteboard' | 'function' | 'toolbox' | 'ar_3d';
+export type AppTab = 'whiteboard' | 'function' | 'calculator3d' | 'ar_3d';
 
 export interface HandState {
   cursor: THREE.Vector2;
@@ -28,6 +28,17 @@ export interface CustomModel {
   edges: number[][];      // 棱边索引对
 }
 
+/**
+ * 写在 3D 模型表面的笔迹（一笔由多个采样点组成，存于模型局部坐标系，
+ * 因此模型旋转/平移/缩放时笔迹会跟随）。
+ */
+export interface SurfaceStroke {
+  id: string;
+  points: Point3D[];
+  color: string;
+  thickness: number;
+}
+
 interface ARState {
   leftHand: HandState;
   rightHand: HandState;
@@ -41,6 +52,7 @@ interface ARState {
   activeTab: AppTab;
   isModelPanelOpen: boolean;
   isPenPanelOpen: boolean;
+  isPenActive: boolean;
   penColor: string;
   penThickness: number;
   isEraser: boolean;
@@ -51,6 +63,12 @@ interface ARState {
 
   modelLines: Array<[Point3D, Point3D]>;
   activeLineStart: Point3D | null;
+
+  // 写在模型表面的笔迹（局部坐标系，跟随模型变换）
+  surfaceStrokes: SurfaceStroke[];
+  // 当前一笔正在落到模型表面（由 MathModel useFrame 维护）
+  // Canvas2D 用它来暂停 2D 写字，避免在表面写字时同时画在 2D 画布上。
+  isWritingOnSurface: boolean;
 
   // 新增多窗口与工具状态管理
   isToolboxOpen: boolean;
@@ -73,6 +91,7 @@ interface ARState {
   setActiveTab: (t: AppTab) => void;
   setModelPanelOpen: (o: boolean) => void;
   setPenPanelOpen: (o: boolean) => void;
+  setPenActive: (a: boolean) => void;
   setPenColor: (c: string) => void;
   setPenThickness: (t: number) => void;
   setIsEraser: (e: boolean) => void;
@@ -86,6 +105,13 @@ interface ARState {
   clearModelLines: () => void;
   removeModelLine: (index: number) => void;
 
+  // 模型表面笔迹
+  beginSurfaceStroke: (color: string, thickness: number) => string;
+  appendSurfaceStrokePoint: (id: string, p: Point3D) => void;
+  endSurfaceStroke: () => void;
+  clearSurfaceStrokes: () => void;
+  setWritingOnSurface: (v: boolean) => void;
+
   // 控制方法
   setToolboxOpen: (o: boolean) => void;
   setFocusedWindow: (id: string | null) => void;
@@ -94,6 +120,9 @@ interface ARState {
   setShowTriangleRuler: (s: boolean) => void;
   setShowProtractor: (s: boolean) => void;
   setShowCompass: (s: boolean) => void;
+
+  theme: 'dark' | 'light';
+  setTheme: (t: 'dark' | 'light') => void;
 }
 
 export const useARStore = create<ARState>((set) => ({
@@ -110,6 +139,7 @@ export const useARStore = create<ARState>((set) => ({
 
   isModelPanelOpen: false,
   isPenPanelOpen: false,
+  isPenActive: false,
   penColor: '#ffffff',
   penThickness: 3,
   isEraser: false,
@@ -121,6 +151,9 @@ export const useARStore = create<ARState>((set) => ({
   modelLines: [],
   activeLineStart: null,
 
+  surfaceStrokes: [],
+  isWritingOnSurface: false,
+
   isToolboxOpen: false,
   focusedWindow: null,
 
@@ -129,23 +162,39 @@ export const useARStore = create<ARState>((set) => ({
   showProtractor: false,
   showCompass: false,
 
+  theme: 'dark',
+
   updateHands: (left, right) => set((state) => {
-    if (left.cursor) state.leftHand.cursor.copy(left.cursor);
-    if (left.pixelCursor) state.leftHand.pixelCursor = left.pixelCursor;
-    if (left.isPinched !== undefined) state.leftHand.isPinched = left.isPinched;
-    if (left.isVisible !== undefined) state.leftHand.isVisible = left.isVisible;
-    if (left.pinchDistance !== undefined) state.leftHand.pinchDistance = left.pinchDistance;
+    // 注意：必须返回**新的**leftHand/rightHand对象引用，否则 zustand 浅比较会认为
+    // 状态未变化，从而不会触发 useARStore.subscribe(...) 回调。
+    // Canvas2D 中的写字逻辑完全依赖 subscribe 触发，因此原地 mutate 会导致
+    // “空间 AR 下无法写字” 的 bug。
+    const nextLeftCursor = state.leftHand.cursor;
+    if (left.cursor) nextLeftCursor.copy(left.cursor);
 
-    if (right.cursor) state.rightHand.cursor.copy(right.cursor);
-    if (right.pixelCursor) state.rightHand.pixelCursor = right.pixelCursor;
-    if (right.isPinched !== undefined) state.rightHand.isPinched = right.isPinched;
-    if (right.isVisible !== undefined) state.rightHand.isVisible = right.isVisible;
-    if (right.pinchDistance !== undefined) state.rightHand.pinchDistance = right.pinchDistance;
+    const nextRightCursor = state.rightHand.cursor;
+    if (right.cursor) nextRightCursor.copy(right.cursor);
 
-    return { leftHand: state.leftHand, rightHand: state.rightHand };
+    const nextLeftHand: HandState = {
+      cursor: nextLeftCursor,
+      pixelCursor: left.pixelCursor ?? state.leftHand.pixelCursor,
+      isPinched: left.isPinched ?? state.leftHand.isPinched,
+      isVisible: left.isVisible ?? state.leftHand.isVisible,
+      pinchDistance: left.pinchDistance ?? state.leftHand.pinchDistance,
+    };
+
+    const nextRightHand: HandState = {
+      cursor: nextRightCursor,
+      pixelCursor: right.pixelCursor ?? state.rightHand.pixelCursor,
+      isPinched: right.isPinched ?? state.rightHand.isPinched,
+      isVisible: right.isVisible ?? state.rightHand.isVisible,
+      pinchDistance: right.pinchDistance ?? state.rightHand.pinchDistance,
+    };
+
+    return { leftHand: nextLeftHand, rightHand: nextRightHand };
   }),
-  setActiveModel: (m) => set({ activeModel: m, activeCustomModelId: null, modelScale: 2.5, modelLines: [], activeLineStart: null }),
-  setActiveCustomModel: (id) => set({ activeCustomModelId: id, activeModel: null, modelScale: 2.5, modelLines: [], activeLineStart: null }),
+  setActiveModel: (m) => set({ activeModel: m, activeCustomModelId: null, modelScale: 2.5, modelLines: [], activeLineStart: null, surfaceStrokes: [] }),
+  setActiveCustomModel: (id) => set({ activeCustomModelId: id, activeModel: null, modelScale: 2.5, modelLines: [], activeLineStart: null, surfaceStrokes: [] }),
   addCustomModel: (model) => set((state) => ({
     customModels: [...state.customModels, model],
     activeCustomModelId: model.id,
@@ -153,6 +202,7 @@ export const useARStore = create<ARState>((set) => ({
     modelScale: 2.5,
     modelLines: [],
     activeLineStart: null,
+    surfaceStrokes: [],
   })),
   removeCustomModel: (id) => set((state) => ({
     customModels: state.customModels.filter(m => m.id !== id),
@@ -165,18 +215,45 @@ export const useARStore = create<ARState>((set) => ({
   setActiveTab: (t) => set({ activeTab: t }),
   setModelPanelOpen: (o) => set({ isModelPanelOpen: o }),
   setPenPanelOpen: (o) => set({ isPenPanelOpen: o }),
+  // 画笔与连线互斥：启用画笔时自动关闭连线模式，避免捏合手势同时触发两种行为
+  setPenActive: (a) => set(() => a
+    ? { isPenActive: true, isLineDrawingActive: false }
+    : { isPenActive: false }
+  ),
   setPenColor: (c) => set({ penColor: c, isEraser: false }),
   setPenThickness: (t) => set({ penThickness: t }),
   setIsEraser: (e) => set({ isEraser: e }),
   clearCanvas: () => set((state) => ({ triggerClearCanvas: state.triggerClearCanvas + 1 })),
   setInteractMode: (m) => set({ interactMode: m }),
-  
-  setLineDrawingActive: (a) => set({ isLineDrawingActive: a }),
+
+  // 启用连线时同步关闭画笔写字行为；面板保持打开，用户仍可在面板内切换工具
+  setLineDrawingActive: (a) => set(() => a
+    ? { isLineDrawingActive: true, isPenActive: false }
+    : { isLineDrawingActive: false }
+  ),
 
   addModelLine: (p1, p2) => set((state) => ({ modelLines: [...state.modelLines, [p1, p2]] })),
   setActiveLineStart: (p) => set({ activeLineStart: p }),
   clearModelLines: () => set({ modelLines: [], activeLineStart: null }),
   removeModelLine: (index) => set((state) => ({ modelLines: state.modelLines.filter((_, i) => i !== index) })),
+
+  beginSurfaceStroke: (color, thickness) => {
+    const id = `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+    set((state) => ({
+      surfaceStrokes: [...state.surfaceStrokes, { id, points: [], color, thickness }],
+    }));
+    return id;
+  },
+  appendSurfaceStrokePoint: (id, p) => set((state) => ({
+    surfaceStrokes: state.surfaceStrokes.map((s) =>
+      s.id === id ? { ...s, points: [...s.points, p] } : s
+    ),
+  })),
+  endSurfaceStroke: () => {
+    // 收尾时不做特殊处理；保留 hook 以便日后做笔尾平滑或合并
+  },
+  clearSurfaceStrokes: () => set({ surfaceStrokes: [] }),
+  setWritingOnSurface: (v) => set({ isWritingOnSurface: v }),
 
   setToolboxOpen: (o) => set({ isToolboxOpen: o }),
   setFocusedWindow: (id) => set({ focusedWindow: id }),
@@ -185,4 +262,6 @@ export const useARStore = create<ARState>((set) => ({
   setShowTriangleRuler: (s) => set({ showTriangleRuler: s }),
   setShowProtractor: (s) => set({ showProtractor: s }),
   setShowCompass: (s) => set({ showCompass: s }),
+
+  setTheme: (t) => set({ theme: t }),
 }));

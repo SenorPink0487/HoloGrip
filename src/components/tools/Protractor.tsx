@@ -1,11 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { RotateCw, Move } from 'lucide-react';
+import { useARStore } from '../../store';
 
 interface ProtractorProps {
   onDrawArc?: (center: { x: number; y: number }, radius: number, startAngle: number, endAngle: number) => void;
 }
 
 export function Protractor({ onDrawArc }: ProtractorProps) {
+  const theme = useARStore(state => state.theme);
+  const isDark = theme === 'dark';
+
   const [pos, setPos] = useState({ x: 350, y: 350 });
   const [angle, setAngle] = useState(0); // 量角器自身的倾斜角
   const [indicatorAngle, setIndicatorAngle] = useState(45); // 指针测角值 (0 - 180 度)
@@ -181,8 +185,8 @@ export function Protractor({ onDrawArc }: ProtractorProps) {
         {/* 1. 磨砂玻璃半圆背景 */}
         <path
           d={`M 0,${r} A ${r},${r} 0 0,1 ${size},${r} Z`}
-          fill="rgba(255, 255, 255, 0.08)"
-          stroke="rgba(255, 255, 255, 0.25)"
+          fill={isDark ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.04)"}
+          stroke={isDark ? "rgba(255, 255, 255, 0.25)" : "rgba(15, 23, 42, 0.15)"}
           strokeWidth="1.5"
           className="backdrop-blur-xl"
         />
@@ -207,14 +211,14 @@ export function Protractor({ onDrawArc }: ProtractorProps) {
                 y1={y1}
                 x2={x2}
                 y2={y2}
-                stroke="rgba(255, 255, 255, 0.4)"
+                stroke={isDark ? "rgba(255, 255, 255, 0.4)" : "rgba(15, 23, 42, 0.35)"}
                 strokeWidth="1"
               />
               {isMajor && i <= 180 && (
                 <text
                   x={r + (r - 24) * Math.cos(rad)}
                   y={r - (r - 24) * Math.sin(rad) + 3}
-                  fill="rgba(255,255,255,0.4)"
+                  fill={isDark ? "rgba(255, 255, 255, 0.4)" : "rgba(15, 23, 42, 0.5)"}
                   fontSize="8px"
                   textAnchor="middle"
                   transform={`rotate(${90 - i}, ${r + (r - 24) * Math.cos(rad)}, ${r - (r - 24) * Math.sin(rad)})`}
@@ -259,39 +263,47 @@ export function Protractor({ onDrawArc }: ProtractorProps) {
         />
         
         {/* 中心点标记 */}
-        <circle cx={r} cy={r} r="3" fill="#ffffff" />
+        <circle cx={r} cy={r} r="3" fill={isDark ? "#ffffff" : "#0f172a"} />
       </svg>
 
       {/* 控制中心 (小苹果气泡面板) */}
       <div
-        className="absolute flex flex-col items-center gap-1 p-2 rounded-xl bg-black/60 border border-white/10 z-10"
+        className={`absolute flex flex-col items-center gap-1 p-2 rounded-xl backdrop-blur-md z-10 border transition-all ${
+          isDark ? 'bg-black/60 border-white/10' : 'bg-white/70 border-black/10'
+        }`}
         style={{
           left: '50%',
           bottom: '15px',
           transform: 'translateX(-50%)'
         }}
       >
-        <span className="text-[12px] font-bold text-cyan-400 font-mono">
+        <span className={`text-[12px] font-bold font-mono ${isDark ? 'text-cyan-400' : 'text-cyan-600'}`}>
           当前角: {Math.round(indicatorAngle)}°
         </span>
         <div className="flex gap-2 mt-1">
           <div
             onMouseDown={handleDragStart}
-            className="p-1 rounded bg-white/10 text-white/50 hover:text-white cursor-move hover:bg-white/20"
+            className={`p-1 rounded cursor-move transition-colors ${
+              isDark ? 'bg-white/10 text-white/50 hover:text-white hover:bg-white/20' : 'bg-black/5 text-black/40 hover:text-black hover:bg-black/10'
+            }`}
             title="拖动平移"
           >
             <Move className="w-3.5 h-3.5" />
           </div>
           <button
             onClick={handleQuickDrawAngle}
-            className="px-2 py-0.5 rounded bg-cyan-600 text-white text-[9px] font-semibold hover:bg-cyan-500 transition-all border border-cyan-400/20 active:scale-95"
+            className={`px-2 py-0.5 rounded text-white text-[9px] font-semibold transition-all border active:scale-95 ${
+              isDark ? 'bg-cyan-600 hover:bg-cyan-500 border-cyan-400/20' : 'bg-cyan-500 hover:bg-cyan-600 border-cyan-600/20'
+            }`}
             title="在白板上画出该扇形角度"
           >
             印刻角度
           </button>
           <div
             onMouseDown={handleRotateStart}
-            className="p-1 rounded bg-white/10 text-white/50 hover:text-white cursor-alias hover:bg-white/20"
+            className={`p-1 rounded cursor-alias transition-colors ${
+              isDark ? 'bg-white/10 text-white/50 hover:text-white hover:bg-white/20' : 'bg-black/5 text-black/40 hover:text-black hover:bg-black/10'
+            }`}
             title="按住旋转"
           >
             <RotateCw className="w-3.5 h-3.5" />

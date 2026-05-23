@@ -1,13 +1,363 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HoloGrip - AR 与 AI 空间交互终端</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;700&family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/portal.css">
+</head>
+<body>
+    <!-- 动态微粒子 Canvas 背景 -->
+    <div class="canvas-container">
+        <canvas id="particle-canvas"></canvas>
+    </div>
 
+    <!-- 鼠标跟随发光光斑 -->
+    <div id="cursor-glow"></div>
+    <div class="cursor-trail-container" id="trail-container"></div>
+
+    <!-- 极光渐变背景氛围光 -->
+    <div class="ambient-glow bg-glow-1"></div>
+    <div class="ambient-glow bg-glow-2"></div>
+
+    <!-- 主容器 -->
+    <div class="app-container">
+        <!-- 顶部导航栏 -->
+        <header class="app-header">
+            <div class="logo-area">
+                <span class="logo-text">HOLOGRIP</span>
+            </div>
+            <nav class="nav-links">
+                <button class="nav-btn active" data-target="concept">
+                    <span class="nav-dot"></span>创作理念
+                </button>
+                <button class="nav-btn" data-target="architecture">
+                    <span class="nav-dot"></span>技术架构
+                </button>
+                <button class="nav-btn" data-target="matrix">
+                    <span class="nav-dot"></span>作品矩阵
+                </button>
+                <button class="nav-btn" data-target="contact">
+                    <span class="nav-dot"></span>联系我们
+                </button>
+            </nav>
+        </header>
+
+        <!-- 内容渲染区 -->
+        <main class="content-viewport">
+            <!-- 创作理念 -->
+            <section id="concept" class="tab-content active">
+                <div class="section-hero">
+                    <span class="badge">VISION & PHILOSOPHY</span>
+                    <h1 class="hero-title">虚实融合，<br><span class="gradient-text">重构空间生产力</span></h1>
+                    <p class="hero-desc">
+                        HoloGrip 旨在打破屏幕物理维度的局限。我们通过手势空间追踪与多模态生成式 AI 的深度融合，让数字设计如捏陶般自然，将二维世界的想象无缝投射到三维现实空间，探索真正的无界人机交互。
+                    </p>
+                </div>
+
+                <div class="concept-cards">
+                    <div class="glass-card concept-card">
+                        <div class="card-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/><circle cx="12" cy="12" r="10"/></svg>
+                        </div>
+                        <h3>空间交互 (AR Tracking)</h3>
+                        <p>借助先进的计算机视觉算法实现微毫米级的手势三维定位与手捏（Pinch）捕获，让你的双手直接抓取和雕琢空间中的几何对象。</p>
+                    </div>
+                    <div class="glass-card concept-card">
+                        <div class="card-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                        </div>
+                        <h3>多模态生成式 AI</h3>
+                        <p>内嵌高级多模态推理模型。只需用指尖简单勾勒草图，或说出你的创意，AI 即可在毫秒间推理重建出精确的 3D 网格模型结构。</p>
+                    </div>
+                    <div class="glass-card concept-card">
+                        <div class="card-icon">
+                            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                        </div>
+                        <h3>数理几何美学</h3>
+                        <p>依托严谨的 3D 渲染与数值计算内核，将深奥的数学函数与空间几何图形公式实时转换成流畅的可视化交互，赋予代码以雕塑般的美感。</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 技术架构 -->
+            <section id="architecture" class="tab-content">
+                <div class="section-hero">
+                    <span class="badge">SYSTEM ARCHITECTURE</span>
+                    <h1 class="hero-title">全栈空间算力，<br><span class="gradient-text">数据与感知的闭环</span></h1>
+                    <p class="hero-desc">HoloGrip 构建了由本地高效追踪、云端智能推理、端侧实时 3D 渲染和原生壳级打包组成的软硬件交互生态。</p>
+                </div>
+
+                <div class="arch-container">
+                    <div class="glass-card arch-flow-card">
+                        <h3 class="arch-card-title">数据流与处理管线</h3>
+                        <div class="flow-pipeline">
+                            <div class="flow-step">
+                                <div class="step-num">01</div>
+                                <div class="step-details">
+                                    <h4>感知输入 (MediaPipe Hands)</h4>
+                                    <p>通过摄像头帧捕获，实时提取双手 21 个空间 3D 关键点，计算捏合距离与屏幕像素映射。</p>
+                                </div>
+                            </div>
+                            <div class="flow-arrow">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+                            </div>
+                            <div class="flow-step">
+                                <div class="step-num">02</div>
+                                <div class="step-details">
+                                    <h4>三维视效引擎 (React Three Fiber / Three.js)</h4>
+                                    <p>利用 WebGL 构建虚拟画板、刻度尺、圆规等空间几何工具，提供极致流畅的动态响应。</p>
+                                </div>
+                            </div>
+                            <div class="flow-arrow">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+                            </div>
+                            <div class="flow-step">
+                                <div class="step-num">03</div>
+                                <div class="step-details">
+                                    <h4>云端智能推理 (Gemini Vision Pro API)</h4>
+                                    <p>当检测到建模请求，将绘制的草图数据及提示词通过安全通道送达 AI，进行拓扑网格三维重建。</p>
+                                </div>
+                            </div>
+                            <div class="flow-arrow">
+                                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.15)" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"></line><polyline points="19 12 12 19 5 12"></polyline></svg>
+                            </div>
+                            <div class="flow-step">
+                                <div class="step-num">04</div>
+                                <div class="step-details">
+                                    <h4>轻量级原生容器 (Tauri 2.0 Wrapper)</h4>
+                                    <p>基于 Rust 编写的原生壳，与底层操作系统紧密结合，保证极低的系统资源占用与高安全性。</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="glass-card arch-tech-card">
+                        <h3 class="arch-card-title">技术栈矩阵</h3>
+                        <div class="tech-grid">
+                            <div class="tech-item">
+                                <div class="tech-icon-wrapper">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                                </div>
+                                <div class="tech-info-mini">
+                                    <h5>前端核心</h5>
+                                    <span>Vite + React + TS</span>
+                                </div>
+                            </div>
+                            <div class="tech-item">
+                                <div class="tech-icon-wrapper">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/></svg>
+                                </div>
+                                <div class="tech-info-mini">
+                                    <h5>3D 空间</h5>
+                                    <span>R3F / Three.js</span>
+                                </div>
+                            </div>
+                            <div class="tech-item">
+                                <div class="tech-icon-wrapper">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
+                                </div>
+                                <div class="tech-info-mini">
+                                    <h5>机器视觉</h5>
+                                    <span>MediaPipe Hands</span>
+                                </div>
+                            </div>
+                            <div class="tech-item">
+                                <div class="tech-icon-wrapper">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                                </div>
+                                <div class="tech-info-mini">
+                                    <h5>生成式 AI</h5>
+                                    <span>Gemini Pro Vision</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="arch-stats">
+                            <div class="stat-box">
+                                <div class="stat-val">3ms</div>
+                                <div class="stat-lbl">手势时延</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-val">60+</div>
+                                <div class="stat-lbl">渲染帧率</div>
+                            </div>
+                            <div class="stat-box">
+                                <div class="stat-val">98%</div>
+                                <div class="stat-lbl">重建精度</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 作品矩阵 -->
+            <section id="matrix" class="tab-content">
+                <div class="section-hero">
+                    <span class="badge">PROJECT MATRIX</span>
+                    <h1 class="hero-title">核心研发<br><span class="gradient-text">空间技术矩阵</span></h1>
+                    <p class="hero-desc">我们通过空间交互与大模型赋能数学、物理学及传统非遗，探索感知的边界。</p>
+                </div>
+
+                <div class="matrix-grid">
+                    <!-- 作品一: HoloMath -->
+                    <div class="glass-card project-card" data-project="math">
+                        <div class="project-header">
+                            <span class="project-tag">MATHEMATICS / V0.1.1</span>
+                            <span class="status-indicator active"><span class="dot"></span>ONLINE</span>
+                        </div>
+                        <div class="project-visual css-3d-visual">
+                            <div class="scene-3d">
+                                <div class="crystal-polyhedron">
+                                    <div class="face f-front"></div>
+                                    <div class="face f-back"></div>
+                                    <div class="face f-left"></div>
+                                    <div class="face f-right"></div>
+                                    <div class="face f-top"></div>
+                                    <div class="face f-bottom"></div>
+                                </div>
+                                <div class="grid-floor-3d"></div>
+                            </div>
+                        </div>
+                        <div class="project-info">
+                            <h3>01 / HoloMath 空间几何画板 (V0.1.1)</h3>
+                            <p>基于 MediaPipe 手势捕捉与 R3F 构建的三维数学白板。支持在空中徒手绘制立体多面体、锥体及动态函数曲面，并在虚拟直角坐标系内测量相交夹角。</p>
+                            <div class="project-footer">
+                                <span class="tech-spec">WEBGL ACCELERATED</span>
+                                <button class="action-btn">查看详情</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 作品二: HoloPhysics -->
+                    <div class="glass-card project-card" data-project="physics">
+                        <div class="project-header">
+                            <span class="project-tag">PHYSICS / SIMULATION</span>
+                            <span class="status-indicator beta"><span class="dot"></span>BETA</span>
+                        </div>
+                        <div class="project-visual physics-visual">
+                            <div class="physics-sandbox-simulation">
+                                <div class="orbiting-planet planet-1"></div>
+                                <div class="orbiting-planet planet-2"></div>
+                                <div class="gravity-well"></div>
+                                <svg class="field-lines" width="100%" height="100%">
+                                    <circle cx="50%" cy="50%" r="30" stroke="rgba(16, 185, 129, 0.08)" stroke-width="1" fill="none"/>
+                                    <circle cx="50%" cy="50%" r="60" stroke="rgba(16, 185, 129, 0.05)" stroke-width="0.7" fill="none"/>
+                                    <circle cx="50%" cy="50%" r="90" stroke="rgba(16, 185, 129, 0.03)" stroke-width="0.5" fill="none"/>
+                                </svg>
+                            </div>
+                        </div>
+                        <div class="project-info">
+                            <h3>02 / HoloPhysics 空间物理沙盒</h3>
+                            <p>支持空间微手势交互的多物理场模拟器。用户可在空气中投放电荷或质量天体，交互式演算万有引力轨迹、静电电力线分布与多弹性刚体碰撞。</p>
+                            <div class="project-footer">
+                                <span class="tech-spec">DYNAMIC COLLIDER</span>
+                                <button class="action-btn">查看详情</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 作品三: HoloShadow -->
+                    <div class="glass-card project-card" data-project="shadowplay">
+                        <div class="project-header">
+                            <span class="project-tag">SHADOW ART / GESTURE BIND</span>
+                            <span class="status-indicator beta"><span class="dot"></span>BETA</span>
+                        </div>
+                        <div class="project-visual shadow-visual">
+                            <div class="shadowplay-backlight">
+                                <div class="lamp-ray"></div>
+                                <div class="puppet-silhouette">
+                                    <svg viewBox="0 0 100 100" class="svg-puppet">
+                                        <path d="M50 25 C65 20, 70 35, 60 45 C50 48, 48 40, 50 25 Z" fill="rgba(0,0,0,0.85)" stroke="rgba(245, 158, 11, 0.3)" stroke-width="0.8"/>
+                                        <path d="M60 45 C65 52, 60 62, 52 65 C44 68, 40 55, 48 45 Z" fill="rgba(0,0,0,0.9)" />
+                                        <circle cx="50" cy="42" r="2" fill="rgba(245, 158, 11, 0.9)"/>
+                                        <path d="M48 45 L52 50 L56 46" stroke="rgba(245, 158, 11, 0.5)" stroke-width="0.5" fill="none"/>
+                                        <path d="M50 63 L50 72 L45 78 L55 78 L52 72 Z" fill="rgba(0,0,0,0.95)" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="project-info">
+                            <h3>03 / HoloShadow 空间生成式皮影戏</h3>
+                            <p>融合国家非遗传统皮影艺术。利用双手 3D 骨架模型动态绑定皮影戏角色肢体关节，通过手指伸展弯曲精准操控皮影身段与武打动作，AI 实时渲染纸质漫透射灯效。</p>
+                            <div class="project-footer">
+                                <span class="tech-spec">AI SILHOUETTE PIPELINE</span>
+                                <button class="action-btn">查看详情</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 联系我们 -->
+            <section id="contact" class="tab-content">
+                <div class="section-hero" style="margin-left: auto; margin-right: auto; text-align: center;">
+                    <span class="badge">DEVELOPER PROFILE</span>
+                    <h1 class="hero-title">联系主创，<br><span class="gradient-text">开启技术协作</span></h1>
+                    <p class="hero-desc">如果你对 HoloGrip 交互设计感兴趣，欢迎随时与我建立联系。</p>
+                </div>
+
+                <div class="contact-single-wrapper">
+                    <div class="glass-card holographic-card" id="holo-id-card">
+                        <div class="card-glare"></div>
+                        <div class="card-inner">
+                            <div class="card-header-logo">
+                                <div class="card-status-badge">
+                                    <span class="card-status-dot"></span>
+                                    <span class="card-status-text">TERMINAL ONLINE</span>
+                                </div>
+                                <span class="card-serial">ID // 0716-SENOR</span>
+                            </div>
+                            
+                            <div class="profile-meta">
+                                <div class="avatar-glow-box">
+                                    <img src="/portal-avatar.png" alt="Senor" class="profile-avatar">
+                                </div>
+                                <div class="profile-names">
+                                    <h2>Senor</h2>
+                                    <span class="real-name">Chunyu Wan</span>
+                                </div>
+                            </div>
+                            
+                            <div class="profile-info-grid">
+                                <div class="profile-info-item">
+                                    <span class="info-label">职位 / POSITION</span>
+                                    <span class="info-val highlight-val">全栈开发工程师 (Full-Stack Developer)</span>
+                                </div>
+                                <div class="profile-info-item">
+                                    <span class="info-label">邮箱 / EMAIL</span>
+                                    <span class="info-val" id="email-address">senor0716@outlook.com</span>
+                                </div>
+                            </div>
+                            
+                            <div class="card-actions">
+                                <button class="copy-email-btn" id="copy-btn">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                                    复制邮箱地址
+                                </button>
+                                <a class="github-link-btn" href="https://github.com/SenorPink0487" target="_blank" rel="noopener noreferrer">
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path></svg>
+                                    GitHub 个人主页
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- 作品详情 Modal -->
+    <div class="modal-overlay" id="project-modal">
+        <div class="glass-card modal-container">
+            <button class="close-btn" id="modal-close">&times;</button>
+            <div class="modal-body" id="modal-body-content"></div>
+        </div>
+    </div>
+
+    <script type="module" src="/portal.js"></script>
+</body>
+</html>

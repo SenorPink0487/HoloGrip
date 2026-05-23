@@ -1,0 +1,56 @@
+[package]
+name = "hologrip-proxy"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77.2"
+description = "HoloGrip Web 端的 Gemini 反向代理服务,部署在阿里云上,藏 Key + 限流 + token 鉴权 + Prometheus 指标"
+
+[[bin]]
+name = "hologrip-proxy"
+path = "src/main.rs"
+
+[dependencies]
+# Web 框架
+axum = { version = "0.8", features = ["macros"] }
+tokio = { version = "1", features = ["full"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "limit"] }
+tower_governor = "0.8"
+
+# HTTP 客户端(透明转发上游)
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
+futures-util = "0.3"
+
+# 序列化 / 配置
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dotenvy = "0.15"
+envy = "0.4"
+anyhow = "1"
+thiserror = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
+
+# 鉴权:HMAC-SHA256 签名
+hmac = "0.12"
+sha2 = "0.10"
+subtle = "2.6"
+base64 = "0.22"
+rand = "0.8"
+uuid = { version = "1", features = ["v4"] }
+
+# 指标
+metrics = "0.24"
+metrics-exporter-prometheus = { version = "0.18", default-features = false }
+
+# 日志
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# 优雅退出 / 工具
+tokio-util = "0.7"
+parking_lot = "0.12"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { tryCompile, findRoots, findExtrema, type CompiledExpression } from '../lib/mathExpression';
 import { MathKeyboard } from './MathKeyboard';
+import { useARStore } from '../store';
 
 // ============================================================
 // 数学空间限定: 函数图像有效定义域 [-300, 300]
@@ -201,6 +202,9 @@ function calcGridStep(scale: number): { major: number; minor: number } {
 // ============================================================
 
 export function FunctionExplorer() {
+  const theme = useARStore(state => state.theme);
+  const isDark = theme === 'dark';
+
   // ---------- 侧栏 ----------
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -669,6 +673,7 @@ export function FunctionExplorer() {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    const isDark = theme === 'dark';
     const dpr = window.devicePixelRatio || 1;
     // 内部位图尺寸 = CSS 尺寸 × dpr; 我们后续所有绘制坐标都使用 CSS 像素
     const W = canvas.width / dpr;
@@ -686,7 +691,7 @@ export function FunctionExplorer() {
     const yMax = origin.y / scale;
 
     // 小网格
-    ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.035)';
     ctx.lineWidth = 1;
     ctx.setLineDash([]);
     for (let x = Math.ceil(xMin / minor) * minor; x <= xMax; x += minor) {
@@ -699,7 +704,7 @@ export function FunctionExplorer() {
     }
 
     // 主网格
-    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)';
     for (let x = Math.ceil(xMin / major) * major; x <= xMax; x += major) {
       const px = origin.x + x * scale;
       ctx.beginPath(); ctx.moveTo(px, 0); ctx.lineTo(px, H); ctx.stroke();
@@ -710,7 +715,7 @@ export function FunctionExplorer() {
     }
 
     // ---- 2. 坐标轴 ----
-    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.35)';
     ctx.lineWidth = 1.5;
     // X 轴
     ctx.beginPath();
@@ -720,7 +725,7 @@ export function FunctionExplorer() {
     ctx.moveTo(origin.x, 0); ctx.lineTo(origin.x, H); ctx.stroke();
 
     // 箭头
-    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.fillStyle = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)';
     ctx.beginPath();
     ctx.moveTo(W, origin.y); ctx.lineTo(W - 9, origin.y - 4); ctx.lineTo(W - 9, origin.y + 4);
     ctx.closePath(); ctx.fill();
@@ -730,7 +735,7 @@ export function FunctionExplorer() {
 
     // ---- 3. 坐标刻度文字 ----
     if (showLabels) {
-      ctx.fillStyle = 'rgba(255,255,255,0.55)';
+      ctx.fillStyle = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)';
       ctx.font = '11px Menlo, monospace, system-ui';
       // X
       for (let x = Math.ceil(xMin / major) * major; x <= xMax; x += major) {
@@ -749,7 +754,7 @@ export function FunctionExplorer() {
         ctx.fillText(txt, origin.x - tw - 6, py + 4);
       }
       // 原点
-      ctx.fillStyle = 'rgba(255,255,255,0.6)';
+      ctx.fillStyle = isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.5)';
       ctx.font = '12px system-ui';
       ctx.fillText('O', origin.x - 14, origin.y + 14);
       ctx.fillText('x', W - 14, origin.y - 8);
@@ -868,7 +873,7 @@ export function FunctionExplorer() {
         const py = origin.y - traceCursor.y * scale;
         ctx.save();
         // 垂线
-        ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+        ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)';
         ctx.setLineDash([3, 3]);
         ctx.lineWidth = 1;
         ctx.beginPath();
@@ -881,7 +886,7 @@ export function FunctionExplorer() {
         ctx.shadowBlur = 14;
         ctx.shadowColor = fn.glowColor;
         ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = '#fff';
+        ctx.strokeStyle = isDark ? '#fff' : '#1e293b';
         ctx.lineWidth = 1.5;
         ctx.shadowBlur = 0;
         ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.stroke();
@@ -896,8 +901,8 @@ export function FunctionExplorer() {
         let bx = px + 12, by = py - bh - 8;
         if (bx + bw > W - 8) bx = px - bw - 12;
         if (by < 8) by = py + 12;
-        ctx.fillStyle = 'rgba(15,17,23,0.95)';
-        ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+        ctx.fillStyle = isDark ? 'rgba(15,17,23,0.95)' : 'rgba(255,255,255,0.95)';
+        ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)';
         ctx.lineWidth = 1;
         ctx.beginPath();
         if (typeof (ctx as any).roundRect === 'function') {
@@ -906,7 +911,7 @@ export function FunctionExplorer() {
           ctx.rect(bx, by, bw, bh);
         }
         ctx.fill(); ctx.stroke();
-        ctx.fillStyle = '#fff';
+        ctx.fillStyle = isDark ? '#fff' : '#1e293b';
         ctx.fillText(label, bx + 8, by + 16);
         ctx.restore();
       }
@@ -923,7 +928,7 @@ export function FunctionExplorer() {
       ctx.shadowColor = pt.color;
       ctx.beginPath(); ctx.arc(px, py, 4.5, 0, Math.PI * 2); ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#fff';
+      ctx.strokeStyle = isDark ? '#fff' : '#f8fafc';
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.arc(px, py, 4.5, 0, Math.PI * 2); ctx.stroke();
       ctx.restore();
@@ -940,16 +945,16 @@ export function FunctionExplorer() {
       ctx.shadowColor = p.color;
       ctx.beginPath(); ctx.arc(px, py, draggingPointId === p.id ? 8 : 6.5, 0, Math.PI * 2); ctx.fill();
       ctx.shadowBlur = 0;
-      ctx.strokeStyle = '#fff';
+      ctx.strokeStyle = isDark ? '#fff' : '#f8fafc';
       ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(px, py, draggingPointId === p.id ? 8 : 6.5, 0, Math.PI * 2); ctx.stroke();
       // 标签
       if (showLabels) {
-        ctx.fillStyle = '#fff';
+        ctx.fillStyle = isDark ? '#fff' : '#1e293b';
         ctx.font = 'bold 13px system-ui';
         ctx.fillText(p.name, px + 10, py - 8);
         ctx.font = '11px Menlo, monospace';
-        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.fillStyle = isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)';
         ctx.fillText(`(${formatNum(p.x)}, ${formatNum(p.y)})`, px + 10, py + 6);
       }
       ctx.restore();
@@ -965,8 +970,8 @@ export function FunctionExplorer() {
       const bw = tw + 16, bh = 26;
       const bx = Math.max(8, Math.min(W - bw - 8, px - bw / 2));
       const by = Math.max(8, py - bh - 12);
-      ctx.fillStyle = 'rgba(15,17,23,0.95)';
-      ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+      ctx.fillStyle = isDark ? 'rgba(15,17,23,0.95)' : 'rgba(255,255,255,0.95)';
+      ctx.strokeStyle = isDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.15)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       if (typeof (ctx as any).roundRect === 'function') {
@@ -975,13 +980,13 @@ export function FunctionExplorer() {
         ctx.rect(bx, by, bw, bh);
       }
       ctx.fill(); ctx.stroke();
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = isDark ? '#fff' : '#1e293b';
       ctx.fillText(hoveredFeature.label, bx + 8, by + 17);
       ctx.restore();
     }
   }, [
     functions, points, scale, origin, showLabels, showTrace, traceCursor,
-    allFeaturePoints, hoveredFeature, draggingPointId, evalFunc
+    allFeaturePoints, hoveredFeature, draggingPointId, evalFunc, theme
   ]);
 
   // ============================================================
@@ -1144,12 +1149,15 @@ export function FunctionExplorer() {
   // 渲染
   // ============================================================
   return (
-    <div className="w-full h-full flex bg-[#0c0d0e] select-none relative text-white overflow-hidden">
+    <div className={cn("w-full h-full flex select-none relative overflow-hidden transition-colors duration-500", isDark ? "bg-[#0c0d0e] text-white" : "bg-[#f8fafc] text-slate-800")}>
 
       {/* ===== 1. 左侧 GeoGebra 风格代数视图 ===== */}
       <div
         className={cn(
-          'h-full border-r border-white/10 bg-zinc-950/80 backdrop-blur-2xl flex flex-col transition-all duration-300 relative z-[35] shadow-[10px_0_30px_rgba(0,0,0,0.5)] select-none overflow-hidden',
+          'h-full flex flex-col transition-all duration-300 relative z-[35] select-none overflow-hidden border-r backdrop-blur-2xl transition-colors duration-500',
+          isDark 
+            ? 'border-white/10 bg-zinc-950/80 shadow-[10px_0_30px_rgba(0,0,0,0.5)]' 
+            : 'border-slate-200/80 bg-white/80 shadow-[10px_0_30px_rgba(0,0,0,0.05)]',
           isSidebarCollapsed ? 'w-0 border-r-0 p-0 opacity-0 pointer-events-none' : 'w-[400px] opacity-100'
         )}
       >
@@ -1157,20 +1165,23 @@ export function FunctionExplorer() {
 
           {/* 标题 */}
           <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2.5 text-cyan-400">
-              <Activity className="w-6 h-6 animate-pulse" />
-              <h2 className="text-2xl font-extrabold tracking-wide text-white">代数 Algebra</h2>
+            <div className="flex items-center gap-2.5 text-cyan-500 dark:text-cyan-400">
+              <Activity className="w-6.5 h-6.5 animate-pulse" />
+              <h2 className={cn("text-[26px] font-black tracking-wide", isDark ? "text-white" : "text-slate-900")}>代数 Algebra</h2>
             </div>
-            <p className="text-zinc-400 text-sm">输入函数、参数或点,自由组合</p>
+            <p className={isDark ? "text-zinc-400 text-[15px]" : "text-slate-500 text-[15px]"}>输入函数、参数或点，自由组合</p>
           </div>
 
           {/* 表达式输入条 */}
           <div className="flex flex-col gap-1.5">
             <div className={cn(
-              'flex items-center gap-2 px-3 py-2.5 rounded-xl bg-zinc-900/70 border transition-all',
-              inputError ? 'border-red-500/50' : 'border-white/10 focus-within:border-cyan-400/60 focus-within:shadow-[0_0_0_3px_rgba(34,211,238,0.15)]'
+              'flex items-center gap-2.5 px-4 py-3 rounded-xl border transition-all duration-300',
+              isDark ? 'bg-zinc-900/50 border-white/10' : 'bg-slate-100/70 border-slate-200',
+              inputError 
+                ? 'border-red-500/50 focus-within:border-red-500/80 focus-within:shadow-[0_0_0_3px_rgba(239,68,68,0.15)]' 
+                : 'focus-within:border-cyan-500 focus-within:shadow-[0_0_0_3px_rgba(6,182,212,0.15)]'
             )}>
-              <Sigma className="w-4 h-4 text-cyan-400 shrink-0" />
+              <Sigma className="w-5 h-5 text-cyan-500 dark:text-cyan-400 shrink-0" />
               <input
                 ref={inputRef}
                 type="text"
@@ -1183,34 +1194,45 @@ export function FunctionExplorer() {
                   if (next && next.closest && next.closest('[data-mathkbd]')) return;
                   setKeyboardOpen(false);
                 }}
-                // 只读 inputMode 防系统键盘弹出 (移动端);桌面键盘照常可用
                 inputMode="none"
                 autoComplete="off"
                 spellCheck={false}
                 placeholder="f(x)=sin(a*x)+b   ·   a=2   ·   (1,2)"
-                className="flex-1 bg-transparent outline-none text-sm text-white placeholder:text-zinc-500 font-mono"
+                className={cn(
+                  "flex-1 bg-transparent outline-none text-[15px] font-mono",
+                  isDark ? "text-white placeholder:text-zinc-500" : "text-slate-800 placeholder:text-slate-400"
+                )}
               />
               <button
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => { setKeyboardTarget('main'); setKeyboardOpen(v => !v); inputRef.current?.focus(); }}
                 className={cn(
-                  'shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-all active:scale-95',
-                  keyboardOpen ? 'bg-cyan-500/30 text-cyan-200' : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white'
+                  'shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all active:scale-95 cursor-pointer',
+                  keyboardOpen 
+                    ? 'bg-cyan-500/30 text-cyan-200' 
+                    : isDark 
+                      ? 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white' 
+                      : 'bg-slate-200/60 text-slate-500 hover:bg-slate-200 hover:text-slate-800'
                 )}
                 title={keyboardOpen ? '收起键盘' : '展开数学键盘'}
               >
-                <Keyboard className="w-4 h-4" />
+                <Keyboard className="w-4.5 h-4.5" />
               </button>
               <button
                 onClick={handleSubmitInput}
-                className="shrink-0 w-7 h-7 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/35 text-cyan-300 flex items-center justify-center transition-colors active:scale-95"
+                className={cn(
+                  'shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-colors active:scale-95 cursor-pointer',
+                  isDark
+                    ? 'bg-cyan-500/20 hover:bg-cyan-500/35 text-cyan-300'
+                    : 'bg-cyan-100 hover:bg-cyan-250 text-cyan-700'
+                )}
                 title="添加"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-4.5 h-4.5" />
               </button>
             </div>
             {inputError && (
-              <div className="flex items-center gap-1.5 text-xs text-red-400 px-1">
+              <div className="flex items-center gap-1.5 text-xs text-red-500 dark:text-red-400 px-1">
                 <AlertCircle className="w-3.5 h-3.5" />
                 <span>{inputError}</span>
               </div>
@@ -1219,14 +1241,19 @@ export function FunctionExplorer() {
 
           {/* 对象列表 */}
           <div className="flex flex-col gap-3 flex-1 min-h-0 overflow-y-auto pr-1 -mr-1">
-            <div className="text-xs font-bold text-zinc-300 tracking-wider uppercase border-b border-white/10 pb-2 sticky top-0 bg-zinc-950/80 backdrop-blur-md z-[1]">
+            <div className={cn(
+              "text-[13px] font-extrabold tracking-wider uppercase border-b pb-2 sticky top-0 backdrop-blur-md z-[1] transition-colors duration-500",
+              isDark 
+                ? "text-zinc-300 border-white/10 bg-zinc-950/85" 
+                : "text-slate-500 border-slate-200/80 bg-white/85"
+            )}>
               对象列表 · {objects.length}
             </div>
 
             {objects.length === 0 && (
-              <div className="text-center text-zinc-500 text-sm py-12">
-                <p>暂无对象</p>
-                <p className="text-xs text-zinc-600 mt-2">在上方输入框创建第一个对象</p>
+              <div className={cn("text-center py-12 transition-colors duration-500", isDark ? "text-zinc-500" : "text-slate-400")}>
+                <p className="text-[15px] font-medium">暂无对象</p>
+                <p className="text-xs mt-2 opacity-80">在上方输入框创建第一个对象</p>
               </div>
             )}
 
@@ -1237,15 +1264,20 @@ export function FunctionExplorer() {
                 <div
                   key={fn.id}
                   className={cn(
-                    'p-3 rounded-2xl border transition-all flex flex-col gap-2 bg-zinc-900/40 group/card',
-                    fn.visible ? 'border-white/10' : 'border-transparent opacity-50'
+                    'p-3.5 rounded-2xl border transition-all duration-300 flex flex-col gap-2.5 group/card shadow-sm',
+                    isDark 
+                      ? 'bg-zinc-900/30' 
+                      : 'bg-slate-50/65 hover:bg-slate-50/90',
+                    fn.visible 
+                      ? isDark ? 'border-white/10' : 'border-slate-200/80' 
+                      : 'border-transparent opacity-50'
                   )}
                 >
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-3">
                     {/* 显隐切换 */}
                     <button
                       onClick={() => updateObject(fn.id, { visible: !fn.visible } as Partial<FunctionObject>)}
-                      className="w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 active:scale-90 transition-all cursor-pointer"
+                      className="w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 active:scale-90 transition-all cursor-pointer"
                       style={{
                         backgroundColor: fn.visible ? fn.color : 'transparent',
                         borderColor: fn.color,
@@ -1253,12 +1285,12 @@ export function FunctionExplorer() {
                       title={fn.visible ? '隐藏' : '显示'}
                     >
                       {fn.visible
-                        ? <Eye className="w-3.5 h-3.5 text-zinc-950 stroke-[3]" />
-                        : <EyeOff className="w-3.5 h-3.5 text-zinc-400" />}
+                        ? <Eye className="w-4 h-4 text-zinc-950 stroke-[3]" />
+                        : <EyeOff className={cn("w-4 h-4", isDark ? "text-zinc-400" : "text-slate-400")} />}
                     </button>
 
                     {/* 名称 */}
-                    <div className="font-mono font-bold text-sm shrink-0" style={{ color: fn.color }}>
+                    <div className="font-mono font-bold text-[15px] shrink-0" style={{ color: fn.color }}>
                       {fn.name}(x) =
                     </div>
 
@@ -1275,7 +1307,6 @@ export function FunctionExplorer() {
                         onFocus={() => { setKeyboardTarget({ type: 'edit', id: fn.id }); setKeyboardOpen(true); }}
                         onChange={(e) => setEditingValue(e.target.value)}
                         onBlur={(e) => {
-                          // 如果焦点移到键盘 (具有 mathkbd 类) 上,不真正 commit;由键盘内部处理
                           const next = e.relatedTarget as HTMLElement | null;
                           if (next && next.closest && next.closest('[data-mathkbd]')) return;
                           updateFunctionSource(fn.id, editingValue);
@@ -1292,13 +1323,23 @@ export function FunctionExplorer() {
                             setKeyboardOpen(false);
                           }
                         }}
-                        className="flex-1 min-w-0 bg-zinc-950/60 border border-cyan-400/40 rounded-md px-2 py-0.5 text-sm font-mono text-white outline-none"
+                        className={cn(
+                          "flex-1 min-w-0 border rounded-md px-2.5 py-1 text-[15px] font-mono outline-none transition-colors",
+                          isDark 
+                            ? "bg-zinc-950/60 border-cyan-400/40 text-white focus:border-cyan-400" 
+                            : "bg-white border-cyan-500/45 text-slate-800 focus:border-cyan-500"
+                        )}
                       />
                     ) : (
                       <button
                         onClick={() => { setEditingId(fn.id); setEditingValue(fn.source); }}
-                        className="flex-1 min-w-0 text-left text-sm font-mono truncate hover:text-white transition-colors"
-                        style={{ color: fn.visible ? fn.color : '#a1a1aa' }}
+                        className={cn(
+                          "flex-1 min-w-0 text-left text-[15px] font-mono truncate transition-colors cursor-pointer hover:font-bold",
+                          fn.visible 
+                            ? isDark ? "hover:text-white" : "hover:text-slate-900" 
+                            : isDark ? "text-zinc-500" : "text-slate-400"
+                        )}
+                        style={{ color: fn.visible ? fn.color : undefined }}
                         title="点击编辑"
                       >
                         {prettifyExpression(fn.source)}
@@ -1308,16 +1349,16 @@ export function FunctionExplorer() {
                     {/* 删除 */}
                     <button
                       onClick={() => deleteObject(fn.id)}
-                      className="opacity-0 group-hover/card:opacity-100 w-6 h-6 rounded-md text-zinc-400 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-all shrink-0"
+                      className="opacity-0 group-hover/card:opacity-100 w-7 h-7 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-500/10 flex items-center justify-center transition-all shrink-0 cursor-pointer"
                       title="删除"
                     >
-                      <Trash2 className="w-3.5 h-3.5" />
+                      <Trash2 className="w-4 h-4" />
                     </button>
                   </div>
 
                   {fn.error && (
-                    <div className="text-xs text-red-400 ml-9 flex items-center gap-1">
-                      <AlertCircle className="w-3 h-3" />
+                    <div className="text-xs text-red-500 dark:text-red-400 ml-11 flex items-center gap-1.5">
+                      <AlertCircle className="w-3.5 h-3.5" />
                       <span>{fn.error}</span>
                     </div>
                   )}
@@ -1327,38 +1368,46 @@ export function FunctionExplorer() {
 
             {/* === 滑动条卡片 === */}
             {sliders.length > 0 && (
-              <div className="text-xs font-bold text-zinc-400 tracking-wider uppercase pt-2 flex items-center gap-1.5">
-                <Sliders className="w-3.5 h-3.5 text-cyan-400" />
+              <div className={cn(
+                "text-[13px] font-extrabold tracking-wider uppercase pt-3 flex items-center gap-1.5 transition-colors duration-500",
+                isDark ? "text-zinc-400" : "text-slate-500"
+              )}>
+                <Sliders className="w-4 h-4 text-cyan-500 dark:text-cyan-400" />
                 <span>滑动条 · {sliders.length}</span>
               </div>
             )}
             {sliders.map(sl => (
               <div
                 key={sl.id}
-                className="p-3 rounded-2xl border border-white/10 bg-zinc-900/40 flex flex-col gap-2.5 group/card"
+                className={cn(
+                  "p-3.5 rounded-2xl border transition-all duration-300 flex flex-col gap-3 group/card shadow-sm",
+                  isDark 
+                    ? "bg-zinc-900/30 border-white/10" 
+                    : "bg-slate-50/65 hover:bg-slate-50/90 border-slate-200/80"
+                )}
               >
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-3">
                   <div
-                    className="w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 font-bold text-xs"
-                    style={{ borderColor: sl.color, color: sl.color, backgroundColor: `${sl.color}20` }}
+                    className="w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 font-extrabold text-[13px]"
+                    style={{ borderColor: sl.color, color: sl.color, backgroundColor: `${sl.color}15` }}
                   >
                     {sl.name}
                   </div>
                   <div className="flex-1 min-w-0 flex items-baseline gap-2">
-                    <span className="text-sm text-zinc-300 font-mono">=</span>
-                    <span className="text-sm font-mono font-bold" style={{ color: sl.color }}>
+                    <span className={cn("text-sm font-mono", isDark ? "text-zinc-300" : "text-slate-400")}>=</span>
+                    <span className="text-[15px] font-mono font-bold" style={{ color: sl.color }}>
                       {sl.value.toFixed(2)}
                     </span>
-                    <span className="text-[10px] text-zinc-500 font-mono">
+                    <span className={cn("text-xs font-mono", isDark ? "text-zinc-500" : "text-slate-400")}>
                       [{sl.min}, {sl.max}]
                     </span>
                   </div>
                   <button
                     onClick={() => deleteObject(sl.id)}
-                    className="opacity-0 group-hover/card:opacity-100 w-6 h-6 rounded-md text-zinc-400 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-all shrink-0"
+                    className="opacity-0 group-hover/card:opacity-100 w-7 h-7 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-500/10 flex items-center justify-center transition-all shrink-0 cursor-pointer"
                     title="删除"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <Trash2 className="w-4 h-4" />
                   </button>
                 </div>
                 <input
@@ -1368,32 +1417,47 @@ export function FunctionExplorer() {
                   step={sl.step}
                   value={sl.value}
                   onChange={(e) => updateObject(sl.id, { value: parseFloat(e.target.value) } as Partial<SliderObject>)}
-                  className="w-full h-1.5 bg-white/10 rounded-lg appearance-none cursor-pointer"
+                  className="w-full h-1.5 bg-slate-200 dark:bg-white/10 rounded-lg appearance-none cursor-pointer"
                   style={{ accentColor: sl.color }}
                 />
                 {/* 范围微调 */}
-                <div className="flex items-center gap-1.5 text-[10px]">
+                <div className={cn("flex items-center gap-1.5 text-xs font-medium", isDark ? "text-zinc-400" : "text-slate-500")}>
                   <input
                     type="number"
                     value={sl.min}
                     onChange={(e) => updateObject(sl.id, { min: parseFloat(e.target.value) || sl.min } as Partial<SliderObject>)}
-                    className="w-14 bg-zinc-950/60 border border-white/10 rounded px-1.5 py-0.5 text-zinc-300 outline-none focus:border-cyan-400/40 font-mono"
+                    className={cn(
+                      "w-16 border rounded px-1.5 py-0.5 text-center font-mono outline-none transition-colors",
+                      isDark 
+                        ? "bg-zinc-950/60 border-white/10 text-zinc-200 focus:border-cyan-400/40" 
+                        : "bg-white border-slate-200 text-slate-700 focus:border-cyan-500/40"
+                    )}
                     step={0.5}
                   />
-                  <span className="text-zinc-600">〜</span>
+                  <span className={isDark ? "text-zinc-600" : "text-slate-300"}>〜</span>
                   <input
                     type="number"
                     value={sl.max}
                     onChange={(e) => updateObject(sl.id, { max: parseFloat(e.target.value) || sl.max } as Partial<SliderObject>)}
-                    className="w-14 bg-zinc-950/60 border border-white/10 rounded px-1.5 py-0.5 text-zinc-300 outline-none focus:border-cyan-400/40 font-mono"
+                    className={cn(
+                      "w-16 border rounded px-1.5 py-0.5 text-center font-mono outline-none transition-colors",
+                      isDark 
+                        ? "bg-zinc-950/60 border-white/10 text-zinc-200 focus:border-cyan-400/40" 
+                        : "bg-white border-slate-200 text-slate-700 focus:border-cyan-500/40"
+                    )}
                     step={0.5}
                   />
-                  <span className="ml-auto text-zinc-500">步长</span>
+                  <span className={cn("ml-auto", isDark ? "text-zinc-500" : "text-slate-400")}>步长</span>
                   <input
                     type="number"
                     value={sl.step}
                     onChange={(e) => updateObject(sl.id, { step: parseFloat(e.target.value) || sl.step } as Partial<SliderObject>)}
-                    className="w-12 bg-zinc-950/60 border border-white/10 rounded px-1.5 py-0.5 text-zinc-300 outline-none focus:border-cyan-400/40 font-mono"
+                    className={cn(
+                      "w-14 border rounded px-1.5 py-0.5 text-center font-mono outline-none transition-colors",
+                      isDark 
+                        ? "bg-zinc-950/60 border-white/10 text-zinc-200 focus:border-cyan-400/40" 
+                        : "bg-white border-slate-200 text-slate-700 focus:border-cyan-500/40"
+                    )}
                     step={0.01}
                     min={0.001}
                   />
@@ -1403,51 +1467,64 @@ export function FunctionExplorer() {
 
             {/* === 自由点卡片 === */}
             {points.length > 0 && (
-              <div className="text-xs font-bold text-zinc-400 tracking-wider uppercase pt-2 flex items-center gap-1.5">
-                <Crosshair className="w-3.5 h-3.5 text-pink-400" />
+              <div className={cn(
+                "text-[13px] font-extrabold tracking-wider uppercase pt-3 flex items-center gap-1.5 transition-colors duration-500",
+                isDark ? "text-zinc-400" : "text-slate-500"
+              )}>
+                <Crosshair className="w-4 h-4 text-pink-500 dark:text-pink-400" />
                 <span>点 · {points.length}</span>
               </div>
             )}
             {points.map(p => (
               <div
                 key={p.id}
-                className="p-3 rounded-2xl border border-white/10 bg-zinc-900/40 flex items-center gap-2.5 group/card"
+                className={cn(
+                  "p-3.5 rounded-2xl border transition-all duration-300 flex items-center gap-3 group/card shadow-sm",
+                  isDark 
+                    ? "bg-zinc-900/30 border-white/10" 
+                    : "bg-slate-50/65 hover:bg-slate-50/90 border-slate-200/80"
+                )}
               >
                 <button
                   onClick={() => updateObject(p.id, { visible: !p.visible } as Partial<PointObject>)}
-                  className="w-7 h-7 rounded-full border-2 flex items-center justify-center shrink-0 active:scale-90 transition-all"
+                  className="w-8 h-8 rounded-full border-2 flex items-center justify-center shrink-0 active:scale-90 transition-all cursor-pointer"
                   style={{
                     backgroundColor: p.visible ? p.color : 'transparent',
                     borderColor: p.color,
                   }}
                 >
                   {p.visible
-                    ? <Eye className="w-3.5 h-3.5 text-zinc-950 stroke-[3]" />
-                    : <EyeOff className="w-3.5 h-3.5 text-zinc-400" />}
+                    ? <Eye className="w-4 h-4 text-zinc-950 stroke-[3]" />
+                    : <EyeOff className={cn("w-4 h-4", isDark ? "text-zinc-400" : "text-slate-400")} />}
                 </button>
-                <div className="flex-1 font-mono text-sm" style={{ color: p.color }}>
+                <div className="flex-1 font-mono text-[15px]" style={{ color: p.color }}>
                   <span className="font-bold">{p.name}</span>
-                  <span className="text-zinc-400"> = </span>
+                  <span className={isDark ? "text-zinc-400" : "text-slate-400"}> = </span>
                   <span>({formatNum(p.x)}, {formatNum(p.y)})</span>
                 </div>
                 <button
                   onClick={() => deleteObject(p.id)}
-                  className="opacity-0 group-hover/card:opacity-100 w-6 h-6 rounded-md text-zinc-400 hover:text-red-400 hover:bg-red-500/10 flex items-center justify-center transition-all shrink-0"
+                  className="opacity-0 group-hover/card:opacity-100 w-7 h-7 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-500/10 flex items-center justify-center transition-all shrink-0 cursor-pointer"
                   title="删除"
                 >
-                  <Trash2 className="w-3.5 h-3.5" />
+                  <Trash2 className="w-4 h-4" />
                 </button>
               </div>
             ))}
           </div>
 
           {/* 底栏: 重置 */}
-          <div className="flex flex-col gap-2 pt-3 border-t border-white/10">
+          <div className={cn("flex flex-col gap-2 pt-3 border-t transition-colors duration-500", isDark ? "border-white/10" : "border-slate-200/80")}>
             <button
               onClick={handleReset}
-              className="w-full py-2 rounded-lg border border-white/5 bg-white/5 hover:bg-white/10 text-xs font-bold text-zinc-300 flex items-center justify-center gap-1.5 transition-colors active:scale-95"
+              className={cn(
+                "w-full py-2.5 rounded-xl border text-[13px] font-extrabold flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] cursor-pointer",
+                isDark 
+                  ? "border-white/5 bg-white/5 hover:bg-white/10 text-zinc-300 hover:text-white" 
+                  : "border-slate-200 bg-slate-100 hover:bg-slate-200 text-slate-650 hover:text-slate-800"
+              )}
             >
-              <RotateCcw className="w-3.5 h-3.5" />
+              <RotateCcw className="w-4 h-4" />
               <span>重置全部</span>
             </button>
           </div>
@@ -1458,21 +1535,26 @@ export function FunctionExplorer() {
       <button
         onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
         className={cn(
-          'absolute top-1/2 -translate-y-1/2 z-[38] w-6 h-28 bg-zinc-950/90 hover:bg-zinc-900 text-zinc-400 hover:text-white flex items-center justify-center rounded-r-2xl border-y border-r border-white/10 shadow-[4px_0_15px_rgba(0,0,0,0.5)] transition-all duration-300 active:scale-y-95 cursor-pointer',
+          'absolute top-1/2 -translate-y-1/2 z-[38] w-6 h-28 flex items-center justify-center rounded-r-2xl border-y border-r transition-all duration-300 active:scale-y-95 cursor-pointer',
+          isDark 
+            ? 'bg-zinc-950/90 hover:bg-zinc-900 border-white/10 text-zinc-400 hover:text-white shadow-[4px_0_15px_rgba(0,0,0,0.5)]' 
+            : 'bg-white hover:bg-slate-55 border-slate-200/80 text-slate-400 hover:text-slate-800 shadow-[4px_0_15px_rgba(0,0,0,0.03)]',
           isSidebarCollapsed ? 'left-0' : 'left-[400px]'
         )}
         title={isSidebarCollapsed ? '展开代数视图' : '收起代数视图'}
       >
-        {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+        {isSidebarCollapsed ? <ChevronRight className="w-4.5 h-4.5" /> : <ChevronLeft className="w-4.5 h-4.5" />}
       </button>
 
       {/* ===== 2. 右侧绘图视图 ===== */}
-      <div className="flex-1 relative overflow-hidden bg-[#121316] z-[35]">
+      <div className={cn("flex-1 relative overflow-hidden z-[35] transition-colors duration-500", isDark ? "bg-[#121316]" : "bg-[#f8fafc]")}>
         {/* 数学黑板点状底纹 */}
         <div
           className="absolute inset-0 pointer-events-none opacity-20"
           style={{
-            backgroundImage: 'radial-gradient(circle, rgba(255,255,255,0.15) 1.5px, transparent 1.5px)',
+            backgroundImage: isDark 
+              ? 'radial-gradient(circle, rgba(255,255,255,0.15) 1.5px, transparent 1.5px)' 
+              : 'radial-gradient(circle, rgba(0,0,0,0.08) 1.5px, transparent 1.5px)',
             backgroundSize: '32px 32px',
           }}
         />
@@ -1489,7 +1571,10 @@ export function FunctionExplorer() {
 
         {/* 缩放快捷条 (左下;键盘弹出时上移避让) */}
         <div className={cn(
-          'absolute left-5 flex flex-col gap-1.5 bg-zinc-900/75 backdrop-blur-md border border-white/10 rounded-2xl p-1.5 shadow-2xl select-none z-[36] transition-all duration-300',
+          'absolute left-5 flex flex-col gap-1.5 backdrop-blur-md rounded-2xl p-1.5 select-none z-[36] transition-all duration-300 border',
+          isDark 
+            ? 'bg-zinc-900/75 border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.5)]' 
+            : 'bg-white/80 border-slate-200/80 shadow-[0_10px_30px_rgba(0,0,0,0.06)]',
           keyboardOpen ? 'bottom-[420px]' : 'bottom-5'
         )}>
           <button
@@ -1505,7 +1590,12 @@ export function FunctionExplorer() {
               setScale(newScale);
               setOrigin(clampOrigin({ x: cx - mathX * newScale, y: cy + mathY * newScale }, newScale, w, h));
             }}
-            className="w-9 h-9 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all active:scale-90"
+            className={cn(
+              "w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 cursor-pointer",
+              isDark 
+                ? "text-zinc-300 hover:text-white hover:bg-white/10" 
+                : "text-slate-650 hover:text-slate-900 hover:bg-slate-100"
+            )}
             title="放大"
           >
             <span className="text-lg font-bold">+</span>
@@ -1524,12 +1614,17 @@ export function FunctionExplorer() {
               setScale(newScale);
               setOrigin(clampOrigin({ x: cx - mathX * newScale, y: cy + mathY * newScale }, newScale, w, h));
             }}
-            className="w-9 h-9 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all active:scale-90"
+            className={cn(
+              "w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 cursor-pointer",
+              isDark 
+                ? "text-zinc-300 hover:text-white hover:bg-white/10" 
+                : "text-slate-650 hover:text-slate-900 hover:bg-slate-100"
+            )}
             title="缩小"
           >
             <span className="text-lg font-bold">−</span>
           </button>
-          <div className="w-full h-px bg-white/10 my-0.5" />
+          <div className={cn("w-full h-px my-0.5", isDark ? "bg-white/10" : "bg-slate-200")} />
           <button
             onClick={() => {
               const c = canvasRef.current;
@@ -1538,7 +1633,12 @@ export function FunctionExplorer() {
               setScale(45);
               setOrigin({ x: w / 2, y: h / 2 });
             }}
-            className="w-9 h-9 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all active:scale-90"
+            className={cn(
+              "w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 cursor-pointer",
+              isDark 
+                ? "text-zinc-300 hover:text-white hover:bg-white/10" 
+                : "text-slate-650 hover:text-slate-900 hover:bg-slate-100"
+            )}
             title="居中 (默认视野)"
           >
             <Crosshair className="w-4 h-4" />
@@ -1552,7 +1652,12 @@ export function FunctionExplorer() {
               setScale(Math.max(getMinScaleForCanvas(w, h), fitScale));
               setOrigin({ x: w / 2, y: h / 2 });
             }}
-            className="w-9 h-9 rounded-xl text-zinc-300 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all active:scale-90"
+            className={cn(
+              "w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 cursor-pointer",
+              isDark 
+                ? "text-zinc-300 hover:text-white hover:bg-white/10" 
+                : "text-slate-650 hover:text-slate-900 hover:bg-slate-100"
+            )}
             title="全景 (±300 视野)"
           >
             <span className="text-[10px] font-bold tracking-tighter">±300</span>
@@ -1561,7 +1666,8 @@ export function FunctionExplorer() {
 
         {/* 当前缩放比 (左下角文字) */}
         <div className={cn(
-          'absolute left-20 text-[10px] font-mono text-zinc-500 select-none transition-all duration-300',
+          'absolute left-20 text-[10px] font-mono select-none transition-all duration-300',
+          isDark ? 'text-zinc-500' : 'text-slate-400',
           keyboardOpen ? 'bottom-[423px]' : 'bottom-8'
         )}>
           1 : {scale.toFixed(0)}px

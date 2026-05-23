@@ -1,16 +1,17 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
+import { flushSync } from 'react-dom';
 import { useARStore, AppTab } from '../store';
 import { cn } from '../lib/utils';
 import { 
   PenTool, 
   TrendingUp, 
-  Briefcase, 
+  Box, 
   Compass, 
   Trash2,
   Moon,
   Sun
 } from 'lucide-react';
-import { motion, useMotionValue, useSpring, useTransform } from 'motion/react';
+import { motion, useMotionValue, useSpring, useTransform, AnimatePresence } from 'motion/react';
 
 interface DockItem {
   tab: AppTab | 'clear';
@@ -27,82 +28,180 @@ export function AppleDock() {
   const isToolboxOpen = useARStore(state => state.isToolboxOpen);
   const setToolboxOpen = useARStore(state => state.setToolboxOpen);
 
-  const [theme, setTheme] = React.useState<'dark' | 'light'>('dark');
+  const theme = useARStore(state => state.theme);
+  const setTheme = useARStore(state => state.setTheme);
 
-  React.useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'dark') {
-      root.classList.add('dark');
-    } else {
-      root.classList.remove('dark');
+  const toggleTheme = (event: React.MouseEvent<HTMLButtonElement>) => {
+    const nextTheme = theme === 'dark' ? 'light' : 'dark';
+
+    // @ts-ignore
+    if (!document.startViewTransition) {
+      setTheme(nextTheme);
+      return;
     }
-  }, [theme]);
+
+    const x = event.clientX;
+    const y = event.clientY;
+    const endRadius = Math.hypot(
+      Math.max(x, window.innerWidth - x),
+      Math.max(y, window.innerHeight - y)
+    );
+
+    // @ts-ignore
+    const transition = document.startViewTransition(() => {
+      document.documentElement.classList.add('no-transitions');
+      if (nextTheme === 'dark') {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+      flushSync(() => {
+        setTheme(nextTheme);
+      });
+      // 强制重绘，保证新视图以最终配色进行快照捕获，解决 transition 中间态导致的闪烁
+      document.documentElement.offsetHeight;
+    });
+
+    transition.finished.then(() => {
+      document.documentElement.classList.remove('no-transitions');
+    });
+
+    const isAppearanceTransition = nextTheme === 'light';
+    const pseudoElement = isAppearanceTransition
+      ? '::view-transition-new(root)'
+      : '::view-transition-old(root)';
+
+    const clipPath = isAppearanceTransition
+      ? [
+          `circle(0px at ${x}px ${y}px)`,
+          `circle(${endRadius}px at ${x}px ${y}px)`
+        ]
+      : [
+          `circle(${endRadius}px at ${x}px ${y}px)`,
+          `circle(0px at ${x}px ${y}px)`
+        ];
+
+    transition.ready.then(() => {
+      document.documentElement.animate(
+        {
+          clipPath: clipPath,
+        },
+        {
+          duration: 600,
+          easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+          pseudoElement: pseudoElement,
+          fill: 'forwards',
+        }
+      );
+    });
+  };
 
   const items: DockItem[] = [
     { tab: 'whiteboard', label: '超级白板', icon: <PenTool className="w-6 h-6" /> },
     { tab: 'function', label: '函数探究', icon: <TrendingUp className="w-6 h-6" /> },
-    { tab: 'toolbox', label: '授课工具', icon: <Briefcase className="w-6 h-6" /> },
+    { tab: 'calculator3d', label: '3D计算器', icon: <Box className="w-6 h-6" /> },
     { tab: 'ar_3d', label: '空间AR', icon: <Compass className="w-6 h-6" /> },
   ];
 
   const getIsActive = (tab: AppTab) => {
-    if (tab === 'toolbox') return isToolboxOpen;
     return activeTab === tab;
   };
+
+  const [showARConfirm, setShowARConfirm] = useState(false);
 
   // Mouse positioning for magnifying effect
   const mouseX = useMotionValue(Infinity);
 
   return (
-    <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 select-none pointer-events-auto">
-      {/* Themes & Clear panel */}
-      <div className="flex items-center gap-1.5 p-2 rounded-2xl bg-zinc-900/60 backdrop-blur-2xl border border-white/10 shadow-2xl">
-        <button
-          onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-          className="p-2.5 rounded-xl text-zinc-400 hover:text-white hover:bg-white/10 transition-all duration-200 active:scale-90"
-          title={theme === 'dark' ? '切换亮色主题' : '切换暗色主题'}
+    <>
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 select-none pointer-events-auto">
+        {/* Themes & Clear panel */}
+        <div className="flex items-center gap-1.5 p-2 rounded-2xl bg-white/70 dark:bg-zinc-900/60 backdrop-blur-2xl border border-black/5 dark:border-white/10 shadow-2xl transition-all duration-500">
+          <button
+            onClick={toggleTheme}
+            className="p-2.5 rounded-xl text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white hover:bg-black/5 dark:hover:bg-white/10 transition-all duration-200 active:scale-90 cursor-pointer"
+            title={theme === 'dark' ? '切换亮色主题' : '切换暗色主题'}
+          >
+            {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
+          </button>
+          
+          <button
+            onClick={() => {
+              clearCanvas();
+              clearModelLines();
+            }}
+            className="p-2.5 rounded-xl text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-500/10 dark:hover:bg-red-500/20 transition-all duration-200 active:scale-90 cursor-pointer"
+            title="清空画板内容"
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Main Apple Dock */}
+        <motion.div
+          onMouseMove={(e) => mouseX.set(e.clientX)}
+          onMouseLeave={() => mouseX.set(Infinity)}
+          className="flex items-end gap-3 px-4 py-2.5 rounded-[2rem] bg-white/50 dark:bg-zinc-900/40 backdrop-blur-3xl border border-black/5 dark:border-white/10 shadow-[0_24px_50px_-12px_rgba(0,0,0,0.15)] dark:shadow-[0_24px_50px_-12px_rgba(0,0,0,0.5)] transition-all duration-500"
         >
-          {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-        </button>
-        
-        <button
-          onClick={() => {
-            clearCanvas();
-            clearModelLines();
-          }}
-          className="p-2.5 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-500/20 transition-all duration-200 active:scale-90"
-          title="清空画板内容"
-        >
-          <Trash2 className="w-5 h-5" />
-        </button>
+          {items.map((item) => (
+            <DockIcon
+              key={item.tab}
+              mouseX={mouseX}
+              item={item}
+              active={getIsActive(item.tab as AppTab)}
+              onClick={() => {
+                if (item.tab === 'ar_3d') {
+                  setShowARConfirm(true);
+                } else if (item.tab !== 'clear') {
+                  setActiveTab(item.tab as AppTab);
+                }
+              }}
+            />
+          ))}
+        </motion.div>
       </div>
 
-      {/* Main Apple Dock */}
-      <motion.div
-        onMouseMove={(e) => mouseX.set(e.clientX)}
-        onMouseLeave={() => mouseX.set(Infinity)}
-        className="flex items-end gap-3 px-4 py-2.5 rounded-[2rem] bg-zinc-900/40 backdrop-blur-3xl border border-white/10 shadow-[0_24px_50px_-12px_rgba(0,0,0,0.5)] transition-colors duration-300"
-      >
-        {items.map((item) => (
-          <DockIcon
-            key={item.tab}
-            mouseX={mouseX}
-            item={item}
-            active={getIsActive(item.tab as AppTab)}
-            onClick={() => {
-              if (item.tab === 'toolbox') {
-                if (activeTab === 'ar_3d') {
-                  setActiveTab('whiteboard');
-                }
-                setToolboxOpen(!isToolboxOpen);
-              } else if (item.tab !== 'clear') {
-                setActiveTab(item.tab);
-              }
-            }}
-          />
-        ))}
-      </motion.div>
-    </div>
+      <AnimatePresence>
+        {showARConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              className="w-[360px] p-6 rounded-2xl bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl border border-black/10 dark:border-white/10 text-center shadow-2xl flex flex-col gap-4 text-zinc-800 dark:text-zinc-100"
+            >
+              <div className="flex justify-center text-cyan-500">
+                <Compass className="w-12 h-12 animate-pulse" />
+              </div>
+              <h3 className="text-lg font-bold">进入空间 AR 模块？</h3>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                空间 AR 模块将启用您的摄像头以进行手势识别与 3D 空间教学建模交互。为获得最佳体验，请确保环境光线充足且无遮挡。
+              </p>
+              <div className="flex gap-3 mt-2">
+                <button
+                  onClick={() => setShowARConfirm(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-black/10 dark:border-white/10 text-sm font-medium hover:bg-black/5 dark:hover:bg-white/5 active:scale-95 transition-all cursor-pointer"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    setShowARConfirm(false);
+                    flushSync(() => {
+                      setActiveTab('ar_3d');
+                    });
+                  }}
+                  className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-500 hover:from-cyan-500 hover:to-blue-400 text-white text-sm font-medium shadow-lg shadow-cyan-500/20 active:scale-95 transition-all cursor-pointer"
+                >
+                  确认进入
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
 
@@ -138,10 +237,10 @@ function DockIcon({
       style={{ width, height }}
       onClick={onClick}
       className={cn(
-        "relative group flex items-center justify-center rounded-2xl text-white transition-[background-color,border-color,color,box-shadow] duration-300",
+        "relative group flex items-center justify-center rounded-2xl transition-[background-color,border-color,color,box-shadow] duration-300 cursor-pointer",
         active 
           ? "bg-gradient-to-tr from-cyan-600 to-blue-500 text-white shadow-[0_8px_20px_-4px_rgba(6,182,212,0.5)] border border-cyan-400/20" 
-          : "bg-white/5 text-zinc-400 hover:bg-white/15 hover:text-white border border-white/5"
+          : "bg-black/5 dark:bg-white/5 text-zinc-500 dark:text-zinc-400 hover:bg-black/10 dark:hover:bg-white/15 hover:text-zinc-800 dark:hover:text-white border border-black/5 dark:border-white/5"
       )}
     >
       {/* Icon size reacts to scaling */}

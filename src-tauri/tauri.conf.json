@@ -1,6 +1,6 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-  "productName": "MathAR",
+  "productName": "HoloGrip",
   "version": "0.1.0",
   "identifier": "com.tauri.dev",
   "build": {
@@ -12,11 +12,16 @@
   "app": {
     "windows": [
       {
-        "title": "MathAR - 立体几何可视化",
-        "width": 800,
-        "height": 600,
+        "label": "main",
+        "title": "HoloGrip - AR 与 AI 空间交互终端",
+        "url": "index.html",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 640,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "center": true
       }
     ],
     "security": {

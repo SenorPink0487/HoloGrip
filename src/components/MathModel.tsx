@@ -4,6 +4,16 @@ import { Box, Sphere, Cylinder, Cone, Tetrahedron, Edges, Line, Text, Billboard,
 import * as THREE from 'three';
 import { useARStore, Point3D, CustomModel, MathShape } from '../store';
 import { triangulateFaces } from '../lib/geometry';
+import {
+  ROTATION_TUNING,
+  smoothingAlpha,
+  oneEuroFilter,
+  createOneEuroState,
+  computeArcballDelta,
+  computeRollDelta,
+  computeScaleFactor,
+  adaptiveSensitivity,
+} from '../lib/rotation';
 
 function GlassMaterial() {
   return (
@@ -177,8 +187,10 @@ export function MathModel() {
   const meshRef = useRef<THREE.Mesh>(null);
   const hoverSphereRef = useRef<THREE.Mesh>(null);
   const previewLineRef = useRef<THREE.Line>(null);
-  
   const [isGrabbed, setIsGrabbed] = useState(false);
+  const [isRotating, setIsRotating] = useState(false);
+  const prevRotateCursor = useRef<THREE.Vector2 | null>(null);
+  const dragPlaneZ = useRef<number>(0);
   const [hoveredLineIndex, setHoveredLineIndex] = useState<number | null>(null);
   const [selectedLineIndex, setSelectedLineIndex] = useState<number | null>(null);
   const prevHovered = useRef<number | null>(null);
@@ -187,10 +199,29 @@ export function MathModel() {
   const prevPinchDist = useRef<number | null>(null);
   const prevPinchAngle = useRef<number | null>(null);
   const prevPinchCenter = useRef<THREE.Vector2 | null>(null);
-  const targetRotation = useRef(new THREE.Euler(0, 0, 0, 'XYZ'));
+  const targetQuaternion = useRef(new THREE.Quaternion());
+
+  // 一阶低通滤波后的光标(NDC)，用来吃掉 MediaPipe 的微抖动
+  // 使用 One-Euro Filter：慢动作时强滤波吃抖动，快动作时弱滤波几乎零延迟
+  const smoothLeft = useRef({ x: 0, y: 0, valid: false });
+  const smoothRight = useRef({ x: 0, y: 0, valid: false });
+  // 每个被过滤的标量需要独立的 OneEuroState
+  const leftXFilter = useRef(createOneEuroState());
+  const leftYFilter = useRef(createOneEuroState());
+  const rightXFilter = useRef(createOneEuroState());
+  const rightYFilter = useRef(createOneEuroState());
+
+  // 复用的临时四元数 / 向量，避免每帧 new
+  const tmpQ = useRef(new THREE.Quaternion());
+  const tmpScaleVec = useRef(new THREE.Vector3());
   
   // Ref to prevent multiple click triggers in a single pinch
   const prevRightPinch = useRef(false);
+
+  // 当前正在书写的"3D 表面笔迹" id；松开捏合或离开模型表面后置 null
+  const activeSurfaceStrokeId = useRef<string | null>(null);
+  // 上一次写到模型表面的局部坐标（用来做距离阈值判断，避免点过密）
+  const lastSurfacePoint = useRef<THREE.Vector3 | null>(null);
 
   const { camera, raycaster } = useThree();
   const activeModel = useARStore(state => state.activeModel);
@@ -219,8 +250,8 @@ export function MathModel() {
     if (groupRef.current) {
       // 切换模型时重置位置到正中间，并重置旋转
       groupRef.current.position.set(0, 0, -2);
-      groupRef.current.rotation.set(0, 0, 0);
-      targetRotation.current.set(0, 0, 0);
+      groupRef.current.quaternion.set(0, 0, 0, 1);
+      targetQuaternion.current.set(0, 0, 0, 1);
     }
   }, [activeModel, activeCustomModelId]);
 
@@ -274,9 +305,11 @@ export function MathModel() {
   useFrame((state, delta) => {
     const { leftHand, rightHand, modelScale, activeTab } = useARStore.getState();
 
-    // Scale smoothing
+    // Scale smoothing: 帧率无关的指数逼近(基于半衰期)
     if (groupRef.current) {
-      groupRef.current.scale.lerp(new THREE.Vector3(modelScale, modelScale, modelScale), 0.15);
+      const scaleAlpha = smoothingAlpha(delta, ROTATION_TUNING.scaleHalfLife);
+      tmpScaleVec.current.set(modelScale, modelScale, modelScale);
+      groupRef.current.scale.lerp(tmpScaleVec.current, scaleAlpha);
     }
 
     if (!hasActiveModel) {
@@ -327,8 +360,10 @@ export function MathModel() {
           const dy = vNDC.y - rightHand.cursor.y;
           const distSq = dx*dx + dy*dy;
           
-          // ~0.1 in NDC space corresponds to ~5% of screen width.
-          if (distSq < 0.02 && distSq < closestDistSq) {
+          // NDC 距离阈值：sqrt(0.0035) ≈ 0.06，约 6% 屏幕高度。
+          // 之前的 0.02（~14% 屏高）会让光标隔很远就吸附顶点，
+          // 容易在画其它东西时误命中。
+          if (distSq < 0.0035 && distSq < closestDistSq) {
             closestDistSq = distSq;
             closestVertLocal.copy(vLocal);
             foundVertex = true;
@@ -447,8 +482,8 @@ export function MathModel() {
               distSq = dx*dx + dy*dy;
           }
           
-          // Threshold for line hover (~5% of screen width squared)
-          if (distSq < 0.005 && distSq < closestDistSq) {
+          // 线段命中阈值：sqrt(0.003) ≈ 0.055，~5.5% 屏高
+          if (distSq < 0.003 && distSq < closestDistSq) {
               closestDistSq = distSq;
               currentHovered = i;
           }
@@ -488,97 +523,270 @@ export function MathModel() {
 
     if (bothPinched) {
       setIsGrabbed(false); // Stop dragging if we start manipulating
+      setIsRotating(false); // Stop single hand rotation
+      prevRotateCursor.current = null;
 
-      // 1. SCALING: Screen distance between the two user pinches
-      const dist = leftHand.cursor.distanceTo(rightHand.cursor);
-      
-      // 2. ROTATION Z (Roll): Angle between the two hands
-      const dx = rightHand.cursor.x - leftHand.cursor.x;
-      const dy = rightHand.cursor.y - leftHand.cursor.y;
-      const angle = Math.atan2(dy, dx);
+      // 进入新一轮双手交互(prevPinchCenter 为 null) → 强制重置滤波器到当前光标
+      // 避免从单手交互带过来的旧值导致首帧 EMA 跳一下
+      const isFirstFrame = prevPinchCenter.current === null;
+      if (isFirstFrame) {
+        smoothLeft.current.valid = false;
+        smoothRight.current.valid = false;
+        leftXFilter.current.inited = false;
+        leftYFilter.current.inited = false;
+        rightXFilter.current.inited = false;
+        rightYFilter.current.inited = false;
+      }
 
-      // 3. ROTATION X/Y (Pitch/Yaw): Movement of the center point between hands
-      const centerX = (leftHand.cursor.x + rightHand.cursor.x) / 2;
-      const centerY = (leftHand.cursor.y + rightHand.cursor.y) / 2;
-      const centerVec = new THREE.Vector2(centerX, centerY);
-      
+      // ─── 0. 输入低通滤波：用 One-Euro Filter 吃掉 MediaPipe 抖动 ───
+      // 比 EMA 更优：慢动作时强滤波，快动作时几乎零延迟
+      const minCut = ROTATION_TUNING.oneEuroMinCutoff;
+      const beta = ROTATION_TUNING.oneEuroBeta;
+      const dCut = ROTATION_TUNING.oneEuroDcutoff;
+
+      smoothLeft.current.x = oneEuroFilter(leftXFilter.current, leftHand.cursor.x, delta, minCut, beta, dCut);
+      smoothLeft.current.y = oneEuroFilter(leftYFilter.current, leftHand.cursor.y, delta, minCut, beta, dCut);
+      smoothLeft.current.valid = true;
+      smoothRight.current.x = oneEuroFilter(rightXFilter.current, rightHand.cursor.x, delta, minCut, beta, dCut);
+      smoothRight.current.y = oneEuroFilter(rightYFilter.current, rightHand.cursor.y, delta, minCut, beta, dCut);
+      smoothRight.current.valid = true;
+
+      const lx = smoothLeft.current.x, ly = smoothLeft.current.y;
+      const rx = smoothRight.current.x, ry = smoothRight.current.y;
+
+      // 1. SCALING: 两手在 NDC 下的距离
+      const dist = Math.hypot(rx - lx, ry - ly);
+
+      // 2. ROLL(Z): 两手连线角度
+      const angle = Math.atan2(ry - ly, rx - lx);
+
+      // 3. PITCH/YAW(X/Y): 两手中点位置；用 Arcball 投影 → 与单手语义一致
+      const centerX = (lx + rx) / 2;
+      const centerY = (ly + ry) / 2;
+
       if (prevPinchDist.current !== null && prevPinchAngle.current !== null && prevPinchCenter.current !== null) {
-        // Apply Scaling
-        const deltaDist = dist - prevPinchDist.current;
-        const newScale = Math.max(0.2, Math.min(10.0, modelScale + deltaDist * 5.0));
-        useARStore.getState().setModelScale(newScale);
+        const sens = adaptiveSensitivity(modelScale);
 
-        // Apply Roll (Z) - Twist arms
-        let deltaAngle = angle - prevPinchAngle.current;
-        if (deltaAngle > Math.PI) deltaAngle -= Math.PI * 2;
-        if (deltaAngle < -Math.PI) deltaAngle += Math.PI * 2;
-        targetRotation.current.z -= deltaAngle * 1.5;
+        // ── 缩放：乘性 factor + 死区 + 自适应 ──
+        const factor = computeScaleFactor(prevPinchDist.current, dist);
+        if (factor !== 1.0) {
+          const newScale = Math.max(0.2, Math.min(10.0, modelScale * factor));
+          useARStore.getState().setModelScale(newScale);
+        }
 
-        // Apply Pitch/Yaw (X/Y) - Move hands together across screen
-        const deltaCenter = centerVec.clone().sub(prevPinchCenter.current);
-        targetRotation.current.x += deltaCenter.y * 3.0; // Y movement affects X rotation
-        targetRotation.current.y += deltaCenter.x * 3.0; // X movement affects Y rotation
+        // ── Roll: 帧率无关 + 单帧上限 + 死区 ──
+        if (computeRollDelta(tmpQ.current, prevPinchAngle.current, angle)) {
+          targetQuaternion.current.premultiply(tmpQ.current);
+        }
+
+        // ── Pitch/Yaw: 用 Arcball,把"两手中点"当作虚拟单手 ──
+        // 这样和单手分支语义一致，且自带球面投影、无路径漂移。
+        // 灵敏度按 modelScale 自适应，模型越大手势越柔。
+        if (
+          computeArcballDelta(
+            tmpQ.current,
+            prevPinchCenter.current.x,
+            prevPinchCenter.current.y,
+            centerX,
+            centerY,
+            ROTATION_TUNING.arcballGain * sens * 2.0, // 双手的中点位移幅度通常较小，乘 2 补偿
+          )
+        ) {
+          targetQuaternion.current.premultiply(tmpQ.current);
+        }
       }
       prevPinchDist.current = dist;
       prevPinchAngle.current = angle;
-      prevPinchCenter.current = centerVec;
+      if (prevPinchCenter.current === null) {
+        prevPinchCenter.current = new THREE.Vector2(centerX, centerY);
+      } else {
+        prevPinchCenter.current.set(centerX, centerY);
+      }
     } else {
       prevPinchDist.current = null;
       prevPinchAngle.current = null;
       prevPinchCenter.current = null;
+      // 不在双手交互时，重置滤波器，避免下次进入时的"残留漂移"
+      smoothLeft.current.valid = false;
+      smoothRight.current.valid = false;
+      rightXFilter.current.inited = false;
+      rightYFilter.current.inited = false;
 
       if (leftPinching && !rightPinching) {
         raycaster.setFromCamera(leftHand.cursor, camera);
         
-        if (!isGrabbed) {
+        if (!isGrabbed && !isRotating) {
           // Attempt to grab
+          let hitModel = false;
           if (meshRef.current) {
             const hits = raycaster.intersectObject(meshRef.current);
             if (hits.length > 0) {
               setIsGrabbed(true);
               const hitPoint = hits[0].point;
               grabOffset.current.copy(groupRef.current!.position).sub(hitPoint);
+              // 锁定初始抓取深度的 Z 坐标值，避免基准面漂移导致"橡皮筋"迟滞感
+              dragPlaneZ.current = hitPoint.z;
+              hitModel = true;
             }
+          }
+          if (!hitModel) {
+            // 捏在模型之外的空白区域：启动 Arcball 单手旋转
+            setIsRotating(true);
+            prevRotateCursor.current = leftHand.cursor.clone();
+            // 重置左手滤波器，以光标当前位置为起点
+            smoothLeft.current.x = leftHand.cursor.x;
+            smoothLeft.current.y = leftHand.cursor.y;
+            smoothLeft.current.valid = true;
+            leftXFilter.current.inited = false;
+            leftYFilter.current.inited = false;
+          }
+        } else if (isGrabbed) {
+          // 抓取模型平移：使用锁定的固定 Z 轴深度投影面进行计算
+          raycaster.setFromCamera(leftHand.cursor, camera);
+          dragPlane.setFromNormalAndCoplanarPoint(
+            new THREE.Vector3(0, 0, 1), 
+            new THREE.Vector3(0, 0, dragPlaneZ.current)
+          );
+
+          const targetPos = new THREE.Vector3();
+          raycaster.ray.intersectPlane(dragPlane, targetPos);
+          
+          if (targetPos) {
+            targetPos.add(grabOffset.current);
+            // 帧率无关的 lerp(基于半衰期)
+            const dragAlpha = smoothingAlpha(delta, ROTATION_TUNING.dragHalfLife);
+            groupRef.current!.position.lerp(targetPos, dragAlpha);
+          }
+        } else if (isRotating && prevRotateCursor.current) {
+          // ── 单手 Arcball 空滑旋转 ──
+          // 1) One-Euro 滤波光标，慢动作时强滤波吃抖动，快动作时几乎零延迟
+          const minCut = ROTATION_TUNING.oneEuroMinCutoff;
+          const beta = ROTATION_TUNING.oneEuroBeta;
+          const dCut = ROTATION_TUNING.oneEuroDcutoff;
+          smoothLeft.current.x = oneEuroFilter(leftXFilter.current, leftHand.cursor.x, delta, minCut, beta, dCut);
+          smoothLeft.current.y = oneEuroFilter(leftYFilter.current, leftHand.cursor.y, delta, minCut, beta, dCut);
+
+          // 2) 调用 Arcball 算法，得到与路径无关的旋转
+          const sens = adaptiveSensitivity(modelScale);
+          if (
+            computeArcballDelta(
+              tmpQ.current,
+              prevRotateCursor.current.x,
+              prevRotateCursor.current.y,
+              smoothLeft.current.x,
+              smoothLeft.current.y,
+              ROTATION_TUNING.arcballGain * sens * 2.5, // 单手手势幅度通常较大，灵敏度可以稍高
+            )
+          ) {
+            targetQuaternion.current.premultiply(tmpQ.current);
+          }
+
+          prevRotateCursor.current.set(smoothLeft.current.x, smoothLeft.current.y);
+        }
+      } else {
+        // 松开左手：清空单手交互状态
+        setIsGrabbed(false);
+        setIsRotating(false);
+        prevRotateCursor.current = null;
+        // 同步重置左手滤波器，下次进入交互时重新从当前位置初始化
+        leftXFilter.current.inited = false;
+        leftYFilter.current.inited = false;
+      }
+    }
+
+    // 使用 Slerp 球形插值平滑逼近目标旋转四元数，
+    // 帧率无关：经过 slerpHalfLife 秒，剩余误差衰减一半。
+    if (groupRef.current) {
+      const slerpAlpha = smoothingAlpha(delta, ROTATION_TUNING.slerpHalfLife);
+      groupRef.current.quaternion.slerp(targetQuaternion.current, slerpAlpha);
+    }
+
+    // ====== 写字到 3D 模型表面 ======
+    // 触发条件：
+    //   - 画笔激活、非橡皮擦、非连线模式
+    //   - 右手可见且捏合
+    //   - 不在双手手势 / 左手抓取 / 缩放中
+    //   - raycaster 命中模型
+    // 笔迹存储在模型局部坐标系，由 group 渲染，
+    // 因此模型旋转/平移/缩放时笔迹会跟着走。
+    const penState = useARStore.getState();
+    const canDrawOnSurface =
+      penState.isPenActive &&
+      !penState.isLineDrawingActive &&
+      !penState.isEraser &&
+      rightHand.isVisible &&
+      rightPinching &&
+      !leftPinching &&
+      !bothPinched &&
+      !isGrabbed &&
+      meshRef.current &&
+      groupRef.current;
+
+    if (canDrawOnSurface) {
+      raycaster.setFromCamera(rightHand.cursor, camera);
+      meshRef.current!.updateMatrixWorld();
+      const hits = raycaster.intersectObject(meshRef.current!, false);
+      if (hits.length > 0) {
+        // 命中点是世界坐标，转换到 group 局部坐标系
+        const localPt = groupRef.current!.worldToLocal(hits[0].point.clone());
+
+        // 通知 Canvas2D 暂停 2D 写字，避免同一笔同时落到 2D 画布
+        if (!useARStore.getState().isWritingOnSurface) {
+          useARStore.getState().setWritingOnSurface(true);
+        }
+
+        if (activeSurfaceStrokeId.current === null) {
+          // 起笔：开新 stroke
+          const id = useARStore.getState().beginSurfaceStroke(
+            penState.penColor,
+            penState.penThickness * 2
+          );
+          activeSurfaceStrokeId.current = id;
+          lastSurfacePoint.current = localPt.clone();
+          useARStore.getState().appendSurfaceStrokePoint(id, {
+            x: localPt.x, y: localPt.y, z: localPt.z,
+          });
+        } else {
+          // 续笔：距离上一点足够远才追加（节流，避免点爆炸）
+          const minDistSq = 0.0008; // ≈ 0.028 单位的局部距离
+          const last = lastSurfacePoint.current;
+          if (!last || localPt.distanceToSquared(last) > minDistSq) {
+            useARStore.getState().appendSurfaceStrokePoint(
+              activeSurfaceStrokeId.current,
+              { x: localPt.x, y: localPt.y, z: localPt.z }
+            );
+            lastSurfacePoint.current = localPt.clone();
           }
         }
       } else {
-        // Release
-        setIsGrabbed(false);
+        // 笔在空中：当前 stroke 收尾，下次命中再起一笔
+        if (activeSurfaceStrokeId.current !== null) {
+          useARStore.getState().endSurfaceStroke();
+          activeSurfaceStrokeId.current = null;
+          lastSurfacePoint.current = null;
+        }
+        if (useARStore.getState().isWritingOnSurface) {
+          useARStore.getState().setWritingOnSurface(false);
+        }
       }
-    }
-
-    // Process single hand drag
-    if (isGrabbed && leftPinching && !rightPinching) {
-      raycaster.setFromCamera(leftHand.cursor, camera);
-      const planeZ = groupRef.current!.position.z - grabOffset.current.z;
-      dragPlane.setFromNormalAndCoplanarPoint(
-        new THREE.Vector3(0, 0, 1), 
-        new THREE.Vector3(0, 0, planeZ)
-      );
-
-      const targetPos = new THREE.Vector3();
-      raycaster.ray.intersectPlane(dragPlane, targetPos);
-      
-      if (targetPos) {
-        targetPos.add(grabOffset.current);
-        
-        // Smoothly interpolate position
-        groupRef.current!.position.lerp(targetPos, 0.2);
+    } else if (activeSurfaceStrokeId.current !== null) {
+      // 松开捏合 / 切换工具 / 模型消失：收尾当前 stroke
+      useARStore.getState().endSurfaceStroke();
+      activeSurfaceStrokeId.current = null;
+      lastSurfacePoint.current = null;
+      if (useARStore.getState().isWritingOnSurface) {
+        useARStore.getState().setWritingOnSurface(false);
       }
-
-    }
-
-    // Smoothly apply target rotation to the actual geometry
-    if (groupRef.current) {
-      groupRef.current.rotation.x = THREE.MathUtils.lerp(groupRef.current.rotation.x, targetRotation.current.x, 0.15);
-      groupRef.current.rotation.y = THREE.MathUtils.lerp(groupRef.current.rotation.y, targetRotation.current.y, 0.15);
-      groupRef.current.rotation.z = THREE.MathUtils.lerp(groupRef.current.rotation.z, targetRotation.current.z, 0.15);
+    } else if (useARStore.getState().isWritingOnSurface) {
+      // 不在写表面也不在画 stroke，保险起见清旗
+      useARStore.getState().setWritingOnSurface(false);
     }
   });
 
   const activeTab = useARStore(state => state.activeTab);
   const modelLines = useARStore(state => state.modelLines);
   const activeLineStart = useARStore(state => state.activeLineStart);
+  const surfaceStrokes = useARStore(state => state.surfaceStrokes);
 
   // 获取当前预设模型的顶点标签
   const presetLabels = activeModel ? (PRESET_VERTEX_LABELS[activeModel] || []) : [];
@@ -646,6 +854,21 @@ export function MathModel() {
                 points={[p1, p2]}
                 color={color} 
                 lineWidth={width}
+                depthTest={false}
+              />
+            );
+          })}
+
+          {/* Render handwriting on the 3D surface (in local coordinates) */}
+          {surfaceStrokes.map((stroke) => {
+            if (stroke.points.length < 2) return null;
+            const pts = stroke.points.map(p => new THREE.Vector3(p.x, p.y, p.z));
+            return (
+              <Line
+                key={stroke.id}
+                points={pts}
+                color={stroke.color}
+                lineWidth={stroke.thickness}
                 depthTest={false}
               />
             );

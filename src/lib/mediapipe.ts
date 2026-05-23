@@ -11,7 +11,10 @@ export const initHandLandmarker = async () => {
       delegate: "GPU"
     },
     runningMode: "VIDEO",
-    numHands: 2,
+    // 提高到 4：让 tracker 能"看见"画面里的所有手，
+    // 然后通过主用户锁定逻辑过滤旁观者，避免 numHands=2 时 MediaPipe
+    // 随机挑选 2 只导致控制权在多人间跳变。
+    numHands: 4,
     minHandDetectionConfidence: 0.5,
     minHandPresenceConfidence: 0.5,
     minTrackingConfidence: 0.5,

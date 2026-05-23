@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { cn } from '../lib/utils';
 import { useARStore } from '../store';
+import { motion } from 'motion/react';
 import { 
   Play, 
   RotateCcw, 
@@ -79,6 +80,7 @@ export function GeometryBoard() {
   const setInteractMode = useARStore(state => state.setInteractMode);
   const interactMode = useARStore(state => state.interactMode);
   const isEraser = useARStore(state => state.isEraser);
+  const theme = useARStore(state => state.theme);
 
   // 画板状态
   const [points, setPoints] = useState<Point[]>([]);
@@ -476,53 +478,97 @@ export function GeometryBoard() {
     <div className="w-full h-full bg-transparent select-none relative">
       {/* 顶部中央悬浮工具条 - 在超级白板下显示 */}
       {activeTab === 'whiteboard' && (
-        <div className="absolute top-8 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 rounded-2xl bg-zinc-900/80 backdrop-blur-md border border-white/10 shadow-xl select-none z-[38]">
+        <div className="absolute top-8 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 rounded-2xl bg-white/70 dark:bg-zinc-900/80 backdrop-blur-md border border-black/5 dark:border-white/10 shadow-xl select-none z-[38] transition-all duration-500">
           <button
             onClick={() => { setActiveTool('drag'); setSelectedPointId(null); setInteractMode('interact'); }}
             className={cn(
-              "p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium",
-              activeTool === 'drag' ? "bg-white/10 text-white" : "text-zinc-400 hover:text-white"
+              "relative p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium cursor-pointer",
+              activeTool === 'drag' 
+                ? "text-zinc-900 dark:text-white" 
+                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
             )}
             title="拖拽点移动"
           >
-            <MousePointer className="w-4 h-4" />
-            <span>拖拽</span>
+            {activeTool === 'drag' && (
+              <motion.div
+                layoutId="activeToolPill"
+                className="absolute inset-0 bg-black/5 dark:bg-white/10 rounded-xl"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-2">
+              <MousePointer className="w-4 h-4" />
+              <span>拖拽</span>
+            </span>
           </button>
           
           <button
             onClick={() => { setActiveTool('add_point'); setSelectedPointId(null); setInteractMode('interact'); }}
             className={cn(
-              "p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium",
-              activeTool === 'add_point' ? "bg-white/10 text-white" : "text-zinc-400 hover:text-white"
+              "relative p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium cursor-pointer",
+              activeTool === 'add_point' 
+                ? "text-zinc-900 dark:text-white" 
+                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
             )}
             title="在空白处加点"
           >
-            <Plus className="w-4 h-4" />
-            <span>描点</span>
+            {activeTool === 'add_point' && (
+              <motion.div
+                layoutId="activeToolPill"
+                className="absolute inset-0 bg-black/5 dark:bg-white/10 rounded-xl"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              <span>描点</span>
+            </span>
           </button>
 
           <button
             onClick={() => { setActiveTool('add_segment'); setSelectedPointId(null); setInteractMode('interact'); }}
             className={cn(
-              "p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium",
-              activeTool === 'add_segment' ? "bg-white/10 text-white" : "text-zinc-400 hover:text-white"
+              "relative p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium cursor-pointer",
+              activeTool === 'add_segment' 
+                ? "text-zinc-900 dark:text-white" 
+                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
             )}
             title="点击两点连接成线"
           >
-            <span className="w-4 h-0.5 bg-current rounded-full" />
-            <span>画线段</span>
+            {activeTool === 'add_segment' && (
+              <motion.div
+                layoutId="activeToolPill"
+                className="absolute inset-0 bg-black/5 dark:bg-white/10 rounded-xl"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-2">
+              <span className="w-4 h-0.5 bg-current rounded-full" />
+              <span>画线段</span>
+            </span>
           </button>
 
           <button
             onClick={() => { setActiveTool('add_circle'); setSelectedPointId(null); setInteractMode('interact'); }}
             className={cn(
-              "p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium",
-              activeTool === 'add_circle' ? "bg-white/10 text-white" : "text-zinc-400 hover:text-white"
+              "relative p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium cursor-pointer",
+              activeTool === 'add_circle' 
+                ? "text-zinc-900 dark:text-white" 
+                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
             )}
             title="选择圆心和半径点画圆"
           >
-            <span className="w-3.5 h-3.5 border-2 border-current rounded-full" />
-            <span>画圆</span>
+            {activeTool === 'add_circle' && (
+              <motion.div
+                layoutId="activeToolPill"
+                className="absolute inset-0 bg-black/5 dark:bg-white/10 rounded-xl"
+                transition={{ type: "spring", stiffness: 380, damping: 30 }}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-2">
+              <span className="w-3.5 h-3.5 border-2 border-current rounded-full" />
+              <span>画圆</span>
+            </span>
           </button>
         </div>
       )}
@@ -539,7 +585,7 @@ export function GeometryBoard() {
             onPointerUp={handleSvgPointerUp}
             onPointerLeave={handleSvgPointerLeave}
             className={cn(
-              'w-full h-full bg-zinc-950/40 rounded-[2rem] border border-white/5 shadow-inner',
+              'w-full h-full bg-white/40 dark:bg-zinc-950/40 rounded-[2rem] border border-black/5 dark:border-white/5 shadow-inner transition-colors duration-500',
               // cursor 反馈
               isEraser
                 ? 'cursor-crosshair'
@@ -551,7 +597,7 @@ export function GeometryBoard() {
           >
             <defs>
               <pattern id="geometry-grid" width="40" height="40" patternUnits="userSpaceOnUse">
-                <path d="M 40 0 L 0 0 0 40" fill="none" stroke="rgba(255,255,255,0.02)" strokeWidth="1" />
+                <path d="M 40 0 L 0 0 0 40" fill="none" stroke={theme === 'dark' ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.04)"} strokeWidth="1" />
               </pattern>
               {/* 几何要素发光滤镜 (hover 时) */}
               <filter id="geo-glow-cyan" x="-50%" y="-50%" width="200%" height="200%">
@@ -599,7 +645,7 @@ export function GeometryBoard() {
               const isHover = hoverEntity?.type === 'circle' && hoverEntity.id === circle.id;
               const stroke = isHover
                 ? (isEraser ? '#fb7185' : '#22d3ee')
-                : 'rgba(255, 255, 255, 0.5)';
+                : (theme === 'dark' ? 'rgba(255, 255, 255, 0.5)' : 'rgba(15, 23, 42, 0.5)');
               return (
                 <circle
                   key={circle.id}
@@ -623,7 +669,11 @@ export function GeometryBoard() {
               const isHover = hoverEntity?.type === 'segment' && hoverEntity.id === seg.id;
               const stroke = isHover
                 ? (isEraser ? '#fb7185' : '#22d3ee')
-                : (seg.color || 'rgba(255, 255, 255, 0.75)');
+                : (seg.color
+                    ? (seg.color.includes('rgba(255,255,255') 
+                        ? (theme === 'dark' ? seg.color : seg.color.replace('255,255,255', '15,23,42'))
+                        : seg.color)
+                    : (theme === 'dark' ? 'rgba(255, 255, 255, 0.75)' : 'rgba(15, 23, 42, 0.75)'));
               return (
                 <line
                   key={seg.id}
@@ -648,7 +698,7 @@ export function GeometryBoard() {
               const isPolyMember =
                 hoverEntity?.type === 'polygon' && hoverEntity.pointIds.includes(p.id);
 
-              const baseFill = isSelected ? '#38bdf8' : p.isFree ? '#ffffff' : '#a1a1aa';
+              const baseFill = isSelected ? '#38bdf8' : p.isFree ? (theme === 'dark' ? '#ffffff' : '#09090b') : '#a1a1aa';
               const r = isDragging ? 9 : isHover ? 9 : 7;
               const accent = isEraser ? '#fb7185' : '#22d3ee';
               const stroke = isHover || isPolyMember ? accent : '#0284c7';
@@ -682,8 +732,8 @@ export function GeometryBoard() {
                   <text
                     x={p.x + 10}
                     y={p.y - 10}
-                    fill="#ffffff"
-                    className="text-sm font-semibold select-none filter drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] pointer-events-none"
+                    fill={theme === 'dark' ? '#ffffff' : '#374151'}
+                    className="text-sm font-semibold select-none filter drop-shadow-[0_1px_2px_rgba(0,0,0,0.2)] dark:drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] pointer-events-none transition-colors duration-500"
                   >
                     {p.name}
                   </text>
@@ -697,11 +747,11 @@ export function GeometryBoard() {
         {subModule === 'pythagoras' && (
           <div className="w-full h-full flex items-center justify-center relative select-none">
             {/* 图形卡片 */}
-            <div className="relative w-[450px] h-[450px] bg-zinc-900/60 backdrop-blur-md rounded-3xl border border-white/10 p-8 flex items-center justify-center shadow-2xl overflow-hidden">
+            <div className="relative w-[450px] h-[450px] bg-white/70 dark:bg-zinc-900/60 backdrop-blur-md rounded-3xl border border-black/5 dark:border-white/10 p-8 flex items-center justify-center shadow-2xl overflow-hidden transition-all duration-500 text-zinc-800 dark:text-white">
               <svg width="360" height="360" className="overflow-visible">
                 {/* 定理主体正方形框，边长为 a+b = 150 + 90 = 240 */}
                 {/* a = 150px, b = 90px, c = sqrt(150^2 + 90^2) = 174.9px */}
-                <rect x="60" y="60" width="240" height="240" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="3" strokeDasharray="5,5" />
+                <rect x="60" y="60" width="240" height="240" fill="none" stroke={theme === 'dark' ? "rgba(255,255,255,0.2)" : "rgba(15,23,42,0.15)"} strokeWidth="3" strokeDasharray="5,5" />
                 
                 {/* 四个拼图直角三角形 (a=150, b=90) */}
                 {/* 三角形 1 */}
@@ -710,7 +760,7 @@ export function GeometryBoard() {
                   transition: 'transform 1.5s cubic-bezier(0.25, 1, 0.5, 1)'
                 }}>
                   <polygon points="60,60 210,60 60,150" fill="rgba(59, 130, 246, 0.4)" stroke="#3b82f6" strokeWidth="2" />
-                  <text x="110" y="85" fill="#fff" className="text-xs">c</text>
+                  <text x="110" y="85" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-xs">c</text>
                 </g>
 
                 {/* 三角形 2 */}
@@ -720,7 +770,7 @@ export function GeometryBoard() {
                   transition: 'transform 1.5s cubic-bezier(0.25, 1, 0.5, 1)'
                 }}>
                   <polygon points="210,60 300,60 300,210" fill="rgba(239, 68, 68, 0.4)" stroke="#ef4444" strokeWidth="2" />
-                  <text x="265" y="110" fill="#fff" className="text-xs">c</text>
+                  <text x="265" y="110" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-xs">c</text>
                 </g>
 
                 {/* 三角形 3 */}
@@ -729,7 +779,7 @@ export function GeometryBoard() {
                   transition: 'transform 1.5s cubic-bezier(0.25, 1, 0.5, 1)'
                 }}>
                   <polygon points="300,210 300,300 150,300" fill="rgba(16, 185, 129, 0.4)" stroke="#10b981" strokeWidth="2" />
-                  <text x="235" y="275" fill="#fff" className="text-xs">c</text>
+                  <text x="235" y="275" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-xs">c</text>
                 </g>
 
                 {/* 三角形 4 */}
@@ -739,15 +789,15 @@ export function GeometryBoard() {
                   transition: 'transform 1.5s cubic-bezier(0.25, 1, 0.5, 1)'
                 }}>
                   <polygon points="150,300 60,300 60,150" fill="rgba(245, 158, 11, 0.4)" stroke="#f59e0b" strokeWidth="2" />
-                  <text x="85" y="240" fill="#fff" className="text-xs">c</text>
+                  <text x="85" y="240" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-xs">c</text>
                 </g>
 
                 {/* 中间倾斜的 c^2 正方形的面 */}
                 {pythagorasStep === 0 && (
                   <polygon 
                     points="60,150 210,60 300,210 150,300" 
-                    fill="rgba(255,255,255,0.05)" 
-                    stroke="rgba(255,255,255,0.3)" 
+                    fill={theme === 'dark' ? "rgba(255,255,255,0.05)" : "rgba(15,23,42,0.03)"} 
+                    stroke={theme === 'dark' ? "rgba(255,255,255,0.3)" : "rgba(15,23,42,0.2)"} 
                     strokeWidth="1.5"
                   />
                 )}
@@ -756,33 +806,33 @@ export function GeometryBoard() {
                 {pythagorasStep === 1 && (
                   <>
                     {/* a*a 正方形 (150x150) 在右下 */}
-                    <rect x="150" y="150" width="150" height="150" fill="rgba(255,255,255,0.05)" stroke="#a1a1aa" strokeWidth="2" />
-                    <text x="215" y="235" fill="#fff" className="text-lg font-bold">a²</text>
+                    <rect x="150" y="150" width="150" height="150" fill={theme === 'dark' ? "rgba(255,255,255,0.05)" : "rgba(15,23,42,0.03)"} stroke={theme === 'dark' ? "#a1a1aa" : "#475569"} strokeWidth="2" />
+                    <text x="215" y="235" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-lg font-bold">a²</text>
 
                     {/* b*b 正方形 (90x90) 在左上 */}
-                    <rect x="60" y="60" width="90" height="90" fill="rgba(255,255,255,0.05)" stroke="#a1a1aa" strokeWidth="2" />
-                    <text x="95" y="115" fill="#fff" className="text-base font-bold">b²</text>
+                    <rect x="60" y="60" width="90" height="90" fill={theme === 'dark' ? "rgba(255,255,255,0.05)" : "rgba(15,23,42,0.03)"} stroke={theme === 'dark' ? "#a1a1aa" : "#475569"} strokeWidth="2" />
+                    <text x="95" y="115" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-base font-bold">b²</text>
                   </>
                 )}
 
                 {/* 标识 */}
-                <text x="35" y="110" fill="#a1a1aa" className="text-sm">b</text>
-                <text x="130" y="50" fill="#a1a1aa" className="text-sm">a</text>
+                <text x="35" y="110" fill={theme === 'dark' ? "#a1a1aa" : "#475569"} className="text-sm">b</text>
+                <text x="130" y="50" fill={theme === 'dark' ? "#a1a1aa" : "#475569"} className="text-sm">a</text>
               </svg>
             </div>
 
             {/* 右上角毛玻璃定理说明浮窗 */}
-            <div className="absolute top-8 right-8 w-80 p-5 rounded-2xl bg-zinc-900/75 backdrop-blur-md border border-white/10 shadow-2xl z-[38] select-none text-white">
-              <h3 className="text-sm font-bold text-orange-400 mb-2 font-sans flex items-center gap-1.5">
+            <div className="absolute top-8 right-8 w-80 p-5 rounded-2xl bg-white/75 dark:bg-zinc-900/75 backdrop-blur-md border border-black/5 dark:border-white/10 shadow-2xl z-[38] select-none text-zinc-800 dark:text-white transition-all duration-500">
+              <h3 className="text-sm font-bold text-orange-600 dark:text-orange-400 mb-2 font-sans flex items-center gap-1.5">
                 <span className="w-1.5 h-3.5 bg-orange-500 rounded-full" />
                 勾股定理割补证明
               </h3>
-              <div className="space-y-2 text-xs text-zinc-300 leading-relaxed">
+              <div className="space-y-2 text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
                 <p>直角三角形两直角边平方和等于斜边平方。</p>
-                <p className="font-mono bg-white/5 p-2 rounded-lg text-amber-300 text-center border border-white/5">
+                <p className="font-mono bg-black/5 dark:bg-white/5 p-2 rounded-lg text-orange-600 dark:text-amber-300 text-center border border-black/5 dark:border-white/5">
                   a² + b² = c²
                 </p>
-                <p className="text-[11px] text-zinc-400 leading-normal">
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-normal">
                   {pythagorasStep === 0 
                     ? "通过 4 个直角三角形围成边长为 c 的斜方形，其大正方形总面积 S = c² + 4 × (ab/2)。" 
                     : "重新排列这 4 个直角三角形，将其割补拼凑成两个面积分别为 a² 和 b² 的正方形，大正方形总面积 S = a² + b² + 4 × (ab/2)。"}
@@ -791,10 +841,10 @@ export function GeometryBoard() {
             </div>
 
             {/* 底部悬浮控制栏 */}
-            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 p-2 rounded-2xl bg-zinc-900/80 backdrop-blur-md border border-white/10 shadow-xl flex items-center gap-4 z-[38]">
+            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 p-2 rounded-2xl bg-white/70 dark:bg-zinc-900/80 backdrop-blur-md border border-black/5 dark:border-white/10 shadow-xl flex items-center gap-4 z-[38] transition-all duration-500">
               <button
                 onClick={() => setPythagorasStep(prev => prev === 0 ? 1 : 0)}
-                className="px-6 py-3 rounded-xl bg-cyan-600 text-white hover:bg-cyan-500 transition-all font-medium flex items-center gap-2 shadow-lg active:scale-95 text-sm"
+                className="px-6 py-3 rounded-xl bg-cyan-600 text-white hover:bg-cyan-500 transition-all font-medium flex items-center gap-2 shadow-lg active:scale-95 text-sm cursor-pointer"
               >
                 <Play className="w-4 h-4" />
                 <span>{pythagorasStep === 0 ? "一键割补拼图" : "还原几何关系"}</span>
@@ -807,7 +857,7 @@ export function GeometryBoard() {
         {subModule === 'circle_area' && (
           <div className="w-full h-full flex items-center justify-center relative select-none">
             {/* 主绘图区 */}
-            <div className="relative w-[650px] h-[380px] bg-zinc-900/60 backdrop-blur-md rounded-3xl border border-white/10 p-8 flex flex-col items-center justify-center shadow-2xl overflow-hidden">
+            <div className="relative w-[650px] h-[380px] bg-white/70 dark:bg-zinc-900/60 backdrop-blur-md rounded-3xl border border-black/5 dark:border-white/10 p-8 flex flex-col items-center justify-center shadow-2xl overflow-hidden transition-all duration-500 text-zinc-800 dark:text-white">
               <svg width="600" height="320" className="overflow-visible">
                 {/* 1. 圆形状态 */}
                 {!circleAreaAnimProgress && (
@@ -846,8 +896,8 @@ export function GeometryBoard() {
                         />
                       );
                     })}
-                    <circle cx="0" cy="0" r="100" fill="none" stroke="rgba(255,255,255,0.2)" strokeWidth="1" />
-                    <text x="-25" y="5" fill="#fff" className="text-sm font-bold">半径 r</text>
+                    <circle cx="0" cy="0" r="100" fill="none" stroke={theme === 'dark' ? "rgba(255,255,255,0.2)" : "rgba(15,23,42,0.15)"} strokeWidth="1" />
+                    <text x="-25" y="5" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-sm font-bold">半径 r</text>
                   </g>
                 )}
 
@@ -894,37 +944,37 @@ export function GeometryBoard() {
                     })}
 
                     {/* 长方形辅助框线 */}
-                    <rect x="0" y="0" width="380" height="100" fill="none" stroke="rgba(255,255,255,0.3)" strokeWidth="2" strokeDasharray="6,4" />
+                    <rect x="0" y="0" width="380" height="100" fill="none" stroke={theme === 'dark' ? "rgba(255,255,255,0.3)" : "rgba(15,23,42,0.2)"} strokeWidth="2" strokeDasharray="6,4" />
                     
                     {/* 长宽标示线 */}
                     {/* 高即半径 r */}
-                    <line x1="-20" y1="0" x2="-20" y2="100" stroke="#fff" strokeWidth="1.5" />
-                    <line x1="-25" y1="0" x2="-15" y2="0" stroke="#fff" strokeWidth="1.5" />
-                    <line x1="-25" y1="100" x2="-15" y2="100" stroke="#fff" strokeWidth="1.5" />
-                    <text x="-65" y="55" fill="#fff" className="text-xs font-semibold">宽 = r</text>
+                    <line x1="-20" y1="0" x2="-20" y2="100" stroke={theme === 'dark' ? '#fff' : '#475569'} strokeWidth="1.5" />
+                    <line x1="-25" y1="0" x2="-15" y2="0" stroke={theme === 'dark' ? '#fff' : '#475569'} strokeWidth="1.5" />
+                    <line x1="-25" y1="100" x2="-15" y2="100" stroke={theme === 'dark' ? '#fff' : '#475569'} strokeWidth="1.5" />
+                    <text x="-65" y="55" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-xs font-semibold">宽 = r</text>
 
                     {/* 长即圆周长一半 πr */}
-                    <line x1="0" y1="120" x2="380" y2="120" stroke="#fff" strokeWidth="1.5" />
-                    <line x1="0" y1="115" x2="0" y2="125" stroke="#fff" strokeWidth="1.5" />
-                    <line x1="380" y1="115" x2="380" y2="125" stroke="#fff" strokeWidth="1.5" />
-                    <text x="160" y="145" fill="#fff" className="text-xs font-semibold">长 = ½C = πr</text>
+                    <line x1="0" y1="120" x2="380" y2="120" stroke={theme === 'dark' ? '#fff' : '#475569'} strokeWidth="1.5" />
+                    <line x1="0" y1="115" x2="0" y2="125" stroke={theme === 'dark' ? '#fff' : '#475569'} strokeWidth="1.5" />
+                    <line x1="380" y1="115" x2="380" y2="125" stroke={theme === 'dark' ? '#fff' : '#475569'} strokeWidth="1.5" />
+                    <text x="160" y="145" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-xs font-semibold">长 = ½C = πr</text>
                   </g>
                 )}
               </svg>
             </div>
 
             {/* 右上角毛玻璃定理说明浮窗 */}
-            <div className="absolute top-8 right-8 w-80 p-5 rounded-2xl bg-zinc-900/75 backdrop-blur-md border border-white/10 shadow-2xl z-[38] select-none text-white">
-              <h3 className="text-sm font-bold text-pink-400 mb-2 font-sans flex items-center gap-1.5">
+            <div className="absolute top-8 right-8 w-80 p-5 rounded-2xl bg-white/75 dark:bg-zinc-900/75 backdrop-blur-md border border-black/5 dark:border-white/10 shadow-2xl z-[38] select-none text-zinc-800 dark:text-white transition-all duration-500">
+              <h3 className="text-sm font-bold text-pink-600 dark:text-pink-400 mb-2 font-sans flex items-center gap-1.5">
                 <span className="w-1.5 h-3.5 bg-pink-500 rounded-full" />
                 圆面积拼接极限证明
               </h3>
-              <div className="space-y-2 text-xs text-zinc-300 leading-relaxed">
+              <div className="space-y-2 text-xs text-zinc-600 dark:text-zinc-300 leading-relaxed">
                 <p>将圆等分成若干份，拼成的图形近似于长方形。</p>
-                <p className="font-mono bg-white/5 p-2 rounded-lg text-pink-300 text-center border border-white/5">
+                <p className="font-mono bg-black/5 dark:bg-white/5 p-2 rounded-lg text-pink-600 dark:text-pink-300 text-center border border-black/5 dark:border-white/5">
                   S = πr²
                 </p>
-                <p className="text-[11px] text-zinc-400 leading-normal">
+                <p className="text-[11px] text-zinc-500 dark:text-zinc-400 leading-normal">
                   {circleAreaAnimProgress 
                     ? "此时近似长方形的长为圆周长的一半 (πr)，宽为圆的半径 (r)。其面积 S ≈ 长 × 宽 = πr × r = πr²。" 
                     : `当前圆等分为 ${circleSlicesCount} 份。等分份数越多，拼成的图形越接近长方形，极限状态下即为长方形。`}
@@ -933,9 +983,9 @@ export function GeometryBoard() {
             </div>
 
             {/* 底部悬浮控制栏 */}
-            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 p-3.5 rounded-2xl bg-zinc-900/80 backdrop-blur-md border border-white/10 shadow-xl flex items-center gap-6 z-[38]">
+            <div className="absolute bottom-8 left-1/2 -translate-x-1/2 p-3.5 rounded-2xl bg-white/70 dark:bg-zinc-900/80 backdrop-blur-md border border-black/5 dark:border-white/10 shadow-xl flex items-center gap-6 z-[38] transition-all duration-500">
               <div className="flex items-center gap-3">
-                <span className="text-zinc-400 text-xs">等分数:</span>
+                <span className="text-zinc-500 dark:text-zinc-400 text-xs">等分数:</span>
                 <input
                   type="range"
                   min="8"
@@ -946,14 +996,14 @@ export function GeometryBoard() {
                     setCircleSlicesCount(Number(e.target.value));
                     setCircleAreaAnimProgress(false); // 调节份数时强制回到圆形式
                   }}
-                  className="w-40 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-500"
+                  className="w-40 h-1 bg-black/10 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                 />
-                <span className="text-white text-xs font-bold w-6">{circleSlicesCount}</span>
+                <span className="text-zinc-800 dark:text-white text-xs font-bold w-6">{circleSlicesCount}</span>
               </div>
 
               <button
                 onClick={() => setCircleAreaAnimProgress(prev => !prev)}
-                className="px-6 py-2.5 rounded-xl bg-cyan-600 text-white hover:bg-cyan-500 transition-all font-medium flex items-center gap-2 shadow-lg active:scale-95 text-sm"
+                className="px-6 py-2.5 rounded-xl bg-cyan-600 text-white hover:bg-cyan-500 transition-all font-medium flex items-center gap-2 shadow-lg active:scale-95 text-sm cursor-pointer"
               >
                 <Play className="w-4 h-4" />
                 <span>{circleAreaAnimProgress ? "还原为圆形" : "极限拼接演示"}</span>

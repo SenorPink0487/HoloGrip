@@ -27,6 +27,7 @@ export function FloatingWindow({
 }: FloatingWindowProps) {
   const focusedWindow = useARStore(state => state.focusedWindow);
   const setFocusedWindow = useARStore(state => state.setFocusedWindow);
+  const theme = useARStore(state => state.theme);
   
   const [isMaximized, setIsMaximized] = React.useState(false);
   const [isMinimized, setIsMinimized] = React.useState(false);
@@ -68,12 +69,12 @@ export function FloatingWindow({
         zIndex: isFocused ? 20 : 10,
       }}
       className={cn(
-        "flex flex-col bg-zinc-950/80 backdrop-blur-2xl border shadow-2xl overflow-hidden pointer-events-auto",
+        "flex flex-col bg-white/85 dark:bg-zinc-950/80 backdrop-blur-2xl border shadow-2xl overflow-hidden pointer-events-auto transition-colors duration-500",
         !isDragging && "transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
         isMaximized ? "rounded-none" : "rounded-2xl",
         isFocused 
-          ? "border-cyan-500/30 shadow-[0_20px_50px_rgba(0,0,0,0.6)]" 
-          : "border-white/10 shadow-[0_12px_30px_rgba(0,0,0,0.4)]"
+          ? "border-cyan-300/40 dark:border-cyan-500/30 shadow-[0_20px_50px_rgba(0,0,0,0.15)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.6)]" 
+          : "border-slate-200/80 dark:border-white/10 shadow-[0_12px_30px_rgba(0,0,0,0.06)] dark:shadow-[0_12px_30px_rgba(0,0,0,0.4)]"
       )}
     >
       {/* 标题栏 / 拖拽手柄 */}
@@ -81,7 +82,7 @@ export function FloatingWindow({
         onPointerDown={(e) => !isMaximized && dragControls.start(e)}
         onDoubleClick={() => !isMaximized && setIsMinimized(!isMinimized)}
         className={cn(
-          "window-drag-handle flex items-center justify-between px-4 py-3 bg-zinc-900/40 border-b border-white/5 cursor-grab active:cursor-grabbing select-none"
+          "window-drag-handle flex items-center justify-between px-4 py-3 bg-slate-100/50 dark:bg-zinc-900/40 border-b border-slate-200/80 dark:border-white/5 cursor-grab active:cursor-grabbing select-none transition-colors duration-500"
         )}
       >
         {/* 左侧苹果红绿灯按钮 */}
@@ -120,7 +121,7 @@ export function FloatingWindow({
         </div>
 
         {/* 居中标题 */}
-        <div className="text-xs font-semibold text-zinc-300 tracking-wider">
+        <div className="text-xs font-semibold text-slate-600 dark:text-zinc-300 tracking-wider">
           {title}
         </div>
 

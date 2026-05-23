@@ -1,0 +1,1536 @@
+/* ==========================================
+   DESIGN SYSTEM & VARIABLES
+   ========================================== */
+:root {
+    --bg-color: #030206;
+    --text-primary: #f8fafc;
+    --text-secondary: #94a3b8;
+    --text-muted: #4b5563;
+    
+    /* 霓虹渐变配色 */
+    --accent-cyan: #06b6d4;
+    --accent-purple: #8b5cf6;
+    --accent-pink: #ec4899;
+    --accent-amber: #f59e0b;
+    --accent-emerald: #10b981;
+    
+    /* 玻璃板变量 */
+    --glass-bg: rgba(255, 255, 255, 0.02);
+    --glass-border: rgba(255, 255, 255, 0.05);
+    --glass-shadow: rgba(0, 0, 0, 0.6);
+    --glass-glow: rgba(139, 92, 246, 0.1);
+    
+    /* 字体 */
+    --font-primary: 'Outfit', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* ==========================================
+   RESET & BASE STYLES
+   ========================================== */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    user-select: none;
+    -webkit-user-drag: none;
+}
+
+body {
+    background-color: var(--bg-color);
+    color: var(--text-primary);
+    font-family: var(--font-primary);
+    min-height: 100vh;
+    overflow-x: hidden;
+    position: relative;
+}
+
+/* 自定义滚动条 */
+::-webkit-scrollbar {
+    width: 6px;
+}
+::-webkit-scrollbar-track {
+    background: rgba(0, 0, 0, 0.3);
+}
+::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.25);
+}
+
+/* ==========================================
+   BACKGROUNDS & MOUSE EFFECTS
+   ========================================== */
+.canvas-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.4;
+}
+
+#particle-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+/* 鼠标跟随发光光斑 */
+#cursor-glow {
+    position: fixed;
+    width: 500px;
+    height: 500px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(139, 92, 246, 0.08) 0%, rgba(6, 182, 212, 0.03) 40%, rgba(0, 0, 0, 0) 70%);
+    pointer-events: none;
+    z-index: 1;
+    transform: translate(-50%, -50%);
+    mix-blend-mode: screen;
+}
+
+/* 鼠标跟随粒子拖尾 */
+.cursor-trail-container {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 9999;
+}
+
+.trail-dot {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent-cyan), var(--accent-purple));
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.8), 0 0 20px rgba(139, 92, 246, 0.5);
+    pointer-events: none;
+    transform: translate(-50%, -50%);
+    animation: fadeScale 0.6s cubic-bezier(0.1, 0.8, 0.25, 1) forwards;
+}
+
+@keyframes fadeScale {
+    0% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+    100% { transform: translate(-50%, -50%) scale(0.2); opacity: 0; }
+}
+
+.ambient-glow {
+    position: fixed;
+    width: 65vw;
+    height: 65vw;
+    border-radius: 50%;
+    filter: blur(160px);
+    z-index: 0;
+    pointer-events: none;
+    opacity: 0.12;
+    mix-blend-mode: screen;
+}
+
+.bg-glow-1 {
+    background: radial-gradient(circle, var(--accent-purple) 0%, rgba(0,0,0,0) 70%);
+    top: -20vh;
+    right: -10vw;
+    animation: floatGlow 20s infinite alternate ease-in-out;
+}
+
+.bg-glow-2 {
+    background: radial-gradient(circle, var(--accent-cyan) 0%, rgba(0,0,0,0) 70%);
+    bottom: -20vh;
+    left: -10vw;
+    animation: floatGlow 25s infinite alternate-reverse ease-in-out;
+}
+
+@keyframes floatGlow {
+    0% { transform: translate(0, 0) scale(1); }
+    100% { transform: translate(60px, 60px) scale(1.1); }
+}
+
+/* ==========================================
+   LAYOUT STRUCTURE
+   ========================================== */
+.app-container {
+    position: relative;
+    z-index: 10;
+    max-width: 1300px;
+    margin: 0 auto;
+    padding: 0 40px;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ==========================================
+   APP HEADER & NAVIGATION
+   ========================================== */
+.app-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 100px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    background: linear-gradient(to bottom, rgba(3, 2, 6, 0.8), rgba(3, 2, 6, 0));
+    backdrop-filter: blur(8px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.logo-area {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+
+
+.logo-text {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: 5px;
+    background: linear-gradient(135deg, #ffffff 30%, #a78bfa 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.nav-links {
+    display: flex;
+    gap: 6px;
+}
+
+.nav-btn {
+    background: transparent;
+    border: 1px solid transparent;
+    color: var(--text-secondary);
+    padding: 8px 18px;
+    border-radius: 30px;
+    font-family: var(--font-primary);
+    font-size: 13.5px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.nav-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.02);
+    border-color: rgba(255, 255, 255, 0.04);
+}
+
+.nav-btn.active {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.06);
+    border-color: rgba(255, 255, 255, 0.1);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.08);
+}
+
+.nav-dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: var(--accent-cyan);
+    display: inline-block;
+    opacity: 0;
+    transform: scale(0);
+    transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.nav-btn.active .nav-dot {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 8px var(--accent-cyan);
+}
+
+/* ==========================================
+   CONTENT VIEWPORT
+   ========================================== */
+.content-viewport {
+    flex-grow: 1;
+    position: relative;
+    padding: 40px 0 80px;
+}
+
+.tab-content {
+    position: absolute;
+    width: 100%;
+    opacity: 0;
+    transform: translateY(20px) scale(0.99);
+    pointer-events: none;
+    transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), 
+                transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tab-content.active {
+    position: relative;
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: all;
+}
+
+/* Section Header / Hero */
+.section-hero {
+    margin-bottom: 60px;
+    max-width: 720px;
+}
+
+.badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    color: var(--accent-purple);
+    background: rgba(139, 92, 246, 0.08);
+    padding: 6px 14px;
+    border-radius: 20px;
+    border: 1px solid rgba(139, 92, 246, 0.12);
+    margin-bottom: 18px;
+}
+
+.hero-title {
+    font-size: 46px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1.2;
+    margin-bottom: 20px;
+}
+
+.gradient-text {
+    background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-purple) 50%, var(--accent-pink) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.hero-desc {
+    font-size: 15.5px;
+    color: var(--text-secondary);
+    line-height: 1.75;
+    font-weight: 300;
+}
+
+/* ==========================================
+   GLASS CARDS (COMMON)
+   ========================================== */
+.glass-card {
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 18px;
+    backdrop-filter: blur(18px) saturate(180%);
+    -webkit-backdrop-filter: blur(18px) saturate(180%);
+    box-shadow: 0 10px 40px var(--glass-shadow);
+    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    overflow: hidden;
+}
+
+.glass-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -60%;
+    width: 200%;
+    height: 100%;
+    background: linear-gradient(
+        to right,
+        rgba(255, 255, 255, 0) 0%,
+        rgba(255, 255, 255, 0.04) 50%,
+        rgba(255, 255, 255, 0) 100%
+    );
+    transform: skewX(-20deg);
+    transition: 0.8s ease;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.glass-card:hover::before {
+    left: 130%;
+}
+
+/* ==========================================
+   SECTION 1: CREATIVE CONCEPT (创作理念)
+   ========================================== */
+.concept-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 30px;
+}
+
+.concept-card {
+    padding: 40px;
+}
+
+.concept-card:hover {
+    transform: translateY(-6px);
+    border-color: rgba(6, 182, 212, 0.25);
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.65), 0 0 25px rgba(6, 182, 212, 0.08);
+}
+
+.card-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-cyan);
+    margin-bottom: 24px;
+    transition: all 0.4s ease;
+}
+
+.concept-card:hover .card-icon {
+    background: var(--accent-cyan);
+    color: #000;
+    box-shadow: 0 0 20px rgba(6, 182, 212, 0.4);
+    transform: scale(1.05);
+}
+
+.concept-card h3 {
+    font-size: 19px;
+    font-weight: 600;
+    margin-bottom: 14px;
+    letter-spacing: 0.5px;
+}
+
+.concept-card p {
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    line-height: 1.65;
+    font-weight: 300;
+}
+
+/* ==========================================
+   SECTION 2: TECHNICAL ARCHITECTURE (技术架构)
+   ========================================== */
+.arch-container {
+    display: grid;
+    grid-template-columns: 1.2fr 0.8fr;
+    gap: 30px;
+    align-items: stretch;
+}
+
+.arch-flow-card {
+    padding: 35px;
+}
+
+.arch-card-title {
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    margin-bottom: 24px;
+    position: relative;
+    padding-left: 14px;
+    border-left: 3px solid var(--accent-purple);
+}
+
+.flow-pipeline {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.flow-step {
+    background: rgba(255,255,255,0.01);
+    border: 1px solid rgba(255,255,255,0.03);
+    border-radius: 12px;
+    padding: 16px 20px;
+    display: flex;
+    gap: 20px;
+    align-items: center;
+    transition: all 0.3s ease;
+}
+
+.flow-step:hover {
+    background: rgba(255,255,255,0.03);
+    border-color: rgba(139, 92, 246, 0.2);
+    transform: translateX(4px);
+}
+
+.step-num {
+    font-family: 'Outfit', monospace;
+    font-size: 26px;
+    font-weight: 800;
+    color: transparent;
+    -webkit-text-stroke: 1px rgba(255,255,255,0.25);
+    transition: all 0.3s ease;
+}
+
+.flow-step:hover .step-num {
+    color: var(--accent-purple);
+    -webkit-text-stroke: 1px var(--accent-purple);
+    text-shadow: 0 0 10px rgba(139, 92, 246, 0.4);
+}
+
+.step-details h4 {
+    font-size: 14.5px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    color: var(--text-primary);
+}
+
+.step-details p {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.6;
+    font-weight: 300;
+}
+
+.flow-arrow {
+    display: flex;
+    justify-content: center;
+    height: 16px;
+    opacity: 0.5;
+}
+
+/* Right architecture column */
+.arch-tech-card {
+    padding: 35px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+}
+
+.tech-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.tech-item {
+    background: rgba(0,0,0,0.2);
+    border: 1px solid rgba(255,255,255,0.03);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    transition: all 0.3s ease;
+}
+
+.tech-item:hover {
+    border-color: rgba(6, 182, 212, 0.25);
+    background: rgba(6, 182, 212, 0.02);
+    transform: scale(1.02);
+}
+
+.tech-icon-wrapper {
+    width: 38px;
+    height: 38px;
+    border-radius: 8px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.05);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--accent-cyan);
+}
+
+.tech-item:hover .tech-icon-wrapper {
+    background: var(--accent-cyan);
+    color: #000;
+    box-shadow: 0 0 10px rgba(6, 182, 212, 0.3);
+}
+
+.tech-info-mini h5 {
+    font-size: 12.5px;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+
+.tech-info-mini span {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+.arch-stats {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+    margin-top: 24px;
+    border-top: 1px solid rgba(255,255,255,0.04);
+    padding-top: 24px;
+}
+
+.stat-box {
+    text-align: center;
+    background: rgba(255,255,255,0.01);
+    border: 1px solid rgba(255,255,255,0.02);
+    padding: 12px;
+    border-radius: 12px;
+}
+
+.stat-val {
+    font-family: 'Outfit', sans-serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--accent-cyan);
+    text-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
+}
+
+.stat-lbl {
+    font-size: 10px;
+    color: var(--text-secondary);
+    margin-top: 4px;
+    font-weight: 500;
+}
+
+/* ==========================================
+   SECTION 3: PROJECT MATRIX (作品矩阵)
+   ========================================== */
+.matrix-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+    gap: 30px;
+}
+
+.project-card {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: linear-gradient(135deg, rgba(20, 16, 32, 0.8) 0%, rgba(10, 8, 18, 0.8) 100%);
+    box-shadow: 0 15px 40px rgba(0, 0, 0, 0.6);
+}
+
+/* Card Glow overlays based on projects */
+.project-card[data-project="math"] {
+    border: 1.5px solid rgba(6, 182, 212, 0.12);
+}
+.project-card[data-project="math"]:hover {
+    border-color: rgba(6, 182, 212, 0.4);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.85), 0 0 35px rgba(6, 182, 212, 0.15);
+}
+
+.project-card[data-project="physics"] {
+    border: 1.5px solid rgba(16, 185, 129, 0.12);
+}
+.project-card[data-project="physics"]:hover {
+    border-color: rgba(16, 185, 129, 0.4);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.85), 0 0 35px rgba(16, 185, 129, 0.15);
+}
+
+.project-card[data-project="shadowplay"] {
+    border: 1.5px solid rgba(245, 158, 11, 0.12);
+}
+.project-card[data-project="shadowplay"]:hover {
+    border-color: rgba(245, 158, 11, 0.4);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.85), 0 0 35px rgba(245, 158, 11, 0.15);
+}
+
+.project-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 24px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.project-tag {
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    color: var(--text-muted);
+}
+
+.status-indicator {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 12px;
+}
+
+.status-indicator.active {
+    color: var(--accent-cyan);
+    border-color: rgba(6, 182, 212, 0.25);
+    background: rgba(6, 182, 212, 0.05);
+}
+
+.status-indicator.beta {
+    color: var(--accent-amber);
+    border-color: rgba(245, 158, 11, 0.2);
+    background: rgba(245, 158, 11, 0.05);
+}
+
+.status-indicator .dot {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: currentColor;
+    box-shadow: 0 0 6px currentColor;
+    display: inline-block;
+}
+
+/* Project Visual Elements */
+.project-visual {
+    height: 200px;
+    background: rgba(0, 0, 0, 0.4);
+    position: relative;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-bottom: 1px solid rgba(255,255,255,0.02);
+}
+
+/* Card 1 Visual: 3D Math Crystal Box */
+.css-3d-visual {
+    perspective: 800px;
+}
+
+.scene-3d {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform-style: preserve-3d;
+}
+
+.crystal-polyhedron {
+    width: 60px;
+    height: 60px;
+    position: relative;
+    transform-style: preserve-3d;
+    transform: rotateX(25deg) rotateY(45deg);
+    animation: rotateCrystal 10s infinite linear;
+}
+
+@keyframes rotateCrystal {
+    0% { transform: rotateX(20deg) rotateY(0deg); }
+    100% { transform: rotateX(20deg) rotateY(360deg); }
+}
+
+.crystal-polyhedron .face {
+    position: absolute;
+    width: 60px;
+    height: 60px;
+    background: rgba(6, 182, 212, 0.05);
+    border: 1px solid rgba(6, 182, 212, 0.6);
+    box-shadow: 0 0 15px rgba(6, 182, 212, 0.15), inset 0 0 10px rgba(6, 182, 212, 0.2);
+    backdrop-filter: blur(2px);
+}
+
+.f-front  { transform: rotateY(0deg) translateZ(30px); }
+.f-back   { transform: rotateY(180deg) translateZ(30px); }
+.f-left   { transform: rotateY(-90deg) translateZ(30px); }
+.f-right  { transform: rotateY(90deg) translateZ(30px); }
+.f-top    { transform: rotateX(90deg) translateZ(30px); }
+.f-bottom { transform: rotateX(-90deg) translateZ(30px); }
+
+.grid-floor-3d {
+    position: absolute;
+    bottom: 20px;
+    width: 140px;
+    height: 140px;
+    background-image: 
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size: 14px 14px;
+    transform: rotateX(75deg) translateZ(-40px);
+    pointer-events: none;
+}
+
+/* Card 2 Visual: Physics Gravitational Orbits */
+.physics-visual .physics-sandbox-simulation {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.physics-visual .gravity-well {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--accent-emerald);
+    box-shadow: 0 0 15px var(--accent-emerald), 0 0 25px var(--accent-emerald);
+    position: relative;
+    z-index: 5;
+    animation: pulseWell 2s infinite ease-in-out alternate;
+}
+
+@keyframes pulseWell {
+    0% { transform: scale(0.9); box-shadow: 0 0 10px var(--accent-emerald); }
+    100% { transform: scale(1.2); box-shadow: 0 0 25px var(--accent-emerald); }
+}
+
+.physics-visual .orbiting-planet {
+    position: absolute;
+    border-radius: 50%;
+    background: var(--accent-emerald);
+    box-shadow: 0 0 8px var(--accent-emerald);
+}
+
+.physics-visual .planet-1 {
+    width: 8px;
+    height: 8px;
+    animation: orbitPhysics1 6s infinite linear;
+}
+
+.physics-visual .planet-2 {
+    width: 5px;
+    height: 5px;
+    opacity: 0.85;
+    animation: orbitPhysics2 10s infinite linear;
+}
+
+.physics-visual .field-lines {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    pointer-events: none;
+}
+
+@keyframes orbitPhysics1 {
+    0% { transform: rotate(0deg) translateX(45px) rotate(0deg); }
+    100% { transform: rotate(360deg) translateX(45px) rotate(-360deg); }
+}
+
+@keyframes orbitPhysics2 {
+    0% { transform: rotate(180deg) translateX(72px) rotate(-180deg); }
+    100% { transform: rotate(540deg) translateX(72px) rotate(-540deg); }
+}
+
+/* Card 3 Visual: Shadow Play silhouette & warm lights */
+.shadow-visual .shadowplay-backlight {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: radial-gradient(circle, rgba(245, 158, 11, 0.16) 0%, rgba(3, 2, 6, 0.4) 80%);
+    position: relative;
+    animation: pulseLantern 3s infinite alternate ease-in-out;
+}
+
+@keyframes pulseLantern {
+    0% { opacity: 0.8; filter: saturate(90%); }
+    100% { opacity: 1; filter: saturate(130%); }
+}
+
+.shadow-visual .puppet-silhouette {
+    width: 75px;
+    height: 75px;
+    filter: drop-shadow(0 4px 12px rgba(0, 0, 0, 0.95));
+    animation: swayPuppet 4s infinite ease-in-out alternate;
+    transform-origin: bottom center;
+}
+
+.shadow-visual .svg-puppet {
+    width: 100%;
+    height: 100%;
+}
+
+@keyframes swayPuppet {
+    0% { transform: translateY(-2px) rotate(-3deg); }
+    100% { transform: translateY(3px) rotate(3deg); }
+}
+
+/* Card details styling */
+.project-info {
+    padding: 24px;
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
+}
+
+.project-info h3 {
+    font-size: 17px;
+    font-weight: 600;
+    margin-bottom: 12px;
+}
+
+.project-info p {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.65;
+    margin-bottom: 24px;
+    font-weight: 300;
+    flex-grow: 1;
+}
+
+.project-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid rgba(255,255,255,0.03);
+    padding-top: 16px;
+}
+
+.tech-spec {
+    font-size: 9.5px;
+    font-weight: 700;
+    color: var(--text-muted);
+    letter-spacing: 0.5px;
+}
+
+.action-btn {
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    padding: 6px 14px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.project-card:hover .action-btn {
+    background: var(--text-primary);
+    color: var(--bg-color);
+    border-color: var(--text-primary);
+    box-shadow: 0 5px 15px rgba(255, 255, 255, 0.15);
+}
+
+/* ==========================================
+   SECTION 4: CONTACT US (个人全息名片居中与重构标头)
+   ========================================== */
+.contact-single-wrapper {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    padding: 20px 0;
+    width: 100%;
+}
+
+/* Holographic 3D ID Card */
+.holographic-card {
+    width: 100%;
+    max-width: 480px;
+    min-height: 320px;
+    padding: 40px;
+    background: linear-gradient(135deg, rgba(255, 255, 255, 0.03) 0%, rgba(255, 255, 255, 0.01) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.8);
+    perspective: 1000px;
+    transform-style: preserve-3d;
+    transition: border-color 0.4s ease, box-shadow 0.4s ease;
+}
+
+.holographic-card:hover {
+    border-color: rgba(6, 182, 212, 0.3);
+    box-shadow: 0 35px 80px rgba(0, 0, 0, 0.9), 0 0 30px rgba(6, 182, 212, 0.15);
+}
+
+/* Dynamic shifting glare */
+.card-glare {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 5;
+    background: radial-gradient(
+        circle at var(--glare-x, 50%) var(--glare-y, 50%),
+        rgba(255, 255, 255, 0.08) 0%,
+        rgba(255, 255, 255, 0.02) 20%,
+        transparent 60%
+    );
+    mix-blend-mode: overlay;
+    transition: background 0.1s ease;
+}
+
+.card-inner {
+    transform: translateZ(50px);
+    transform-style: preserve-3d;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    justify-content: space-between;
+}
+
+/* 重构后高级的名片状态标头 */
+.card-header-logo {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 30px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    padding-bottom: 12px;
+}
+
+.card-status-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.card-status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--accent-cyan);
+    box-shadow: 0 0 8px var(--accent-cyan);
+    display: inline-block;
+    animation: pulseCyanDot 2s infinite alternate ease-in-out;
+}
+
+@keyframes pulseCyanDot {
+    0% { opacity: 0.5; transform: scale(0.9); }
+    100% { opacity: 1; transform: scale(1.15); }
+}
+
+.card-status-text, .card-serial {
+    font-family: 'Courier New', monospace;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    color: var(--text-muted);
+}
+
+.card-status-text {
+    color: var(--accent-cyan);
+    text-shadow: 0 0 10px rgba(6, 182, 212, 0.15);
+}
+
+/* Avatar box handles user picture */
+.avatar-glow-box {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: rgba(139, 92, 246, 0.15);
+    border: 1.5px solid var(--accent-purple);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 15px rgba(139, 92, 246, 0.4);
+    overflow: hidden; /* Circular clipping of image */
+}
+
+.profile-avatar {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.profile-names h2 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.profile-names .real-name {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+}
+
+.profile-info-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    margin-bottom: 32px;
+}
+
+.profile-info-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.profile-info-item .info-label {
+    font-size: 9px;
+    color: var(--text-muted);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+.profile-info-item .info-val {
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.profile-info-item .highlight-val {
+    color: var(--accent-cyan);
+    text-shadow: 0 0 10px rgba(6, 182, 212, 0.2);
+}
+
+.card-actions {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+}
+
+.copy-email-btn, .github-link-btn {
+    padding: 12px;
+    border-radius: 10px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.3s ease;
+    text-decoration: none;
+}
+
+.copy-email-btn *, .github-link-btn * {
+    pointer-events: none;
+}
+
+.copy-email-btn {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+}
+
+.copy-email-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(255, 255, 255, 0.15);
+}
+
+.github-link-btn {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    color: var(--text-primary);
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+    cursor: pointer;
+    pointer-events: auto;
+}
+
+.github-link-btn:hover {
+    background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
+    border-color: rgba(6, 182, 212, 0.3);
+    box-shadow: 0 5px 20px rgba(6, 182, 212, 0.15);
+}
+
+/* ==========================================
+   MODAL WINDOW (作品详情壳)
+   ========================================== */
+.modal-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(3, 2, 6, 0.85);
+    backdrop-filter: blur(8px);
+    z-index: 1000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+}
+
+.modal-overlay.active {
+    opacity: 1;
+    pointer-events: all;
+}
+
+.modal-container {
+    width: 90%;
+    max-width: 680px;
+    max-height: 85vh;
+    padding: 40px;
+    transform: scale(0.9) translateY(20px);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.9), 0 0 50px rgba(139, 92, 246, 0.25);
+    border-color: rgba(255, 255, 255, 0.1);
+    overflow-y: auto;
+}
+
+.modal-overlay.active .modal-container {
+    transform: scale(1) translateY(0);
+}
+
+.close-btn {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 24px;
+    cursor: pointer;
+    transition: color 0.3s ease;
+}
+
+.close-btn:hover {
+    color: var(--text-primary);
+}
+
+.modal-title-area {
+    margin-bottom: 24px;
+}
+
+.modal-title-area h2 {
+    font-size: 24px;
+    font-weight: 700;
+    margin-bottom: 8px;
+}
+
+.modal-content-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.modal-demo-box {
+    background: radial-gradient(circle at center, rgba(10, 10, 20, 0.9) 0%, rgba(3, 2, 8, 0.98) 100%);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    border-radius: 14px;
+    height: 190px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    position: relative;
+    overflow: hidden;
+    box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.8), 0 4px 24px rgba(0, 0, 0, 0.4);
+    transition: all 0.4s ease;
+}
+
+/* 高科技背景网格 */
+.modal-demo-box::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-image: 
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size: 20px 20px;
+    background-position: center;
+    opacity: 0.7;
+    pointer-events: none;
+    z-index: 1;
+}
+
+/* 渐变流光扫过效果 (扫描线) */
+.modal-demo-box::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: linear-gradient(
+        to bottom,
+        transparent 0%,
+        rgba(255, 255, 255, 0.02) 10%,
+        rgba(255, 255, 255, 0.05) 50%,
+        rgba(255, 255, 255, 0.02) 90%,
+        transparent 100%
+    );
+    opacity: 0.6;
+    animation: scanLine 6s linear infinite;
+    pointer-events: none;
+    z-index: 2;
+}
+
+@keyframes scanLine {
+    0% { transform: translateY(-50%); }
+    100% { transform: translateY(200%); }
+}
+
+/* 根据项目定制的背景渐变和呼吸发光 */
+.modal-demo-box.math-modal-demo {
+    border-color: rgba(6, 182, 212, 0.25);
+    box-shadow: 
+        inset 0 0 30px rgba(6, 182, 212, 0.12),
+        0 0 25px rgba(6, 182, 212, 0.06),
+        0 4px 24px rgba(0, 0, 0, 0.4);
+    background: 
+        radial-gradient(circle at center, rgba(6, 182, 212, 0.08) 0%, rgba(3, 2, 8, 0.98) 80%),
+        radial-gradient(circle at center, rgba(10, 10, 20, 0.9) 0%, rgba(3, 2, 8, 0.98) 100%);
+}
+
+.modal-demo-box.physics-modal-demo {
+    border-color: rgba(16, 185, 129, 0.25);
+    box-shadow: 
+        inset 0 0 30px rgba(16, 185, 129, 0.12),
+        0 0 25px rgba(16, 185, 129, 0.06),
+        0 4px 24px rgba(0, 0, 0, 0.4);
+    background: 
+        radial-gradient(circle at center, rgba(16, 185, 129, 0.08) 0%, rgba(3, 2, 8, 0.98) 80%),
+        radial-gradient(circle at center, rgba(10, 10, 20, 0.9) 0%, rgba(3, 2, 8, 0.98) 100%);
+}
+
+.modal-demo-box.shadowplay-modal-demo {
+    border-color: rgba(245, 158, 11, 0.25);
+    box-shadow: 
+        inset 0 0 30px rgba(245, 158, 11, 0.12),
+        0 0 25px rgba(245, 158, 11, 0.06),
+        0 4px 24px rgba(0, 0, 0, 0.4);
+    background: 
+        radial-gradient(circle at center, rgba(245, 158, 11, 0.08) 0%, rgba(3, 2, 8, 0.98) 80%),
+        radial-gradient(circle at center, rgba(10, 10, 20, 0.9) 0%, rgba(3, 2, 8, 0.98) 100%);
+}
+
+.modal-loader {
+    width: 32px;
+    height: 32px;
+    border: 2.5px solid rgba(255, 255, 255, 0.04);
+    border-top: 2.5px solid var(--accent-cyan);
+    border-radius: 50%;
+    animation: rotateLogo 1.2s infinite linear;
+    z-index: 3;
+}
+
+.modal-info-text {
+    font-size: 13.5px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    font-weight: 300;
+}
+
+.modal-specs {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    background: rgba(255,255,255,0.01);
+    padding: 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.03);
+}
+
+.spec-item {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.spec-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.spec-value {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.modal-action-bar {
+    margin-top: 30px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 16px;
+}
+
+.modal-action-bar button {
+    padding: 10px 24px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.btn-secondary {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.1);
+    color: var(--text-secondary);
+}
+
+.btn-secondary:hover {
+    color: var(--text-primary);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.btn-primary {
+    background: var(--text-primary);
+    border: 1px solid var(--text-primary);
+    color: var(--bg-color);
+}
+
+.btn-primary:hover {
+    background: transparent;
+    color: var(--text-primary);
+    box-shadow: 0 0 15px rgba(255,255,255,0.15);
+}
+
+/* ==========================================
+   RESPONSIVE LAYOUTS
+   ========================================== */
+@media (max-width: 950px) {
+    .app-container {
+        padding: 0 20px;
+    }
+    
+    .app-header {
+        height: 80px;
+    }
+    
+    .hero-title {
+        font-size: 34px;
+    }
+    
+    .arch-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 600px) {
+    .logo-text {
+        display: none;
+    }
+    
+    .app-header {
+        justify-content: center;
+        flex-direction: column;
+        height: auto;
+        padding: 20px 0;
+        gap: 16px;
+    }
+    
+    .nav-btn {
+        padding: 8px 12px;
+        font-size: 12.5px;
+    }
+    
+    .card-actions {
+        grid-template-columns: 1fr;
+        gap: 10px;
+    }
+}
+
+/* ==========================================
+   MODAL SIMULATION ACTIVE DETAILS (仿真内容增强样式)
+   ========================================== */
+.sim-status-tag {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 0, 0, 0.4);
+    padding: 4px 10px;
+    border-radius: 20px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    z-index: 10;
+    pointer-events: none;
+    text-transform: uppercase;
+}
+
+.sim-status-dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    animation: simDotPulse 1.5s infinite alternate ease-in-out;
+}
+
+@keyframes simDotPulse {
+    0% { opacity: 0.3; transform: scale(0.85); }
+    100% { opacity: 1; transform: scale(1.2); }
+}
+
+/* 几何画板仿真测量线样式 */
+.math-measure-lines text {
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    filter: drop-shadow(0 0 2px rgba(6, 182, 212, 0.5));
+}
+
+.math-measure-lines circle {
+    animation: pointPulse 2s infinite ease-in-out alternate;
+}
+
+@keyframes pointPulse {
+    0% { r: 2.5; opacity: 0.6; }
+    100% { r: 4; opacity: 1; filter: drop-shadow(0 0 6px var(--accent-cyan)); }
+}
+
+/* 物理仿真引力圈扩散 */
+.gravity-ring {
+    transform: translate(-50%, -50%);
+    top: 50%;
+    left: 50%;
+    pointer-events: none;
+}
+
+.gravity-ring:nth-of-type(1) {
+    animation: gravityWave 4s infinite linear;
+}
+
+.gravity-ring:nth-of-type(2) {
+    animation: gravityWave 6s infinite linear reverse;
+}
+
+@keyframes gravityWave {
+    0% { transform: translate(-50%, -50%) rotate(0deg) scale(0.95); opacity: 0.3; }
+    50% { opacity: 0.7; }
+    100% { transform: translate(-50%, -50%) rotate(360deg) scale(1.05); opacity: 0.3; }
+}
+
+/* 物理仿真第三颗星 */
+@keyframes orbitPhysics3 {
+    0% { transform: rotate(270deg) translateX(105px) rotate(-270deg); }
+    100% { transform: rotate(630deg) translateX(105px) rotate(-630deg); }
+}
+
+.physics-visual-demo .planet-3 {
+    position: absolute;
+    border-radius: 50%;
+    width: 5px;
+    height: 5px;
+    animation: orbitPhysics3 14s infinite linear;
+    background: var(--accent-emerald);
+    box-shadow: 0 0 6px var(--accent-emerald);
+}
+
+/* 皮影人偶光圈与追踪网格 */
+.shadowplay-simulation .hand-mesh path {
+    stroke-dasharray: 4;
+    animation: handDash 20s infinite linear;
+}
+
+@keyframes handDash {
+    to { stroke-dashoffset: -100; }
+}
+
+.shadowplay-simulation .hand-mesh circle {
+    animation: jointGlow 1.5s infinite alternate ease-in-out;
+}
+
+.shadowplay-simulation .hand-mesh circle:nth-child(2n) {
+    animation-delay: 0.3s;
+}
+
+.shadowplay-simulation .hand-mesh circle:nth-child(3n) {
+    animation-delay: 0.6s;
+}
+
+@keyframes jointGlow {
+    0% { transform: scale(0.9); opacity: 0.7; }
+    100% { transform: scale(1.25); opacity: 1; filter: drop-shadow(0 0 4px var(--accent-amber)); }
+}
+
+.shadowplay-simulation .shadowplay-backlight {
+    background: radial-gradient(circle, rgba(245, 158, 11, 0.22) 0%, rgba(3, 2, 6, 0.75) 75%);
+    border: 1px solid rgba(245, 158, 11, 0.12);
+    box-shadow: inset 0 0 15px rgba(245, 158, 11, 0.15);
+}

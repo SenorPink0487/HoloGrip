@@ -1,11 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { RotateCw, Move } from 'lucide-react';
+import { useARStore } from '../../store';
 
 interface RulerProps {
   onDrawLine?: (p1: { x: number; y: number }, p2: { x: number; y: number }) => void;
 }
 
 export function Ruler({ onDrawLine }: RulerProps) {
+  const theme = useARStore(state => state.theme);
+  const isDark = theme === 'dark';
   const [pos, setPos] = useState({ x: 250, y: 200 });
   const [angle, setAngle] = useState(0); // 旋转角度 (度)
   const [length, setLength] = useState(400); // 直尺长度 (像素)
@@ -116,10 +119,10 @@ export function Ruler({ onDrawLine }: RulerProps) {
         left: `-${length / 2}px`,
         top: '-32px'
       }}
-      className="absolute cursor-grab active:cursor-grabbing select-none bg-white/10 dark:bg-white/10 border border-white/20 backdrop-blur-xl shadow-2xl rounded-lg flex items-center justify-between pointer-events-auto transition-shadow hover:shadow-[0_15px_35px_rgba(255,255,255,0.1)]"
+      className="absolute cursor-grab active:cursor-grabbing select-none bg-white/70 dark:bg-white/10 border border-slate-350 dark:border-white/20 backdrop-blur-xl shadow-2xl rounded-lg flex items-center justify-between pointer-events-auto transition-shadow transition-colors duration-500 hover:shadow-[0_15px_35px_rgba(0,0,0,0.15)] dark:hover:shadow-[0_15px_35px_rgba(255,255,255,0.1)]"
     >
       {/* 刻度尺刻度 */}
-      <div className="absolute top-0 left-0 w-full h-[22px] border-b border-white/10 overflow-hidden flex justify-between px-2">
+      <div className="absolute top-0 left-0 w-full h-[22px] border-b border-slate-300 dark:border-white/10 overflow-hidden flex justify-between px-2">
         {Array.from({ length: 41 }).map((_, i) => {
           const isMajor = i % 10 === 0;
           const isMedium = i % 5 === 0 && !isMajor;
@@ -129,9 +132,9 @@ export function Ruler({ onDrawLine }: RulerProps) {
 
           return (
             <div key={i} className="flex flex-col items-center justify-start flex-1" style={{ height: '22px' }}>
-              <div className="bg-white/40" style={{ width: '1px', height: h }} />
+              <div className="bg-slate-500/50 dark:bg-white/40" style={{ width: '1px', height: h }} />
               {isMajor && (
-                <span className="text-[8px] text-white/50 scale-90 -mt-1 font-mono">{i / 10}</span>
+                <span className="text-[8px] text-slate-500 dark:text-white/50 scale-90 -mt-1 font-mono">{i / 10}</span>
               )}
             </div>
           );
@@ -143,7 +146,7 @@ export function Ruler({ onDrawLine }: RulerProps) {
         {/* 平移拖拽图标 */}
         <div
           onMouseDown={handleDragStart}
-          className="p-1 rounded bg-white/10 text-white/60 hover:text-white cursor-move hover:bg-white/20 transition-all"
+          className="p-1 rounded bg-slate-200/50 dark:bg-white/10 text-slate-650 dark:text-white/60 hover:text-slate-800 dark:hover:text-white cursor-move hover:bg-slate-200 dark:hover:bg-white/20 transition-all"
           title="拖动平移"
         >
           <Move className="w-4 h-4" />
@@ -161,7 +164,7 @@ export function Ruler({ onDrawLine }: RulerProps) {
         {/* 旋转把手 */}
         <div
           onMouseDown={handleRotateStart}
-          className="p-1 rounded bg-white/10 text-white/60 hover:text-white cursor-alias hover:bg-white/20 transition-all"
+          className="p-1 rounded bg-slate-200/50 dark:bg-white/10 text-slate-650 dark:text-white/60 hover:text-slate-800 dark:hover:text-white cursor-alias hover:bg-slate-200 dark:hover:bg-white/20 transition-all"
           title="按住拖拽旋转"
         >
           <RotateCw className="w-4 h-4" />

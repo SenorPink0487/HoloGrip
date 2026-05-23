@@ -11,10 +11,6 @@ export function Canvas2D() {
   const lastControl = useRef<{ x: number, y: number } | null>(null);
 
   const activeTab = useARStore(state => state.activeTab);
-  const isPenPanelOpen = useARStore(state => state.isPenPanelOpen);
-  const penColor = useARStore(state => state.penColor);
-  const penThickness = useARStore(state => state.penThickness);
-  const isEraser = useARStore(state => state.isEraser);
   const triggerClearCanvas = useARStore(state => state.triggerClearCanvas);
 
   useEffect(() => {
@@ -64,8 +60,34 @@ export function Canvas2D() {
   }, [triggerClearCanvas]);
 
   useEffect(() => {
+    // 笔画结束的容忍窗口：手部暂时消失或松开捏合后，
+    // 在该时间内若重新捏上，则继续上一笔，避免 MediaPipe 偶发丢帧
+    // 把一笔切成好几段。超过该时长才真正结束本笔。
+    const STROKE_GRACE_MS = 150;
+    let endStrokeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleEnd = () => {
+      if (endStrokeTimer !== null) return;
+      endStrokeTimer = setTimeout(() => {
+        isDrawing.current = false;
+        smoothedCursor.current = null;
+        lastControl.current = null;
+        lastMid.current = null;
+        endStrokeTimer = null;
+      }, STROKE_GRACE_MS);
+    };
+
+    const cancelEnd = () => {
+      if (endStrokeTimer !== null) {
+        clearTimeout(endStrokeTimer);
+        endStrokeTimer = null;
+      }
+    };
+
     const unsub = useARStore.subscribe((state) => {
-      if (state.activeTab !== 'ar_3d' || !state.isPenPanelOpen) {
+      // 离开 AR 或画笔功能未激活：立即终止，不进入 grace
+      if (state.activeTab !== 'ar_3d' || !state.isPenActive) {
+        cancelEnd();
         isDrawing.current = false;
         smoothedCursor.current = null;
         lastControl.current = null;
@@ -73,12 +95,15 @@ export function Canvas2D() {
         return;
       }
 
+      // 正在把字写到 3D 模型表面：暂停 2D 写字，避免同一笔同时落在两层
+      if (state.isWritingOnSurface) {
+        if (isDrawing.current) scheduleEnd();
+        return;
+      }
       const rightHand = state.rightHand; // Right hand for drawing
       if (!rightHand.isVisible) {
-        isDrawing.current = false;
-        smoothedCursor.current = null;
-        lastControl.current = null;
-        lastMid.current = null;
+        // 手部短暂丢失：进入 grace，等待是否回来
+        if (isDrawing.current) scheduleEnd();
         return;
       }
 
@@ -87,12 +112,27 @@ export function Canvas2D() {
       const isScalingModel = state.activeModel !== null && state.leftHand.isVisible && state.leftHand.isPinched;
 
       if (rightHand.isPinched && !isScalingModel) {
+        // 重新捏上：取消 grace，继续上一笔
+        cancelEnd();
+
         if (!isDrawing.current) {
           isDrawing.current = true;
           smoothedCursor.current = { x, y };
           lastControl.current = { x, y };
           lastMid.current = { x, y };
         } else if (smoothedCursor.current && lastControl.current && lastMid.current && ctxRef.current) {
+          // 若再次捏合时光标距离上一位置过远，说明是真正的新笔画，
+          // 重置锚点避免把两段连成一条横跨整个画布的直线。
+          const JUMP_THRESHOLD = 120; // 像素
+          const dx = x - smoothedCursor.current.x;
+          const dy = y - smoothedCursor.current.y;
+          if (dx * dx + dy * dy > JUMP_THRESHOLD * JUMP_THRESHOLD) {
+            smoothedCursor.current = { x, y };
+            lastControl.current = { x, y };
+            lastMid.current = { x, y };
+            return;
+          }
+
           // 1. 低通滤波 (EWMA) 平滑原始坐标
           const alpha = 0.35; // 平滑系数，越小越平滑但会有延迟
           smoothedCursor.current.x += (x - smoothedCursor.current.x) * alpha;
@@ -114,10 +154,7 @@ export function Canvas2D() {
           
           ctx.strokeStyle = state.isEraser ? '#000000' : state.penColor;
           
-          // Map pinch distance (0 - 0.05) to a thickness modifier
-          const pinchFactor = Math.max(0, 1 - (rightHand.pinchDistance / 0.05));
-          const dynamicThickness = state.penThickness + (pinchFactor * 10);
-          ctx.lineWidth = dynamicThickness;
+          ctx.lineWidth = state.penThickness * 2;
           
           if (state.isEraser) {
             ctx.globalCompositeOperation = 'destination-out';
@@ -131,22 +168,26 @@ export function Canvas2D() {
           lastMid.current = currentMid;
         }
       } else {
-        isDrawing.current = false;
-        smoothedCursor.current = null;
-        lastControl.current = null;
-        lastMid.current = null;
+        // 松开捏合或左手开始缩放：进入 grace，等待是否短时再次捏合
+        if (isDrawing.current) scheduleEnd();
       }
     });
 
-    return unsub;
+    return () => {
+      cancelEnd();
+      unsub();
+    };
   }, []);
 
   return (
     <canvas 
       ref={canvasRef} 
       className={cn(
+        // 画布始终在 AR 模式下可见，关闭画笔功能后已写的笔迹保留显示。
+        // isPenActive 只控制是否能写新字（在 subscribe 内判断），
+        // 不再控制可见性。
         "absolute inset-0 pointer-events-none z-20 transition-opacity duration-300",
-        activeTab === 'ar_3d' && isPenPanelOpen ? "opacity-100" : "opacity-0"
+        activeTab === 'ar_3d' ? "opacity-100" : "opacity-0"
       )}
     />
   );
