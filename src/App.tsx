@@ -9,6 +9,8 @@ import { MathModel } from './components/MathModel';
 import { Canvas2D } from './components/Canvas2D';
 import type { HandLandmarker } from '@mediapipe/tasks-vision';
 import { Trash2, ZoomIn, ZoomOut, LogOut } from 'lucide-react';
+import { AnimatePresence } from 'motion/react';
+import { CameraPermissionModal } from './components/CameraPermissionModal';
 
 // New Apple Aesthetic tab components
 import { AppleDock } from './components/AppleDock';
@@ -25,6 +27,10 @@ import { TriangleRuler } from './components/tools/TriangleRuler';
 import { Protractor } from './components/tools/Protractor';
 import { Compass } from './components/tools/Compass';
 
+// 桌面端自绘标题栏(仅 Tauri 容器内挂载)
+import { isDesktop } from './lib/platform';
+import { TitleBar } from './components/desktop/TitleBar';
+
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const requestRef = useRef<number>(undefined);
@@ -34,6 +40,9 @@ export default function App() {
   const updateHands = useARStore(state => state.updateHands);
   const setLoaderVisible = useARStore(state => state.setLoaderVisible);
   const theme = useARStore(state => state.theme);
+
+  const [showCameraPermissionModal, setShowCameraPermissionModal] = useState(false);
+  const [cameraTrigger, setCameraTrigger] = useState(0);
 
   useLayoutEffect(() => {
     const root = document.documentElement;
@@ -129,12 +138,57 @@ export default function App() {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: "user", width: 1280, height: 720 }
         });
-        
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-          videoRef.current.addEventListener("loadeddata", () => {
-            initVision();
-          });
+
+        // 1) 异步返回时若 effect 已被卸载（用户已退出 AR / 切 tab），
+        //    立刻释放轨道，避免摄像头被占用且不会误初始化 vision。
+        if (!active || !videoRef.current) {
+          stream.getTracks().forEach(t => t.stop());
+          return;
+        }
+
+        const video = videoRef.current;
+        // 先清掉残留 srcObject，让浏览器把 video 重置为 HAVE_NOTHING，
+        // 否则新 stream 挂上去时 readyState 可能保留上一轮的高位
+        // 而 loadeddata 不再触发，导致 initVision 不被调用 —— 表象正是
+        // "首次进 AR 加载完却没真正进去，第二次才正常"。
+        if (video.srcObject) {
+          (video.srcObject as MediaStream).getTracks().forEach(t => t.stop());
+          video.srcObject = null;
+        }
+        video.srcObject = stream;
+
+        // 2) 用一次性 loadeddata 监听器，避免 React 重挂载导致的多次绑定。
+        //    若 video 已经就绪（readyState >= HAVE_CURRENT_DATA），直接走。
+        //    再额外加一个 800ms 的兜底定时器：极端情况下 WebView2 不发
+        //    loadeddata 也能让 initVision 跑起来，避免 AR 永远卡在 loader。
+        let onReadyFired = false;
+        const fireOnce = () => {
+          if (onReadyFired) return;
+          onReadyFired = true;
+          video.removeEventListener("loadeddata", fireOnce);
+          clearTimeout(fallbackTimer);
+          if (active) initVision();
+        };
+        const fallbackTimer = setTimeout(() => {
+          if (!onReadyFired && active) {
+            console.warn("loadeddata not fired in 800ms, force initVision");
+            fireOnce();
+          }
+        }, 800);
+        if (video.readyState >= 2) {
+          fireOnce();
+        } else {
+          video.addEventListener("loadeddata", fireOnce);
+        }
+
+        // 3) 显式调用 play()。Tauri WebView2 在摄像头权限刚被授予的瞬间，
+        //    autoPlay 偶发不触发，导致首次进入 AR 模块"加载完成却没进入"。
+        //    play() 在用户已点击允许后是被允许的，且若已在播放会安静地 resolve。
+        try {
+          await video.play();
+        } catch (playErr) {
+          // 罕见：tab 切换太快或 srcObject 已被替换；下一次 effect 会重试。
+          console.warn("video.play() failed, will retry on next entry", playErr);
         }
       } catch (err) {
         console.error("Camera access denied or failed", err);
@@ -295,7 +349,13 @@ export default function App() {
       requestRef.current = requestAnimationFrame(detectContinuously);
     }
 
-    setupCamera();
+    const hasPermission = localStorage.getItem('camera_permission_granted') === 'true';
+    if (!hasPermission) {
+      setShowCameraPermissionModal(true);
+      setLoaderVisible(false);
+    } else {
+      setupCamera();
+    }
 
     return () => {
       active = false;
@@ -310,10 +370,35 @@ export default function App() {
       // 清理 tracker 状态
       handTracker.reset();
     };
-  }, [updateHands, setLoaderVisible, activeTab]);
+  }, [updateHands, setLoaderVisible, activeTab, cameraTrigger]);
+
+  const handleConfirmPermission = () => {
+    localStorage.setItem('camera_permission_granted', 'true');
+    setShowCameraPermissionModal(false);
+    setLoaderVisible(true);
+    setCameraTrigger(prev => prev + 1);
+  };
+
+  const handleCancelPermission = () => {
+    setShowCameraPermissionModal(false);
+    useARStore.getState().setActiveTab('whiteboard');
+  };
 
   return (
-    <div className="relative w-full h-screen overflow-hidden bg-[#f4f6fa] dark:bg-[#121316] select-none text-zinc-800 dark:text-white transition-colors duration-500">
+    <div
+      className={[
+        'relative w-full h-screen overflow-hidden bg-[#f4f6fa] dark:bg-[#121316]',
+        'select-none text-zinc-800 dark:text-white transition-colors duration-500',
+        // 始终用 flex column,这样内层 flex-1 在 web 与桌面端都能撑满高度;
+        // 桌面端额外加圆角,让 OS 阴影显出来
+        'flex flex-col',
+        isDesktop ? 'rounded-xl' : '',
+      ].join(' ')}
+    >
+      {/* 桌面端自绘标题栏(web 端 isDesktop=false,不渲染) */}
+      {isDesktop && <TitleBar />}
+
+      <div className="relative flex-1 min-h-0 overflow-hidden">
       {/* 1. 微点底纹背景 (用于白板等 2D 教学模块，不包括函数探究) */}
       {activeTab !== 'ar_3d' && activeTab !== 'function' && (
         <div 
@@ -419,6 +504,17 @@ export default function App() {
           <span className="text-sm font-medium">退出 AR 空间</span>
         </button>
       )}
+      </div>
+
+      <AnimatePresence>
+        {showCameraPermissionModal && (
+          <CameraPermissionModal
+            isOpen={showCameraPermissionModal}
+            onClose={handleCancelPermission}
+            onConfirm={handleConfirmPermission}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

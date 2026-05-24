@@ -3,7 +3,7 @@
  *
  * 主要功能：
  *  - 鼠标光斑/拖尾、粒子背景、Tab 切换、3D 全息名片、复制邮箱等动效
- *  - 作品矩阵 → 详情 Modal → 「启动在线仿真」按钮：
+ *  - 作品矩阵 → 详情 Modal → 「启动在线程序」按钮：
  *      • 在 Tauri 容器内：调用后端命令 `open_simulation_window` 打开新窗口加载 app.html
  *      • 在浏览器（含 vite dev）：直接 location.href 跳到 app.html
  *
@@ -28,7 +28,7 @@ function isTauri() {
 }
 
 /**
- * 启动在线仿真：
+ * 启动在线程序：
  *  - Tauri：调命令开新窗口（不阻塞当前门户）
  *  - 浏览器：location.href 跳转到 app.html
  */
@@ -211,30 +211,23 @@ function initNavigation() {
     navButtons.forEach((btn) => {
         btn.addEventListener('click', () => {
             const target = btn.getAttribute('data-target');
+            const targetSection = document.getElementById(target);
+            if (!targetSection) return;
+
+            // 已经在当前 tab 直接忽略,防止重复触发淡入淡出
+            if (targetSection.classList.contains('active')) return;
+
+            // 纯 class 切换,完全交给 CSS 处理。
+            // 不再操作 display,避免快速切换时定时器把新 tab 误隐藏。
             navButtons.forEach((b) => b.classList.remove('active'));
             btn.classList.add('active');
 
-            sections.forEach((sec) => {
-                if (sec.classList.contains('active')) {
-                    sec.classList.remove('active');
-                    setTimeout(() => {
-                        sec.style.display = 'none';
-                    }, 400);
-                }
-            });
+            sections.forEach((sec) => sec.classList.remove('active'));
+            targetSection.classList.add('active');
 
-            const targetSection = document.getElementById(target);
-            if (targetSection) {
-                targetSection.style.display = 'block';
-                setTimeout(() => {
-                    targetSection.classList.add('active');
-                }, 50);
-            }
+            // 切换 tab 时回到顶部,避免上一个长 tab 留下的滚动残影
+            window.scrollTo({ top: 0, behavior: 'auto' });
         });
-    });
-
-    sections.forEach((sec) => {
-        if (!sec.classList.contains('active')) sec.style.display = 'none';
     });
 }
 
@@ -372,7 +365,7 @@ function initProjectCards() {
     });
 
     function openModal(data) {
-        const launchLabel = data.canLaunch ? '启动在线仿真' : '即将上线';
+        const launchLabel = data.canLaunch ? '启动在线程序' : '即将上线';
         const launchDisabled = data.canLaunch ? '' : 'disabled style="opacity:0.5;cursor:not-allowed;"';
 
         modalContent.innerHTML = `
@@ -506,3 +499,10 @@ function initHoloCard() {
         });
     }
 }
+
+
+/* ==========================================
+   ICP 备案 底部栏
+   ------------------------------------------
+   常驻显示,无 JS 行为,样式见 portal.css。
+   ========================================== */

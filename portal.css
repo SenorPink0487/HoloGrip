@@ -259,20 +259,24 @@ body {
 }
 
 .tab-content {
-    position: absolute;
+    display: none;
     width: 100%;
-    opacity: 0;
-    transform: translateY(20px) scale(0.99);
-    pointer-events: none;
-    transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), 
-                transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .tab-content.active {
-    position: relative;
-    opacity: 1;
-    transform: translateY(0) scale(1);
-    pointer-events: all;
+    display: block;
+    animation: tabFadeIn 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes tabFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(16px) scale(0.995);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
 }
 
 /* Section Header / Hero */
@@ -1533,4 +1537,270 @@ body {
     background: radial-gradient(circle, rgba(245, 158, 11, 0.22) 0%, rgba(3, 2, 6, 0.75) 75%);
     border: 1px solid rgba(245, 158, 11, 0.12);
     box-shadow: inset 0 0 15px rgba(245, 158, 11, 0.15);
+}
+
+
+/* ==========================================
+   UI / FONT SIZE TUNING (V0.1.2)
+   ------------------------------------------
+   集中放大门户字号 ~15%,提升大屏可读性。
+   原有 px 值保留在上方,本段全部为 override。
+   想回滚:整段删除即可恢复原视觉。
+   ========================================== */
+
+/* —— 顶栏 —— */
+.logo-text {
+    font-size: 25px;
+    letter-spacing: 6px;
+}
+.nav-btn {
+    font-size: 15px;
+    padding: 9px 20px;
+}
+.nav-dot {
+    width: 5px;
+    height: 5px;
+}
+
+/* —— Hero / Section Header —— */
+.badge {
+    font-size: 11.5px;
+    letter-spacing: 2.2px;
+    padding: 7px 16px;
+}
+.hero-title {
+    font-size: 52px;
+    margin-bottom: 22px;
+}
+.hero-desc {
+    font-size: 17.5px;
+    line-height: 1.7;
+}
+.section-hero {
+    max-width: 800px;
+    margin-bottom: 64px;
+}
+
+/* —— 创作理念卡片 —— */
+.concept-card {
+    padding: 44px;
+}
+.concept-card h3 {
+    font-size: 21px;
+    margin-bottom: 16px;
+}
+.concept-card p {
+    font-size: 15px;
+    line-height: 1.7;
+}
+.card-icon {
+    width: 52px;
+    height: 52px;
+    margin-bottom: 26px;
+}
+.card-icon svg {
+    width: 26px;
+    height: 26px;
+}
+
+/* —— 技术架构 —— */
+.arch-card-title {
+    font-size: 20px;
+    margin-bottom: 26px;
+}
+.flow-step {
+    padding: 18px 22px;
+}
+.step-num {
+    font-size: 30px;
+}
+.step-details h4 {
+    font-size: 16px;
+    margin-bottom: 5px;
+}
+.step-details p {
+    font-size: 13.5px;
+    line-height: 1.65;
+}
+.tech-info-mini h5 {
+    font-size: 14px;
+}
+.tech-info-mini span {
+    font-size: 11.5px;
+}
+.tech-icon-wrapper {
+    width: 42px;
+    height: 42px;
+}
+.tech-icon-wrapper svg {
+    width: 26px;
+    height: 26px;
+}
+.stat-val {
+    font-size: 22px;
+}
+.stat-lbl {
+    font-size: 11.5px;
+}
+
+/* —— 作品矩阵 —— */
+.project-tag {
+    font-size: 12px;
+}
+.status-indicator {
+    font-size: 10px;
+    padding: 5px 11px;
+}
+.project-info h3 {
+    font-size: 19px;
+    margin-bottom: 14px;
+}
+.project-info p {
+    font-size: 14.5px;
+    line-height: 1.7;
+}
+.tech-spec {
+    font-size: 11px;
+}
+.action-btn {
+    font-size: 12.5px;
+    padding: 7px 16px;
+}
+
+/* —— 联系名片 —— */
+.profile-names h2 {
+    font-size: 25px;
+}
+.profile-names .real-name {
+    font-size: 14px;
+}
+.card-status-text,
+.card-serial {
+    font-size: 11px;
+}
+.profile-info-item .info-label {
+    font-size: 10.5px;
+}
+.profile-info-item .info-val {
+    font-size: 15px;
+}
+.copy-email-btn,
+.github-link-btn {
+    padding: 13px;
+    font-size: 13.5px;
+}
+.copy-email-btn svg,
+.github-link-btn svg {
+    width: 16px;
+    height: 16px;
+}
+
+/* —— Modal(作品详情弹窗) —— */
+.modal-container {
+    max-width: 740px;
+    padding: 44px;
+}
+.modal-title-area h2 {
+    font-size: 27px;
+}
+.modal-info-text {
+    font-size: 15px;
+    line-height: 1.75;
+}
+.spec-label {
+    font-size: 11px;
+}
+.spec-value {
+    font-size: 14.5px;
+}
+.modal-action-bar button {
+    font-size: 14.5px;
+    padding: 12px 28px;
+}
+.close-btn {
+    font-size: 26px;
+}
+
+/* —— 小屏适配:大屏改完后,小屏要相应回调,避免溢出 —— */
+@media (max-width: 950px) {
+    .hero-title {
+        font-size: 38px;
+    }
+    .hero-desc {
+        font-size: 16px;
+    }
+    .concept-card {
+        padding: 32px;
+    }
+}
+
+@media (max-width: 600px) {
+    .nav-btn {
+        font-size: 13.5px;
+        padding: 8px 14px;
+    }
+    .hero-title {
+        font-size: 32px;
+    }
+    .hero-desc {
+        font-size: 15px;
+    }
+    .modal-container {
+        padding: 28px;
+    }
+    .modal-title-area h2 {
+        font-size: 22px;
+    }
+}
+
+
+/* ==========================================
+   ICP 备案 底部栏 (V0.1.3)
+   ------------------------------------------
+   常驻在页面底部居中,纯文字,透明背景。
+   ========================================== */
+
+/* 触发感应区已废弃,保留兼容样式以防残留节点 */
+.icp-trigger { display: none; }
+
+/* 备案栏本体:常驻底部居中 */
+.icp-footer {
+    position: fixed;
+    left: 50%;
+    bottom: 0;
+    transform: translateX(-50%);
+    z-index: 70;
+    pointer-events: auto;
+}
+
+.icp-footer-inner {
+    display: inline-flex;
+    align-items: center;
+    padding: 8px 12px;
+    margin-bottom: 10px;
+    background: transparent;
+    border: none;
+    font-size: 12px;
+    font-weight: 300;
+    letter-spacing: 0.5px;
+    color: var(--text-secondary);
+    white-space: nowrap;
+}
+
+.icp-link {
+    color: var(--text-muted);
+    text-decoration: none;
+}
+
+.icp-link:hover {
+    color: var(--text-primary);
+}
+
+/* 移动端窄屏:稍微缩小并预留安全边距 */
+@media (max-width: 640px) {
+    .icp-footer-inner {
+        font-size: 11px;
+        padding: 7px 14px;
+        margin-bottom: 10px;
+    }
 }

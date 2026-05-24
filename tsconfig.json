@@ -23,5 +23,7 @@
     },
     "allowImportingTsExtensions": true,
     "noEmit": true
-  }
+  },
+  "include": ["src", "scripts", "server", "vite.config.ts", "portal.js"],
+  "exclude": ["node_modules", "dist", "src-tauri"]
 }

@@ -8,7 +8,7 @@ import { defineConfig, loadEnv } from 'vite';
  *  - index.html  → HoloGrip 门户（静态壳，纯原生 JS+CSS）
  *  - app.html    → React 主体（HoloMath 空间几何画板）
  *
- * Tauri 默认装载 index.html（即门户），点击「启动在线仿真」时由 Rust 后端
+ * Tauri 默认装载 index.html（即门户），点击「启动在线程序」时由 Rust 后端
  * 调 WebviewWindowBuilder 打开新窗口加载 app.html；浏览器调试模式下则走
  * `location.href = 'app.html'` 跳转。
  */
