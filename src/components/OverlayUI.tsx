@@ -225,14 +225,14 @@ export function OverlayUI() {
       {/* 2D Hand Tracking Cursor 1 - Left Hand */}
       <div 
         ref={cursor1Ref} 
-        className="fixed top-0 left-0 w-10 h-10 -ml-5 -mt-5 rounded-full border-[3px] shadow-[0_0_15px_rgba(255,255,255,0.4)] pointer-events-none transition-transform duration-75 ease-out z-50 backdrop-blur-sm"
+        className="fixed top-0 left-0 w-10 h-10 -ml-5 -mt-5 rounded-full border-[3px] shadow-[0_0_15px_rgba(255,255,255,0.4)] pointer-events-none z-50 backdrop-blur-sm"
         style={{ opacity: 0 }}
       />
 
       {/* 2D Hand Tracking Cursor 2 - Right Hand */}
       <div 
         ref={cursor2Ref} 
-        className="fixed top-0 left-0 w-8 h-8 -ml-4 -mt-4 rounded-full border-[3px] shadow-[0_0_15px_rgba(255,255,255,0.4)] pointer-events-none transition-transform duration-75 ease-out z-50 backdrop-blur-sm border-blue-400"
+        className="fixed top-0 left-0 w-8 h-8 -ml-4 -mt-4 rounded-full border-[3px] shadow-[0_0_15px_rgba(255,255,255,0.4)] pointer-events-none z-50 backdrop-blur-sm border-blue-400"
         style={{ opacity: 0 }}
       />
 

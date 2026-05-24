@@ -346,11 +346,11 @@ export class HandTracker {
     // 2. 实时估算速度以调节自适应噪声闸门
     const speed = Math.hypot(t.vxEst, t.vyEst);
 
-    // 低速去噪门限：手部微动时，显著扩大测量噪声 R，使卡尔曼滤波输出高度平滑，杜绝传感器的随机抖动
+    // 低速去噪门限：手部微动时，适度扩大测量噪声 R，在保持平滑的同时提高跟手性
     let rScale = 1.0;
     if (speed < 0.15) {
       const factor = (0.15 - speed) / 0.15;
-      rScale = 1.0 + factor * 14.0; // 速度最小时，R 扩大至 15x
+      rScale = 1.0 + factor * 4.0; // 速度最小时，R 最大扩大至 5x，保持灵敏响应
     } else {
       rScale = Math.max(0.5, 1.0 - (speed - 0.15) * 0.3); // 高速挥动时，减小 R 以更灵敏贴合真实点
     }
@@ -427,18 +427,40 @@ export class HandTracker {
     t.prevY = t.lastY;
     t.prevAt = t.lastSeenAt;
 
-    t.lastX = t.xEst;
-    t.lastY = t.yEst;
-    t.vx = t.vxEst;
-    t.vy = t.vyEst;
-    t.ax = t.axEst;
-    t.ay = t.ayEst;
+    // 引入死区过滤（Deadzone）以消除手静止时的高频亚像素颤抖：
+    // 当估算出的速度非常慢，且卡尔曼估计出的新位置与上一帧物理位置在 NDC 空间中差值小于 0.0018 时，
+    // 强制光标静止不动，并将速度和加速度估计清零（强行刹车稳定），防止高频抖动和卡尔曼累计漂移。
+    const ndcDist = Math.hypot(t.xEst - t.lastX, t.yEst - t.lastY);
+    const estSpeed = Math.hypot(t.vxEst, t.vyEst);
+    if (estSpeed < 0.12 && ndcDist < 0.0018) {
+      t.vxEst = 0;
+      t.vyEst = 0;
+      t.axEst = 0;
+      t.vx = 0;
+      t.vy = 0;
+      t.ax = 0;
+      t.ay = 0;
+      // 保持 lastX, lastY, pixelX, pixelY 状态不变，实现完全锁定静止
+    } else {
+      t.lastX = t.xEst;
+      t.lastY = t.yEst;
+      t.vx = t.vxEst;
+      t.vy = t.vyEst;
+      t.ax = t.axEst;
+      t.ay = t.ayEst;
+      t.pixelX = o.pixelX;
+      t.pixelY = o.pixelY;
+    }
     t.lastSeenAt = nowMs;
-
-    t.pixelX = o.pixelX;
-    t.pixelY = o.pixelY;
-    t.isPinched = o.isPinched;
     t.pinchDistance = o.pinchDistance;
+    // 引入施密特触发器（迟滞回线）来稳定捏合判定：
+    // 未捏合时，必须拉近到 0.045 以下才触发捏合；
+    // 已捏合时，必须拉远到 0.06 以上才释放捏合。
+    if (t.isPinched) {
+      t.isPinched = o.pinchDistance < 0.06;
+    } else {
+      t.isPinched = o.pinchDistance < 0.045;
+    }
 
     // handedness 投票
     if (o.rawHandedness) {
@@ -473,19 +495,21 @@ export class HandTracker {
       this.lastPrimarySeenAt > 0 &&
       nowMs - this.lastPrimarySeenAt < TRACKING_TUNING.primaryLockTimeoutMs;
 
-    // 现有的"主用户手"数量
-    const primaryCount = this.tracks.filter((t) => t.isPrimary).length;
+    // 现有的活跃"主用户手"数量（仅统计丢失时间在 coastDurationMs 内的）
+    let activePrimaryCount = this.tracks.filter(
+      (t) => t.isPrimary && nowMs - t.lastSeenAt <= TRACKING_TUNING.coastDurationMs
+    ).length;
 
     for (const o of unmatched) {
       let willBePrimary = false;
 
-      if (!primaryStillLocked && primaryCount === 0) {
+      if (!primaryStillLocked && activePrimaryCount === 0) {
         // 主用户失效或从未存在 → 新手成为主用户
         willBePrimary = true;
-      } else if (primaryCount < 2 && !primaryStillLocked) {
+      } else if (activePrimaryCount < 2 && !primaryStillLocked) {
         // 还在补主用户的另一只手
         willBePrimary = true;
-      } else if (primaryCount < 2 && primaryStillLocked) {
+      } else if (activePrimaryCount < 2 && primaryStillLocked) {
         // 主用户锁着，但只有一只手；新手如果靠近、handedness 不冲突，可以补成主用户的另一只手
         willBePrimary = true;
       } else {
@@ -494,7 +518,10 @@ export class HandTracker {
       }
 
       this.tracks.push(this.createTrack(o, nowMs, willBePrimary));
-      if (willBePrimary) this.lastPrimarySeenAt = nowMs;
+      if (willBePrimary) {
+        this.lastPrimarySeenAt = nowMs;
+        activePrimaryCount++;
+      }
     }
   }
 
@@ -517,6 +544,8 @@ export class HandTracker {
       let rightTaken = false;
       for (const t of this.tracks) {
         if (!t.isPrimary) continue;
+        // 如果该 track 已经超出 coastDurationMs，说明不活跃，不占用侧向槽位
+        if (nowMs - t.lastSeenAt > TRACKING_TUNING.coastDurationMs) continue;
         if (t.userSide === 'left') leftTaken = true;
         if (t.userSide === 'right') rightTaken = true;
       }
@@ -545,7 +574,7 @@ export class HandTracker {
       prevAt: nowMs,
       pixelX: o.pixelX,
       pixelY: o.pixelY,
-      isPinched: o.isPinched,
+      isPinched: o.pinchDistance < 0.045,
       pinchDistance: o.pinchDistance,
       handednessVotes: votes,
       voteIndex: 1,
