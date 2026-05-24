@@ -32,10 +32,10 @@ export const ROTATION_TUNING = {
   maxAngleStepPerFrame: Math.PI / 4, // 45°
   /** 光标位移死区：归一化屏幕坐标(NDC)下，位移小于此值不触发旋转。抑制识别抖动
    *  调大可以让"手不动时模型彻底静止"，代价是慢速精细旋转的最小可感知步长变粗 */
-  cursorDeadzone: 0.0028,
+  cursorDeadzone: 0.0005,
   /** Pinch 距离变化死区(NDC)：小于此值不触发缩放。
    *  注意：值过大会"动半天才动一点"，过小会原地呼吸。0.0008 既能吃抖又能跟手 */
-  pinchDistDeadzone: 0.0008,
+  pinchDistDeadzone: 0.0001,
   /** 缩放灵敏度：deltaDist 乘子。值越大，同样手势缩放变化越大、越跟手。
    *  4.0 = 在 NDC 下两手分开 0.5(屏幕半宽)，scale 大约翻 3 倍，幅度适中不过激 */
   scaleGain: 4.0,

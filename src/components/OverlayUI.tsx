@@ -85,28 +85,32 @@ export function OverlayUI() {
   // 工具按钮 3 态循环：
   //   未激活+面板关 → 激活+面板开 → 激活+面板关 → 未激活+面板关
   // “激活”定义：
-  //   - 画笔：isPenActive=true（即便面板已收起，仍可写字）
+  //   - 绘图：isPenActive=true 或 isLineDrawingActive=true
+  //     （任一开启都视为绘图体系激活；面板内可在画笔/连线/橡皮擦间切换，
+  //      切换不影响 dock 三段式的激活态）
   //   - 模型：已选中某个模型（activeModel 或 activeCustomModelId）
   const handleTabClick = (tab: 'model' | 'pen') => {
     if (tab === 'pen') {
+      // dock 视角下，画笔与连线同属"绘图体系"，共享同一个三段式循环
+      const drawingActive = isPenActive || isLineDrawingActive;
+
       // 同时只展开一个面板：开画笔时关掉模型面板
-      if (!isPenActive && !isPenPanelOpen) {
-        // 第一态 → 第二态：激活并展开
+      if (!drawingActive && !isPenPanelOpen) {
+        // 第一态 → 第二态：默认激活画笔并展开面板，用户可在面板内切到连线
         setPenActive(true);
         setPenPanelOpen(true);
         setModelPanelOpen(false);
-      } else if (isPenActive && isPenPanelOpen) {
-        // 第二态 → 第三态：保持激活，仅收起面板
+      } else if (drawingActive && isPenPanelOpen) {
+        // 第二态 → 第三态：保持当前工具(画笔或连线)激活，仅收起面板
+        setPenPanelOpen(false);
+      } else if (drawingActive && !isPenPanelOpen) {
+        // 第三态 → 第一态：彻底取消绘图体系激活
+        setPenActive(false);
+        setLineDrawingActive(false);
         setPenPanelOpen(false);
       } else {
-        // 第三态（或异常态）→ 第一态：取消激活
-        // 兼顾连线模式：dock 按钮亮起代表"绘图体系开启"，
-        // 因此关闭时也要把连线一并关掉，否则用户会困惑为何按钮仍亮。
-        setPenActive(false);
+        // 边界态：未激活但面板开着 → 收起面板回到第一态
         setPenPanelOpen(false);
-        if (useARStore.getState().isLineDrawingActive) {
-          setLineDrawingActive(false);
-        }
       }
     } else if (tab === 'model') {
       const hasModel = activeModel !== null || activeCustomModelId !== null;

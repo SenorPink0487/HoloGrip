@@ -572,11 +572,13 @@ export function MathModel() {
         if (factor !== 1.0) {
           const newScale = Math.max(0.2, Math.min(10.0, modelScale * factor));
           useARStore.getState().setModelScale(newScale);
+          prevPinchDist.current = dist;
         }
 
         // ── Roll: 帧率无关 + 单帧上限 + 死区 ──
         if (computeRollDelta(tmpQ.current, prevPinchAngle.current, angle)) {
           targetQuaternion.current.premultiply(tmpQ.current);
+          prevPinchAngle.current = angle;
         }
 
         // ── Pitch/Yaw: 用 Arcball,把"两手中点"当作虚拟单手 ──
@@ -593,14 +595,16 @@ export function MathModel() {
           )
         ) {
           targetQuaternion.current.premultiply(tmpQ.current);
+          prevPinchCenter.current.set(centerX, centerY);
         }
-      }
-      prevPinchDist.current = dist;
-      prevPinchAngle.current = angle;
-      if (prevPinchCenter.current === null) {
-        prevPinchCenter.current = new THREE.Vector2(centerX, centerY);
       } else {
-        prevPinchCenter.current.set(centerX, centerY);
+        prevPinchDist.current = dist;
+        prevPinchAngle.current = angle;
+        if (prevPinchCenter.current === null) {
+          prevPinchCenter.current = new THREE.Vector2(centerX, centerY);
+        } else {
+          prevPinchCenter.current.set(centerX, centerY);
+        }
       }
     } else {
       prevPinchDist.current = null;
@@ -679,9 +683,8 @@ export function MathModel() {
             )
           ) {
             targetQuaternion.current.premultiply(tmpQ.current);
+            prevRotateCursor.current.set(smoothLeft.current.x, smoothLeft.current.y);
           }
-
-          prevRotateCursor.current.set(smoothLeft.current.x, smoothLeft.current.y);
         }
       } else {
         // 松开左手：清空单手交互状态

@@ -1,13 +1,15 @@
 import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
 
 export const initHandLandmarker = async () => {
+  // 使用本地化资源（public/mediapipe/），离线可用
+  // wasm 运行时由 vite 自动从 public 目录拷贝到 dist；模型文件 ~8MB
   const vision = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm"
+    `${import.meta.env.BASE_URL}mediapipe/wasm`
   );
-  
+
   const handLandmarker = await HandLandmarker.createFromOptions(vision, {
     baseOptions: {
-      modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+      modelAssetPath: `${import.meta.env.BASE_URL}mediapipe/hand_landmarker.task`,
       delegate: "GPU"
     },
     runningMode: "VIDEO",

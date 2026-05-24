@@ -54,10 +54,16 @@ export interface RawHandObservation {
   /** 食指到拇指距离 */
   pinchDistance: number;
   /**
-   * MediaPipe 报告的 handedness：
-   *   "Left"  = 镜像 selfie 视角下，是用户的"右手"
-   *   "Right" = 镜像 selfie 视角下，是用户的"左手"
+   * MediaPipe 报告的 handedness（用户视角）：
+   *   "Left"  = 用户的左手
+   *   "Right" = 用户的右手
    *   undefined = 该帧未给出
+   *
+   * 注：MediaPipe HandLandmarker 文档中 handedness 假定输入图像已镜像。
+   * 我们这里输入的是原始未镜像视频流，但当前模型版本(hand_landmarker.task
+   * float16/2 配 tasks-vision 0.10.34+)实际给出的就是"用户视角"标签，
+   * 因此直接映射即可，无需再做左右翻转。
+   * 历史上旧版本(float16/1 + 0.10.14)的语义是反的，曾在此处做翻转，已废弃。
    */
   rawHandedness?: 'Left' | 'Right';
   /** 该检测的置信度(0~1) */
@@ -105,7 +111,7 @@ interface TrackedHand {
   /** 捏合状态 */
   isPinched: boolean;
   pinchDistance: number;
-  /** handedness 投票环形缓冲(1 = userRight, -1 = userLeft, 0 = unknown) */
+  /** handedness 投票环形缓冲(1 = userLeft, -1 = userRight, 0 = unknown) */
   handednessVotes: Int8Array;
   voteIndex: number;
   /** 是否是主用户的手(锁定状态) */
@@ -278,7 +284,7 @@ export class HandTracker {
         
         // handedness 左右手防跳锁
         if (o.rawHandedness) {
-          const observedSide: 'left' | 'right' = o.rawHandedness === 'Left' ? 'right' : 'left';
+          const observedSide: 'left' | 'right' = o.rawHandedness === 'Left' ? 'left' : 'right';
           if (observedSide !== t.userSide) {
             // 如果该 Track 的左右手身份确定度很高，则施加极大的惩罚代价，彻底杜绝交错时左右手乱跳
             cost += TRACKING_TUNING.handednessMismatchCost + voteConfidence * 1.5;
@@ -436,13 +442,14 @@ export class HandTracker {
 
     // handedness 投票
     if (o.rawHandedness) {
+      // vote: +1 = userLeft, -1 = userRight
       const vote = o.rawHandedness === 'Left' ? 1 : -1;
       t.handednessVotes[t.voteIndex] = vote;
       t.voteIndex = (t.voteIndex + 1) % t.handednessVotes.length;
       let sum = 0;
       for (let k = 0; k < t.handednessVotes.length; k++) sum += t.handednessVotes[k];
-      if (sum > 1) t.userSide = 'right';
-      else if (sum < -1) t.userSide = 'left';
+      if (sum > 1) t.userSide = 'left';
+      else if (sum < -1) t.userSide = 'right';
     }
 
     if (t.isPrimary) {
@@ -492,12 +499,14 @@ export class HandTracker {
   }
 
   private createTrack(o: RawHandObservation, nowMs: number, isPrimary: boolean): TrackedHand {
-    // 由 rawHandedness 推断初始 userSide
+    // 由 rawHandedness 推断初始 userSide（直接映射，无需翻转）
     let userSide: 'left' | 'right' = 'right';
     if (o.rawHandedness) {
-      userSide = o.rawHandedness === 'Left' ? 'right' : 'left';
+      userSide = o.rawHandedness === 'Left' ? 'left' : 'right';
     } else {
-      // 没有 handedness 时,根据屏幕位置粗略猜：x < 0 是用户左手
+      // 没有 handedness 时,根据屏幕位置粗略猜：
+      // 视频已通过 App.tsx 中的 (1 - x) 做了镜像翻转，
+      // 此处 ndcX 已是用户视角，x < 0(屏幕左半) 自然是用户左手
       userSide = o.ndcX < 0 ? 'left' : 'right';
     }
 
