@@ -1,6 +1,6 @@
 """
 一次性脚本:把项目根目录的 logo.png 处理成圆角图标,
-并生成 Tauri 桌面端所需的全部尺寸 + 给前端 TitleBar 用的 PNG。
+仅生成 Tauri 桌面端所需的全部尺寸。
 
 生成产物:
   src-tauri/icons/
@@ -13,8 +13,9 @@
     StoreLogo.png   (50x50)
     Square30x30Logo.png ~ Square310x310Logo.png  (Windows Store)
 
-  public/
-    app-logo.png    (256x256,TitleBar 使用)
+注:之前还会写一份 public/app-logo.png 供 TitleBar 使用,
+但 TitleBar 现在用文字 + 圆点呈现,源码里没有引用该图,
+打包到 dist 反而成了死资源,因此该步骤已删除。
 
 圆角半径默认取边长 * 18%,接近 macOS Big Sur 与 Windows 11 之间的折中。
 若想换"超圆"风格改 ROUND_RATIO=0.22;想要"方一点"改 0.10。
@@ -30,7 +31,6 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "logo.png"
 ICONS_DIR = ROOT / "src-tauri" / "icons"
-PUBLIC_DIR = ROOT / "public"
 
 ROUND_RATIO = 0.18                 # 圆角半径 = 边长 * ROUND_RATIO
 SUPERSAMPLE = 4                    # 抗锯齿倍率(画大再缩,边缘平滑)
@@ -92,7 +92,6 @@ def main() -> None:
         raise SystemExit(f"找不到源图: {SRC}")
 
     ICONS_DIR.mkdir(parents=True, exist_ok=True)
-    PUBLIC_DIR.mkdir(parents=True, exist_ok=True)
 
     src = Image.open(SRC)
     print(f"读取源图 {SRC.name} {src.size} {src.mode}")
@@ -127,11 +126,6 @@ def main() -> None:
         print(f"  {icns_path.relative_to(ROOT)}")
     except Exception as e:
         print(f"  跳过 icon.icns (Pillow 写 ICNS 失败: {e})")
-
-    # ─── TitleBar 用 ───
-    public_logo = PUBLIC_DIR / "app-logo.png"
-    master.resize((256, 256), Image.LANCZOS).save(public_logo, "PNG", optimize=True)
-    print(f"  {public_logo.relative_to(ROOT)}  (TitleBar 用)")
 
     print("全部完成。")
 

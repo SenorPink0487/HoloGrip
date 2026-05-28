@@ -1,6 +1,8 @@
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { Canvas } from '@react-three/fiber';
-import { Environment, Lightformer } from '@react-three/drei';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { Canvas, useThree } from '@react-three/fiber';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { PMREMGenerator } from 'three';
+import { ARErrorBoundary } from './components/ARErrorBoundary';
 import { initHandLandmarker } from './lib/mediapipe';
 import { handTracker, type RawHandObservation } from './lib/handTracking';
 import { useARStore } from './store';
@@ -31,10 +33,49 @@ import { Compass } from './components/tools/Compass';
 import { isDesktop } from './lib/platform';
 import { TitleBar } from './components/desktop/TitleBar';
 
+/**
+ * 离线环境光：用 three 自带的 RoomEnvironment + PMREM 生成室内环境贴图。
+ *
+ * 替换原来的 `<Environment preset="city" />`。drei 的 preset 会从
+ * `https://raw.githack.com/pmndrs/drei-assets/...` 拉 6 张 cubemap PNG，
+ * 而该域名在中国大陆经常无法访问，请求挂起后 R3F 抛错、
+ * AR 画布树整体卸载，表现为页面白屏。
+ *
+ * RoomEnvironment 完全由 three 内置生成（无网络），
+ * 反射效果接近 `city` preset，在国内网络下可稳定加载。
+ */
+function OfflineRoomEnvironment() {
+  const gl = useThree(state => state.gl);
+  const scene = useThree(state => state.scene);
+  const envTexture = useMemo(() => {
+    const pmrem = new PMREMGenerator(gl);
+    const target = pmrem.fromScene(new RoomEnvironment(), 0.04);
+    pmrem.dispose();
+    return target.texture;
+  }, [gl]);
+
+  useLayoutEffect(() => {
+    const prev = scene.environment;
+    scene.environment = envTexture;
+    return () => {
+      scene.environment = prev;
+      envTexture.dispose();
+    };
+  }, [scene, envTexture]);
+
+  return null;
+}
+
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const requestRef = useRef<number>(undefined);
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
+  // AR 舞台容器引用：所有 AR 相关的画布 / 视频 / 光标都挂在这个 div 内，
+  // 它的 clientWidth/clientHeight 与 getBoundingClientRect 是 AR 坐标系的真值。
+  // 桌面端因为有 36px 自绘标题栏，window.innerHeight ≠ stage.clientHeight，
+  // 必须用此 ref 替换所有原先以 window 为参考的尺寸计算，否则
+  // 打包后画笔落点会相对光标整体下移（开发模式因没有标题栏才看似正常）。
+  const stageRef = useRef<HTMLDivElement>(null);
 
   const activeTab = useARStore(state => state.activeTab);
   const updateHands = useARStore(state => state.updateHands);
@@ -233,23 +274,31 @@ export default function App() {
             const videoX = 1.0 - ((indexF.x + thumb.x) / 2);
             const videoY = (indexF.y + thumb.y) / 2;
 
+            // ⚠️ 必须使用 AR 舞台容器自身的尺寸，而非 window.innerWidth/innerHeight。
+            // 桌面端 Tauri 自绘标题栏占去顶部 36px，二者并不相等。
+            // 用 window 高度算出的 pixelY 会把整套坐标系上移 36px，
+            // 在打包安装后表现为：画笔写出的笔迹相对光标整体偏移。
+            const stage = stageRef.current;
+            const stageW = stage?.clientWidth ?? window.innerWidth;
+            const stageH = stage?.clientHeight ?? window.innerHeight;
+
             const videoAspect = 1280 / 720;
-            const screenAspect = window.innerWidth / window.innerHeight;
-            let renderWidth = window.innerWidth;
-            let renderHeight = window.innerHeight;
+            const screenAspect = stageW / stageH;
+            let renderWidth = stageW;
+            let renderHeight = stageH;
             let offsetX = 0;
             let offsetY = 0;
             if (screenAspect > videoAspect) {
-              renderHeight = window.innerWidth / videoAspect;
-              offsetY = (renderHeight - window.innerHeight) / 2;
+              renderHeight = stageW / videoAspect;
+              offsetY = (renderHeight - stageH) / 2;
             } else {
-              renderWidth = window.innerHeight * videoAspect;
-              offsetX = (renderWidth - window.innerWidth) / 2;
+              renderWidth = stageH * videoAspect;
+              offsetX = (renderWidth - stageW) / 2;
             }
             const pixelX = videoX * renderWidth - offsetX;
             const pixelY = videoY * renderHeight - offsetY;
-            const ndcX = (pixelX / window.innerWidth) * 2 - 1;
-            const ndcY = -(pixelY / window.innerHeight) * 2 + 1;
+            const ndcX = (pixelX / stageW) * 2 - 1;
+            const ndcY = -(pixelY / stageH) * 2 + 1;
 
             const dx = indexF.x - thumb.x;
             const dy = indexF.y - thumb.y;
@@ -309,14 +358,21 @@ export default function App() {
         const rightHandCanClick = !arState.isPenActive && !arState.isLineDrawingActive;
 
         const triggerSyntheticClick = (x: number, y: number) => {
-          const el = document.elementFromPoint(x, y);
+          // pixelX/pixelY 是 AR 舞台局部坐标，但 elementFromPoint / MouseEvent
+          // 的 clientX/Y 都是 viewport 坐标系。桌面端 stage 顶部偏 36px（标题栏），
+          // 必须把舞台相对视口的偏移加回去，否则 AR 顶部一带的按钮永远点不到。
+          const stage = stageRef.current;
+          const rect = stage?.getBoundingClientRect();
+          const cx = (rect?.left ?? 0) + x;
+          const cy = (rect?.top ?? 0) + y;
+          const el = document.elementFromPoint(cx, cy);
           if (!el) return;
           const event = new MouseEvent('click', {
             view: window,
             bubbles: true,
             cancelable: true,
-            clientX: x,
-            clientY: y,
+            clientX: cx,
+            clientY: cy,
           });
           el.dispatchEvent(event);
           if (el.tagName.toLowerCase() === 'button') {
@@ -398,7 +454,7 @@ export default function App() {
       {/* 桌面端自绘标题栏(web 端 isDesktop=false,不渲染) */}
       {isDesktop && <TitleBar />}
 
-      <div className="relative flex-1 min-h-0 overflow-hidden">
+      <div ref={stageRef} className="relative flex-1 min-h-0 overflow-hidden">
       {/* 1. 微点底纹背景 (用于白板等 2D 教学模块，不包括函数探究) */}
       {activeTab !== 'ar_3d' && activeTab !== 'function' && (
         <div 
@@ -465,20 +521,23 @@ export default function App() {
       {/* 4. 原有 3D AR 空间几何 */}
       {activeTab === 'ar_3d' && (
         <div className="absolute inset-0 z-10 pointer-events-none">
-          <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
-            <ambientLight intensity={0.5} />
-            <spotLight position={[10, 10, 10]} intensity={1.5} angle={0.2} penumbra={1} castShadow />
-            <pointLight position={[-10, -10, -10]} intensity={0.5} />
-            
-            {/* Stunning reflections */}
-            <Environment preset="city" background={false}>
-              <Lightformer intensity={4} rotation-x={Math.PI / 2} position={[0, 5, -9]} scale={[10, 10, 1]} />
-              <Lightformer intensity={2} rotation-y={Math.PI / 2} position={[-5, 1, -1]} scale={[10, 2, 1]} />
-              <Lightformer intensity={2} rotation-y={-Math.PI / 2} position={[10, 1, 0]} scale={[10, 2, 1]} />
-            </Environment>
+          <ARErrorBoundary>
+            <Canvas camera={{ position: [0, 0, 5], fov: 45 }}>
+              <ambientLight intensity={0.5} />
+              <spotLight position={[10, 10, 10]} intensity={1.5} angle={0.2} penumbra={1} castShadow />
+              <pointLight position={[-10, -10, -10]} intensity={0.5} />
 
-            <MathModel />
-          </Canvas>
+              {/* 离线环境贴图：替换原 <Environment preset="city" />，避免国内
+                  网络访问 raw.githack.com 失败导致 AR 模块白屏。
+                  注意：原先内嵌于 <Environment> 中的 <Lightformer /> 是
+                  专为 EnvironmentPortal 提供"烤光"用的白色面片，脱离宿主后
+                  会直接渲染在主场景里变成白色矩形，所以这里一并删除。
+                  RoomEnvironment 自带的间接光已足够撑起金属/玻璃材质的反射感。 */}
+              <OfflineRoomEnvironment />
+
+              <MathModel />
+            </Canvas>
+          </ARErrorBoundary>
         </div>
       )}
  

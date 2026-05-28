@@ -16,8 +16,15 @@ export function Canvas2D() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      // ⚠️ 用 canvas 自身真实渲染尺寸（即父容器的 clientWidth/Height），
+      // 而非 window.innerWidth/innerHeight。后者在 Tauri 桌面端比舞台多出
+      // 36px 标题栏高度，会导致位图被纵向拉伸压缩，写出的笔迹相对光标
+      // 偏移（这正是打包后画笔位置错位的根因）。
+      const parent = canvas.parentElement;
+      const w = parent?.clientWidth || canvas.clientWidth || window.innerWidth;
+      const h = parent?.clientHeight || canvas.clientHeight || window.innerHeight;
+      canvas.width = w;
+      canvas.height = h;
       ctxRef.current = canvas.getContext('2d');
       if (ctxRef.current) {
         ctxRef.current.lineCap = 'round';
@@ -27,6 +34,9 @@ export function Canvas2D() {
 
     const handleResize = () => {
       if (!canvas) return;
+      const parent = canvas.parentElement;
+      const w = parent?.clientWidth || canvas.clientWidth || window.innerWidth;
+      const h = parent?.clientHeight || canvas.clientHeight || window.innerHeight;
       // Save content
       let tempCanvas: HTMLCanvasElement | null = null;
       if (canvas.width > 0 && canvas.height > 0) {
@@ -36,8 +46,8 @@ export function Canvas2D() {
         tempCanvas.getContext('2d')?.drawImage(canvas, 0, 0);
       }
 
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      canvas.width = w;
+      canvas.height = h;
       
       const ctx = canvas.getContext('2d');
       if (ctx) {

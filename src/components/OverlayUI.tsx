@@ -223,16 +223,19 @@ export function OverlayUI() {
       />
 
       {/* 2D Hand Tracking Cursor 1 - Left Hand */}
+      {/* 用 absolute 而非 fixed：AR 舞台 div 自身已建立定位上下文，
+          桌面端有 36px 标题栏，fixed 会让光标跑到 viewport 顶部，
+          与画布（舞台局部坐标系）落点失配 */}
       <div 
         ref={cursor1Ref} 
-        className="fixed top-0 left-0 w-10 h-10 -ml-5 -mt-5 rounded-full border-[3px] shadow-[0_0_15px_rgba(255,255,255,0.4)] pointer-events-none z-50 backdrop-blur-sm"
+        className="absolute top-0 left-0 w-10 h-10 -ml-5 -mt-5 rounded-full border-[3px] shadow-[0_0_15px_rgba(255,255,255,0.4)] pointer-events-none z-50 backdrop-blur-sm"
         style={{ opacity: 0 }}
       />
 
       {/* 2D Hand Tracking Cursor 2 - Right Hand */}
       <div 
         ref={cursor2Ref} 
-        className="fixed top-0 left-0 w-8 h-8 -ml-4 -mt-4 rounded-full border-[3px] shadow-[0_0_15px_rgba(255,255,255,0.4)] pointer-events-none z-50 backdrop-blur-sm border-blue-400"
+        className="absolute top-0 left-0 w-8 h-8 -ml-4 -mt-4 rounded-full border-[3px] shadow-[0_0_15px_rgba(255,255,255,0.4)] pointer-events-none z-50 backdrop-blur-sm border-blue-400"
         style={{ opacity: 0 }}
       />
 
@@ -244,9 +247,8 @@ export function OverlayUI() {
               <div className="absolute inset-0 border-4 border-white/20 rounded-full animate-spin border-t-white duration-1000" />
             </div>
             <h2 className="text-2xl font-light text-white font-sans tracking-wide">
-              Initializing Spatial Environment
+              正在初始化空间环境
             </h2>
-            <p className="text-white/60 text-sm">Please allow camera access and stand clearly visible.</p>
           </div>
         </div>
       )}

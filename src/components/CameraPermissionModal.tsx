@@ -16,13 +16,19 @@ export function CameraPermissionModal({
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-      {/* Background Mask */}
+      {/* Background Mask
+          注意：故意不绑定 onClick={onClose}。
+          在 AppleDock 的"进入空间 AR"确认弹窗刚关闭、本弹窗紧接着出现的瞬间，
+          用户首次安装后偶发的微小双击 / 长按余响会落到新弹窗的遮罩上，
+          导致 onClose -> handleCancelPermission 把 activeTab 退回 whiteboard，
+          表现为"第一次安装完程序进入 AR 空间会被退出来"，
+          第二次因为 localStorage 已记住权限，本弹窗不出现，因此无复现。
+          这里强制要求用户通过下方的两个明确按钮做选择。 */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         className="absolute inset-0 bg-black/40 dark:bg-black/60 backdrop-blur-md"
-        onClick={onClose}
       />
 
       {/* Modal Container */}
@@ -53,9 +59,6 @@ export function CameraPermissionModal({
         </h2>
         <p className="text-sm leading-relaxed text-zinc-600 dark:text-zinc-400 mb-8 max-w-sm">
           HoloMath 需要使用您的摄像头来识别您的手势，并在物理空间中投影出可进行互动的三维几何模型。
-          <span className="block mt-2 text-xs text-zinc-500 dark:text-zinc-500 font-medium">
-            * 图像分析完全在您本地进行，我们不会收集、存储或上传任何视频画面，请放心使用。
-          </span>
         </p>
 
         {/* Action Buttons */}

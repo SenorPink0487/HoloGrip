@@ -37,8 +37,14 @@ export function WhiteboardCanvas() {
     const canvas = canvasRef.current;
     if (!canvas) return;
 
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+    // 关键：bitmap 必须与 canvas 真实渲染尺寸一致，否则浏览器会缩放绘制结果，
+    // 在 Tauri 桌面端因为顶部标题栏让父容器比 window 矮 36px，
+    // 用 window.inner* 设位图会让笔迹纵向偏移。
+    const parent = canvas.parentElement;
+    const initW = parent?.clientWidth || canvas.clientWidth || window.innerWidth;
+    const initH = parent?.clientHeight || canvas.clientHeight || window.innerHeight;
+    canvas.width = initW;
+    canvas.height = initH;
     const ctx = canvas.getContext('2d');
     if (ctx) {
       ctx.lineCap = 'round';
@@ -56,8 +62,9 @@ export function WhiteboardCanvas() {
         tempCtx.drawImage(canvas, 0, 0);
       }
 
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      const p = canvas.parentElement;
+      canvas.width = p?.clientWidth || canvas.clientWidth || window.innerWidth;
+      canvas.height = p?.clientHeight || canvas.clientHeight || window.innerHeight;
       const newCtx = canvas.getContext('2d');
       if (newCtx) {
         newCtx.lineCap = 'round';

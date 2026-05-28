@@ -1541,266 +1541,490 @@ body {
 
 
 /* ==========================================
-   UI / FONT SIZE TUNING (V0.1.2)
+   UI / FONT SIZE TUNING & LAYOUT OPTIMIZATION (V0.2.0)
    ------------------------------------------
-   集中放大门户字号 ~15%,提升大屏可读性。
-   原有 px 值保留在上方,本段全部为 override。
-   想回滚:整段删除即可恢复原视觉。
+   深度优化字号层级、间距与网格对齐，打造呼吸感与高科技精美度。
    ========================================== */
 
-/* —— 顶栏 —— */
+/* —— 顶栏导航 —— */
 .logo-text {
-    font-size: 25px;
+    font-size: 24px;
     letter-spacing: 6px;
+    font-weight: 900;
 }
 .nav-btn {
-    font-size: 15px;
-    padding: 9px 20px;
+    font-size: 14.5px;
+    padding: 8px 18px;
+    letter-spacing: 0.5px;
 }
 .nav-dot {
     width: 5px;
     height: 5px;
 }
 
-/* —— Hero / Section Header —— */
+/* —— Hero 头部区域 —— */
 .badge {
-    font-size: 11.5px;
-    letter-spacing: 2.2px;
-    padding: 7px 16px;
+    font-size: 10.5px;
+    letter-spacing: 2.5px;
+    padding: 6px 14px;
+    font-weight: 800;
 }
 .hero-title {
-    font-size: 52px;
-    margin-bottom: 22px;
+    font-size: 54px;
+    line-height: 1.25;
+    letter-spacing: 0.5px;
+    margin-bottom: 24px;
+    text-shadow: 0 0 30px rgba(139, 92, 246, 0.12);
 }
 .hero-desc {
-    font-size: 17.5px;
-    line-height: 1.7;
+    font-size: 16.5px;
+    line-height: 1.8;
+    color: rgba(248, 250, 252, 0.75); /* 提升对比度与柔和度 */
+    max-width: 780px;
 }
 .section-hero {
     max-width: 800px;
     margin-bottom: 64px;
 }
 
-/* —— 创作理念卡片 —— */
-.concept-card {
-    padding: 44px;
-}
-.concept-card h3 {
-    font-size: 21px;
-    margin-bottom: 16px;
-}
-.concept-card p {
-    font-size: 15px;
-    line-height: 1.7;
-}
-.card-icon {
-    width: 52px;
-    height: 52px;
-    margin-bottom: 26px;
-}
-.card-icon svg {
-    width: 26px;
-    height: 26px;
+/* ==========================================
+   SECTION 1: 创作理念卡片优化
+   ========================================== */
+.concept-cards {
+    display: grid;
+    gap: 30px;
 }
 
-/* —— 技术架构 —— */
+/* 强控桌面端为三列，平板端为双列，手机端为单列 */
+@media (min-width: 1025px) {
+    .concept-cards {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+@media (max-width: 1024px) and (min-width: 769px) {
+    .concept-cards {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+@media (max-width: 768px) {
+    .concept-cards {
+        grid-template-columns: 1fr;
+    }
+}
+
+.concept-card {
+    padding: 36px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+.concept-card h3 {
+    font-size: 19.5px;
+    font-weight: 700;
+    margin-bottom: 14px;
+    letter-spacing: 0.5px;
+    color: var(--text-primary);
+}
+.concept-card p {
+    font-size: 14px;
+    line-height: 1.7;
+    color: rgba(248, 250, 252, 0.65);
+    flex-grow: 1;
+}
+.card-icon {
+    width: 48px;
+    height: 48px;
+    margin-bottom: 24px;
+    border-radius: 12px;
+}
+.card-icon svg {
+    width: 24px;
+    height: 24px;
+}
+
+/* ==========================================
+   SECTION 2: 技术架构排版与细节优化
+   ========================================== */
 .arch-card-title {
-    font-size: 20px;
+    font-size: 19px;
+    font-weight: 700;
     margin-bottom: 26px;
 }
 .flow-step {
-    padding: 18px 22px;
+    padding: 20px 24px;
+    background: rgba(255, 255, 255, 0.015);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+}
+.flow-step:hover {
+    border-color: rgba(139, 92, 246, 0.35);
+    background: rgba(139, 92, 246, 0.02);
 }
 .step-num {
-    font-size: 30px;
+    font-size: 28px;
+    font-family: 'Courier New', Courier, monospace;
 }
 .step-details h4 {
-    font-size: 16px;
-    margin-bottom: 5px;
+    font-size: 15.5px;
+    font-weight: 700;
+    margin-bottom: 6px;
 }
 .step-details p {
-    font-size: 13.5px;
+    font-size: 13px;
     line-height: 1.65;
+    color: rgba(248, 250, 252, 0.6);
 }
+
+/* 动感向下引流线与呼吸灯效 */
+.flow-arrow {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 32px;
+    margin: -6px 0;
+    position: relative;
+    z-index: 2;
+    opacity: 0.8;
+}
+.flow-arrow svg {
+    width: 16px;
+    height: 16px;
+    stroke: var(--accent-purple);
+    filter: drop-shadow(0 0 5px var(--accent-purple));
+    animation: flowLinePulse 2s infinite ease-in-out;
+}
+@keyframes flowLinePulse {
+    0%, 100% { transform: translateY(-2px); opacity: 0.4; }
+    50% { transform: translateY(3px); opacity: 1; }
+}
+
+/* 技术栈微型卡片与统计 */
 .tech-info-mini h5 {
-    font-size: 14px;
+    font-size: 13.5px;
+    font-weight: 700;
 }
 .tech-info-mini span {
-    font-size: 11.5px;
+    font-size: 11px;
+    color: var(--text-muted);
 }
 .tech-icon-wrapper {
-    width: 42px;
-    height: 42px;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
 }
 .tech-icon-wrapper svg {
-    width: 26px;
-    height: 26px;
+    width: 24px;
+    height: 24px;
+}
+
+/* 仪表盘统计卡片设计 */
+.stat-box {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.4);
+    padding: 14px 10px;
+    border-radius: 12px;
+    transition: all 0.3s ease;
+}
+.stat-box:hover {
+    border-color: rgba(6, 182, 212, 0.3);
+    background: rgba(6, 182, 212, 0.02);
 }
 .stat-val {
-    font-size: 22px;
+    font-size: 24px;
+    font-weight: 800;
+    color: var(--accent-cyan);
+    text-shadow: 0 0 12px rgba(6, 182, 212, 0.3);
+    letter-spacing: -0.5px;
 }
 .stat-lbl {
-    font-size: 11.5px;
+    font-size: 11px;
+    color: var(--text-secondary);
+    letter-spacing: 0.5px;
 }
 
-/* —— 作品矩阵 —— */
+/* ==========================================
+   SECTION 3: 作品矩阵卡片对齐与样式优化
+   ========================================== */
+.matrix-grid {
+    display: grid;
+    gap: 30px;
+}
+
+/* 强控桌面端为三列，平板端为双列/单列 */
+@media (min-width: 1025px) {
+    .matrix-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+@media (max-width: 1024px) and (min-width: 769px) {
+    .matrix-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+@media (max-width: 768px) {
+    .matrix-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+.project-card {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
 .project-tag {
-    font-size: 12px;
+    font-size: 11px;
+    letter-spacing: 1px;
+    font-weight: 700;
 }
 .status-indicator {
-    font-size: 10px;
-    padding: 5px 11px;
+    font-size: 9.5px;
+    padding: 4px 10px;
+    font-weight: 800;
+}
+.project-info {
+    padding: 26px;
+    display: flex;
+    flex-direction: column;
+    flex-grow: 1;
 }
 .project-info h3 {
-    font-size: 19px;
-    margin-bottom: 14px;
+    font-size: 18px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    color: var(--text-primary);
 }
 .project-info p {
-    font-size: 14.5px;
+    font-size: 13.5px;
     line-height: 1.7;
+    color: rgba(248, 250, 252, 0.65);
+    margin-bottom: 24px;
+    flex-grow: 1; /* 填充描述高度，从而让 footer 底部对齐 */
 }
 .tech-spec {
-    font-size: 11px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
 }
 .action-btn {
-    font-size: 12.5px;
-    padding: 7px 16px;
+    font-size: 12px;
+    padding: 6.5px 16px;
+    font-weight: 600;
+    border-radius: 10px;
 }
 
-/* —— 联系名片 —— */
+/* ==========================================
+   SECTION 4: 联系人全息卡片与名片优化
+   ========================================== */
 .profile-names h2 {
-    font-size: 25px;
+    font-size: 24px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
 }
 .profile-names .real-name {
-    font-size: 14px;
+    font-size: 13.5px;
+    color: rgba(248, 250, 252, 0.5);
 }
 .card-status-text,
 .card-serial {
-    font-size: 11px;
-}
-.profile-info-item .info-label {
     font-size: 10.5px;
 }
+
+/* 头像高级呼吸发光边框 */
+.avatar-glow-box {
+    position: relative;
+    animation: avatarPulseFlow 4s infinite ease-in-out alternate;
+}
+@keyframes avatarPulseFlow {
+    0% {
+        box-shadow: 0 0 15px rgba(139, 92, 246, 0.35);
+        border-color: var(--accent-purple);
+    }
+    100% {
+        box-shadow: 0 0 25px rgba(6, 182, 212, 0.55);
+        border-color: var(--accent-cyan);
+    }
+}
+
+.profile-info-grid {
+    margin-bottom: 28px;
+    gap: 16px;
+}
+.profile-info-item {
+    background: rgba(255, 255, 255, 0.01);
+    border-left: 2.5px solid rgba(255, 255, 255, 0.05);
+    padding: 8px 12px;
+    border-radius: 0 8px 8px 0;
+}
+.profile-info-item:hover {
+    background: rgba(255, 255, 255, 0.02);
+    border-left-color: var(--accent-cyan);
+}
+.profile-info-item .info-label {
+    font-size: 10px;
+    color: var(--text-muted);
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    margin-bottom: 3px;
+}
 .profile-info-item .info-val {
-    font-size: 15px;
+    font-size: 14.5px;
+    font-weight: 600;
 }
 .copy-email-btn,
 .github-link-btn {
-    padding: 13px;
-    font-size: 13.5px;
+    padding: 12px;
+    font-size: 13px;
+    border-radius: 10px;
 }
 .copy-email-btn svg,
 .github-link-btn svg {
-    width: 16px;
-    height: 16px;
+    width: 14px;
+    height: 14px;
 }
 
-/* —— Modal(作品详情弹窗) —— */
+/* ==========================================
+   弹窗 (Modal) 视觉优化
+   ========================================== */
 .modal-container {
-    max-width: 740px;
-    padding: 44px;
+    max-width: 720px;
+    padding: 40px;
+    border-radius: 20px;
 }
 .modal-title-area h2 {
-    font-size: 27px;
+    font-size: 26px;
+    font-weight: 800;
 }
 .modal-info-text {
-    font-size: 15px;
+    font-size: 14px;
     line-height: 1.75;
+    color: rgba(248, 250, 252, 0.7);
 }
 .spec-label {
-    font-size: 11px;
+    font-size: 10.5px;
+    font-weight: 700;
 }
 .spec-value {
-    font-size: 14.5px;
+    font-size: 14px;
+    font-weight: 600;
 }
 .modal-action-bar button {
-    font-size: 14.5px;
-    padding: 12px 28px;
+    font-size: 14px;
+    padding: 11px 26px;
+    border-radius: 12px;
 }
 .close-btn {
-    font-size: 26px;
+    font-size: 28px;
 }
 
-/* —— 小屏适配:大屏改完后,小屏要相应回调,避免溢出 —— */
+/* ==========================================
+   RESPONSIVE & MOBILE ADAPTATION
+   ========================================== */
 @media (max-width: 950px) {
     .hero-title {
         font-size: 38px;
+        line-height: 1.3;
     }
     .hero-desc {
-        font-size: 16px;
+        font-size: 15.5px;
+        line-height: 1.75;
     }
     .concept-card {
-        padding: 32px;
+        padding: 30px;
+    }
+    .section-hero {
+        margin-bottom: 48px;
     }
 }
 
 @media (max-width: 600px) {
+    .app-header {
+        padding: 18px 0;
+        gap: 12px;
+    }
+    .logo-text {
+        display: none;
+    }
     .nav-btn {
-        font-size: 13.5px;
-        padding: 8px 14px;
+        font-size: 13px;
+        padding: 7px 14px;
     }
     .hero-title {
-        font-size: 32px;
+        font-size: 30px;
+        line-height: 1.35;
     }
     .hero-desc {
-        font-size: 15px;
+        font-size: 14px;
+        line-height: 1.7;
     }
     .modal-container {
-        padding: 28px;
+        padding: 24px;
     }
     .modal-title-area h2 {
-        font-size: 22px;
+        font-size: 21px;
+    }
+    .card-actions {
+        grid-template-columns: 1fr;
+        gap: 10px;
     }
 }
 
-
 /* ==========================================
-   ICP 备案 底部栏 (V0.1.3)
-   ------------------------------------------
-   常驻在页面底部居中,纯文字,透明背景。
+   ICP 与公安备案 底部栏样式
    ========================================== */
-
-/* 触发感应区已废弃,保留兼容样式以防残留节点 */
-.icp-trigger { display: none; }
-
-/* 备案栏本体:常驻底部居中 */
-.icp-footer {
-    position: fixed;
-    left: 50%;
-    bottom: 0;
-    transform: translateX(-50%);
-    z-index: 70;
-    pointer-events: auto;
+.icp-trigger {
+    display: none;
 }
-
+.icp-footer {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin-top: 100px; /* 适当往下调 */
+    width: 100%;
+    pointer-events: auto;
+    padding-bottom: 24px; /* 预留安全底边距 */
+}
 .icp-footer-inner {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
+    gap: 14px; /* 元素间距 */
     padding: 8px 12px;
-    margin-bottom: 10px;
     background: transparent;
     border: none;
     font-size: 12px;
     font-weight: 300;
     letter-spacing: 0.5px;
     color: var(--text-secondary);
-    white-space: nowrap;
+    flex-wrap: wrap; /* 移动端自适应折行 */
 }
-
 .icp-link {
     color: var(--text-muted);
     text-decoration: none;
+    transition: color 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
 }
-
 .icp-link:hover {
     color: var(--text-primary);
 }
+.icp-divider {
+    color: var(--text-muted);
+    opacity: 0.35;
+    font-size: 11px;
+}
+.gongan-icon {
+    width: 15px;
+    height: 15px;
+    display: inline-block;
+    vertical-align: middle;
+}
 
-/* 移动端窄屏:稍微缩小并预留安全边距 */
 @media (max-width: 640px) {
     .icp-footer-inner {
         font-size: 11px;
         padding: 7px 14px;
-        margin-bottom: 10px;
+        gap: 10px;
     }
 }
