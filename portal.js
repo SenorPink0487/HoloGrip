@@ -12,6 +12,14 @@
  */
 
 document.addEventListener('DOMContentLoaded', () => {
+    // 关闭浏览器自动恢复滚动位置：避免重新打开同一站点时 Chrome 把页面停在
+    // 上次离开的滚动位置，导致 sticky 顶部 header 盖在 hero 标题上，给人
+    // “线上和 dev 不一致 / 打包尺寸错了” 的错觉。
+    if ('scrollRestoration' in history) {
+        history.scrollRestoration = 'manual';
+    }
+    window.scrollTo({ top: 0, behavior: 'auto' });
+
     initCursorEffects();
     initParticlesBackground();
     initNavigation();
