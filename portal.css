@@ -42,6 +42,15 @@ body {
     min-height: 100vh;
     overflow-x: hidden;
     position: relative;
+    /* 顶部有 100px 高的 sticky header，对锚点跳转预留出避让空间，
+       否则 hash 跳转会把目标 section 的开头藏到 header 下面，
+       表现为标题第一行被截掉。 */
+    scroll-padding-top: 100px;
+}
+
+/* 小屏断点下 header 高度变成 80px，scroll-padding 同步收缩 */
+@media (max-width: 950px) {
+    body { scroll-padding-top: 80px; }
 }
 
 /* 自定义滚动条 */
