@@ -38,20 +38,23 @@ function isTauri() {
 /**
  * 启动在线程序：
  *  - Tauri：调命令开新窗口（不阻塞当前门户）
- *  - 浏览器：location.href 跳转到 app.html
+ *  - 浏览器：location.href 跳转到对应入口页
+ *
+ * @param {string} [url='app.html'] 目标页面路径
  */
-async function launchSimulation() {
+async function launchSimulation(url = 'app.html') {
     if (isTauri()) {
         try {
             const { invoke } = await import('@tauri-apps/api/core');
-            await invoke('open_simulation_window');
+            // 把目标 url 传给 Rust，由后端决定打开哪个窗口
+            await invoke('open_simulation_window', { url });
             return;
         } catch (e) {
             console.warn('open_simulation_window 失败，回退到 location 跳转:', e);
         }
     }
     // Web 端 / 后端命令失败的兜底
-    window.location.href = 'app.html';
+    window.location.href = url;
 }
 
 /* ==========================================
@@ -282,18 +285,19 @@ const projectDetails = {
     },
     physics: {
         title: '02 / HoloPhysics 空间物理沙盒',
-        tag: 'PHYSICS // DEVELOPMENT STAGE',
+        tag: 'PHYSICS // V0.1.0-BETA',
         desc:
             'HoloPhysics 是用于空间交互力学教学的物理仿真程序，目前正处于开发与测试阶段。该系统通过空气手势作为力场施加器，允许用户实时构建万有引力模型或电磁场。它能实时模拟出行星围绕恒星运行的开普勒椭圆轨道，或者在多刚体发生碰撞时进行高精度的动量守恒定理数值计算。',
         specs: {
             engine: 'R3F Physics / Canvas Sandbox',
             perf: 'Collision Solve: < 1.5ms per step',
             algorithm: 'Newtonian Rigid Body Dynamics',
-            version: 'v0.0.5-beta (Under Dev)',
+            version: 'v0.1.0-beta',
         },
         demoColor: 'var(--accent-emerald)',
         visualClass: 'physics-modal-demo',
-        canLaunch: false,
+        canLaunch: true,
+        launchUrl: 'physics.html',
         demoHtml: `
             <div class="physics-sandbox-simulation physics-visual-demo" style="transform: scale(1.1); width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; position: relative;">
                 <div class="gravity-well" style="width: 14px; height: 14px; background: var(--accent-emerald); border-radius: 50%; box-shadow: 0 0 15px var(--accent-emerald), 0 0 25px var(--accent-emerald); z-index: 5;"></div>
@@ -375,6 +379,7 @@ function initProjectCards() {
     function openModal(data) {
         const launchLabel = data.canLaunch ? '启动在线程序' : '即将上线';
         const launchDisabled = data.canLaunch ? '' : 'disabled style="opacity:0.5;cursor:not-allowed;"';
+        const launchUrl = data.launchUrl || 'app.html';
 
         modalContent.innerHTML = `
             <div class="modal-title-area">
@@ -412,7 +417,9 @@ function initProjectCards() {
             </div>
             <div class="modal-action-bar">
                 <button class="btn-secondary" id="modal-cancel">关闭</button>
-                <button class="btn-primary" id="modal-launch" ${launchDisabled} style="background: ${data.demoColor}; border-color: ${data.demoColor}; color: #000;">${launchLabel}</button>
+                <button class="btn-primary" id="modal-launch" ${launchDisabled}
+                    data-launch-url="${launchUrl}"
+                    style="background: ${data.demoColor}; border-color: ${data.demoColor}; color: #000;">${launchLabel}</button>
             </div>
         `;
 
@@ -423,11 +430,12 @@ function initProjectCards() {
         const launchBtn = document.getElementById('modal-launch');
         if (data.canLaunch) {
             launchBtn.addEventListener('click', async () => {
+                const targetUrl = launchBtn.dataset.launchUrl || 'app.html';
                 launchBtn.innerText = '正在激活空间渲染管线...';
                 launchBtn.style.opacity = '0.7';
                 launchBtn.style.pointerEvents = 'none';
                 try {
-                    await launchSimulation();
+                    await launchSimulation(targetUrl);
                 } catch (e) {
                     console.error('启动仿真失败:', e);
                     launchBtn.innerText = '启动失败，请重试';

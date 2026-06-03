@@ -29,6 +29,7 @@ export default defineConfig(({ mode }) => {
         input: {
           portal: path.resolve(__dirname, 'index.html'),
           app: path.resolve(__dirname, 'app.html'),
+          physics: path.resolve(__dirname, 'physics.html'),
         },
       },
     },
