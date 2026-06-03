@@ -12,4 +12,5 @@ coverage/
 .kiro/
 .vscode/
 HoloMath/
+_physics_preview/
 *.zip
