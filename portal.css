@@ -630,12 +630,133 @@ body {
     box-shadow: 0 20px 50px rgba(0,0,0,0.85), 0 0 35px rgba(16, 185, 129, 0.15);
 }
 
-.project-card[data-project="shadowplay"] {
-    border: 1.5px solid rgba(245, 158, 11, 0.12);
+.project-card[data-project="chemistry"] {
+    border: 1.5px solid rgba(139, 92, 246, 0.12);
 }
-.project-card[data-project="shadowplay"]:hover {
-    border-color: rgba(245, 158, 11, 0.4);
-    box-shadow: 0 20px 50px rgba(0,0,0,0.85), 0 0 35px rgba(245, 158, 11, 0.15);
+.project-card[data-project="chemistry"]:hover {
+    border-color: rgba(139, 92, 246, 0.4);
+    box-shadow: 0 20px 50px rgba(0,0,0,0.85), 0 0 35px rgba(139, 92, 246, 0.15);
+}
+
+.chemistry-visual {
+    background: radial-gradient(circle at center, rgba(168, 85, 247, 0.1) 0%, transparent 70%);
+    perspective: 1000px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    width: 100%;
+    height: 100%;
+}
+.chemistry-molecule-demo {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform-style: preserve-3d;
+}
+.chemistry-flask-wrapper {
+    position: relative;
+    width: 100px;
+    height: 135px;
+    margin-top: 15px; /* leave room for vapor */
+}
+
+/* 玻璃烧瓶外壳 */
+.flask-svg {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 10;
+    pointer-events: none;
+}
+
+/* 瓶内液体 */
+.flask-liquid {
+    position: absolute;
+    top: 50px; left: 10px;
+    width: 80px; height: 75px;
+    clip-path: polygon(35% 0, 65% 0, 100% 86%, 90% 100%, 10% 100%, 0% 86%);
+    z-index: 5;
+    overflow: hidden;
+}
+
+.liquid-fill {
+    position: absolute;
+    bottom: 0; left: 0;
+    width: 100%; height: 70%;
+    background: linear-gradient(180deg, rgba(6, 182, 212, 0.7) 0%, rgba(168, 85, 247, 0.9) 100%);
+    animation: liquid-pulse 3s ease-in-out infinite alternate;
+}
+
+.liquid-fill::before {
+    content: '';
+    position: absolute;
+    top: -2px; left: -10%; width: 120%; height: 4px;
+    background: rgba(255, 255, 255, 0.6);
+    filter: blur(1px);
+}
+
+@keyframes liquid-pulse {
+    0% { filter: brightness(1) drop-shadow(0 0 10px rgba(6, 182, 212, 0.5)); }
+    100% { filter: brightness(1.2) drop-shadow(0 0 25px rgba(6, 182, 212, 0.9)); }
+}
+
+/* 气泡 */
+.bubble {
+    position: absolute;
+    bottom: -10px;
+    background: rgba(255, 255, 255, 0.9);
+    border-radius: 50%;
+    box-shadow: 0 0 8px #fff;
+    animation: bubble-rise linear infinite;
+}
+
+.b1 { width: 6px; height: 6px; left: 20%; animation-duration: 2s; animation-delay: 0.2s; }
+.b2 { width: 4px; height: 4px; left: 40%; animation-duration: 1.5s; animation-delay: 0.8s; }
+.b3 { width: 8px; height: 8px; left: 60%; animation-duration: 2.5s; animation-delay: 0.1s; }
+.b4 { width: 5px; height: 5px; left: 80%; animation-duration: 1.8s; animation-delay: 1.2s; }
+.b5 { width: 3px; height: 3px; left: 30%; animation-duration: 1.2s; animation-delay: 0.5s; }
+.b6 { width: 7px; height: 7px; left: 70%; animation-duration: 2.2s; animation-delay: 1.5s; }
+
+@keyframes bubble-rise {
+    0% { transform: translateY(0) scale(0.5); opacity: 0; }
+    20% { opacity: 1; }
+    80% { opacity: 1; }
+    100% { transform: translateY(-55px) scale(1.2); opacity: 0; }
+}
+
+/* 蒸汽特效 */
+.vapor-container {
+    position: absolute;
+    top: -25px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 40px;
+    height: 40px;
+    z-index: 15;
+}
+
+.vapor {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 15px; height: 15px;
+    background: rgba(6, 182, 212, 0.4);
+    border-radius: 50%;
+    filter: blur(5px);
+    transform: translateX(-50%);
+    animation: vapor-rise linear infinite;
+}
+
+.v1 { animation-duration: 3s; animation-delay: 0s; }
+.v2 { animation-duration: 2.5s; animation-delay: 1s; left: 30%; }
+.v3 { animation-duration: 3.5s; animation-delay: 1.8s; left: 70%; }
+
+@keyframes vapor-rise {
+    0% { transform: translate(-50%, 0) scale(1); opacity: 0.8; }
+    100% { transform: translate(-50%, -35px) scale(3.5); opacity: 0; }
 }
 
 .project-header {

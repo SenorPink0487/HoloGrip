@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import { HexColorPicker } from "react-colorful";
 import { Magnet } from '../math/physics';
+import logoRounded from '../assets/logo-rounded.png';
+
 
 const PopoverPicker = ({ color, onChange, title }: { color: string, onChange: (c: string) => void, title?: string }) => {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -172,14 +174,27 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       <div className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
         {/* Header */}
         <div className="sidebar-header" style={{ justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-            <div className="logo-container">
-              <MagnetIcon size={20} className="animate-pulse" />
-            </div>
-            <div className="header-titles">
-              <h1>磁场物理仿真</h1>
-            </div>
-          </div>
+            <a
+              href="/"
+              title="返回 HoloGrip 主页"
+              style={{
+                display: 'flex', alignItems: 'center', gap: '12px',
+                textDecoration: 'none', cursor: 'pointer',
+                borderRadius: '12px', padding: '4px 6px 4px 2px',
+                transition: 'background 0.2s',
+              }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.08)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+            >
+              <img
+                src={logoRounded}
+                alt="HoloGrip Logo"
+                style={{ width: '40px', height: '40px', borderRadius: '10px', objectFit: 'cover', flexShrink: 0 }}
+              />
+              <div className="header-titles">
+                <h1 style={{ fontSize: '26px' }}>HoloPhysics</h1>
+              </div>
+            </a>
           <button className="btn-icon" onClick={() => setIsCollapsed(true)}>
             <ChevronLeft size={20} />
           </button>

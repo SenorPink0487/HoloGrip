@@ -272,31 +272,58 @@
                         </div>
                     </div>
 
-                    <!-- 作品三: HoloShadow -->
-                    <div class="glass-card project-card" data-project="shadowplay">
+                    <!-- 作品三: HoloChemistry -->
+                    <div class="glass-card project-card" data-project="chemistry">
                         <div class="project-header">
-                            <span class="project-tag">SHADOW ART / GESTURE BIND</span>
-                            <span class="status-indicator beta"><span class="dot"></span>BETA</span>
+                            <span class="project-tag">CHEMISTRY / MOLECULAR SIM</span>
+                            <span class="status-indicator beta"><span class="dot"></span>COMING SOON</span>
                         </div>
-                        <div class="project-visual shadow-visual">
-                            <div class="shadowplay-backlight">
-                                <div class="lamp-ray"></div>
-                                <div class="puppet-silhouette">
-                                    <svg viewBox="0 0 100 100" class="svg-puppet">
-                                        <path d="M50 25 C65 20, 70 35, 60 45 C50 48, 48 40, 50 25 Z" fill="rgba(0,0,0,0.85)" stroke="rgba(245, 158, 11, 0.3)" stroke-width="0.8"/>
-                                        <path d="M60 45 C65 52, 60 62, 52 65 C44 68, 40 55, 48 45 Z" fill="rgba(0,0,0,0.9)" />
-                                        <circle cx="50" cy="42" r="2" fill="rgba(245, 158, 11, 0.9)"/>
-                                        <path d="M48 45 L52 50 L56 46" stroke="rgba(245, 158, 11, 0.5)" stroke-width="0.5" fill="none"/>
-                                        <path d="M50 63 L50 72 L45 78 L55 78 L52 72 Z" fill="rgba(0,0,0,0.95)" />
+                        <div class="project-visual chemistry-visual">
+                            <div class="chemistry-molecule-demo">
+                                <div class="chemistry-flask-wrapper">
+                                    <div class="vapor-container">
+                                        <div class="vapor v1"></div>
+                                        <div class="vapor v2"></div>
+                                        <div class="vapor v3"></div>
+                                    </div>
+                                    <svg viewBox="0 0 100 135" class="flask-svg" preserveAspectRatio="xMidYMax meet">
+                                        <defs>
+                                            <linearGradient id="flaskReflect" x1="0%" y1="0%" x2="100%" y2="0%">
+                                                <stop offset="0%" stop-color="rgba(255,255,255,0.7)"/>
+                                                <stop offset="15%" stop-color="rgba(255,255,255,0.1)"/>
+                                                <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+                                            </linearGradient>
+                                            <filter id="flaskGlow">
+                                                <feGaussianBlur stdDeviation="3" result="blur" />
+                                                <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                                            </filter>
+                                        </defs>
+                                        <!-- Body -->
+                                        <path d="M 38 20 L 38 50 L 10 115 A 8 8 0 0 0 18 125 L 82 125 A 8 8 0 0 0 90 115 L 62 50 L 62 20" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.4)" stroke-width="2" filter="url(#flaskGlow)"/>
+                                        <!-- Mouth -->
+                                        <ellipse cx="50" cy="20" rx="16" ry="5" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.7)" stroke-width="2" filter="url(#flaskGlow)"/>
+                                        <!-- Highlights -->
+                                        <path d="M 40 50 L 14 110" fill="none" stroke="url(#flaskReflect)" stroke-width="3" stroke-linecap="round"/>
+                                        <path d="M 42 25 L 42 45" fill="none" stroke="url(#flaskReflect)" stroke-width="3" stroke-linecap="round"/>
                                     </svg>
+                                    <div class="flask-liquid">
+                                        <div class="liquid-fill">
+                                            <div class="bubble b1"></div>
+                                            <div class="bubble b2"></div>
+                                            <div class="bubble b3"></div>
+                                            <div class="bubble b4"></div>
+                                            <div class="bubble b5"></div>
+                                            <div class="bubble b6"></div>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                         <div class="project-info">
-                            <h3>03 / HoloShadow 空间生成式皮影戏</h3>
-                            <p>融合国家非遗传统皮影艺术。利用双手 3D 骨架模型动态绑定皮影戏角色肢体关节，通过手指伸展弯曲精准操控皮影身段与武打动作，AI 实时渲染纸质漫透射灯效。</p>
+                            <h3>03 / HoloChemistry 空间化学沙盒</h3>
+                            <p>基于手势交互的多维度化学分子动力学模拟器。支持在三维空间中抓取和拼接粒子轨道、构建杂化轨道与模拟化学键断裂反应历程。</p>
                             <div class="project-footer">
-                                <span class="tech-spec">AI SILHOUETTE PIPELINE</span>
+                                <span class="tech-spec">MOLECULAR ORBITAL</span>
                                 <button class="action-btn">查看详情</button>
                             </div>
                         </div>
@@ -337,7 +364,7 @@
                             <div class="profile-info-grid">
                                 <div class="profile-info-item">
                                     <span class="info-label">职位 / POSITION</span>
-                                    <span class="info-val highlight-val">全栈开发工程师 (Full-Stack Developer)</span>
+                                    <span class="info-val highlight-val">全栈开发 (Full-Stack Developer)</span>
                                 </div>
                                 <div class="profile-info-item">
                                     <span class="info-label">邮箱 / EMAIL</span>
