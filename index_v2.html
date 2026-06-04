@@ -45,6 +45,28 @@
         /* 隐藏滚动条 */
         ::-webkit-scrollbar { width: 0; }
 
+        /* Navbar */
+        .navbar {
+            position: fixed;
+            top: 2rem;
+            right: 3rem;
+            display: flex;
+            gap: 2rem;
+            z-index: 100;
+        }
+        .nav-link {
+            color: var(--fg);
+            text-decoration: none;
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            transition: color 0.3s;
+        }
+        .nav-link:hover {
+            color: var(--accent);
+        }
+
         /* Typography */
         h1, h2, .huge-title {
             text-transform: uppercase;
@@ -87,7 +109,7 @@
         @keyframes fadeIn { to { opacity: 1; } }
 
         /* 通用无卡片 Section */
-        section { padding: 15vh 5vw; position: relative; scroll-snap-align: start; }
+        section { padding: 15vh 5vw; position: relative; }
 
         .section-title {
             font-size: clamp(2rem, 5vw, 5rem);
@@ -149,7 +171,7 @@
         .metric-val:hover { color: var(--accent); -webkit-text-stroke: 0; }
         .metric-lbl { font-size: 1.2rem; color: var(--muted); text-transform: uppercase; margin-top: 10px; }
 
-        /* 作品矩阵 - 滚轮拦截离散滑动 */
+        /* 作品矩阵 - 极简高级滑动 */
         .matrix-wrapper {
             height: 100vh; /* 正好占满一屏 */
             position: relative;
@@ -167,8 +189,8 @@
             display: flex;
             width: 300vw;
             will-change: transform;
-            /* 恢复你喜欢的极致丝滑缓动曲线 */
-            transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+            /* 极简高级的平滑曲线 */
+            transition: transform 1s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
         .matrix-project {
             width: 100vw;
@@ -180,18 +202,47 @@
             justify-content: center;
             align-items: center;
             padding: 0 10vw;
-            opacity: 0.3;
-            transform: scale(0.9) translateY(40px);
-            transition: opacity 0.6s ease, transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+            opacity: 0;
+            /* 极其克制的缩放和位移 */
+            transform: scale(0.98) translateY(20px);
+            transition: opacity 1s cubic-bezier(0.2, 0.8, 0.2, 1), transform 1s cubic-bezier(0.2, 0.8, 0.2, 1);
         }
         .matrix-project.active {
             opacity: 1;
             transform: scale(1) translateY(0);
         }
 
+        .matrix-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .mp-tag, .mp-title, .mp-desc {
+            opacity: 0;
+            /* 统一下方向上的微距滑动 */
+            transform: translateY(30px);
+            transition: opacity 0.8s cubic-bezier(0.2, 0.8, 0.2, 1), transform 0.8s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
         .mp-tag { font-size: 1.2rem; color: var(--accent); letter-spacing: 4px; margin-bottom: 2rem; display: block; }
         .mp-title { font-size: clamp(4rem, 8vw, 8rem); font-weight: 900; margin-bottom: 1rem; }
         .mp-desc { font-size: 1.5rem; color: var(--muted); max-width: 800px; margin: 0 auto; line-height: 1.6; }
+
+        .matrix-project.active .mp-tag {
+            opacity: 1;
+            transform: translateY(0);
+            transition-delay: 0.1s;
+        }
+        .matrix-project.active .mp-title {
+            opacity: 1;
+            transform: translateY(0);
+            transition-delay: 0.2s;
+        }
+        .matrix-project.active .mp-desc {
+            opacity: 1;
+            transform: translateY(0);
+            transition-delay: 0.3s;
+        }
 
         /* Contact */
         .contact { height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
@@ -218,6 +269,12 @@
     </style>
 </head>
 <body>
+
+    <!-- 导航栏 -->
+    <nav class="navbar">
+        <a href="portfolio.html" class="nav-link">作品矩阵</a>
+        <a href="profile.html" class="nav-link">关于我们</a>
+    </nav>
 
     <!-- 动态连线交互背景 -->
     <canvas id="network-canvas"></canvas>
@@ -288,28 +345,34 @@
         <div class="matrix-sticky">
             <div class="matrix-container" id="matrixContainer">
                 <div class="matrix-project" id="proj-1">
-                    <span class="mp-tag">MATHEMATICS</span>
-                    <div class="mp-title">HoloMath</div>
-                    <div class="mp-desc">基于手势捕捉构建的三维数学白板。支持在空中徒手绘制立体几何及动态函数曲面，并在虚拟直角坐标系内精准测量。</div>
+                    <div class="matrix-content">
+                        <span class="mp-tag">MATHEMATICS</span>
+                        <div class="mp-title">HoloMath</div>
+                        <div class="mp-desc">基于手势捕捉构建的三维数学白板。支持在空中徒手绘制立体几何及动态函数曲面，并在虚拟直角坐标系内精准测量。</div>
+                    </div>
                 </div>
 
                 <div class="matrix-project" id="proj-2">
-                    <span class="mp-tag">PHYSICS</span>
-                    <div class="mp-title">HoloPhysics</div>
-                    <div class="mp-desc">支持微手势交互的多物理场模拟器。在空气中投放天体，交互式演算万有引力轨迹、静电场与刚体碰撞，让物理定律触手可及。</div>
+                    <div class="matrix-content">
+                        <span class="mp-tag">PHYSICS</span>
+                        <div class="mp-title">HoloPhysics</div>
+                        <div class="mp-desc">支持微手势交互的多物理场模拟器。在空气中投放天体，交互式演算万有引力轨迹、静电场与刚体碰撞，让物理定律触手可及。</div>
+                    </div>
                 </div>
 
                 <div class="matrix-project" id="proj-3">
-                    <span class="mp-tag">CHEMISTRY</span>
-                    <div class="mp-title">HoloChem</div>
-                    <div class="mp-desc">三维化学分子动力学沙盒。抓取并拼接粒子轨道，重构杂化过程，模拟化学键断裂与反应历程。微观世界由此展现。</div>
+                    <div class="matrix-content">
+                        <span class="mp-tag">CHEMISTRY</span>
+                        <div class="mp-title">HoloChem</div>
+                        <div class="mp-desc">三维化学分子动力学沙盒。抓取并拼接粒子轨道，重构杂化过程，模拟化学键断裂与反应历程。微观世界由此展现。</div>
+                    </div>
                 </div>
             </div>
         </div>
     </section>
 
     <!-- 联系我们 -->
-    <section class="contact">
+    <section class="contact" id="contact">
         <div style="font-weight: 700; letter-spacing: 2px; color: var(--accent); margin-bottom: 2rem;">START COLLABORATION</div>
         <a href="mailto:senor0716@outlook.com" class="contact-email">SENOR0716<br>@OUTLOOK.COM</a>
         
@@ -445,12 +508,11 @@
         function updateMatrixView() {
             matrixContainer.style.transform = `translateX(-${matrixIndex * 100}vw)`;
             projects.forEach((proj, idx) => {
-                // 清除之前的 inline style（如果从连续滑动切换过来）
-                proj.style.opacity = '';
-                proj.style.transform = '';
-
-                if (idx === matrixIndex) proj.classList.add('active');
-                else proj.classList.remove('active');
+                if (idx === matrixIndex) {
+                    proj.classList.add('active');
+                } else {
+                    proj.classList.remove('active');
+                }
             });
         }
 

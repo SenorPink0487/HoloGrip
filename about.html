@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HoloGrip - 关于我们</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;700;900&display=swap');
+
+        :root {
+            --bg: #050505;
+            --fg: #ffffff;
+            --accent: #ff2a5f;
+            --muted: #555555;
+            --input-bg: rgba(255, 255, 255, 0.02);
+            --input-border: rgba(255, 255, 255, 0.1);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background-color: var(--bg);
+            color: var(--fg);
+            font-family: 'Outfit', sans-serif;
+            overflow: hidden;
+        }
+
+
+
+        /* 返回导航 */
+        .back-nav {
+            position: fixed;
+            top: 2rem;
+            left: 3rem;
+            z-index: 100;
+            opacity: 0;
+            transform: translateY(-20px);
+            animation: slideDown 1s 0.2s forwards cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .back-nav a {
+            color: var(--fg);
+            text-decoration: none;
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: color 0.3s;
+        }
+        .back-nav a:hover { color: var(--accent); }
+        .back-nav a::before { content: '←'; transition: transform 0.3s; }
+        .back-nav a:hover::before { transform: translateX(-5px); }
+
+        .contact-container {
+            display: flex;
+            height: 100vh;
+            width: 100vw;
+        }
+
+        /* 左侧文字区块 */
+        .left-pane {
+            flex: 1;
+            padding: 10vw;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+            z-index: 2;
+        }
+        
+        /* Text Masking Animation */
+        .mask-container { overflow: hidden; display: block; line-height: 1; padding-bottom: 5px; }
+        .mask-text {
+            display: block;
+            transform: translateY(100%);
+            animation: slideUpMask 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        
+        .left-pane h1 {
+            font-size: clamp(3rem, 6vw, 7rem);
+            font-weight: 900;
+            text-transform: uppercase;
+            margin-bottom: 2rem;
+        }
+        .left-pane h1 .outline-text {
+            color: transparent;
+            -webkit-text-stroke: 1px var(--fg);
+        }
+        
+        /* Staggered text animations */
+        .line-1 .mask-text { animation-delay: 0.1s; }
+        .line-2 .mask-text { animation-delay: 0.3s; }
+        .line-3 .mask-text { animation-delay: 0.5s; }
+
+        .left-pane p {
+            color: var(--muted);
+            font-size: 1.2rem;
+            max-width: 400px;
+            line-height: 1.6;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeUp 1s 0.8s forwards;
+        }
+
+        .email-block {
+            margin-top: 3rem;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeUp 1s 1s forwards;
+        }
+
+        /* 右侧表单区块 */
+        .right-pane {
+            flex: 1;
+            background: rgba(255, 255, 255, 0.01);
+            backdrop-filter: blur(30px);
+            border-left: 1px solid rgba(255,255,255,0.05);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 5vw;
+            z-index: 2;
+            transform: translateX(100%);
+            animation: slideLeft 1.2s 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .contact-form {
+            width: 100%;
+            max-width: 500px;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .input-group { position: relative; overflow: hidden; padding-top: 20px; }
+        .input-group input, .input-group textarea {
+            width: 100%;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid var(--input-border);
+            padding: 15px 0;
+            color: var(--fg);
+            font-size: 1.2rem;
+            font-family: inherit;
+            resize: none;
+            outline: none;
+            transition: border-color 0.3s;
+            transform: translateY(20px);
+            opacity: 0;
+            animation: fadeUp 1s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .contact-form .input-group:nth-child(1) input { animation-delay: 1.2s; }
+        .contact-form .input-group:nth-child(2) input { animation-delay: 1.4s; }
+        .contact-form .input-group:nth-child(3) textarea { animation-delay: 1.6s; }
+
+        .input-group label {
+            position: absolute;
+            top: 35px;
+            left: 0;
+            color: var(--muted);
+            font-size: 1.2rem;
+            pointer-events: none;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            opacity: 0;
+            animation: fadeIn 1s 1.2s forwards;
+        }
+
+        .input-group input:focus, .input-group textarea:focus { border-bottom-color: var(--accent); }
+        .input-group input:focus + label, 
+        .input-group input:not(:placeholder-shown) + label,
+        .input-group textarea:focus + label,
+        .input-group textarea:not(:placeholder-shown) + label {
+            top: 0px; font-size: 0.8rem; color: var(--accent);
+        }
+
+        .submit-btn {
+            background: var(--fg);
+            color: var(--bg);
+            border: none;
+            padding: 20px 40px;
+            font-size: 1.2rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            border-radius: 50px;
+            transition: all 0.3s;
+            margin-top: 2rem;
+            align-self: flex-start;
+            position: relative;
+            overflow: hidden;
+            opacity: 0;
+            transform: scale(0.9);
+            animation: popIn 0.8s 1.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .submit-btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--accent);
+            transform: translateY(100%);
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 1;
+        }
+        .submit-btn:hover::before { transform: translateY(0); }
+        .submit-btn span { position: relative; z-index: 2; transition: color 0.4s; }
+        .submit-btn:hover span { color: var(--fg); }
+
+        /* 装饰背景 - Mouse Interactive Blob */
+        .blob {
+            position: fixed;
+            top: 0; left: 0;
+            width: 40vw; height: 40vw;
+            background: radial-gradient(circle, rgba(255,42,95,0.15) 0%, transparent 60%);
+            filter: blur(80px);
+            z-index: 0;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+            pointer-events: none;
+        }
+
+        /* Animations */
+        @keyframes slideDown { to { transform: translateY(0); opacity: 1; } }
+        @keyframes slideUpMask { to { transform: translateY(0); } }
+        @keyframes fadeUp { to { transform: translateY(0); opacity: 1; } }
+        @keyframes slideLeft { to { transform: translateX(0); } }
+        @keyframes fadeIn { to { opacity: 1; } }
+        @keyframes popIn { to { transform: scale(1); opacity: 1; } }
+
+        @media (max-width: 900px) {
+            .contact-container { flex-direction: column; height: auto; }
+            .left-pane, .right-pane { flex: none; width: 100%; padding: 15vw 10vw; }
+            .right-pane { transform: translateX(0); transform: translateY(100%); animation: fadeUp 1.2s 0.4s forwards; }
+            body { overflow-y: auto; overflow-x: hidden; }
+        }
+    </style>
+</head>
+<body>
+
+    <nav class="back-nav interactive">
+        <a href="index_v2.html">Back to Home</a>
+    </nav>
+
+    <div class="blob" id="glowBlob"></div>
+
+    <div class="contact-container">
+        <div class="left-pane">
+            <h1>
+                <span class="mask-container line-1"><span class="mask-text">LET'S BUILD</span></span>
+                <span class="mask-container line-2"><span class="mask-text"><span class="outline-text">SOMETHING</span></span></span>
+                <span class="mask-container line-3"><span class="mask-text">EXTRAORDINARY</span></span>
+            </h1>
+            <p>有创新的想法？我们随时准备将您的概念转化为现实。通过邮件或表单与我们取得联系。</p>
+            <div class="email-block interactive">
+                <div style="color: var(--accent); font-weight: 700; letter-spacing: 2px; margin-bottom: 0.5rem; font-size: 0.9rem;">DIRECT EMAIL</div>
+                <a href="mailto:senor0716@outlook.com" style="color: var(--fg); text-decoration: none; font-size: 1.5rem; font-weight: 700;">senor0716@outlook.com</a>
+            </div>
+        </div>
+        <div class="right-pane">
+            <form class="contact-form">
+                <div class="input-group interactive-input">
+                    <input type="text" id="name" placeholder=" " required>
+                    <label for="name">YOUR NAME</label>
+                </div>
+                <div class="input-group interactive-input">
+                    <input type="email" id="email" placeholder=" " required>
+                    <label for="email">YOUR EMAIL</label>
+                </div>
+                <div class="input-group interactive-input">
+                    <textarea id="message" rows="4" placeholder=" " required></textarea>
+                    <label for="message">YOUR MESSAGE</label>
+                </div>
+                <button type="button" class="submit-btn interactive" onclick="alert('Demo: Form Submitted!')"><span>SEND MESSAGE</span></button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Blob Logic
+        const glowBlob = document.getElementById('glowBlob');
+        
+        window.addEventListener('mousemove', (e) => {
+            const mouseX = e.clientX;
+            const mouseY = e.clientY;
+            
+            // Move blob with a larger delay/parallax
+            glowBlob.style.transform = `translate(calc(-50% + ${(mouseX - window.innerWidth/2) * 0.1}px), calc(-50% + ${(mouseY - window.innerHeight/2) * 0.1}px))`;
+            glowBlob.style.left = `${mouseX}px`;
+            glowBlob.style.top = `${mouseY}px`;
+        });
+    </script>
+</body>
+</html>
