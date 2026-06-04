@@ -820,7 +820,7 @@ body {
 
 /* Card 1 Visual: 3D Math Crystal Box */
 .css-3d-visual {
-    perspective: 800px;
+    perspective: 1000px;
 }
 
 .scene-3d {
@@ -834,47 +834,83 @@ body {
 }
 
 .crystal-polyhedron {
-    width: 60px;
-    height: 60px;
+    width: 65px;
+    height: 65px;
     position: relative;
     transform-style: preserve-3d;
-    transform: rotateX(25deg) rotateY(45deg);
-    animation: rotateCrystal 10s infinite linear;
+    animation: floatAndRotateCrystal 14s infinite cubic-bezier(0.4, 0, 0.6, 1);
 }
 
-@keyframes rotateCrystal {
-    0% { transform: rotateX(20deg) rotateY(0deg); }
-    100% { transform: rotateX(20deg) rotateY(360deg); }
+@keyframes floatAndRotateCrystal {
+    0% { transform: translateY(0px) rotateX(20deg) rotateY(0deg) rotateZ(0deg); }
+    33% { transform: translateY(-10px) rotateX(45deg) rotateY(120deg) rotateZ(15deg); }
+    66% { transform: translateY(8px) rotateX(-10deg) rotateY(240deg) rotateZ(-15deg); }
+    100% { transform: translateY(0px) rotateX(20deg) rotateY(360deg) rotateZ(0deg); }
 }
 
 .crystal-polyhedron .face {
     position: absolute;
-    width: 60px;
-    height: 60px;
-    background: rgba(6, 182, 212, 0.05);
-    border: 1px solid rgba(6, 182, 212, 0.6);
-    box-shadow: 0 0 15px rgba(6, 182, 212, 0.15), inset 0 0 10px rgba(6, 182, 212, 0.2);
-    backdrop-filter: blur(2px);
+    width: 65px;
+    height: 65px;
+    background: linear-gradient(135deg, rgba(6, 182, 212, 0.08) 0%, rgba(139, 92, 246, 0.15) 100%);
+    border: 1.5px solid rgba(6, 182, 212, 0.5);
+    box-shadow: 0 0 25px rgba(6, 182, 212, 0.15), inset 0 0 20px rgba(139, 92, 246, 0.2);
+    backdrop-filter: blur(3px);
+    border-radius: 6px;
+    transition: all 0.4s ease;
 }
 
-.f-front  { transform: rotateY(0deg) translateZ(30px); }
-.f-back   { transform: rotateY(180deg) translateZ(30px); }
-.f-left   { transform: rotateY(-90deg) translateZ(30px); }
-.f-right  { transform: rotateY(90deg) translateZ(30px); }
-.f-top    { transform: rotateX(90deg) translateZ(30px); }
-.f-bottom { transform: rotateX(-90deg) translateZ(30px); }
+.project-card[data-project="math"]:hover .crystal-polyhedron .face {
+    border-color: rgba(6, 182, 212, 0.9);
+    box-shadow: 0 0 35px rgba(6, 182, 212, 0.4), inset 0 0 30px rgba(139, 92, 246, 0.5);
+    background: linear-gradient(135deg, rgba(6, 182, 212, 0.15) 0%, rgba(139, 92, 246, 0.25) 100%);
+}
+
+.f-front  { transform: rotateY(0deg) translateZ(32.5px); }
+.f-back   { transform: rotateY(180deg) translateZ(32.5px); }
+.f-left   { transform: rotateY(-90deg) translateZ(32.5px); }
+.f-right  { transform: rotateY(90deg) translateZ(32.5px); }
+.f-top    { transform: rotateX(90deg) translateZ(32.5px); }
+.f-bottom { transform: rotateX(-90deg) translateZ(32.5px); }
+
+.crystal-polyhedron::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: radial-gradient(circle, #fff 10%, #06b6d4 50%, transparent 80%);
+    box-shadow: 0 0 40px 15px rgba(6, 182, 212, 0.5);
+    transform: translate(-50%, -50%);
+    animation: pulseCore 3s infinite alternate ease-in-out;
+}
+
+@keyframes pulseCore {
+    0% { transform: translate(-50%, -50%) scale(0.8); opacity: 0.7; }
+    100% { transform: translate(-50%, -50%) scale(1.3); opacity: 1; }
+}
 
 .grid-floor-3d {
     position: absolute;
-    bottom: 20px;
-    width: 140px;
-    height: 140px;
+    bottom: 10px;
+    width: 160px;
+    height: 160px;
     background-image: 
-        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
-    background-size: 14px 14px;
+        linear-gradient(rgba(6, 182, 212, 0.25) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(6, 182, 212, 0.25) 1px, transparent 1px);
+    background-size: 20px 20px;
     transform: rotateX(75deg) translateZ(-40px);
     pointer-events: none;
+    -webkit-mask-image: radial-gradient(circle at center, black 10%, transparent 65%);
+    mask-image: radial-gradient(circle at center, black 10%, transparent 65%);
+    animation: gridBreathe 6s infinite alternate ease-in-out;
+}
+
+@keyframes gridBreathe {
+    0% { transform: rotateX(75deg) translateZ(-40px) scale(1); opacity: 0.6; }
+    100% { transform: rotateX(75deg) translateZ(-40px) scale(1.15); opacity: 1; }
 }
 
 /* Card 2 Visual: Physics Gravitational Orbits */
@@ -885,42 +921,44 @@ body {
     display: flex;
     align-items: center;
     justify-content: center;
+    perspective: 1000px;
+    transform-style: preserve-3d;
 }
 
 .physics-visual .gravity-well {
-    width: 12px;
-    height: 12px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
-    background: var(--accent-emerald);
-    box-shadow: 0 0 15px var(--accent-emerald), 0 0 25px var(--accent-emerald);
-    position: relative;
+    background: radial-gradient(circle, #ffffff, var(--accent-emerald) 50%, transparent);
+    box-shadow: 0 0 30px 10px rgba(16, 185, 129, 0.4), 0 0 60px 20px rgba(16, 185, 129, 0.2);
+    position: absolute;
     z-index: 5;
-    animation: pulseWell 2s infinite ease-in-out alternate;
+    animation: pulseWell 3s infinite ease-in-out alternate;
 }
 
 @keyframes pulseWell {
-    0% { transform: scale(0.9); box-shadow: 0 0 10px var(--accent-emerald); }
-    100% { transform: scale(1.2); box-shadow: 0 0 25px var(--accent-emerald); }
+    0% { transform: scale(0.8); filter: hue-rotate(-15deg); }
+    100% { transform: scale(1.2); filter: hue-rotate(15deg) brightness(1.2); }
 }
 
 .physics-visual .orbiting-planet {
     position: absolute;
     border-radius: 50%;
-    background: var(--accent-emerald);
-    box-shadow: 0 0 8px var(--accent-emerald);
+    background: #ffffff;
 }
 
 .physics-visual .planet-1 {
-    width: 8px;
-    height: 8px;
-    animation: orbitPhysics1 6s infinite linear;
+    width: 6px;
+    height: 6px;
+    box-shadow: 0 0 10px #ffffff, 0 0 20px var(--accent-emerald);
+    animation: orbitPhysics1 4s infinite linear;
 }
 
 .physics-visual .planet-2 {
-    width: 5px;
-    height: 5px;
-    opacity: 0.85;
-    animation: orbitPhysics2 10s infinite linear;
+    width: 4px;
+    height: 4px;
+    box-shadow: 0 0 8px #ffffff, 0 0 15px var(--accent-cyan);
+    animation: orbitPhysics2 7s infinite linear;
 }
 
 .physics-visual .field-lines {
@@ -930,16 +968,45 @@ body {
     top: 0;
     left: 0;
     pointer-events: none;
+    transform: rotateX(65deg);
+    transform-origin: center;
+    animation: rippleFields 20s infinite linear;
 }
 
+.physics-visual .field-lines circle {
+    stroke-width: 1.5;
+    animation: fieldPulse 4s infinite alternate ease-in-out;
+}
+
+.physics-visual .field-lines circle:nth-child(1) { animation-delay: 0s; stroke: rgba(16, 185, 129, 0.4); }
+.physics-visual .field-lines circle:nth-child(2) { animation-delay: -1.3s; stroke: rgba(16, 185, 129, 0.25); }
+.physics-visual .field-lines circle:nth-child(3) { animation-delay: -2.6s; stroke: rgba(16, 185, 129, 0.15); }
+
+@keyframes rippleFields {
+    0% { transform: rotateX(65deg) rotateZ(0deg); }
+    100% { transform: rotateX(65deg) rotateZ(360deg); }
+}
+
+@keyframes fieldPulse {
+    0% { stroke-width: 1; opacity: 0.5; }
+    100% { stroke-width: 3; opacity: 1; }
+}
+
+/* 3D Orbiting using translation and rotation */
 @keyframes orbitPhysics1 {
-    0% { transform: rotate(0deg) translateX(45px) rotate(0deg); }
-    100% { transform: rotate(360deg) translateX(45px) rotate(-360deg); }
+    0% { transform: rotateX(65deg) rotateZ(0deg) translateX(55px) rotateZ(0deg) rotateX(-65deg); z-index: 5; }
+    25% { transform: rotateX(65deg) rotateZ(90deg) translateX(55px) rotateZ(-90deg) rotateX(-65deg); z-index: 10; }
+    50% { transform: rotateX(65deg) rotateZ(180deg) translateX(55px) rotateZ(-180deg) rotateX(-65deg); z-index: 5; }
+    75% { transform: rotateX(65deg) rotateZ(270deg) translateX(55px) rotateZ(-270deg) rotateX(-65deg); z-index: 1; }
+    100% { transform: rotateX(65deg) rotateZ(360deg) translateX(55px) rotateZ(-360deg) rotateX(-65deg); z-index: 5; }
 }
 
 @keyframes orbitPhysics2 {
-    0% { transform: rotate(180deg) translateX(72px) rotate(-180deg); }
-    100% { transform: rotate(540deg) translateX(72px) rotate(-540deg); }
+    0% { transform: rotateX(55deg) rotateY(20deg) rotateZ(180deg) translateX(80px) rotateZ(-180deg) rotateY(-20deg) rotateX(-55deg); z-index: 5; }
+    25% { transform: rotateX(55deg) rotateY(20deg) rotateZ(270deg) translateX(80px) rotateZ(-270deg) rotateY(-20deg) rotateX(-55deg); z-index: 1; }
+    50% { transform: rotateX(55deg) rotateY(20deg) rotateZ(360deg) translateX(80px) rotateZ(-360deg) rotateY(-20deg) rotateX(-55deg); z-index: 5; }
+    75% { transform: rotateX(55deg) rotateY(20deg) rotateZ(450deg) translateX(80px) rotateZ(-450deg) rotateY(-20deg) rotateX(-55deg); z-index: 10; }
+    100% { transform: rotateX(55deg) rotateY(20deg) rotateZ(540deg) translateX(80px) rotateZ(-540deg) rotateY(-20deg) rotateX(-55deg); z-index: 5; }
 }
 
 /* Card 3 Visual: Shadow Play silhouette & warm lights */
