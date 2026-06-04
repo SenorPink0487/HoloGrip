@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HoloGrip - 作品矩阵</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;700;900&display=swap');
+        
+        :root {
+            --bg: #050505;
+            --fg: #ffffff;
+            --accent: #ff2a5f;
+            --muted: #555555;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            background-color: var(--bg);
+            color: var(--fg);
+            font-family: 'Outfit', sans-serif;
+            overflow-x: hidden;
+        }
+
+        /* 噪点肌理遮罩 */
+        .noise-overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            pointer-events: none;
+            z-index: 999;
+            opacity: 0.04;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.65' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+        }
+
+        ::-webkit-scrollbar { width: 0; }
+
+        /* 返回导航 */
+        .navbar {
+            position: fixed;
+            top: 2rem;
+            left: 3rem;
+            z-index: 100;
+            mix-blend-mode: difference;
+        }
+        .navbar a {
+            color: var(--fg);
+            text-decoration: none;
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: opacity 0.3s;
+        }
+        .navbar a:hover { opacity: 0.7; }
+        .navbar a::before { content: '←'; transition: transform 0.3s; }
+        .navbar a:hover::before { transform: translateX(-5px); }
+
+        /* Text Reveal Animation */
+        .reveal-up {
+            opacity: 0;
+            transform: translateY(40px);
+            transition: all 1.5s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .project-card.is-visible .reveal-up {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        .project-card .proj-num.reveal-up { transition-delay: 0.2s; }
+        .project-card .proj-title.reveal-up { transition-delay: 0.4s; }
+        .project-card .proj-desc.reveal-up { transition-delay: 0.6s; }
+        .project-card .launch-btn.reveal-up { transition-delay: 0.8s; }
+
+        /* Hero Header */
+        .header-section {
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            position: sticky;
+            top: 0;
+            z-index: 1;
+            background: var(--bg);
+        }
+        .header-section .huge-title {
+            opacity: 0;
+            transform: translateY(50px);
+            animation: heroReveal 2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            animation-delay: 0.3s;
+        }
+        .header-section .scroll-indicator {
+            opacity: 0;
+            transform: translate(-50%, 50px);
+            animation: heroRevealCentered 2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            animation-delay: 1.2s;
+        }
+        @keyframes heroReveal { 100% { opacity: 1; transform: translateY(0); } }
+        @keyframes heroRevealCentered { 100% { opacity: 1; transform: translate(-50%, 0); } }
+
+        .huge-title {
+            font-size: clamp(5rem, 15vw, 15rem);
+            font-weight: 900;
+            line-height: 0.8;
+            letter-spacing: -0.04em;
+            text-transform: uppercase;
+            margin-bottom: 2rem;
+        }
+        .huge-title .outline {
+            color: transparent;
+            -webkit-text-stroke: 2px rgba(255, 255, 255, 0.2);
+            display: block;
+        }
+        .scroll-indicator {
+            position: absolute;
+            bottom: 40px;
+            left: 50%;
+            transform: translateX(-50%);
+            font-size: 0.8rem;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            color: var(--muted);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+        }
+        .scroll-indicator::after {
+            content: '';
+            width: 1px; height: 40px;
+            background: var(--muted);
+            animation: scrollLine 2s infinite;
+        }
+        @keyframes scrollLine {
+            0% { transform: scaleY(0); transform-origin: top; }
+            50% { transform: scaleY(1); transform-origin: top; }
+            50.1% { transform: scaleY(1); transform-origin: bottom; }
+            100% { transform: scaleY(0); transform-origin: bottom; }
+        }
+
+        /* Project Cards Container */
+        .projects-wrapper {
+            position: relative;
+            z-index: 2;
+            padding-bottom: 10vh;
+        }
+
+        /* Sticky Cards */
+        .project-card {
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            width: 100vw;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+            transform-origin: center top;
+        }
+
+        /* 独有的卡片背景与材质 */
+        .card-inner {
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            padding: 0 10vw;
+            position: relative;
+            background: #0a0a0a;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            box-shadow: 0 -20px 50px rgba(0,0,0,0.8);
+            transform-origin: top center;
+            transition: transform 0.1s;
+        }
+
+        /* Alternate colors */
+        #proj-1 .card-inner { background: #0c0c0c; }
+        #proj-2 .card-inner { background: #121212; }
+        #proj-3 .card-inner { background: #080808; }
+
+        .proj-content {
+            position: relative;
+            z-index: 2;
+            max-width: 600px;
+        }
+        
+        .proj-num {
+            font-size: 1.5rem;
+            color: var(--accent);
+            font-weight: 700;
+            letter-spacing: 4px;
+            margin-bottom: 1rem;
+        }
+        
+        .proj-title {
+            font-size: clamp(4rem, 8vw, 8rem);
+            font-weight: 900;
+            line-height: 0.9;
+            margin-bottom: 2rem;
+            text-transform: uppercase;
+        }
+
+        .proj-desc {
+            font-size: 1.2rem;
+            color: #999;
+            line-height: 1.6;
+            margin-bottom: 2rem;
+        }
+
+        /* Launch Button */
+        .launch-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 15px;
+            padding: 15px 30px;
+            background: transparent;
+            border: 1px solid var(--accent);
+            color: var(--fg);
+            font-size: 0.9rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            text-decoration: none;
+            border-radius: 50px;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s;
+            cursor: pointer;
+        }
+        .launch-btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--accent);
+            transform: translateX(-101%);
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: 1;
+        }
+        .launch-btn:hover::before { transform: translateX(0); }
+        .launch-btn span, .launch-btn svg { position: relative; z-index: 2; }
+        .launch-btn svg {
+            width: 18px; height: 18px;
+            fill: none; stroke: currentColor; stroke-width: 2;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .launch-btn:hover svg { transform: translateX(5px) rotate(-45deg); }
+
+        /* Massive Abstract Background Typography / Shapes */
+        .bg-typography {
+            position: absolute;
+            right: -5vw;
+            top: 50%;
+            transform: translateY(-50%) translateX(100px);
+            opacity: 0;
+            font-size: 30vw;
+            font-weight: 900;
+            color: transparent;
+            -webkit-text-stroke: 1px rgba(255, 255, 255, 0.03);
+            line-height: 0.8;
+            z-index: 1;
+            pointer-events: none;
+            user-select: none;
+            transition: all 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .project-card.is-visible .bg-typography {
+            opacity: 1;
+            transform: translateY(-50%) translateX(0);
+        }
+
+        /* 主题动效容器 */
+        .anim-container {
+            position: absolute;
+            right: 15vw;
+            top: 50%;
+            transform: translateY(-50%) scale(0.8);
+            opacity: 0;
+            width: 400px;
+            height: 400px;
+            z-index: 1;
+            perspective: 1000px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.3s;
+        }
+        .project-card.is-visible .anim-container {
+            opacity: 1;
+            transform: translateY(-50%) scale(1);
+        }
+
+        /* 1. HoloMath - 3D Wireframe Cube (数学：动态空间几何) */
+        .math-cube {
+            width: 200px; height: 200px;
+            position: relative;
+            transform-style: preserve-3d;
+            animation: spinCube 15s infinite linear;
+            z-index: 2;
+        }
+        .math-cube div {
+            position: absolute; width: 200px; height: 200px;
+            border: 2px solid rgba(255, 42, 95, 0.6);
+            background: rgba(255, 42, 95, 0.02);
+            box-shadow: inset 0 0 40px rgba(255, 42, 95, 0.2);
+        }
+        .math-cube .front  { transform: translateZ(100px); }
+        .math-cube .back   { transform: rotateY(180deg) translateZ(100px); }
+        .math-cube .right  { transform: rotateY(90deg) translateZ(100px); }
+        .math-cube .left   { transform: rotateY(-90deg) translateZ(100px); }
+        .math-cube .top    { transform: rotateX(90deg) translateZ(100px); }
+        .math-cube .bottom { transform: rotateX(-90deg) translateZ(100px); }
+        @keyframes spinCube {
+            0% { transform: rotateX(0deg) rotateY(0deg) rotateZ(0deg); }
+            100% { transform: rotateX(360deg) rotateY(360deg) rotateZ(360deg); }
+        }
+        .math-grid {
+            position: absolute; width: 500px; height: 500px;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.08) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.08) 1px, transparent 1px);
+            background-size: 50px 50px;
+            transform: rotateX(70deg) translateZ(-100px);
+            animation: gridMove 4s linear infinite;
+            z-index: 1;
+        }
+        @keyframes gridMove {
+            0% { transform: rotateX(70deg) translateZ(-100px) translateY(0); }
+            100% { transform: rotateX(70deg) translateZ(-100px) translateY(50px); }
+        }
+
+        /* 2. HoloPhysics - Orbital Gravity (物理：万有引力轨迹) */
+        .physics-system {
+            width: 100%; height: 100%;
+            position: relative;
+            transform-style: preserve-3d;
+            transform: rotateX(65deg); /* 倾斜看轨道 */
+        }
+        .sun {
+            position: absolute; top: 50%; left: 50%;
+            width: 60px; height: 60px;
+            background: #ff2a5f;
+            border-radius: 50%;
+            transform: translate(-50%, -50%) rotateX(-65deg); /* 反向抵消倾斜，保持正圆 */
+            box-shadow: 0 0 80px #ff2a5f, inset 0 0 20px #fff;
+        }
+        .orbit {
+            position: absolute; top: 50%; left: 50%;
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            transform-style: preserve-3d;
+        }
+        .orbit-1 { width: 160px; height: 160px; animation: spinOrbit 4s linear infinite; border-left-color: rgba(255,255,255,0.5); }
+        .orbit-2 { width: 260px; height: 260px; animation: spinOrbit 7s linear infinite reverse; }
+        .orbit-3 { width: 380px; height: 380px; animation: spinOrbit 12s linear infinite; border-right-color: #ff2a5f; }
+        .planet {
+            width: 16px; height: 16px;
+            background: #fff;
+            border-radius: 50%;
+            position: absolute; top: -8px; left: 50%;
+            transform: translateX(-50%) rotateX(-65deg);
+            box-shadow: 0 0 15px #fff;
+        }
+        .orbit-1 .planet { background: #ff2a5f; box-shadow: 0 0 20px #ff2a5f; }
+        @keyframes spinOrbit { 100% { transform: translate(-50%, -50%) rotate(360deg); } }
+
+        /* 3. HoloChem - Atom Model (化学：微观电子杂化轨道) */
+        .chem-atom {
+            width: 100%; height: 100%;
+            position: relative;
+        }
+        .nucleus {
+            position: absolute; top: 50%; left: 50%;
+            width: 40px; height: 40px;
+            background: #fff;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 50px #fff;
+            animation: pulseNucleus 1.5s ease-in-out infinite alternate;
+        }
+        @keyframes pulseNucleus { 100% { transform: translate(-50%, -50%) scale(1.3); box-shadow: 0 0 80px #ff2a5f; background: #ff2a5f; } }
+        
+        .electron-ring {
+            position: absolute; top: 50%; left: 50%;
+            width: 350px; height: 100px;
+            border: 2px solid rgba(255, 42, 95, 0.4);
+            border-radius: 50%;
+        }
+        .e-ring-1 { transform: translate(-50%, -50%) rotate(30deg); }
+        .e-ring-2 { transform: translate(-50%, -50%) rotate(90deg); }
+        .e-ring-3 { transform: translate(-50%, -50%) rotate(150deg); }
+        
+        .dot-wrapper {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            animation: travelDot 3s linear infinite;
+        }
+        .e-ring-2 .dot-wrapper { animation-duration: 4.5s; animation-direction: reverse; }
+        .e-ring-3 .dot-wrapper { animation-duration: 2s; }
+        
+        .electron {
+            width: 14px; height: 14px;
+            background: #fff;
+            border-radius: 50%;
+            position: absolute; top: -7px; left: 50%; transform: translateX(-50%);
+            box-shadow: 0 0 20px #fff;
+        }
+        @keyframes travelDot { 100% { transform: rotate(360deg); } }
+
+        @media (max-width: 768px) {
+            .bg-typography { font-size: 50vw; top: 10%; right: 50%; transform: translate(50%, 50px); opacity: 0; }
+            .project-card.is-visible .bg-typography { transform: translate(50%, 0); opacity: 0.5; }
+            .anim-container { width: 300px; height: 300px; right: 50%; transform: translate(50%, -50%) scale(0.5); opacity: 0; top: 25%; }
+            .project-card.is-visible .anim-container { transform: translate(50%, -50%) scale(0.6); opacity: 1; }
+            .card-inner { padding: 0 5vw; align-items: flex-end; padding-bottom: 15vh; }
+        }
+    </style>
+</head>
+<body>
+    <div class="noise-overlay"></div>
+
+    <nav class="navbar">
+        <a href="index_v2.html">Back to Home</a>
+    </nav>
+
+    <div class="header-section">
+        <div class="huge-title">
+            <span class="outline">CREATIVE</span>
+            MATRIX
+        </div>
+        <div class="scroll-indicator">SCROLL TO EXPLORE</div>
+    </div>
+
+    <div class="projects-wrapper">
+        <div class="project-card" id="proj-1">
+            <div class="card-inner">
+                <div class="bg-typography">MATH</div>
+                <div class="anim-container">
+                    <div class="math-grid"></div>
+                    <div class="math-cube">
+                        <div class="front"></div><div class="back"></div>
+                        <div class="right"></div><div class="left"></div>
+                        <div class="top"></div><div class="bottom"></div>
+                    </div>
+                </div>
+                <div class="proj-content">
+                    <div class="proj-num reveal-up">01 — MATHEMATICS</div>
+                    <div class="proj-title reveal-up">HoloMath</div>
+                    <div class="proj-desc reveal-up">基于手势捕捉构建的三维数学白板。支持在空中徒手绘制立体几何及动态函数曲面，并在虚拟直角坐标系内精准测量。</div>
+                    <a href="#" class="launch-btn reveal-up" onclick="alert('Demo: Initializing HoloMath Environment...')">
+                        <span>LAUNCH HOLOMATH</span>
+                        <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="project-card" id="proj-2">
+            <div class="card-inner">
+                <div class="bg-typography">PHYS</div>
+                <div class="anim-container">
+                    <div class="physics-system">
+                        <div class="sun"></div>
+                        <div class="orbit orbit-1"><div class="planet"></div></div>
+                        <div class="orbit orbit-2"><div class="planet"></div></div>
+                        <div class="orbit orbit-3"><div class="planet"></div></div>
+                    </div>
+                </div>
+                <div class="proj-content">
+                    <div class="proj-num reveal-up">02 — PHYSICS</div>
+                    <div class="proj-title reveal-up">HoloPhysics</div>
+                    <div class="proj-desc reveal-up">支持微手势交互的多物理场模拟器。在空气中投放天体，交互式演算万有引力轨迹、静电场与刚体碰撞，让物理定律触手可及。</div>
+                    <a href="#" class="launch-btn reveal-up" onclick="alert('Demo: Booting Physics Engine...')">
+                        <span>LAUNCH HOLOPHYSICS</span>
+                        <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="project-card" id="proj-3">
+            <div class="card-inner">
+                <div class="bg-typography">CHEM</div>
+                <div class="anim-container">
+                    <div class="chem-atom">
+                        <div class="nucleus"></div>
+                        <div class="electron-ring e-ring-1"><div class="dot-wrapper"><div class="electron"></div></div></div>
+                        <div class="electron-ring e-ring-2"><div class="dot-wrapper"><div class="electron"></div></div></div>
+                        <div class="electron-ring e-ring-3"><div class="dot-wrapper"><div class="electron"></div></div></div>
+                    </div>
+                </div>
+                <div class="proj-content">
+                    <div class="proj-num reveal-up">03 — CHEMISTRY</div>
+                    <div class="proj-title reveal-up">HoloChem</div>
+                    <div class="proj-desc reveal-up">三维化学分子动力学沙盒。抓取并拼接粒子轨道，重构杂化过程，模拟化学键断裂与反应历程。体验分子级别的极致操控。</div>
+                    <a href="#" class="launch-btn reveal-up" onclick="alert('Demo: Starting Chemistry Sandbox...')">
+                        <span>LAUNCH HOLOCHEM</span>
+                        <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const cards = document.querySelectorAll('.project-card');
+        
+        // Intersection Observer for Text & Animation Reveal
+        const observerOptions = {
+            root: null,
+            rootMargin: '0px',
+            threshold: 0.35 // Trigger when 35% of the card is visible
+        };
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('is-visible');
+                } else if (entry.boundingClientRect.top > 0) {
+                    // Remove class only if scrolling back up so it retriggers when scrolling down
+                    entry.target.classList.remove('is-visible');
+                }
+            });
+        }, observerOptions);
+        cards.forEach(card => observer.observe(card));
+
+        // 随滚动给下方卡片增加缩小视差，实现真实的堆叠物理感
+        window.addEventListener('scroll', () => {
+            cards.forEach((card, index) => {
+                const rect = card.getBoundingClientRect();
+                const inner = card.querySelector('.card-inner');
+                // 当卡片到达顶部固定时，计算其被下一张卡片遮挡的进度
+                if (rect.top <= 0) {
+                    // 缩放比例：根据滚动距离缩小，最多缩小到 0.9
+                    const scale = Math.max(0.9, 1 - Math.abs(rect.top) / window.innerHeight * 0.1);
+                    // 亮度降低：模拟被遮挡的阴影
+                    const brightness = Math.max(0.4, 1 - Math.abs(rect.top) / window.innerHeight);
+                    inner.style.transform = `scale(${scale})`;
+                    inner.style.filter = `brightness(${brightness})`;
+                } else {
+                    inner.style.transform = `scale(1)`;
+                    inner.style.filter = `brightness(1)`;
+                }
+            });
+        });
+    </script>
+</body>
+</html>
