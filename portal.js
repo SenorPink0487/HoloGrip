@@ -309,46 +309,56 @@ const projectDetails = {
             </div>
         `,
     },
-    shadowplay: {
-        title: '03 / HoloShadow 空间生成式皮影戏',
-        tag: 'SHADOW PLAY // TRADITIONAL ART',
+    chemistry: {
+        title: '03 / HoloChemistry 空间化学分子沙盒',
+        tag: 'CHEMISTRY // V0.0.1-ALPHA',
         desc:
-            'HoloShadow 是一项将国家级非物质文化遗产同计算机视觉相结合的前沿探索，目前处于开发测试阶段。系统利用 MediaPipe Hands 提取的双手 21 个骨骼点，动态拟合和控制皮影戏角色的肢体关节及行走步态。辅以 AI 着色渲染管线，实时演算光影透过牛皮材质的漫透射折光，在虚空中重现中华光影艺术的魅力。',
+            'HoloChemistry 致力于将三维空间手势与微观化学分子动力学仿真相结合，目前正处于早期预研阶段。用户将能够在空气中自由抓取和拼接基本粒子，构建出杂化轨道（如 sp³、sp²）、水分子模型乃至复杂的 DNA 螺旋结构。系统支持实时计算共价键角、模拟电子云概率密度分布以及观察无机反应的化学键断裂历程，以极富视觉张力的方式呈现微观分子结构。',
         specs: {
-            engine: 'MediaPipe Hands + WebGL shaders',
-            perf: 'Skeletal Joints Map: 21 points / hand',
-            algorithm: 'Realtime Translucent Scattering Shader',
-            version: 'v0.0.2-alpha (Under Dev)',
+            engine: 'Three.js Orbit Hybrid Render',
+            perf: 'Electronic Cloud Compute: ~30k points',
+            algorithm: 'Valence Shell Electron Pair Repulsion (VSEPR)',
+            version: 'v0.0.1-alpha (Under Dev)',
         },
-        demoColor: 'var(--accent-amber)',
-        visualClass: 'shadowplay-modal-demo',
+        demoColor: 'var(--accent-purple)',
+        visualClass: 'chemistry-modal-demo',
         canLaunch: false,
         demoHtml: `
-            <div class="shadowplay-simulation" style="display: flex; width: 85%; height: 85%; align-items: center; justify-content: space-around; z-index: 4; margin-top: 10px;">
-                <svg class="hand-mesh" width="90" height="90" viewBox="0 0 100 100" style="filter: drop-shadow(0 0 6px var(--accent-amber));">
-                    <path d="M 50 90 L 45 70 L 42 55 L 40 40 M 45 70 L 30 55 L 20 45 L 12 38 M 45 70 L 52 50 L 55 38 L 56 26 M 45 70 L 68 56 L 78 48 L 86 42 M 50 90 L 70 80 L 82 72" fill="none" stroke="rgba(245, 158, 11, 0.5)" stroke-width="1.2" />
-                    <circle cx="50" cy="90" r="2.5" fill="#fff" />
-                    <circle cx="45" cy="70" r="2" fill="var(--accent-amber)" />
-                    <circle cx="42" cy="55" r="2" fill="var(--accent-amber)" />
-                    <circle cx="40" cy="40" r="1.5" fill="var(--accent-amber)" />
-                    <circle cx="30" cy="55" r="1.5" fill="var(--accent-amber)" />
-                    <circle cx="20" cy="45" r="1.5" fill="var(--accent-amber)" />
-                    <circle cx="12" cy="38" r="1.5" fill="var(--accent-amber)" />
-                    <circle cx="52" cy="50" r="1.5" fill="var(--accent-amber)" />
-                    <circle cx="55" cy="38" r="1.5" fill="var(--accent-amber)" />
-                    <circle cx="56" cy="26" r="1.5" fill="var(--accent-amber)" />
-                    <circle cx="68" cy="56" r="1.5" fill="var(--accent-amber)" />
-                    <circle cx="78" cy="48" r="1.5" fill="var(--accent-amber)" />
-                    <circle cx="86" cy="42" r="1.5" fill="var(--accent-amber)" />
-                    <circle cx="70" cy="80" r="1.5" fill="var(--accent-amber)" />
-                    <circle cx="82" cy="72" r="1.5" fill="var(--accent-amber)" />
-                </svg>
-                <div class="shadowplay-backlight" style="width: 90px; height: 90px; border-radius: 50%; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden;">
-                    <div class="puppet-silhouette" style="width: 45px; height: 45px; transform-origin: bottom center; animation: swayPuppet 4s infinite ease-in-out alternate;">
-                        <svg class="svg-puppet" viewBox="0 0 100 100" style="width: 100%; height: 100%; filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.95));">
-                            <path d="M50 20 L40 40 L60 40 Z M50 40 L50 80 M30 50 L50 40 L70 50" stroke="#000" stroke-width="4" stroke-linecap="round" fill="rgba(0,0,0,0.85)"/>
-                            <circle cx="50" cy="15" r="8" fill="rgba(0,0,0,0.85)" />
+            <div class="chemistry-molecule-simulation" style="transform: scale(1.15); width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; position: relative;">
+                <div class="chemistry-molecule-demo">
+                    <div class="chemistry-flask-wrapper" style="transform: scale(1.3);">
+                        <div class="vapor-container">
+                            <div class="vapor v1"></div>
+                            <div class="vapor v2"></div>
+                            <div class="vapor v3"></div>
+                        </div>
+                        <svg viewBox="0 0 100 135" class="flask-svg" preserveAspectRatio="xMidYMax meet">
+                            <defs>
+                                <linearGradient id="flaskReflect_modal" x1="0%" y1="0%" x2="100%" y2="0%">
+                                    <stop offset="0%" stop-color="rgba(255,255,255,0.7)"/>
+                                    <stop offset="15%" stop-color="rgba(255,255,255,0.1)"/>
+                                    <stop offset="100%" stop-color="rgba(255,255,255,0)"/>
+                                </linearGradient>
+                                <filter id="flaskGlow_modal">
+                                    <feGaussianBlur stdDeviation="3" result="blur" />
+                                    <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                                </filter>
+                            </defs>
+                            <path d="M 38 20 L 38 50 L 10 115 A 8 8 0 0 0 18 125 L 82 125 A 8 8 0 0 0 90 115 L 62 50 L 62 20" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.4)" stroke-width="2" filter="url(#flaskGlow_modal)"/>
+                            <ellipse cx="50" cy="20" rx="16" ry="5" fill="rgba(255,255,255,0.1)" stroke="rgba(255,255,255,0.7)" stroke-width="2" filter="url(#flaskGlow_modal)"/>
+                            <path d="M 40 50 L 14 110" fill="none" stroke="url(#flaskReflect_modal)" stroke-width="3" stroke-linecap="round"/>
+                            <path d="M 42 25 L 42 45" fill="none" stroke="url(#flaskReflect_modal)" stroke-width="3" stroke-linecap="round"/>
                         </svg>
+                        <div class="flask-liquid">
+                            <div class="liquid-fill">
+                                <div class="bubble b1"></div>
+                                <div class="bubble b2"></div>
+                                <div class="bubble b3"></div>
+                                <div class="bubble b4"></div>
+                                <div class="bubble b5"></div>
+                                <div class="bubble b6"></div>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
