@@ -5,12 +5,11 @@ import { defineConfig, loadEnv } from 'vite';
 
 /**
  * 多入口配置：
- *  - index.html  → HoloGrip 门户（静态壳，纯原生 JS+CSS）
- *  - app.html    → React 主体（HoloMath 空间几何画板）
- *
- * Tauri 默认装载 index.html（即门户），点击「启动在线程序」时由 Rust 后端
- * 调 WebviewWindowBuilder 打开新窗口加载 app.html；浏览器调试模式下则走
- * `location.href = 'app.html'` 跳转。
+ *  - index.html     → HoloGrip 门户（静态展示页）
+ *  - portfolio.html → 作品矩阵
+ *  - profile.html   → 关于我们
+ *  - holomath.html  → HoloMath 空间几何画板（React）
+ *  - physics.html   → HoloPhysics 物理仿真（React）
  */
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
@@ -27,9 +26,12 @@ export default defineConfig(({ mode }) => {
     build: {
       rollupOptions: {
         input: {
-          portal: path.resolve(__dirname, 'index.html'),
-          app: path.resolve(__dirname, 'app.html'),
-          physics: path.resolve(__dirname, 'physics.html'),
+          portal:    path.resolve(__dirname, 'index.html'),
+          portfolio: path.resolve(__dirname, 'portfolio.html'),
+          profile:   path.resolve(__dirname, 'profile.html'),
+          about:     path.resolve(__dirname, 'about.html'),
+          holomath:  path.resolve(__dirname, 'holomath.html'),
+          physics:   path.resolve(__dirname, 'physics.html'),
         },
       },
     },

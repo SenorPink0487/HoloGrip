@@ -64,16 +64,16 @@
         .reveal-up {
             opacity: 0;
             transform: translateY(40px);
-            transition: all 1.5s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .project-card.is-visible .reveal-up {
             opacity: 1;
             transform: translateY(0);
         }
-        .project-card .proj-num.reveal-up { transition-delay: 0.2s; }
-        .project-card .proj-title.reveal-up { transition-delay: 0.4s; }
-        .project-card .proj-desc.reveal-up { transition-delay: 0.6s; }
-        .project-card .launch-btn.reveal-up { transition-delay: 0.8s; }
+        .project-card .proj-num.reveal-up { transition-delay: 0.1s; }
+        .project-card .proj-title.reveal-up { transition-delay: 0.2s; }
+        .project-card .proj-desc.reveal-up { transition-delay: 0.3s; }
+        .project-card .launch-btn.reveal-up { transition-delay: 0.4s; }
 
         /* Hero Header */
         .header-section {
@@ -265,7 +265,7 @@
             z-index: 1;
             pointer-events: none;
             user-select: none;
-            transition: all 1.2s cubic-bezier(0.16, 1, 0.3, 1);
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
         }
         .project-card.is-visible .bg-typography {
             opacity: 1;
@@ -286,7 +286,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: all 1.2s cubic-bezier(0.16, 1, 0.3, 1) 0.3s;
+            transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s;
         }
         .project-card.is-visible .anim-container {
             opacity: 1;
@@ -423,7 +423,7 @@
     <div class="noise-overlay"></div>
 
     <nav class="navbar">
-        <a href="index_v2.html">Back to Home</a>
+        <a href="index.html">Back to Home</a>
     </nav>
 
     <div class="header-section">
@@ -450,7 +450,7 @@
                     <div class="proj-num reveal-up">01 — MATHEMATICS</div>
                     <div class="proj-title reveal-up">HoloMath</div>
                     <div class="proj-desc reveal-up">基于手势捕捉构建的三维数学白板。支持在空中徒手绘制立体几何及动态函数曲面，并在虚拟直角坐标系内精准测量。</div>
-                    <a href="#" class="launch-btn reveal-up" onclick="alert('Demo: Initializing HoloMath Environment...')">
+                    <a href="holomath.html" class="launch-btn reveal-up">
                         <span>LAUNCH HOLOMATH</span>
                         <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                     </a>
@@ -473,7 +473,7 @@
                     <div class="proj-num reveal-up">02 — PHYSICS</div>
                     <div class="proj-title reveal-up">HoloPhysics</div>
                     <div class="proj-desc reveal-up">支持微手势交互的多物理场模拟器。在空气中投放天体，交互式演算万有引力轨迹、静电场与刚体碰撞，让物理定律触手可及。</div>
-                    <a href="#" class="launch-btn reveal-up" onclick="alert('Demo: Booting Physics Engine...')">
+                    <a href="physics.html" class="launch-btn reveal-up">
                         <span>LAUNCH HOLOPHYSICS</span>
                         <svg viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                     </a>
@@ -512,7 +512,7 @@
         const observerOptions = {
             root: null,
             rootMargin: '0px',
-            threshold: 0.35 // Trigger when 35% of the card is visible
+            threshold: 0.15 // Trigger when 15% of the card is visible
         };
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(entry => {
