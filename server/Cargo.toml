@@ -1,6 +1,7 @@
 [package]
 name = "hologrip-proxy"
 version = "0.1.0"
+license = "GPL-3.0-or-later"
 edition = "2021"
 rust-version = "1.77.2"
 description = "HoloGrip Web 端的 Gemini 反向代理服务,部署在阿里云上,藏 Key + 限流 + token 鉴权 + Prometheus 指标"
