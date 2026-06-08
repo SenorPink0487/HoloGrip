@@ -8,12 +8,11 @@ import {
   Eye,
   Info,
   ChevronLeft,
-  Menu
+  Menu,
+  ArrowLeft
 } from 'lucide-react';
 import { HexColorPicker } from "react-colorful";
 import { Magnet } from '../math/physics';
-import logoRounded from '../assets/logo-rounded.png';
-
 
 const PopoverPicker = ({ color, onChange, title }: { color: string, onChange: (c: string) => void, title?: string }) => {
   const [isOpen, setIsOpen] = React.useState(false);
@@ -49,6 +48,7 @@ const PopoverPicker = ({ color, onChange, title }: { color: string, onChange: (c
 };
 
 interface ControlPanelProps {
+  onBack: () => void;
   magnets: Magnet[];
   selectedId: string | null;
   controlMode: 'translate' | 'rotate';
@@ -104,6 +104,7 @@ interface ControlPanelProps {
 }
 
 export const ControlPanel: React.FC<ControlPanelProps> = ({
+  onBack,
   magnets,
   selectedId,
   controlMode,
@@ -173,28 +174,23 @@ export const ControlPanel: React.FC<ControlPanelProps> = ({
       )}
       <div className={`sidebar ${isCollapsed ? 'collapsed' : ''}`}>
         {/* Header */}
-        <div className="sidebar-header" style={{ justifyContent: 'space-between' }}>
-            <a
-              href="/"
-              title="返回 HoloGrip 主页"
-              style={{
-                display: 'flex', alignItems: 'center', gap: '12px',
-                textDecoration: 'none', cursor: 'pointer',
-                borderRadius: '12px', padding: '4px 6px 4px 2px',
-                transition: 'background 0.2s',
-              }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(99,102,241,0.08)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
-            >
-              <img
-                src={logoRounded}
-                alt="HoloGrip Logo"
-                style={{ width: '40px', height: '40px', borderRadius: '10px', objectFit: 'cover', flexShrink: 0 }}
-              />
-              <div className="header-titles">
-                <h1 style={{ fontSize: '26px' }}>HoloPhysics</h1>
-              </div>
-            </a>
+        <div className="sidebar-header" style={{ justifyContent: 'space-between', alignItems: 'center' }}>
+          <button 
+            onClick={onBack}
+            style={{
+              display: 'flex', alignItems: 'center', gap: '0.5rem',
+              background: '#4f46e5', padding: '0.6rem 1rem',
+              borderRadius: '10px', color: '#ffffff', border: 'none', 
+              cursor: 'pointer', fontWeight: 600, fontSize: '0.95rem',
+              boxShadow: '0 4px 12px rgba(79, 70, 229, 0.3)',
+              transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)'
+            }}
+            onMouseOver={e => { e.currentTarget.style.background = '#4338ca'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 6px 16px rgba(79, 70, 229, 0.4)'; }}
+            onMouseOut={e => { e.currentTarget.style.background = '#4f46e5'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = '0 4px 12px rgba(79, 70, 229, 0.3)'; }}
+          >
+            <ArrowLeft size={18} />
+            返回启动器
+          </button>
           <button className="btn-icon" onClick={() => setIsCollapsed(true)}>
             <ChevronLeft size={20} />
           </button>

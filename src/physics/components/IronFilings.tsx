@@ -23,6 +23,7 @@ export const IronFilings: React.FC<IronFilingsProps> = ({
   const instancedMeshRef = useRef<THREE.InstancedMesh>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const upVector = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  const tempB = useMemo(() => new THREE.Vector3(), []);
 
   const totalInstances = useMemo(() => gridSize * gridSize, [gridSize]);
 
@@ -42,16 +43,16 @@ export const IronFilings: React.FC<IronFilingsProps> = ({
         const pos = new THREE.Vector3(x, height, z);
 
         // Get magnetic field vector at this point
-        const B = calculateMagneticField(pos, magnets, 0.1);
-        const B_len = B.length();
+        calculateMagneticField(pos, magnets, tempB, 0.1);
+        const B_len = tempB.length();
 
         // Position
         dummy.position.copy(pos);
 
         // Rotation: align needle's local Y-axis with B direction
         if (B_len > 1e-5) {
-          const dir = B.clone().normalize();
-          const q = new THREE.Quaternion().setFromUnitVectors(upVector, dir);
+          tempB.normalize();
+          const q = new THREE.Quaternion().setFromUnitVectors(upVector, tempB);
           dummy.quaternion.copy(q);
         } else {
           dummy.quaternion.set(0, 0, 0, 1);
