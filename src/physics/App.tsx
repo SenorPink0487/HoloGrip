@@ -3,6 +3,9 @@ import './App.css';
 import { Magnet } from './math/physics';
 import { Canvas3D } from './components/Canvas3D';
 import { ControlPanel } from './components/ControlPanel';
+import { Launcher } from './components/Launcher';
+import { FaradayApp } from './components/faraday/FaradayApp';
+import { ArrowLeft } from 'lucide-react';
 
 const defaultMagnets: Magnet[] = [
   {
@@ -27,7 +30,7 @@ const defaultMagnets: Magnet[] = [
   },
 ];
 
-function App() {
+function MagnetApp({ onBack }: { onBack: () => void }) {
   // Magnet states
   const [magnets, setMagnets] = useState<Magnet[]>(defaultMagnets);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -45,7 +48,7 @@ function App() {
   const [particleSize, setParticleSize] = useState(1.0);
   const [showLines, setShowLines] = useState(true);
   const [showParticles, setShowParticles] = useState(true);
-  const [useCustomColor, setUseCustomColor] = useState(false);
+  const [useCustomColor, setUseCustomColor] = useState(true);
 
   // Heatmap slice plane states
   const [showHeatmap, setShowHeatmap] = useState(true);
@@ -198,6 +201,7 @@ function App() {
   return (
     <div className="app-container">
       <ControlPanel
+        onBack={onBack}
         magnets={magnets}
         selectedId={selectedId}
         controlMode={controlMode}
@@ -282,6 +286,24 @@ function App() {
       </div>
     </div>
   );
+}
+
+function App() {
+  const [currentPage, setCurrentPage] = useState<'launcher' | 'magnet' | 'faraday'>('launcher');
+
+  if (currentPage === 'launcher') {
+    return <Launcher onSelectProject={setCurrentPage} />;
+  }
+
+  if (currentPage === 'magnet') {
+    return <MagnetApp onBack={() => setCurrentPage('launcher')} />;
+  }
+
+  if (currentPage === 'faraday') {
+    return <FaradayApp onBack={() => setCurrentPage('launcher')} />;
+  }
+
+  return null;
 }
 
 export default App;

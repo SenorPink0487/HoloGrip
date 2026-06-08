@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>霍尔效应 3D 仿真实验室 · Hall Effect Lab</title>
+  <link rel="stylesheet" href="/src/physics/hall_effect/css/style.css" />
+</head>
+<body>
+  <div id="loader">
+    <div class="loader-box">
+      <div class="spinner"></div>
+      <div class="loader-text">正在构建霍尔效应实验室...</div>
+    </div>
+  </div>
+
+  <canvas id="scene"></canvas>
+
+  <header id="topbar">
+    <button onclick="window.location.href='/physics.html'" class="hud-back-btn" style="pointer-events: auto; position: absolute; top: 1.5rem; left: 1.5rem; z-index: 1000; display: flex; align-items: center; gap: 0.5rem; background: rgba(15, 23, 42, 0.4); backdrop-filter: blur(12px); padding: 0.6rem 1.2rem; border-radius: 8px; color: #cbd5e1; border: 1px solid rgba(255,255,255,0.1); cursor: pointer; font-weight: 600; font-size: 0.9rem; transition: all 0.2s; text-transform: uppercase; letter-spacing: 0.05em;" onmouseover="this.style.background='rgba(255,255,255,0.1)'; this.style.color='#fff';" onmouseout="this.style.background='rgba(15, 23, 42, 0.4)'; this.style.color='#cbd5e1';">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></svg>
+      返回启动器
+    </button>
+    <div class="topbar-actions" style="margin-left: auto;">
+      <button class="ghost-btn" id="btn-save-local" title="保存本地进度">保存进度</button>
+      <button class="ghost-btn" id="btn-load-local" title="读取本地进度">读取进度</button>
+      <button class="ghost-btn" id="btn-view-reset" title="复位视角">复位视角</button>
+      <button class="ghost-btn" id="btn-steps" title="实验步骤">实验步骤</button>
+      <button class="ghost-btn" id="btn-help" title="原理说明">原理</button>
+    </div>
+  </header>
+
+  <aside id="control-panel" class="panel">
+    <h2 class="panel-title">控制台 · Controls</h2>
+
+    <div class="control-group">
+      <div class="control-row">
+        <label for="sel-material">材料预设</label>
+        <select id="sel-material">
+          <option value="N_Ge">N 型锗 · 高霍尔电压</option>
+          <option value="P_Ge">P 型锗 · 正霍尔系数</option>
+          <option value="N_Si">N 型硅 · 高载流子浓度</option>
+          <option value="P_Si">P 型硅 · 低迁移率</option>
+        </select>
+      </div>
+      <p class="hint" id="material-note">适合观察负霍尔系数，霍尔电压符号为负。</p>
+    </div>
+
+    <div class="control-group">
+      <div class="control-row">
+        <label>载流子类型</label>
+        <div class="seg" id="seg-carrier">
+          <button data-type="N" class="active">N 型</button>
+          <button data-type="P">P 型</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="control-group">
+      <div class="slider-head">
+        <label>工作电流 I<sub>S</sub></label>
+        <span class="value" id="val-current">3.00 mA</span>
+      </div>
+      <input type="range" id="sld-current" min="0" max="10" step="0.1" value="3" />
+
+      <div class="slider-head">
+        <label>励磁电流 I<sub>M</sub></label>
+        <span class="value" id="val-magnet">0.80 A</span>
+      </div>
+      <input type="range" id="sld-magnet" min="0" max="4" step="0.02" value="0.8" />
+
+      <div class="slider-head">
+        <label>标定磁场 B</label>
+        <span class="value" id="val-field">0.62 T</span>
+      </div>
+      <input type="range" id="sld-field" min="0" max="1.55" step="0.01" value="0.62" />
+
+      <div class="slider-head">
+        <label>样品厚度 d</label>
+        <span class="value" id="val-thickness">0.50 mm</span>
+      </div>
+      <input type="range" id="sld-thickness" min="0.2" max="2" step="0.05" value="0.5" />
+    </div>
+
+    <div class="control-group toggles">
+      <label class="chk"><input type="checkbox" id="chk-measured" checked /> 使用测量值和仪表噪声</label>
+      <label class="chk"><input type="checkbox" id="chk-carriers" checked /> 载流子流动</label>
+      <label class="chk"><input type="checkbox" id="chk-field" checked /> 磁感线</label>
+      <label class="chk"><input type="checkbox" id="chk-force" checked /> 洛伦兹力 / 霍尔电场</label>
+      <label class="chk"><input type="checkbox" id="chk-rotate" /> 自动旋转</label>
+    </div>
+
+    <div class="control-group">
+      <button class="primary-btn" id="btn-power">接通电源</button>
+    </div>
+  </aside>
+
+  <aside id="readout-panel" class="panel">
+    <h2 class="panel-title">仪表读数 · Meters</h2>
+
+    <div class="meter">
+      <div class="meter-label">霍尔电压 V<sub>H</sub></div>
+      <div class="meter-display" id="meter-vh">0.00 mV</div>
+    </div>
+
+    <div class="meter-grid">
+      <div class="mini-meter"><span>I<sub>S</sub></span><b id="mini-is">3.00 mA</b></div>
+      <div class="mini-meter"><span>I<sub>M</sub></span><b id="mini-im">0.80 A</b></div>
+      <div class="mini-meter"><span>B</span><b id="mini-b">0.62 T</b></div>
+      <div class="mini-meter"><span>d</span><b id="mini-d">0.50 mm</b></div>
+      <div class="mini-meter"><span>载流子浓度 n</span><b id="mini-n">6.3e20 /m^3</b></div>
+      <div class="mini-meter"><span>霍尔系数 R<sub>H</sub></span><b id="mini-rh">-9.9e-3</b></div>
+    </div>
+
+
+    <div class="control-group">
+      <div class="seg compact" id="seg-mode">
+        <button data-mode="fixedB" class="active">固定 B 采集</button>
+        <button data-mode="fixedI">固定 I 采集</button>
+      </div>
+      <button class="primary-btn" id="btn-record">记录当前数据点</button>
+      <div class="rec-actions">
+        <button class="ghost-btn small" id="btn-plot">拟合 V<sub>H</sub>-I 曲线</button>
+        <button class="ghost-btn small" id="btn-clear">清除本轮</button>
+      </div>
+      <div class="rec-actions">
+        <button class="ghost-btn small" id="btn-export-csv">CSV</button>
+        <button class="ghost-btn small" id="btn-export-json">JSON</button>
+        <button class="ghost-btn small" id="btn-report">实验报告</button>
+      </div>
+      <button class="primary-btn" id="btn-open-plot" style="margin-top: 16px; background: linear-gradient(135deg, #10b981, #059669); box-shadow: 0 8px 24px rgba(16,185,129,0.25);">📈 打开折线图</button>
+    </div>
+
+    <div style="border-top: 1px solid rgba(255,255,255,0.05); padding-top: 16px; margin-top: 8px;">
+      <h2 class="panel-title" style="margin-bottom: 10px; border: none; padding: 0;">数据记录</h2>
+      <div style="max-height: 250px; overflow-y: auto; padding-right: 4px;">
+        <table class="data-table" id="data-table" style="margin-top: 0;">
+          <thead>
+            <tr><th>#</th><th>I<sub>S</sub>/mA</th><th>B/T</th><th>d/mm</th><th>V<sub>H</sub>/mV</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </aside>
+
+  <footer id="statusbar">
+    <span id="status-text">就绪：接通电源后调节 I_S、I_M 或厚度，记录数据并拟合。</span>
+    <span id="hud-coords">x: 电流 I · y: 磁场 B · z: 霍尔电压 V_H</span>
+  </footer>
+
+  <div id="help-modal" class="modal hidden">
+    <div class="modal-card">
+      <button class="modal-close" id="btn-help-close">x</button>
+      <h2>霍尔效应原理</h2>
+      <p>载流子在样品中沿 <b>x</b> 方向形成工作电流 I<sub>S</sub>，在 <b>y</b> 方向磁场 B 中受到洛伦兹力，向 <b>z</b> 方向侧面积累电荷，形成霍尔电场和霍尔电压。</p>
+      <p class="formula">V<sub>H</sub> = R<sub>H</sub> I<sub>S</sub> B / d，R<sub>H</sub> = ±1/(ne)</p>
+      <ul>
+        <li>N 型材料电子导电，R<sub>H</sub> 为负；P 型材料空穴导电，R<sub>H</sub> 为正。</li>
+        <li>固定 B 和 d 时，V<sub>H</sub>-I<sub>S</sub> 的斜率可反推 R<sub>H</sub> 和载流子浓度 n。</li>
+        <li>本实验加入仪表分辨率和小幅噪声，理论值与测量值可切换对比。</li>
+      </ul>
+    </div>
+  </div>
+
+  <div id="steps-modal" class="modal hidden">
+    <div class="modal-card">
+      <button class="modal-close" id="btn-steps-close">x</button>
+      <h2>实验步骤 · Procedure</h2>
+      <ol id="steps" class="steps"></ol>
+    </div>
+  </div>
+
+  <div id="plot-modal" class="modal hidden">
+    <div class="modal-card" style="width: min(600px, 95vw); max-width: 600px; display: flex; flex-direction: column;">
+      <button class="modal-close" id="btn-plot-close">x</button>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h2 style="font-size: 18px; margin: 0; color: #fff;">V<sub>H</sub> - I<sub>S</sub> 图表</h2>
+        <label class="chk"><input type="checkbox" id="chk-connect-points" /> 绘制散点折线</label>
+      </div>
+      <canvas id="plot" width="500" height="300" style="width: 100%; height: auto; max-height: 50vh; flex-shrink: 0;"></canvas>
+      <div id="fit-summary" class="fit-summary" style="margin-top: 16px;">尚未拟合</div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/physics/hall_effect/js/main.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Canvas } from '@react-three/fiber';
-import { OrbitControls, Grid } from '@react-three/drei';
+import { OrbitControls } from '@react-three/drei';
 import { Magnet } from '../math/physics';
 import { MagnetMesh } from './MagnetMesh';
 import { FieldLines } from './FieldLines';

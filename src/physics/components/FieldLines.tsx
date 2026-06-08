@@ -47,21 +47,37 @@ export const FieldLines: React.FC<FieldLinesProps> = ({
   // Generate lines and colors only when relevant parameters change
   const linesData = useMemo(() => {
     const { lines } = generateAllFieldLines(magnets, density, stepSize, maxSteps);
-    const customColorObj = new THREE.Color(_lineColor);
+    const tempB = new THREE.Vector3();
 
-    return lines.map((linePoints, idx) => {
+    return lines.map((lineData, idx) => {
+      const linePoints = lineData.path;
+      const sourceMagnet = magnets.find(m => m.id === lineData.sourceId);
       const points: [number, number, number][] = [];
       const colors: [number, number, number][] = [];
+      
+      const customColorObj = new THREE.Color(sourceMagnet?.color || _lineColor);
+      const customParticleColorObj = new THREE.Color(sourceMagnet?.particleColor || particleColor);
 
       for (let j = 0; j < linePoints.length; j++) {
         const p = linePoints[j];
         points.push([p.x, p.y, p.z]);
 
         if (useCustomColor) {
-          colors.push([customColorObj.r, customColorObj.g, customColorObj.b]);
+          let minDistSq = Infinity;
+          let nearestColor = customColorObj;
+          for (let m = 0; m < magnets.length; m++) {
+            const mag = magnets[m];
+            const mPos = tempB.set(mag.position[0], mag.position[1], mag.position[2]);
+            const distSq = p.distanceToSquared(mPos);
+            if (distSq < minDistSq) {
+              minDistSq = distSq;
+              nearestColor = new THREE.Color(mag.color || _lineColor);
+            }
+          }
+          colors.push([nearestColor.r, nearestColor.g, nearestColor.b]);
         } else {
-          const B = calculateMagneticField(p, magnets, 0.1);
-          const bMag = B.length();
+          calculateMagneticField(p, magnets, tempB, 0.1);
+          const bMag = tempB.length();
           const t = Math.min(1.0, Math.log(1.0 + bMag * 8.0) / 3.5);
           
           let cr = 0, cg = 0, cb = 0;
@@ -77,17 +93,28 @@ export const FieldLines: React.FC<FieldLinesProps> = ({
           colors.push([cr, cg, cb]);
         }
       }
-      return { id: idx, points, colors, originalPoints: linePoints };
+      const strength = Math.abs(sourceMagnet?.strength || 0);
+      // Smooth fade out when strength is very low (< 0.1) to avoid drawing weird artifacts from dominated poles
+      const fadeFactor = Math.min(1.0, Math.max(0, (strength - 0.02) * 10.0));
+
+      return { 
+        id: idx, 
+        points, 
+        colors, 
+        originalPoints: linePoints,
+        particleColor: customParticleColorObj,
+        lineOpacity: opacity * fadeFactor,
+        particleOpacity: fadeFactor
+      };
     });
-  }, [magnets, density, stepSize, maxSteps, _lineColor, useCustomColor]);
+  }, [magnets, density, stepSize, maxSteps, _lineColor, particleColor, useCustomColor, opacity]);
 
   // Update particle positions every frame
-  useFrame((state, delta) => {
+  useFrame((_, delta) => {
     if (!showParticles || !instancedMeshRef.current || linesData.length === 0) {
       if (instancedMeshRef.current) instancedMeshRef.current.count = 0;
       return;
     }
-    const camY = state.camera.position.y;
 
     timeRef.current += delta * particleSpeed * 0.22;
     let particleIdx = 0;
@@ -124,14 +151,18 @@ export const FieldLines: React.FC<FieldLinesProps> = ({
 
         dummy.updateMatrix();
         instancedMeshRef.current.setMatrixAt(particleIdx, dummy.matrix);
+        instancedMeshRef.current.setColorAt(particleIdx, linesData[i].particleColor);
 
-        alphasBuffer[particleIdx] = 1.0;
+        alphasBuffer[particleIdx] = linesData[i].particleOpacity;
 
         particleIdx++;
       }
     }
 
     instancedMeshRef.current.instanceMatrix.needsUpdate = true;
+    if (instancedMeshRef.current.instanceColor) {
+      instancedMeshRef.current.instanceColor.needsUpdate = true;
+    }
     if (alphaAttrRef.current) alphaAttrRef.current.needsUpdate = true;
     instancedMeshRef.current.count = particleIdx;
   });
@@ -139,14 +170,19 @@ export const FieldLines: React.FC<FieldLinesProps> = ({
   return (
     <group>
       {/* Thick Streamlines using @react-three/drei Line (Line2) */}
-      {showLines && linesData.map((data) => (
-        <Line
-          key={data.id}
-          points={data.points}
-          vertexColors={data.colors}
-          lineWidth={lineThickness}
-        />
-      ))}
+      {showLines && linesData.map((data) => {
+        if (data.lineOpacity <= 0.01) return null;
+        return (
+          <Line
+            key={data.id}
+            points={data.points}
+            vertexColors={data.colors}
+            lineWidth={lineThickness}
+            transparent={true}
+            opacity={data.lineOpacity}
+          />
+        );
+      })}
 
       {/* Flowing Particles */}
       {showParticles && (
@@ -163,7 +199,7 @@ export const FieldLines: React.FC<FieldLinesProps> = ({
             />
           </sphereGeometry>
           <meshBasicMaterial
-            color={particleColor}
+            color="#ffffff" // base color, we use instanceColor below! But wait, we need instanceColor to work.
             transparent
             opacity={0.85}
             onBeforeCompile={(shader) => {

@@ -32,6 +32,7 @@ export default defineConfig(({ mode }) => {
           about:     path.resolve(__dirname, 'about.html'),
           holomath:  path.resolve(__dirname, 'holomath.html'),
           physics:   path.resolve(__dirname, 'physics.html'),
+          hall:      path.resolve(__dirname, 'hall.html'),
         },
       },
     },

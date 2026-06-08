@@ -1,3 +1,4 @@
+@import './assets/fonts/fonts.css';
 
 :root {
   font-family: 'Outfit', 'Inter', system-ui, -apple-system, sans-serif;
@@ -635,3 +636,19 @@ body {
 .animate-pulse {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
+
+/* 自定义法拉第实验参数面板内的滚动条 */
+.faraday-sliders-container::-webkit-scrollbar {
+  width: 4px;
+}
+.faraday-sliders-container::-webkit-scrollbar-track {
+  background: transparent;
+}
+.faraday-sliders-container::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+}
+.faraday-sliders-container::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
