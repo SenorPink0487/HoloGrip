@@ -99,4 +99,4 @@ npm run tauri dev
 ---
 
 ## 📄 许可证
-本项目采用 [MIT License](./LICENSE) 授权。欢迎开发者提交 Pull Request 共建这个次世代教育平台！
+本项目采用 [GPL-3.0 License](./LICENSE) 授权。欢迎开发者提交 Pull Request 共建这个次世代教育平台！
