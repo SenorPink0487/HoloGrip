@@ -271,24 +271,24 @@ export function OverlayUI() {
 
       {/* Main Categories Dock */}
       <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
-        <div className="flex items-center gap-2 p-2 rounded-[2rem] bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl">
-          <div className="flex gap-2 px-2">
+        <div className="flex items-center gap-4 p-4 rounded-[3rem] bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl">
+          <div className="flex gap-4 px-2">
             <DockButton 
               active={activeModel !== null || activeCustomModelId !== null} 
               onClick={() => handleTabClick('model')}
               label="3D Models"
             >
-              <Cuboid className="w-6 h-6" />
+              <Cuboid className="w-10 h-10" />
             </DockButton>
 
-            <div className="w-px h-8 bg-white/20 mx-2 self-center rounded-full" />
+            <div className="w-px h-14 bg-white/20 mx-2 self-center rounded-full" />
 
             <DockButton 
               active={isPenActive || isLineDrawingActive} 
               onClick={() => handleTabClick('pen')}
               label="Drawing Pen"
             >
-              <PenTool className="w-6 h-6" />
+              <PenTool className="w-10 h-10" />
             </DockButton>
           </div>
         </div>
@@ -297,32 +297,32 @@ export function OverlayUI() {
       {/* Model Selection Panel */}
       <div 
         className={cn(
-          "absolute bottom-48 left-1/2 -translate-x-1/2 z-30 pointer-events-auto transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
+          "absolute bottom-64 left-1/2 -translate-x-1/2 z-30 pointer-events-auto transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
           isModelPanelOpen ? "scale-100 opacity-100 translate-y-0" : "scale-90 opacity-0 translate-y-4 pointer-events-none"
         )}
       >
-        <div className="flex items-center bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[1.5rem] p-2 gap-2">
+        <div className="flex items-center bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[3rem] p-3 gap-3">
           {/* 预设模型按钮 */}
           <DockButton active={activeModel === 'cube'} onClick={() => handleModelSelect('cube')} label="Cube">
-            <Box className="w-5 h-5" />
+            <Box className="w-8 h-8" />
           </DockButton>
           <DockButton active={activeModel === 'sphere'} onClick={() => handleModelSelect('sphere')} label="Sphere">
-            <Circle className="w-5 h-5" />
+            <Circle className="w-8 h-8" />
           </DockButton>
           <DockButton active={activeModel === 'cylinder'} onClick={() => handleModelSelect('cylinder')} label="Cylinder">
-            <Cylinder className="w-5 h-5" />
+            <Cylinder className="w-8 h-8" />
           </DockButton>
           <DockButton active={activeModel === 'cone'} onClick={() => handleModelSelect('cone')} label="Cone">
-            <Cone className="w-5 h-5" />
+            <Cone className="w-8 h-8" />
           </DockButton>
           <DockButton active={activeModel === 'pyramid'} onClick={() => handleModelSelect('pyramid')} label="Pyramid">
-            <Triangle className="w-5 h-5" />
+            <Triangle className="w-8 h-8" />
           </DockButton>
 
           {/* 自定义模型按钮（如果有） */}
           {customModels.length > 0 && (
             <>
-              <div className="w-px h-6 bg-white/20 mx-1 self-center rounded-full" />
+              <div className="w-px h-10 bg-white/20 mx-2 self-center rounded-full" />
               {customModels.map((cm, idx) => (
                 <div key={cm.id} className="relative group">
                   <DockButton
@@ -330,7 +330,7 @@ export function OverlayUI() {
                     onClick={() => handleCustomModelSelect(cm.id)}
                     label={cm.name}
                   >
-                    <span className="text-xs font-bold w-5 h-5 flex items-center justify-center">
+                    <span className="text-base font-bold w-8 h-8 flex items-center justify-center">
                       {cm.name.charAt(0).toUpperCase() || `M${idx + 1}`}
                     </span>
                   </DockButton>
@@ -340,25 +340,25 @@ export function OverlayUI() {
                       e.stopPropagation();
                       setPendingDeleteId(cm.id);
                     }}
-                    className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                     title="删除模型"
                   >
-                    <X className="w-2.5 h-2.5 text-white" />
+                    <X className="w-3 h-3 text-white" />
                   </button>
                 </div>
               ))}
             </>
           )}
 
-          <div className="w-px h-6 bg-white/20 mx-1 self-center rounded-full" />
+          <div className="w-px h-10 bg-white/20 mx-2 self-center rounded-full" />
 
           {/* 上传按钮 */}
           <button 
             onClick={() => fileInputRef.current?.click()}
-            className="p-3 text-white/60 hover:text-cyan-400 hover:bg-cyan-500/20 rounded-full transition-colors active:scale-95"
+            className="p-5 text-white/60 hover:text-cyan-400 hover:bg-cyan-500/20 rounded-full transition-colors active:scale-95"
             title="上传几何图片"
           >
-            <Upload className="w-5 h-5" />
+            <Upload className="w-8 h-8" />
           </button>
         </div>
       </div>
@@ -366,19 +366,19 @@ export function OverlayUI() {
       {/* Pen Settings Panel */}
       <div 
         className={cn(
-          "absolute bottom-48 left-1/2 -translate-x-1/2 z-30 pointer-events-auto transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
+          "absolute bottom-64 left-1/2 -translate-x-1/2 z-30 pointer-events-auto transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
           isPenPanelOpen ? "scale-100 opacity-100 translate-y-0" : "scale-90 opacity-0 translate-y-4 pointer-events-none"
         )}
       >
-        <div className="flex flex-col bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[1.5rem] p-4 gap-4">
+        <div className="flex flex-col bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[2.5rem] p-6 gap-6">
           {/* Colors */}
-          <div className="flex gap-3">
+          <div className="flex gap-5">
              {['#ffffff', '#ef4444', '#3b82f6', '#10b981', '#f59e0b'].map(color => (
                 <button
                   key={color}
                   onClick={() => setPenColor(color)}
                   className={cn(
-                    "w-8 h-8 rounded-full border-2 transition-all",
+                    "w-12 h-12 rounded-full border-2 transition-all",
                     penColor === color && !isEraser ? "border-white scale-110" : "border-transparent scale-100 hover:scale-105"
                   )}
                   style={{ backgroundColor: color }}
@@ -389,29 +389,29 @@ export function OverlayUI() {
           <div className="h-px bg-white/10 w-full" />
 
           {/* Tools */}
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex gap-2 items-center bg-white/5 rounded-full p-1">
+          <div className="flex items-center justify-between gap-6">
+            <div className="flex gap-3 items-center bg-white/5 rounded-full p-2">
               <button 
                 onClick={() => setPenThickness(1)}
-                className={cn("w-6 h-6 rounded-full transition-colors flex items-center justify-center", penThickness === 1 ? "bg-white/20" : "")}
-              >
-                <div className="w-[2px] h-[2px] bg-white rounded-full"/>
-              </button>
-              <button 
-                onClick={() => setPenThickness(3)}
-                className={cn("w-6 h-6 rounded-full transition-colors flex items-center justify-center", penThickness === 3 ? "bg-white/20" : "")}
+                className={cn("w-10 h-10 rounded-full transition-colors flex items-center justify-center", penThickness === 1 ? "bg-white/20" : "")}
               >
                 <div className="w-1 h-1 bg-white rounded-full"/>
               </button>
               <button 
-                onClick={() => setPenThickness(6)}
-                className={cn("w-6 h-6 rounded-full transition-colors flex items-center justify-center", penThickness === 6 ? "bg-white/20" : "")}
+                onClick={() => setPenThickness(3)}
+                className={cn("w-10 h-10 rounded-full transition-colors flex items-center justify-center", penThickness === 3 ? "bg-white/20" : "")}
               >
                 <div className="w-2 h-2 bg-white rounded-full"/>
               </button>
+              <button 
+                onClick={() => setPenThickness(6)}
+                className={cn("w-10 h-10 rounded-full transition-colors flex items-center justify-center", penThickness === 6 ? "bg-white/20" : "")}
+              >
+                <div className="w-4 h-4 bg-white rounded-full"/>
+              </button>
             </div>
 
-            <div className="flex gap-1 items-center">
+            <div className="flex gap-2 items-center">
               {/* Draw Lines */}
               <button 
                 onClick={() => {
@@ -419,15 +419,15 @@ export function OverlayUI() {
                   if (!isLineDrawingActive && isEraser) setIsEraser(false);
                 }}
                 className={cn(
-                  "p-2 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
+                  "p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
                   isLineDrawingActive ? "bg-cyan-500/20 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.2)]" : "text-white/60 hover:bg-white/10"
                 )}
                 title="Toggle 3D Line Drawing"
               >
-                <Network className="w-5 h-5" />
+                <Network className="w-8 h-8" />
               </button>
 
-              <div className="w-px h-5 bg-white/10 mx-1 rounded-full" />
+              <div className="w-px h-8 bg-white/10 mx-2 rounded-full" />
 
               <button 
                 onClick={() => {
@@ -435,11 +435,11 @@ export function OverlayUI() {
                   if (!isEraser && isLineDrawingActive) setLineDrawingActive(false);
                 }}
                 className={cn(
-                  "p-2 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
+                  "p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
                   isEraser ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.2)]" : "text-white/60 hover:bg-white/10"
                 )}
               >
-                <Eraser className="w-5 h-5" />
+                <Eraser className="w-8 h-8" />
               </button>
               <button 
                 onClick={() => {
@@ -447,10 +447,10 @@ export function OverlayUI() {
                   useARStore.getState().clearModelLines();
                   useARStore.getState().clearSurfaceStrokes();
                 }}
-                className="p-2 rounded-full text-white/60 hover:bg-red-500/20 hover:text-red-400 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90"
+                className="p-4 rounded-full text-white/60 hover:bg-red-500/20 hover:text-red-400 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90"
                 title="Clear Everything"
               >
-                <Trash2 className="w-5 h-5" />
+                <Trash2 className="w-8 h-8" />
               </button>
             </div>
           </div>
@@ -508,14 +508,14 @@ function DockButton({ children, active, onClick, label }: { children: React.Reac
     <button
       onClick={onClick}
       className={cn(
-        "relative group p-4 rounded-full transition-all duration-300 ease-out",
+        "relative group p-6 rounded-full transition-all duration-300 ease-out",
         active ? "bg-white/15 text-white" : "text-white/50 hover:bg-white/5 hover:text-white/90"
       )}
       title={label}
     >
       {children}
       {active && (
-        <span className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 bg-white rounded-full shadow-[0_0_10px_white]" />
+        <span className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_10px_white]" />
       )}
     </button>
   );

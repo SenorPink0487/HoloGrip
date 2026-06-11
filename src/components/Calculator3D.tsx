@@ -798,7 +798,7 @@ export function Calculator3D() {
     camera.lookAt(0, 0, 0);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-    renderer.setSize(w, h, false);
+    renderer.setSize(w, h);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -862,7 +862,7 @@ export function Calculator3D() {
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         if (width <= 0 || height <= 0) continue;
-        renderer.setSize(width, height, false);
+        renderer.setSize(width, height);
         camera.aspect = width / height;
         camera.updateProjectionMatrix();
       }
@@ -925,6 +925,8 @@ export function Calculator3D() {
     refs.controls.autoRotate = autoRotate;
     refs.controls.autoRotateSpeed = 1.2;
   }, [autoRotate]);
+
+  const prevStructStrRef = useRef<string>();
 
   // Rebuild content (user-added objects) whenever objects/scope/theme changes
   useEffect(() => {
@@ -1000,8 +1002,13 @@ export function Calculator3D() {
       if (obj) group.add(obj);
     }
 
-    // 用户尚未交互时,自动把视角中心对准模型中心,确保 3D 模型位于画面正中
-    if (!userInteractedRef.current && refs) {
+    const currentStructStr = JSON.stringify(objects.map(o => o.kind === 'slider' ? o.name : o));
+    const isSliderOnlyChange = prevStructStrRef.current !== undefined && prevStructStrRef.current === currentStructStr;
+    prevStructStrRef.current = currentStructStr;
+
+    // 用户尚未交互时,并且不是单纯的滑动条数值改变,才自动把视角中心对准模型中心
+    // 这样在拖拽滑动条导致模型形变时，镜头不会死板地追踪新包围盒中心，避免产生“网格反向移动”的错觉
+    if (!userInteractedRef.current && refs && !isSliderOnlyChange) {
       const box = new THREE.Box3().setFromObject(group);
       if (!box.isEmpty()) {
         const center = new THREE.Vector3();

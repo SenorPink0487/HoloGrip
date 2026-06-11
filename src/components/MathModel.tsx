@@ -343,13 +343,12 @@ export function MathModel() {
         
         let closestDistSq = Infinity;
         
-        for (let i = 0; i < snapPointsRef.current.length; i++) {
-          const vLocal = snapPointsRef.current[i];
-          const vWorld = vLocal.clone().applyMatrix4(meshRef.current.matrixWorld);
+        const checkSnapPoint = (vLocal: THREE.Vector3) => {
+          const vWorld = vLocal.clone().applyMatrix4(meshRef.current!.matrixWorld);
           
           // To ensure we don't snap to vertices behind the camera
           const vCam = vWorld.clone().applyMatrix4(camera.matrixWorldInverse);
-          if (vCam.z > 0) continue; 
+          if (vCam.z > 0) return; 
           
           // Project to NDC screen space
           const vNDC = vWorld.clone().project(camera);
@@ -361,13 +360,29 @@ export function MathModel() {
           const distSq = dx*dx + dy*dy;
           
           // NDC 距离阈值：sqrt(0.0035) ≈ 0.06，约 6% 屏幕高度。
-          // 之前的 0.02（~14% 屏高）会让光标隔很远就吸附顶点，
-          // 容易在画其它东西时误命中。
           if (distSq < 0.0035 && distSq < closestDistSq) {
             closestDistSq = distSq;
             closestVertLocal.copy(vLocal);
             foundVertex = true;
           }
+        };
+
+        // 1. Check original geometry snap points
+        for (let i = 0; i < snapPointsRef.current.length; i++) {
+          checkSnapPoint(snapPointsRef.current[i]);
+        }
+        
+        // 2. Check dynamically drawn auxiliary lines
+        for (let i = 0; i < modelLinesStore.length; i++) {
+          const p1 = new THREE.Vector3(modelLinesStore[i][0].x, modelLinesStore[i][0].y, modelLinesStore[i][0].z);
+          const p2 = new THREE.Vector3(modelLinesStore[i][1].x, modelLinesStore[i][1].y, modelLinesStore[i][1].z);
+          
+          // Create snap points on the drawn line (start, end, 1/3, 1/2, 2/3)
+          checkSnapPoint(p1);
+          checkSnapPoint(p2);
+          checkSnapPoint(p1.clone().lerp(p2, 1/3));
+          checkSnapPoint(p1.clone().lerp(p2, 0.5));
+          checkSnapPoint(p1.clone().lerp(p2, 2/3));
         }
 
         if (foundVertex) {
