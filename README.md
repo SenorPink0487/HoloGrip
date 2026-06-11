@@ -55,7 +55,7 @@ HoloGrip 采用现代化的 Web 和客户端技术，确保极致的性能与多
 
 当前仓库已提供 Apple Silicon / M 系列 Mac 安装包：
 
-- [HoloGrip_0.1.1_aarch64.dmg](./releases/macos/HoloGrip_0.1.1_aarch64.dmg)
+- [HoloGrip_0.1.1_aarch64.dmg](https://github.com/SenorPink0487/HoloGrip/releases/download/v0.1.1-macos/HoloGrip_0.1.1_aarch64.dmg)
 
 SHA-256:
 
