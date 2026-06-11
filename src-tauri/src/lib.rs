@@ -154,7 +154,6 @@ async fn open_simulation_window<R: Runtime>(app: tauri::AppHandle<R>) -> CmdResu
         .inner_size(1280.0, 820.0)
         .min_inner_size(960.0, 640.0)
         .resizable(true)
-        .additional_browser_args("--use-fake-ui-for-media-stream")
         .build()
         .map_err(|e| CommandError::Msg(format!("打开仿真窗口失败: {e}")))?;
 

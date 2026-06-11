@@ -51,6 +51,45 @@ HoloGrip 采用现代化的 Web 和客户端技术，确保极致的性能与多
 
 ## 💻 本地运行与开发指南
 
+## 🍎 macOS 安装包
+
+当前仓库已提供 Apple Silicon / M 系列 Mac 安装包：
+
+- [HoloGrip_0.1.1_aarch64.dmg](./releases/macos/HoloGrip_0.1.1_aarch64.dmg)
+
+SHA-256:
+
+```text
+10a959760a6c32b055ee6a96701ccb0d68bff4f7b2f52a1884775282397670a7
+```
+
+### 安装步骤
+
+1. 下载 `HoloGrip_0.1.1_aarch64.dmg`。
+2. 双击打开 DMG。
+3. 将 `HoloGrip.app` 拖入 `Applications` 文件夹。
+4. 从 `Applications` 启动 HoloGrip。
+5. 首次进入 AR / 手势识别模块时，允许 macOS 的摄像头权限请求。
+
+### 摄像头权限
+
+HoloGrip 依赖摄像头进行 MediaPipe 手势识别。macOS 版本已包含：
+
+- `NSCameraUsageDescription`
+- `com.apple.security.device.camera`
+
+如果安装旧版本后摄像头权限状态异常，可以在终端执行：
+
+```bash
+tccutil reset Camera com.hologrip.holomath
+```
+
+然后重新打开 HoloGrip，并在进入 AR 模块时允许摄像头权限。
+
+### 安全提示
+
+当前 DMG 使用 ad-hoc 签名，尚未接入 Apple Developer ID 签名与 notarization 公证。若 macOS 提示“无法验证开发者”，可在 Finder 中右键点击 `HoloGrip.app`，选择“打开”，再按系统提示确认。正式公开分发建议后续接入 Developer ID 签名和公证。
+
 ### 前置条件
 - **Node.js**: v18 及以上版本 (推荐使用 LTS)。
 - **Rust**: 最新版本 (用于编译后端代理或 Tauri 客户端)。

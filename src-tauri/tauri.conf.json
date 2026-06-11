@@ -24,8 +24,7 @@
         "center": true,
         "decorations": false,
         "transparent": true,
-        "shadow": true,
-        "additionalBrowserArgs": "--use-fake-ui-for-media-stream"
+        "shadow": true
       }
     ],
     "security": {
@@ -47,6 +46,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "macOS": {
+      "infoPlist": "Info.plist",
+      "entitlements": "Entitlements.plist",
+      "signingIdentity": "-"
+    },
     "windows": {
       "nsis": {
         "languages": ["SimpChinese"],
