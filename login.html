@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HoloGrip - 账户登录</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700;900&display=swap');
+
+        :root {
+            --bg-base: #050505;
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.4);
+            --accent: #ffffff;
+            --card-bg: rgba(10, 10, 10, 0.4);
+            --card-border: rgba(255, 255, 255, 0.05);
+            --input-border: rgba(255, 255, 255, 0.1);
+            --focus-glow: rgba(255, 255, 255, 0.8);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            font-family: 'Outfit', -apple-system, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        ::-webkit-scrollbar {
+            width: 0;
+        }
+
+        /* 全屏动态连线 Canvas 背景 */
+        #network-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: 0;
+            pointer-events: none;
+            opacity: 0.6;
+        }
+
+        /* 返回导航 */
+        .navbar {
+            position: fixed;
+            top: 2rem;
+            left: 3rem;
+            z-index: 100;
+            mix-blend-mode: difference;
+        }
+        .navbar a {
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            transition: opacity 0.3s;
+        }
+        .navbar a:hover { opacity: 0.7; }
+        .navbar a::before { content: '←'; transition: transform 0.3s; }
+        .navbar a:hover::before { transform: translateX(-5px); }
+
+        /* 非对称宽银幕布局 */
+        .split-layout {
+            position: relative;
+            z-index: 10;
+            display: flex;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .left-hero {
+            flex: 1;
+            padding-left: 8vw;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+        }
+
+        .huge-title {
+            font-size: clamp(4rem, 8vw, 9rem);
+            font-weight: 900;
+            line-height: 0.9;
+            text-transform: uppercase;
+            color: transparent;
+            -webkit-text-stroke: 1px rgba(255, 255, 255, 0.15);
+            letter-spacing: -0.02em;
+            cursor: default;
+            user-select: none;
+            margin-bottom: 2rem;
+            transition: -webkit-text-stroke 0.4s;
+            opacity: 0;
+            transform: translateY(30px);
+            animation: fadeUp 1s cubic-bezier(0.16, 1, 0.3, 1) forwards 0.2s;
+        }
+        .huge-title:hover {
+            -webkit-text-stroke: 1px rgba(255, 255, 255, 0.4);
+        }
+
+        .hero-desc {
+            font-size: 1.2rem;
+            font-weight: 300;
+            letter-spacing: 4px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeUp 1s cubic-bezier(0.16, 1, 0.3, 1) forwards 0.4s;
+        }
+
+        @keyframes lineGrow { to { transform: scaleX(1); } }
+        @keyframes fadeUp { to { opacity: 1; transform: translateY(0); } }
+
+        .right-panel {
+            width: 550px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding-right: 8vw;
+            perspective: 1000px;
+        }
+
+        /* 高级玻璃拟物卡片 */
+        .glass-login-card {
+            width: 100%;
+            background: var(--card-bg);
+            backdrop-filter: blur(60px);
+            -webkit-backdrop-filter: blur(60px);
+            border: 1px solid var(--card-border);
+            border-radius: 30px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 40px 80px rgba(0, 0, 0, 0.8), 
+                        inset 0 1px 0 rgba(255, 255, 255, 0.1);
+            transform: translateY(30px) rotateX(5deg);
+            opacity: 0;
+            animation: cardReveal 1.2s cubic-bezier(0.16, 1, 0.3, 1) forwards 0.4s;
+            transition: transform 0.1s;
+        }
+
+        @keyframes cardReveal {
+            to { transform: translateY(0) rotateX(0); opacity: 1; }
+        }
+
+        /* 动态鼠标光晕 */
+        .card-glow {
+            position: absolute;
+            width: 400px; height: 400px;
+            background: radial-gradient(circle, rgba(255, 255, 255, 0.12) 0%, transparent 70%);
+            border-radius: 50%;
+            pointer-events: none;
+            transform: translate(-50%, -50%);
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            z-index: 1;
+        }
+
+        .card-content {
+            padding: 4rem 3.5rem;
+            position: relative;
+            z-index: 2;
+        }
+
+        .animate-item {
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        /* 品牌标题 */
+        .form-title {
+            font-size: 2.5rem;
+            font-weight: 300;
+            margin-bottom: 0.5rem;
+            letter-spacing: 2px;
+        }
+        .form-title strong { font-weight: 700; }
+
+        .brand-subtitle {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            font-weight: 300;
+            letter-spacing: 0.5px;
+            margin-bottom: 3.5rem;
+        }
+
+        /* 极简流光输入框组 */
+        .input-group {
+            position: relative;
+            margin-bottom: 2.5rem;
+        }
+
+        .error-message {
+            position: absolute;
+            bottom: -22px;
+            left: 0;
+            color: #ff2a5f;
+            font-size: 0.75rem;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            font-weight: 700;
+            opacity: 0;
+            transform: translateY(-5px);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            pointer-events: none;
+        }
+
+        .input-group.has-error .error-message {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        .input-group.has-error .input-focus-line {
+            background: #ff2a5f;
+            transform: scaleX(1);
+            opacity: 0.8;
+        }
+
+        .input-group.has-error .input-label {
+            color: #ff2a5f;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-5px); }
+            40% { transform: translateX(5px); }
+            60% { transform: translateX(-5px); }
+            80% { transform: translateX(5px); }
+        }
+
+        .input-field {
+            width: 100%;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid var(--input-border);
+            padding: 0.8rem 0;
+            color: var(--text-primary);
+            font-size: 1.1rem;
+            font-family: inherit;
+            outline: none;
+            transition: border-color 0.3s ease;
+        }
+
+        .input-label {
+            position: absolute;
+            left: 0;
+            top: 1rem;
+            color: var(--text-secondary);
+            font-size: 1rem;
+            font-weight: 300;
+            pointer-events: none;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), 
+                        font-size 0.4s cubic-bezier(0.16, 1, 0.3, 1), 
+                        color 0.4s ease;
+            transform-origin: left top;
+        }
+
+        /* 底部流光线条 */
+        .input-focus-line {
+            position: absolute;
+            bottom: 0; left: 0;
+            width: 100%; height: 2px;
+            background: var(--focus-glow);
+            transform: scaleX(0);
+            transform-origin: right;
+            transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 0 10px var(--focus-glow);
+        }
+
+        .input-field:focus ~ .input-focus-line {
+            transform: scaleX(1);
+            transform-origin: left;
+        }
+
+        .input-field:focus ~ .input-label,
+        .input-field:not(:placeholder-shown) ~ .input-label {
+            transform: translateY(-2rem) scale(0.85);
+            color: var(--text-primary);
+        }
+
+        /* 密码眼睛图标 */
+        .password-toggle {
+            position: absolute;
+            right: 0;
+            top: 1rem;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: color 0.3s;
+            background: none;
+            border: none;
+            padding: 0;
+            display: flex;
+        }
+        .password-toggle:hover { color: var(--text-primary); }
+
+        /* 同款扫光动画按钮 */
+        .submit-btn {
+            width: 100%;
+            background: transparent;
+            border: none; /* 移除透明 border 避免出现覆盖间隙 */
+            /* 用 inset 向内绘制阴影边框，配合无边框设计，完美解决悬浮动画时的 1px 黑边缝隙 */
+            box-shadow: inset 0 0 0 1px var(--accent); 
+            color: var(--text-primary);
+            border-radius: 12px; /* 保持方形 */
+            padding: calc(1.2rem + 1px) 1.2rem; /* 补偿因为没有 border 而减少的 2px 高度 */
+            font-size: 1rem;
+            font-family: inherit;
+            font-weight: 700;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            transition: all 0.4s;
+            margin-top: 1rem;
+            z-index: 1;
+            /* 强制开启硬件加速，修复 webkit 内核下边角抗锯齿遗留的背景色溢出 */
+            transform: translateZ(0);
+        }
+
+        .submit-btn::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: var(--accent);
+            transform: scaleX(0);
+            transform-origin: right;
+            transition: transform 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            z-index: -1;
+        }
+
+        .submit-btn:hover::before {
+            transform: scaleX(1);
+            transform-origin: left;
+        }
+
+        .submit-btn:hover {
+            box-shadow: inset 0 0 0 1px var(--accent), 0 0 30px rgba(255, 255, 255, 0.4);
+            transform: translateY(-3px) translateZ(0);
+            color: var(--bg-base);
+        }
+
+        .btn-text {
+            position: relative;
+            z-index: 1;
+            display: inline-block;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* 注册引导区域 */
+        .register-prompt {
+            margin-top: 2.5rem;
+            text-align: center;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            font-weight: 300;
+        }
+
+        .register-link {
+            color: var(--text-primary);
+            text-decoration: none;
+            font-weight: 500;
+            position: relative;
+            margin-left: 0.5rem;
+            transition: color 0.3s;
+        }
+
+        .register-link::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 1px;
+            bottom: -2px;
+            left: 0;
+            background-color: var(--accent);
+            transform: scaleX(0);
+            transform-origin: right;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .register-link:hover {
+            color: var(--accent);
+        }
+
+        .register-link:hover::after {
+            transform: scaleX(1);
+            transform-origin: left;
+        }
+
+        /* 页面转场遮罩 */
+        .page-transition-overlay {
+            position: fixed;
+            top: 50%; left: 50%;
+            width: 10px; height: 10px;
+            background: var(--text-primary);
+            border-radius: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            z-index: 9999;
+            pointer-events: none;
+        }
+
+        @media (max-width: 900px) {
+            .split-layout { flex-direction: column; }
+            .left-hero { padding: 8vw; flex: 0 0 auto; align-items: center; text-align: center; margin-top: 10vh; }
+            .right-panel { width: 100%; padding: 0 8vw; margin-top: 2rem; }
+            .huge-title { font-size: 4rem; }
+            .navbar { top: 1.5rem; left: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="network-canvas"></canvas>
+
+    <nav class="navbar">
+        <a href="index.html">Back to Home</a>
+    </nav>
+
+    <!-- 非对称宽银幕布局 -->
+    <div class="split-layout">
+        <!-- 左侧巨幕排版 -->
+        <div class="left-hero">
+            <h1 class="huge-title" data-value="HOLO GRIP">HOLO GRIP</h1>
+            <p class="hero-desc">BEYOND THE SCREEN.</p>
+        </div>
+
+        <!-- 右侧玻璃面板 -->
+        <div class="right-panel">
+            <div class="glass-login-card" id="glass-card">
+                <div class="card-glow" id="card-glow"></div>
+                
+                <div class="card-content">
+                    <div class="brand-header animate-item" style="animation-delay: 0.6s">
+                        <h2 class="form-title">欢迎<strong>回来</strong></h2>
+                        <p class="brand-subtitle">验证身份以进入工作空间</p>
+                    </div>
+
+                    <form id="login-form" novalidate>
+                        <div class="input-group animate-item" style="animation-delay: 0.7s">
+                            <input type="email" id="email" class="input-field" placeholder=" " autocomplete="email" spellcheck="false">
+                            <label for="email" class="input-label">邮箱地址</label>
+                            <div class="input-focus-line"></div>
+                        </div>
+
+                        <div class="input-group animate-item" style="animation-delay: 0.8s">
+                            <input type="password" id="password" class="input-field" placeholder=" " autocomplete="current-password">
+                            <label for="password" class="input-label">登录密码</label>
+                            <div class="input-focus-line"></div>
+                            
+                            <button type="button" class="password-toggle" id="toggle-pwd" aria-label="切换密码可见性">
+                                <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px;">
+                                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                    <circle cx="12" cy="12" r="3"></circle>
+                                </svg>
+                                <svg class="eye-closed" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" style="width: 18px; height: 18px; display: none;">
+                                    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"></path>
+                                    <line x1="1" y1="1" x2="23" y2="23"></line>
+                                </svg>
+                            </button>
+                        </div>
+
+                        <div class="input-group" id="confirm-pwd-group" style="max-height: 0; margin-bottom: 0; opacity: 0; overflow: hidden; transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: none;">
+                            <input type="password" id="confirm-password" class="input-field" placeholder=" " autocomplete="new-password">
+                            <label for="confirm-password" class="input-label">确认密码</label>
+                            <div class="input-focus-line"></div>
+                        </div>
+
+                        <button type="submit" class="submit-btn animate-item" id="submit-btn" style="animation-delay: 0.9s">
+                            <span class="btn-text">进入系统</span>
+                        </button>
+                    </form>
+
+                    <div class="register-prompt animate-item" style="animation-delay: 1.0s">
+                        还没有账号？ <a href="#" class="register-link">立即注册</a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 转场动画层 -->
+    <div class="page-transition-overlay" id="transition-overlay"></div>
+
+    <script>
+        // 1. 全屏 Canvas 动态连线交互
+        const canvas = document.getElementById('network-canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height, particles;
+        const mouse = { x: -1000, y: -1000 };
+
+        window.addEventListener('mousemove', e => {
+            mouse.x = e.clientX;
+            mouse.y = e.clientY;
+        });
+        window.addEventListener('mouseout', () => {
+            mouse.x = -1000;
+            mouse.y = -1000;
+        });
+
+        function initCanvas() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            particles = [];
+            const count = Math.floor((width * height) / 15000);
+            for(let i=0; i<count; i++) {
+                particles.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    vx: (Math.random() - 0.5) * 0.5,
+                    vy: (Math.random() - 0.5) * 0.5,
+                    radius: Math.random() * 2 + 1
+                });
+            }
+        }
+
+        function drawCanvas() {
+            ctx.clearRect(0, 0, width, height);
+            for(let i=0; i<particles.length; i++) {
+                let p = particles[i];
+                p.x += p.vx; p.y += p.vy;
+                if(p.x < 0 || p.x > width) p.vx *= -1;
+                if(p.y < 0 || p.y > height) p.vy *= -1;
+
+                const dx = mouse.x - p.x;
+                const dy = mouse.y - p.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if(dist < 150) {
+                    p.x -= dx * 0.02;
+                    p.y -= dy * 0.02;
+                    ctx.fillStyle = '#ffffff';
+                } else {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.5)';
+                }
+
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                for(let j=i+1; j<particles.length; j++) {
+                    let p2 = particles[j];
+                    const distance = Math.sqrt(Math.pow(p.x - p2.x, 2) + Math.pow(p.y - p2.y, 2));
+                    if(distance < 120) {
+                        ctx.beginPath();
+                        ctx.moveTo(p.x, p.y);
+                        ctx.lineTo(p2.x, p2.y);
+                        ctx.strokeStyle = `rgba(255,255,255,${1 - distance/120})`;
+                        ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(drawCanvas);
+        }
+        window.addEventListener('resize', initCanvas);
+        initCanvas();
+        drawCanvas();
+
+        // 2. 文字解码入场动画 (Cipher Reveal)
+        const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+        let interval = null;
+        const title = document.querySelector(".huge-title");
+        
+        function animateTitle() {
+            let iteration = 0;
+            clearInterval(interval);
+            interval = setInterval(() => {
+                title.innerText = title.innerText
+                .split("")
+                .map((letter, index) => {
+                    if(index < iteration) return title.dataset.value[index];
+                    return letters[Math.floor(Math.random() * 26)];
+                })
+                .join("");
+                
+                if(iteration >= title.dataset.value.length) clearInterval(interval);
+                iteration += 1 / 3;
+            }, 30);
+        }
+        
+        setTimeout(animateTitle, 600);
+        title.addEventListener('mouseenter', animateTitle);
+
+        // 3. 动态鼠标光晕 (Flashlight Effect)
+        const card = document.getElementById('glass-card');
+        const glow = document.getElementById('card-glow');
+        
+        card.addEventListener('mousemove', e => {
+            const rect = card.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            glow.style.left = x + 'px';
+            glow.style.top = y + 'px';
+            glow.style.opacity = 1;
+            
+            const tiltX = (y / rect.height - 0.5) * -4;
+            const tiltY = (x / rect.width - 0.5) * 4;
+            card.style.transform = `perspective(1000px) rotateX(${tiltX}deg) rotateY(${tiltY}deg) translateY(0)`;
+        });
+        
+        card.addEventListener('mouseleave', () => {
+            glow.style.opacity = 0;
+            card.style.transform = `perspective(1000px) rotateX(0deg) rotateY(0deg) translateY(0)`;
+        });
+
+        // 5. 密码可见性切换
+        const togglePwd = document.getElementById('toggle-pwd');
+        const passwordInput = document.getElementById('password');
+        const eyeOpen = document.querySelector('.eye-open');
+        const eyeClosed = document.querySelector('.eye-closed');
+
+        togglePwd.addEventListener('click', () => {
+            const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+            passwordInput.setAttribute('type', type);
+            if (type === 'text') {
+                eyeOpen.style.display = 'none';
+                eyeClosed.style.display = 'block';
+            } else {
+                eyeOpen.style.display = 'block';
+                eyeClosed.style.display = 'none';
+            }
+        });
+
+        // 6. 极致表单提交过渡动画
+        const loginForm = document.getElementById('login-form');
+        const submitBtnEl = document.getElementById('submit-btn');
+        const btnText = document.querySelector('.btn-text');
+        const transitionOverlay = document.getElementById('transition-overlay');
+
+        loginForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            
+            // 极致的自定义表单验证
+            let isValid = true;
+            document.querySelectorAll('.input-group').forEach(group => group.classList.remove('has-error'));
+            
+            const emailInput = document.getElementById('email');
+            const pwdInput = document.getElementById('password');
+            const confirmPwdInput = document.getElementById('confirm-password');
+
+            const showError = (inputEl, message) => {
+                const group = inputEl.closest('.input-group');
+                let errMsgEl = group.querySelector('.error-message');
+                if(!errMsgEl) {
+                    errMsgEl = document.createElement('div');
+                    errMsgEl.className = 'error-message';
+                    group.appendChild(errMsgEl);
+                }
+                errMsgEl.textContent = message;
+                group.classList.add('has-error');
+                
+                inputEl.style.animation = 'none';
+                void inputEl.offsetHeight; // trigger reflow
+                inputEl.style.animation = 'shake 0.4s cubic-bezier(.36,.07,.19,.97) both';
+                isValid = false;
+            };
+
+            const isLoginMode = btnText.textContent === '进入系统' || btnText.textContent === '验证中...';
+
+            if(!emailInput.value.trim()) {
+                showError(emailInput, 'PLEASE ENTER EMAIL');
+            } else if(!/^[^@]+@[^@]+\.[^@]+$/.test(emailInput.value)) {
+                showError(emailInput, 'INVALID EMAIL FORMAT');
+            }
+
+            if(!pwdInput.value) {
+                showError(pwdInput, 'PASSWORD REQUIRED');
+            }
+
+            if(!isLoginMode) {
+                if(!confirmPwdInput.value) {
+                    showError(confirmPwdInput, 'CONFIRM PASSWORD');
+                } else if(pwdInput.value !== confirmPwdInput.value) {
+                    showError(confirmPwdInput, 'PASSWORDS DO NOT MATCH');
+                }
+            }
+
+            if(!isValid) return;
+
+            btnText.style.opacity = '0';
+            btnText.style.transform = 'translateY(-10px)';
+            submitBtnEl.style.pointerEvents = 'none';
+            
+            setTimeout(() => {
+                btnText.textContent = '验证中...';
+                btnText.style.transform = 'translateY(10px)';
+                
+                requestAnimationFrame(() => {
+                    btnText.style.transition = 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease';
+                    btnText.style.opacity = '1';
+                    btnText.style.transform = 'translateY(0)';
+                });
+                
+                setTimeout(() => {
+                    btnText.style.opacity = '0';
+                    btnText.style.transform = 'translateY(-10px)';
+                    
+                    setTimeout(() => {
+                        btnText.textContent = '登录成功';
+                        btnText.style.transform = 'translateY(10px)';
+                        
+                        requestAnimationFrame(() => {
+                            btnText.style.transform = 'translateY(0)';
+                            btnText.style.opacity = '1';
+                        });
+                        
+                        setTimeout(() => {
+                            const btnRect = submitBtnEl.getBoundingClientRect();
+                            transitionOverlay.style.top = (btnRect.top + btnRect.height / 2) + 'px';
+                            transitionOverlay.style.left = (btnRect.left + btnRect.width / 2) + 'px';
+                            transitionOverlay.style.transition = 'transform 0.8s cubic-bezier(0.85, 0, 0.15, 1)';
+                            transitionOverlay.style.transform = 'translate(-50%, -50%) scale(300)';
+                            
+                            setTimeout(() => {
+                                window.location.href = 'index.html';
+                            }, 800);
+                        }, 500);
+                        
+                    }, 300);
+                }, 1500);
+            }, 300);
+        });
+        // 7. 登录/注册模式切换
+        const formTitle = document.querySelector('.form-title');
+        const brandSubtitle = document.querySelector('.brand-subtitle');
+        const confirmPwdGroup = document.getElementById('confirm-pwd-group');
+        const registerPrompt = document.querySelector('.register-prompt');
+        let isLogin = true;
+
+        registerPrompt.addEventListener('click', (e) => {
+            if(e.target.tagName === 'A') {
+                e.preventDefault();
+                isLogin = !isLogin;
+                
+                const elements = [formTitle, brandSubtitle, btnText, registerPrompt];
+                
+                // 1. 滑出动画
+                elements.forEach(el => {
+                    el.style.transition = 'opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)';
+                    el.style.opacity = '0';
+                    el.style.transform = 'translateY(-10px)';
+                });
+                
+                if (isLogin) {
+                    confirmPwdGroup.style.overflow = 'hidden';
+                    confirmPwdGroup.style.maxHeight = '0';
+                    confirmPwdGroup.style.marginBottom = '0';
+                    confirmPwdGroup.style.opacity = '0';
+                    confirmPwdGroup.style.pointerEvents = 'none';
+                    document.getElementById('confirm-password').removeAttribute('required');
+                } else {
+                    confirmPwdGroup.style.maxHeight = '100px';
+                    confirmPwdGroup.style.marginBottom = '2.5rem';
+                    confirmPwdGroup.style.opacity = '1';
+                    confirmPwdGroup.style.pointerEvents = 'auto';
+                    setTimeout(() => confirmPwdGroup.style.overflow = 'visible', 500);
+                    document.getElementById('confirm-password').setAttribute('required', 'required');
+                }
+                
+                setTimeout(() => {
+                    // 2. 更改文本，瞬间移到下方
+                    if (isLogin) {
+                        formTitle.innerHTML = '欢迎<strong>回来</strong>';
+                        brandSubtitle.textContent = '验证身份以进入工作空间';
+                        btnText.textContent = '进入系统';
+                        registerPrompt.innerHTML = '还没有账号？ <a href="#" class="register-link">立即注册</a>';
+                    } else {
+                        formTitle.innerHTML = '创建<strong>账户</strong>';
+                        brandSubtitle.textContent = '注册并配置您的工作空间';
+                        btnText.textContent = '立即注册';
+                        registerPrompt.innerHTML = '已有账号？ <a href="#" class="register-link">返回登录</a>';
+                    }
+                    
+                    elements.forEach(el => {
+                        el.style.transition = 'none';
+                        el.style.transform = 'translateY(10px)';
+                    });
+                    
+                    // 3. 滑入动画
+                    requestAnimationFrame(() => {
+                        elements.forEach(el => {
+                            el.style.transition = 'opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1), transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)';
+                            el.style.opacity = '1';
+                            el.style.transform = 'translateY(0)';
+                        });
+                    });
+                }, 300);
+            }
+        });
+    </script>
+</body>
+</html>
