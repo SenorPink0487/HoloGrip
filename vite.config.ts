@@ -30,6 +30,8 @@ export default defineConfig(({ mode }) => {
           portfolio: path.resolve(__dirname, 'portfolio.html'),
           profile:   path.resolve(__dirname, 'profile.html'),
           about:     path.resolve(__dirname, 'about.html'),
+          login:     path.resolve(__dirname, 'login.html'),
+          dashboard: path.resolve(__dirname, 'dashboard.html'),
           holomath:  path.resolve(__dirname, 'holomath.html'),
           physics:   path.resolve(__dirname, 'physics.html'),
           hall:      path.resolve(__dirname, 'hall.html'),
@@ -39,6 +41,13 @@ export default defineConfig(({ mode }) => {
     server: {
       // HMR 在 AI Studio 通过 DISABLE_HMR 关闭，避免代理刷新抖动。
       hmr: process.env.DISABLE_HMR !== 'true',
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:8787',
+          changeOrigin: true,
+          ws: true,
+        }
+      }
     },
   };
 });

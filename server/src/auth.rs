@@ -117,14 +117,19 @@ impl TokenService {
     }
 
     /// 验证 token 并消费一次 quota。原子语义:验证通过的同一刻 used+=1。
-    pub fn verify_and_consume(&self, token: &str, client_ip: &str) -> Result<TokenPayload, AuthError> {
-        let (payload_b64, sig_b64) = token.split_once('.')
-            .ok_or(AuthError::Malformed)?;
+    pub fn verify_and_consume(
+        &self,
+        token: &str,
+        client_ip: &str,
+    ) -> Result<TokenPayload, AuthError> {
+        let (payload_b64, sig_b64) = token.split_once('.').ok_or(AuthError::Malformed)?;
 
         // 1. HMAC 验签(constant-time)
-        let expected_sig = self.sign(payload_b64.as_bytes())
+        let expected_sig = self
+            .sign(payload_b64.as_bytes())
             .map_err(|e| AuthError::Internal(e.to_string()))?;
-        let provided_sig = URL_SAFE_NO_PAD.decode(sig_b64)
+        let provided_sig = URL_SAFE_NO_PAD
+            .decode(sig_b64)
             .map_err(|_| AuthError::Malformed)?;
 
         if expected_sig.ct_eq(&provided_sig).unwrap_u8() != 1 {
@@ -132,10 +137,11 @@ impl TokenService {
         }
 
         // 2. 解 payload
-        let payload_bytes = URL_SAFE_NO_PAD.decode(payload_b64)
+        let payload_bytes = URL_SAFE_NO_PAD
+            .decode(payload_b64)
             .map_err(|_| AuthError::Malformed)?;
-        let payload: TokenPayload = serde_json::from_slice(&payload_bytes)
-            .map_err(|_| AuthError::Malformed)?;
+        let payload: TokenPayload =
+            serde_json::from_slice(&payload_bytes).map_err(|_| AuthError::Malformed)?;
 
         // 3. 时间 / IP 检查
         let now = unix_now();
@@ -242,14 +248,20 @@ mod tests {
         let (payload, sig) = token.split_once('.').unwrap();
         let evil = format!("{payload}A.{sig}");
         let err = svc.verify_and_consume(&evil, "1.2.3.4").unwrap_err();
-        assert!(matches!(err, AuthError::BadSignature | AuthError::Malformed));
+        assert!(matches!(
+            err,
+            AuthError::BadSignature | AuthError::Malformed
+        ));
     }
 
     #[test]
     fn origin_allowed_works() {
         assert!(origin_allowed("*", None));
         assert!(origin_allowed("*", Some("https://x.com")));
-        assert!(origin_allowed("https://a.com,https://b.com", Some("https://a.com")));
+        assert!(origin_allowed(
+            "https://a.com,https://b.com",
+            Some("https://a.com")
+        ));
         assert!(!origin_allowed("https://a.com", Some("https://evil.com")));
         assert!(!origin_allowed("https://a.com", None));
     }

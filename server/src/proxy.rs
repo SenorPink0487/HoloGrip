@@ -36,11 +36,7 @@ pub struct AppState {
 // ── header 白名单 ────────────────────────────────────────────────────
 
 /// 入站 header 白名单:其余的(尤其是 host/authorization/cookie)一律不透传给上游。
-const FORWARD_REQ_HEADERS: &[&str] = &[
-    "content-type",
-    "accept",
-    "accept-encoding",
-];
+const FORWARD_REQ_HEADERS: &[&str] = &["content-type", "accept", "accept-encoding"];
 
 /// 出站 header 白名单:上游响应里只把这些回吐给浏览器。
 const FORWARD_RESP_HEADERS: &[&str] = &[
@@ -196,7 +192,11 @@ pub async fn proxy_handler(
     proxy_metrics::inflight_inc();
     let _guard = scopeguard_dec();
 
-    let MethodUriHeaders { method, uri, headers } = method_uri_headers;
+    let MethodUriHeaders {
+        method,
+        uri,
+        headers,
+    } = method_uri_headers;
     let path_for_metric = first_path_seg(&rest);
 
     // 拼上游 URL:base + 子路径 + 原 query
@@ -224,13 +224,19 @@ pub async fn proxy_handler(
     let mut req = state.http.request(upstream_method, &upstream_url);
 
     for (name, value) in headers.iter() {
-        if FORWARD_REQ_HEADERS.iter().any(|w| w.eq_ignore_ascii_case(name.as_str())) {
+        if FORWARD_REQ_HEADERS
+            .iter()
+            .any(|w| w.eq_ignore_ascii_case(name.as_str()))
+        {
             req = req.header(name.as_str(), value);
         }
     }
 
     // 强制注入真实 key,前端的 Authorization 已经被中间件用掉了,这里覆盖也无所谓
-    req = req.header(header::AUTHORIZATION, format!("Bearer {}", state.upstream_key));
+    req = req.header(
+        header::AUTHORIZATION,
+        format!("Bearer {}", state.upstream_key),
+    );
 
     if !body_bytes.is_empty() {
         req = req.body(body_bytes);
@@ -242,10 +248,7 @@ pub async fn proxy_handler(
         Err(e) => {
             error!(?e, url = %upstream_url, "上游请求失败");
             proxy_metrics::record_request(&path_for_metric, 502, started.elapsed().as_secs_f64());
-            return (
-                StatusCode::BAD_GATEWAY,
-                format!("upstream error: {e}"),
-            ).into_response();
+            return (StatusCode::BAD_GATEWAY, format!("upstream error: {e}")).into_response();
         }
     };
 
@@ -255,7 +258,10 @@ pub async fn proxy_handler(
 
     let mut out_headers = HeaderMap::new();
     for (name, value) in upstream_resp.headers().iter() {
-        if FORWARD_RESP_HEADERS.iter().any(|w| w.eq_ignore_ascii_case(name.as_str())) {
+        if FORWARD_RESP_HEADERS
+            .iter()
+            .any(|w| w.eq_ignore_ascii_case(name.as_str()))
+        {
             out_headers.insert(name.clone(), value.clone());
         }
     }
@@ -283,7 +289,11 @@ fn first_path_seg(path: &str) -> String {
 /// 一个简单的 RAII guard:出作用域时把 inflight 计数 -1,
 /// 即便 handler 中途 return 也能正确释放。
 struct InflightGuard;
-fn scopeguard_dec() -> InflightGuard { InflightGuard }
+fn scopeguard_dec() -> InflightGuard {
+    InflightGuard
+}
 impl Drop for InflightGuard {
-    fn drop(&mut self) { proxy_metrics::inflight_dec(); }
+    fn drop(&mut self) {
+        proxy_metrics::inflight_dec();
+    }
 }

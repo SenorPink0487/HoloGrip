@@ -38,7 +38,10 @@ impl Metrics {
             .context("安装 metrics recorder 失败")?;
 
         // 描述信息(Prometheus HELP 行)
-        describe_counter!("proxy_requests_total", "反代请求总数,按 path 与 status 切分");
+        describe_counter!(
+            "proxy_requests_total",
+            "反代请求总数,按 path 与 status 切分"
+        );
         describe_histogram!("proxy_upstream_duration_seconds", "上游请求往返耗时(秒)");
         describe_gauge!("proxy_in_flight_requests", "当前正在转发的请求数");
         describe_counter!("proxy_rate_limited_total", "被 tower_governor 拦截的请求数");
@@ -57,11 +60,13 @@ pub fn record_request(path: &str, status: u16, duration_secs: f64) {
         "proxy_requests_total",
         "path" => path.to_string(),
         "status" => status.to_string()
-    ).increment(1);
+    )
+    .increment(1);
     histogram!(
         "proxy_upstream_duration_seconds",
         "path" => path.to_string()
-    ).record(duration_secs);
+    )
+    .record(duration_secs);
 }
 
 pub fn inflight_inc() {
@@ -83,23 +88,32 @@ pub fn record_token_rejected(reason: &'static str) {
 // ── 暴露端点 ─────────────────────────────────────────────────────────
 
 pub async fn serve_metrics_endpoint(metrics: Metrics, bind: SocketAddr) -> Result<()> {
-    let app = Router::new().route("/metrics", get(move || {
-        let handle = metrics.handle.clone();
-        async move {
-            // Prometheus 默认接受 text/plain
-            (
-                [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
-                handle.render(),
-            ).into_response()
-        }
-    }));
+    let app = Router::new().route(
+        "/metrics",
+        get(move || {
+            let handle = metrics.handle.clone();
+            async move {
+                // Prometheus 默认接受 text/plain
+                (
+                    [(
+                        axum::http::header::CONTENT_TYPE,
+                        "text/plain; version=0.0.4",
+                    )],
+                    handle.render(),
+                )
+                    .into_response()
+            }
+        }),
+    );
 
-    let listener = tokio::net::TcpListener::bind(bind).await
+    let listener = tokio::net::TcpListener::bind(bind)
+        .await
         .with_context(|| format!("metrics 端点监听 {} 失败", bind))?;
 
     info!(%bind, "metrics 端点已启动");
 
-    axum::serve(listener, app).await
+    axum::serve(listener, app)
+        .await
         .context("metrics 服务异常退出")?;
     Ok(())
 }

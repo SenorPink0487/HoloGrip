@@ -39,6 +39,21 @@ export interface SurfaceStroke {
   thickness: number;
 }
 
+export interface PageData {
+  id: string;
+  whiteboardDataUrl: string | null;
+  boardWidth?: number;
+  boardHeight?: number;
+  geometry: {
+    points: any[];
+    segments: any[];
+    circles: any[];
+  };
+}
+
+const WHITEBOARD_WIDTH = 1920;
+const WHITEBOARD_HEIGHT = 1080;
+
 interface ARState {
   leftHand: HandState;
   rightHand: HandState;
@@ -70,6 +85,11 @@ interface ARState {
   // Canvas2D 用它来暂停 2D 写字，避免在表面写字时同时画在 2D 画布上。
   isWritingOnSurface: boolean;
 
+  // 新增多页面管理状态
+  pages: PageData[];
+  currentPageIndex: number;
+  whiteboardRestoreVersion: number;
+  
   // 新增多窗口与工具状态管理
   isToolboxOpen: boolean;
   focusedWindow: string | null;
@@ -112,6 +132,14 @@ interface ARState {
   clearSurfaceStrokes: () => void;
   setWritingOnSurface: (v: boolean) => void;
 
+  // 多页面管理方法
+  addPage: () => void;
+  removePage: (index: number) => void;
+  switchPage: (index: number) => void;
+  saveCurrentPageWhiteboard: (dataUrl: string, size?: { width: number; height: number }) => void;
+  saveCurrentPageGeometry: (points: any[], segments: any[], circles: any[]) => void;
+  restoreWhiteboardSnapshot: (pages: PageData[], currentPageIndex: number) => void;
+
   // 控制方法
   setToolboxOpen: (o: boolean) => void;
   setFocusedWindow: (id: string | null) => void;
@@ -153,6 +181,16 @@ export const useARStore = create<ARState>((set) => ({
 
   surfaceStrokes: [],
   isWritingOnSurface: false,
+
+  pages: [{
+    id: 'page_0',
+    whiteboardDataUrl: null,
+    boardWidth: WHITEBOARD_WIDTH,
+    boardHeight: WHITEBOARD_HEIGHT,
+    geometry: { points: [], segments: [], circles: [] },
+  }],
+  currentPageIndex: 0,
+  whiteboardRestoreVersion: 0,
 
   isToolboxOpen: false,
   focusedWindow: null,
@@ -254,6 +292,81 @@ export const useARStore = create<ARState>((set) => ({
   },
   clearSurfaceStrokes: () => set({ surfaceStrokes: [] }),
   setWritingOnSurface: (v) => set({ isWritingOnSurface: v }),
+
+  addPage: () => set((state) => {
+    const newPage: PageData = {
+      id: `page_${Date.now()}`,
+      whiteboardDataUrl: null,
+      boardWidth: WHITEBOARD_WIDTH,
+      boardHeight: WHITEBOARD_HEIGHT,
+      geometry: { points: [], segments: [], circles: [] },
+    };
+    return {
+      pages: [...state.pages, newPage],
+      currentPageIndex: state.pages.length,
+      triggerClearCanvas: state.triggerClearCanvas + 1, // trigger clear for new page
+    };
+  }),
+  removePage: (index) => set((state) => {
+    if (state.pages.length <= 1) return state; // don't remove last page
+    const newPages = state.pages.filter((_, i) => i !== index);
+    const newIndex = Math.min(state.currentPageIndex, newPages.length - 1);
+    return {
+      pages: newPages,
+      currentPageIndex: newIndex,
+    };
+  }),
+  switchPage: (index) => set((state) => {
+    if (index < 0 || index >= state.pages.length) return state;
+    return {
+      currentPageIndex: index,
+    };
+  }),
+  saveCurrentPageWhiteboard: (dataUrl, size) => set((state) => {
+    const newPages = [...state.pages];
+    newPages[state.currentPageIndex] = {
+      ...newPages[state.currentPageIndex],
+      whiteboardDataUrl: dataUrl,
+      boardWidth: size?.width ?? WHITEBOARD_WIDTH,
+      boardHeight: size?.height ?? WHITEBOARD_HEIGHT,
+    };
+    return { pages: newPages };
+  }),
+  saveCurrentPageGeometry: (points, segments, circles) => set((state) => {
+    const newPages = [...state.pages];
+    newPages[state.currentPageIndex] = {
+      ...newPages[state.currentPageIndex],
+      geometry: { points, segments, circles },
+    };
+    return { pages: newPages };
+  }),
+  restoreWhiteboardSnapshot: (pages, currentPageIndex) => set((state) => {
+    const safePages = pages.length > 0
+      ? pages.map((page, index) => ({
+          id: typeof page.id === 'string' && page.id ? page.id : `page_${index}`,
+          whiteboardDataUrl: typeof page.whiteboardDataUrl === 'string' ? page.whiteboardDataUrl : null,
+          boardWidth: typeof page.boardWidth === 'number' ? page.boardWidth : undefined,
+          boardHeight: typeof page.boardHeight === 'number' ? page.boardHeight : undefined,
+          geometry: {
+            points: Array.isArray(page.geometry?.points) ? page.geometry.points : [],
+            segments: Array.isArray(page.geometry?.segments) ? page.geometry.segments : [],
+            circles: Array.isArray(page.geometry?.circles) ? page.geometry.circles : [],
+          },
+        }))
+      : [{
+          id: 'page_0',
+          whiteboardDataUrl: null,
+          boardWidth: WHITEBOARD_WIDTH,
+          boardHeight: WHITEBOARD_HEIGHT,
+          geometry: { points: [], segments: [], circles: [] },
+        }];
+
+    return {
+      pages: safePages,
+      currentPageIndex: Math.min(Math.max(currentPageIndex, 0), safePages.length - 1),
+      whiteboardRestoreVersion: state.whiteboardRestoreVersion + 1,
+    };
+  }),
 
   setToolboxOpen: (o) => set({ isToolboxOpen: o }),
   setFocusedWindow: (id) => set({ focusedWindow: id }),

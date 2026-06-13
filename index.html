@@ -194,7 +194,66 @@
             .list-item { flex-direction: column; align-items: flex-start; gap: 10px; }
             .list-num { width: auto; margin-bottom: 10px; }
             .list-item:hover { padding-left: 0; padding-top: 6vh; }
-            .metric-val { font-size: 5rem; }
+        }
+        
+        /* 账户下拉菜单容器 */
+        .account-dropdown-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        .account-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 15px;
+            background: rgba(15, 15, 15, 0.9);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            padding: 10px 0;
+            min-width: 180px;
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .account-dropdown::before {
+            content: '';
+            position: absolute;
+            top: -6px;
+            right: 20px;
+            width: 12px;
+            height: 12px;
+            background: rgba(15, 15, 15, 0.9);
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+            border-left: 1px solid rgba(255, 255, 255, 0.05);
+            transform: rotate(45deg);
+        }
+
+        .account-dropdown-wrapper:hover .account-dropdown {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .dropdown-item {
+            display: block;
+            padding: 12px 24px;
+            color: var(--fg);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            letter-spacing: 1px;
+            transition: background 0.2s, color 0.2s;
+            cursor: pointer;
+        }
+
+        .dropdown-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--accent);
         }
     </style>
 </head>
@@ -204,7 +263,13 @@
     <nav class="navbar">
         <a href="portfolio.html" class="nav-link">作品矩阵</a>
         <a href="profile.html" class="nav-link">关于我们</a>
-        <a href="login.html" class="nav-link">账户</a>
+        <div class="account-dropdown-wrapper">
+            <a href="login.html" class="nav-link" id="nav-account-link">账户</a>
+            <div class="account-dropdown" id="nav-dropdown" style="display: none;">
+                <a href="dashboard.html" class="dropdown-item">个人中心</a>
+                <a class="dropdown-item" id="nav-logout-btn">退出登录</a>
+            </div>
+        </div>
     </nav>
 
     <!-- 动态连线交互背景 -->
@@ -371,6 +436,30 @@
         }, { threshold: 0.1 });
 
         document.querySelectorAll('.section-title, .vision-text').forEach(el => observer.observe(el));
+
+        // 3. 验证登录状态并更新导航栏
+        document.addEventListener('DOMContentLoaded', () => {
+            const token = localStorage.getItem('hg_token');
+            const accountLink = document.getElementById('nav-account-link');
+            const dropdown = document.getElementById('nav-dropdown');
+            const logoutBtn = document.getElementById('nav-logout-btn');
+
+            if (token) {
+                // 已登录，修改跳转链接并显示下拉菜单
+                accountLink.href = 'dashboard.html';
+                dropdown.style.display = 'block';
+                
+                logoutBtn.addEventListener('click', () => {
+                    localStorage.removeItem('hg_token');
+                    localStorage.removeItem('hg_user');
+                    window.location.reload();
+                });
+            } else {
+                // 未登录，保持跳转到登录页，不显示下拉菜单
+                accountLink.href = 'login.html';
+                dropdown.style.display = 'none';
+            }
+        });
     </script>
 </body>
 </html>

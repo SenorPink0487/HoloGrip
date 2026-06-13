@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HoloGrip - 个人中心</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;700;900&display=swap');
+
+        :root {
+            --bg-base: #050505;
+            --text-primary: #ffffff;
+            --text-secondary: rgba(255, 255, 255, 0.4);
+            --accent: #ff2a5f;
+            --card-bg: rgba(20, 20, 20, 0.6);
+            --card-border: rgba(255, 255, 255, 0.05);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            font-family: 'Outfit', -apple-system, sans-serif;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* 隐藏滚动条 */
+        ::-webkit-scrollbar { width: 0; }
+
+        /* 全屏动态连线 Canvas 背景 */
+        #network-canvas {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            z-index: -1;
+            pointer-events: none;
+            opacity: 0.3;
+        }
+
+        /* Navbar */
+        .navbar {
+            position: fixed;
+            top: 2rem;
+            right: 3rem;
+            display: flex;
+            gap: 2rem;
+            z-index: 100;
+        }
+        .nav-link {
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 1rem;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            transition: color 0.3s;
+            position: relative;
+        }
+        .nav-link:hover {
+            color: var(--accent);
+        }
+
+        /* 账户下拉菜单容器 */
+        .account-dropdown-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+
+        .account-dropdown {
+            position: absolute;
+            top: 100%;
+            right: 0;
+            margin-top: 15px;
+            background: rgba(15, 15, 15, 0.9);
+            border: 1px solid var(--card-border);
+            border-radius: 12px;
+            padding: 10px 0;
+            min-width: 180px;
+            backdrop-filter: blur(10px);
+            opacity: 0;
+            visibility: hidden;
+            transform: translateY(-10px);
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+
+        .account-dropdown::before {
+            content: '';
+            position: absolute;
+            top: -6px;
+            right: 20px;
+            width: 12px;
+            height: 12px;
+            background: rgba(15, 15, 15, 0.9);
+            border-top: 1px solid var(--card-border);
+            border-left: 1px solid var(--card-border);
+            transform: rotate(45deg);
+        }
+
+        .account-dropdown-wrapper:hover .account-dropdown {
+            opacity: 1;
+            visibility: visible;
+            transform: translateY(0);
+        }
+
+        .dropdown-item {
+            display: block;
+            padding: 12px 24px;
+            color: var(--text-primary);
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+            letter-spacing: 1px;
+            transition: background 0.2s, color 0.2s;
+            cursor: pointer;
+        }
+
+        .dropdown-item:hover {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--accent);
+        }
+
+        /* 布局 */
+        .dashboard-container {
+            padding: 15vh 5vw;
+            max-width: 1400px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 350px 1fr;
+            gap: 40px;
+            min-height: 100vh;
+        }
+
+        /* 左侧个人资料卡片 */
+        .profile-sidebar {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            padding: 40px;
+            backdrop-filter: blur(20px);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            height: fit-content;
+        }
+
+        .avatar-container {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            border: 2px solid var(--accent);
+            padding: 4px;
+            margin-bottom: 20px;
+            position: relative;
+        }
+
+        .avatar {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #ff2a5f, #2a0845);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5rem;
+            font-weight: 900;
+        }
+
+        .user-name {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin-bottom: 5px;
+        }
+
+        .user-email {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            margin-bottom: 30px;
+        }
+
+        .sidebar-menu {
+            width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .menu-item {
+            padding: 15px 20px;
+            border-radius: 12px;
+            background: transparent;
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-weight: 500;
+            transition: all 0.3s;
+            text-align: left;
+            cursor: pointer;
+            border: 1px solid transparent;
+        }
+
+        .menu-item.active, .menu-item:hover {
+            background: rgba(255, 42, 95, 0.1);
+            color: var(--text-primary);
+            border-color: rgba(255, 42, 95, 0.3);
+        }
+
+        /* 右侧内容区 */
+        .content-area {
+            display: flex;
+            flex-direction: column;
+            gap: 40px;
+        }
+
+        .section-header {
+            font-size: 2.5rem;
+            font-weight: 900;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            margin-bottom: 20px;
+            position: relative;
+            display: inline-block;
+        }
+        
+        .section-header::after {
+            content: '';
+            position: absolute;
+            left: 0;
+            bottom: -5px;
+            width: 40px;
+            height: 3px;
+            background: var(--accent);
+        }
+
+        /* 工作空间卡片网格 */
+        .workspace-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 20px;
+        }
+
+        .workspace-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+            transition: transform 0.3s, box-shadow 0.3s;
+            cursor: pointer;
+        }
+
+        .workspace-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(255, 42, 95, 0.1);
+            border-color: rgba(255, 42, 95, 0.3);
+        }
+
+        .workspace-icon {
+            width: 50px;
+            height: 50px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+            font-size: 1.5rem;
+        }
+
+        .workspace-title {
+            font-size: 1.2rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+
+        .workspace-desc {
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        /* 设置表单重构 (Settings Redesign) */
+        .settings-card {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 20px;
+            padding: 30px;
+            backdrop-filter: blur(10px);
+            margin-bottom: 20px;
+            transition: box-shadow 0.3s;
+        }
+
+        .settings-card:hover {
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .settings-card-header {
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .settings-card-header h3 {
+            margin: 0 0 5px 0;
+            font-size: 1.3rem;
+            color: var(--text-primary);
+        }
+
+        .settings-card-header p {
+            margin: 0;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }
+
+        .form-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+        }
+        
+        .settings-form {
+            display: none; /* 默认隐藏整个视图 */
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+
+        .form-control {
+            width: 100%;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--card-border);
+            padding: 10px 15px;
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            font-family: inherit;
+            transition: border-color 0.3s, box-shadow 0.3s;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(255, 42, 95, 0.1);
+        }
+
+        .btn-primary {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            font-family: inherit;
+            letter-spacing: 1px;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(255, 42, 95, 0.3);
+        }
+
+        @media (max-width: 900px) {
+            .dashboard-container {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* 自定义弹窗 */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(10px);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.3s ease;
+        }
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal-box {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: 24px;
+            padding: 40px;
+            width: 90%;
+            max-width: 450px;
+            transform: translateY(20px) scale(0.95);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+        }
+        .modal-overlay.active .modal-box {
+            transform: translateY(0) scale(1);
+        }
+        .modal-title {
+            font-size: 1.5rem;
+            font-weight: 700;
+            margin-bottom: 20px;
+            color: var(--text-primary);
+        }
+        .modal-content {
+            margin-bottom: 30px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 15px;
+        }
+        .btn-secondary {
+            background: rgba(255, 255, 255, 0.05);
+            color: var(--text-primary);
+            border: 1px solid var(--card-border);
+            padding: 12px 24px;
+            border-radius: 12px;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        /* --- Ultra-Premium Settings Redesign --- */
+        .award-winning-settings {
+            padding-right: 20px;
+            animation: fadeInPremium 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes fadeInPremium {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .settings-header-wrapper {
+            margin-bottom: 30px;
+        }
+
+        .settings-header-wrapper .section-header {
+            margin-bottom: 15px;
+            font-size: 2.5rem;
+            font-weight: 600;
+            letter-spacing: -0.02em;
+            color: #fff;
+        }
+        
+        .settings-header-wrapper .section-header::after {
+            display: none; /* Remove the old red underline */
+        }
+
+        .settings-subtitle {
+            color: rgba(255, 255, 255, 0.5);
+            font-size: 1rem;
+            font-weight: 400;
+            letter-spacing: 0;
+        }
+
+        .settings-unified-card {
+            background: var(--card-bg);
+            border-radius: 24px;
+            border: 1px solid var(--card-border);
+            padding: 40px 50px;
+            position: relative;
+            overflow: hidden;
+            backdrop-filter: blur(20px);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+        }
+
+        .settings-unified-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+        }
+
+        .settings-section {
+            position: relative;
+            z-index: 2;
+        }
+
+        .section-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #fff;
+            margin-bottom: 25px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            letter-spacing: 0;
+            text-transform: uppercase;
+        }
+
+        .section-title .icon {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 1.2rem;
+        }
+
+        .input-group {
+            position: relative;
+            margin-bottom: 30px;
+            width: 100%;
+        }
+
+        .input-group input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 0;
+            padding: 24px 0 10px;
+            color: #fff;
+            font-size: 1.1rem;
+            outline: none;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        .input-group input:focus {
+            border-bottom-color: #fff;
+            box-shadow: 0 1px 0 #fff;
+        }
+
+        .input-group label {
+            position: absolute;
+            top: 24px;
+            left: 0;
+            color: rgba(255, 255, 255, 0.4);
+            font-size: 1.1rem;
+            pointer-events: none;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            transform-origin: left top;
+        }
+
+        .input-group input:focus ~ label,
+        .input-group input:not(:placeholder-shown) ~ label {
+            transform: translateY(-22px) scale(0.75);
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .input-group input:disabled {
+            color: rgba(255, 255, 255, 0.4);
+            cursor: not-allowed;
+            border-bottom-color: rgba(255, 255, 255, 0.05);
+        }
+
+        .badge-verified {
+            position: absolute;
+            right: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(255, 255, 255, 0.05);
+            color: rgba(255, 255, 255, 0.6);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+            font-weight: 500;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            letter-spacing: 0.5px;
+        }
+
+        .settings-divider {
+            height: 1px;
+            background: rgba(255, 255, 255, 0.08);
+            margin: 40px 0;
+            position: relative;
+            z-index: 2;
+        }
+
+        .settings-actions {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            gap: 20px;
+            margin-top: 40px;
+            padding-top: 30px;
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            position: relative;
+            z-index: 2;
+        }
+
+        .btn-save-glow {
+            background: #fff;
+            color: #000;
+            padding: 14px 32px;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+            font-family: inherit;
+        }
+
+        .btn-save-glow:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(255, 255, 255, 0.2);
+            background: #f0f0f0;
+        }
+
+        .btn-cancel {
+            background: transparent;
+            color: rgba(255, 255, 255, 0.5);
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 0.95rem;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            font-family: inherit;
+        }
+
+        .btn-cancel:hover {
+            color: #fff;
+        }
+
+        .code-group {
+            display: flex;
+            gap: 24px;
+            align-items: flex-end;
+        }
+
+        .code-group .input-wrapper {
+            position: relative;
+            flex: 1;
+            margin-bottom: 0;
+        }
+
+        .code-group .input-wrapper input {
+            margin-bottom: 0;
+        }
+
+        .btn-text-glow {
+            background: rgba(255, 255, 255, 0.03);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            padding: 0 24px;
+            border-radius: 8px;
+            font-weight: 500;
+            font-size: 0.9rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 2px; /* align with input baseline */
+        }
+
+        .btn-text-glow:hover {
+            background: rgba(255, 255, 255, 0.1);
+            border-color: rgba(255, 255, 255, 0.3);
+        }
+    </style>
+</head>
+<body>
+
+    <!-- 导航栏 -->
+    <nav class="navbar">
+        <a href="portfolio.html" class="nav-link">作品矩阵</a>
+        <a href="profile.html" class="nav-link">关于我们</a>
+        <div class="account-dropdown-wrapper">
+            <a href="dashboard.html" class="nav-link" id="nav-account-link">账户</a>
+            <div class="account-dropdown" id="nav-dropdown">
+                <a href="dashboard.html" class="dropdown-item">个人中心</a>
+                <a class="dropdown-item" id="logout-btn">退出登录</a>
+            </div>
+        </div>
+    </nav>
+
+    <!-- 动态连线交互背景 -->
+    <canvas id="network-canvas"></canvas>
+
+    <div class="dashboard-container">
+        <!-- 左侧边栏 -->
+        <aside class="profile-sidebar">
+            <div class="avatar-container">
+                <div class="avatar" id="avatar-initial">H</div>
+            </div>
+            <div class="user-name" id="display-name">Loading...</div>
+            <div class="user-email" id="display-email">...</div>
+
+            <div class="sidebar-menu">
+                <div class="menu-item active" id="menu-workspace">工作空间 (Workspaces)</div>
+                <div class="menu-item" id="menu-class">班级管理 (Classes)</div>
+                <div class="menu-item" id="menu-settings">账户设置 (Settings)</div>
+            </div>
+        </aside>
+
+        <!-- 右侧内容 -->
+        <main class="content-area">
+            
+            <!-- 工作空间视图 -->
+            <div id="view-workspace">
+                <h1 class="section-header">Recent Workspaces</h1>
+                <div class="workspace-grid">
+                    <div class="workspace-card">
+                        <div class="workspace-icon">🎨</div>
+                        <div class="workspace-title">UI Design Mockups</div>
+                        <div class="workspace-desc">Updated 2 hours ago. Contains 12 mesh models and 3 interaction paths.</div>
+                    </div>
+                    <div class="workspace-card">
+                        <div class="workspace-icon">🏗️</div>
+                        <div class="workspace-title">Architecture Review</div>
+                        <div class="workspace-desc">Updated yesterday. Spatial layout for the new office building.</div>
+                    </div>
+                    <div class="workspace-card" style="border-style: dashed; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+                        <div class="workspace-icon" style="background: transparent;">+</div>
+                        <div class="workspace-title">New Workspace</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 班级管理视图 -->
+            <div id="view-class" style="display: none;">
+                <h1 class="section-header">Class Management</h1>
+                <div style="margin-bottom: 20px; display: flex; gap: 15px;">
+                    <button class="btn-primary" onclick="createClass()">创建班级</button>
+                    <button class="btn-primary" style="background: rgba(255,255,255,0.1); color: var(--text-primary);" onclick="joinClass()">加入班级</button>
+                </div>
+                
+                <h2 style="font-size: 1.5rem; margin: 30px 0 15px;">我教的课 (Teaching)</h2>
+                <div class="workspace-grid" id="teaching-list">
+                    <!-- JS 渲染 -->
+                </div>
+
+                <h2 style="font-size: 1.5rem; margin: 30px 0 15px;">我听的课 (Joined)</h2>
+                <div class="workspace-grid" id="joined-list">
+                    <!-- JS 渲染 -->
+                </div>
+            </div>
+
+            <!-- 设置视图 -->
+            <div id="view-settings" class="settings-form award-winning-settings">
+                
+                <div class="settings-unified-card">
+                    <!-- 基本信息区 -->
+                    <div class="settings-section">
+                        <div class="section-title">
+                            <span class="icon">👤</span> 基本信息
+                        </div>
+                        <div class="form-row">
+                            <div class="input-group">
+                                <input type="text" id="input-username" value="Senor" placeholder=" ">
+                                <label for="input-username">用户名</label>
+                            </div>
+                            <div class="input-group">
+                                <input type="email" id="input-email" value="3155584495@qq.com" disabled placeholder=" ">
+                                <label for="input-email">邮箱地址</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="settings-divider"></div>
+
+                    <!-- 安全与密码区 -->
+                    <div class="settings-section">
+                        <div class="section-title">
+                            <span class="icon">🔒</span> 安全与密码
+                        </div>
+                        
+                        <div class="password-update-container">
+                            <div class="form-row" style="grid-template-columns: 1fr;">
+                                <div class="input-group">
+                                    <input type="password" id="current-password" placeholder=" ">
+                                    <label for="current-password">当前密码</label>
+                                </div>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="input-group">
+                                    <input type="password" id="new-password" placeholder=" ">
+                                    <label for="new-password">新密码</label>
+                                </div>
+                                <div class="input-group">
+                                    <input type="password" id="confirm-new-password" placeholder=" ">
+                                    <label for="confirm-new-password">确认新密码</label>
+                                </div>
+                            </div>
+                            
+                            <div class="form-row">
+                                <div class="code-group">
+                                    <div class="input-wrapper input-group" style="margin-bottom:0;">
+                                        <input type="text" id="password-code" maxlength="6" placeholder=" ">
+                                        <label for="password-code">邮箱验证码</label>
+                                    </div>
+                                    <button class="btn-text-glow" id="send-password-code-btn">获取验证码</button>
+                                </div>
+                                <div class="empty-column-for-grid"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 统一的保存动作 -->
+                    <div class="settings-actions">
+                        <button class="btn-cancel">取消更改</button>
+                        <button class="btn-save-glow" onclick="alert('账户设置已成功保存！')">保存所有更改</button>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- 自定义弹窗 -->
+    <div class="modal-overlay" id="custom-modal-overlay">
+        <div class="modal-box">
+            <div class="modal-title" id="custom-modal-title">标题</div>
+            <div class="modal-content" id="custom-modal-content">内容</div>
+            <div class="modal-actions">
+                <button class="btn-secondary" id="custom-modal-cancel">取消</button>
+                <button class="btn-primary" id="custom-modal-confirm">确定</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 1. 全屏 Canvas 动态连线交互 (精简版)
+        const canvas = document.getElementById('network-canvas');
+        const ctx = canvas.getContext('2d');
+        let width, height, particles;
+
+        function initCanvas() {
+            width = canvas.width = window.innerWidth;
+            height = canvas.height = window.innerHeight;
+            particles = [];
+            const count = Math.floor((width * height) / 20000);
+            for(let i=0; i<count; i++) {
+                particles.push({
+                    x: Math.random() * width,
+                    y: Math.random() * height,
+                    vx: (Math.random() - 0.5) * 0.3,
+                    vy: (Math.random() - 0.5) * 0.3,
+                    radius: Math.random() * 2 + 1
+                });
+            }
+        }
+
+        function drawCanvas() {
+            ctx.clearRect(0, 0, width, height);
+            ctx.fillStyle = '#ffffff';
+            
+            for(let i=0; i<particles.length; i++) {
+                let p = particles[i];
+                p.x += p.vx; p.y += p.vy;
+                if(p.x < 0 || p.x > width) p.vx *= -1;
+                if(p.y < 0 || p.y > height) p.vy *= -1;
+
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                for(let j=i+1; j<particles.length; j++) {
+                    let p2 = particles[j];
+                    const distance = Math.sqrt(Math.pow(p.x - p2.x, 2) + Math.pow(p.y - p2.y, 2));
+                    if(distance < 150) {
+                        ctx.beginPath();
+                        ctx.moveTo(p.x, p.y);
+                        ctx.lineTo(p2.x, p2.y);
+                        ctx.strokeStyle = `rgba(255,255,255,${0.2 * (1 - distance/150)})`;
+                        ctx.stroke();
+                    }
+                }
+            }
+            requestAnimationFrame(drawCanvas);
+        }
+        window.addEventListener('resize', initCanvas);
+        initCanvas();
+        drawCanvas();
+
+        // 2. 身份验证逻辑
+        document.addEventListener('DOMContentLoaded', async () => {
+            const token = localStorage.getItem('hg_token');
+            if (!token) {
+                // 如果未登录，直接踢回登录页
+                window.location.href = 'login.html';
+                return;
+            }
+
+            try {
+                const res = await fetch('/api/user/me', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+                
+                if (!res.ok) throw new Error('Unauthorized');
+                
+                const user = await res.json();
+                
+                // 填充数据
+                document.getElementById('display-name').textContent = user.username;
+                document.getElementById('display-email').textContent = user.email;
+                document.getElementById('input-username').value = user.username;
+                document.getElementById('input-email').value = user.email;
+                
+                // 设置头像首字母
+                if(user.username) {
+                    document.getElementById('avatar-initial').textContent = user.username.charAt(0).toUpperCase();
+                }
+
+            } catch (err) {
+                console.error('Auth verification failed:', err);
+                localStorage.removeItem('hg_token');
+                localStorage.removeItem('hg_user');
+                window.location.href = 'login.html';
+            }
+        });
+
+        // 3. 登出逻辑
+        document.getElementById('logout-btn').addEventListener('click', () => {
+            localStorage.removeItem('hg_token');
+            localStorage.removeItem('hg_user');
+            window.location.href = 'index.html';
+        });
+
+        // 4. 视图切换逻辑
+        const menuWorkspace = document.getElementById('menu-workspace');
+        const menuSettings = document.getElementById('menu-settings');
+        const menuClass = document.getElementById('menu-class');
+        
+        const viewWorkspace = document.getElementById('view-workspace');
+        const viewSettings = document.getElementById('view-settings');
+        const viewClass = document.getElementById('view-class');
+
+        function switchView(activeMenu, activeView) {
+            [menuWorkspace, menuSettings, menuClass].forEach(m => m.classList.remove('active'));
+            [viewWorkspace, viewSettings, viewClass].forEach(v => v.style.display = 'none');
+            
+            activeMenu.classList.add('active');
+            activeView.style.display = 'block';
+        }
+
+        menuWorkspace.addEventListener('click', () => switchView(menuWorkspace, viewWorkspace));
+        menuSettings.addEventListener('click', () => switchView(menuSettings, viewSettings));
+        menuClass.addEventListener('click', () => {
+            switchView(menuClass, viewClass);
+            loadClasses();
+        });
+
+        // 5. 账户与班级 API 逻辑
+        async function requestJson(url, options = {}) {
+            const token = localStorage.getItem('hg_token');
+            if (!token) {
+                throw new Error('登录已失效，请重新登录');
+            }
+
+            let res;
+            try {
+                res = await fetch(url, {
+                    ...options,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${token}`,
+                        ...(options.headers || {}),
+                    },
+                });
+            } catch (error) {
+                throw new Error('无法连接后端服务，请确认后端已启动');
+            }
+
+            let json = null;
+            try {
+                json = await res.json();
+            } catch (error) {
+                throw new Error(`后端返回异常 (${res.status})`);
+            }
+
+            if (!res.ok || json.status === 'error' || json.error) {
+                throw new Error(json.message || json.error || `请求失败 (${res.status})`);
+            }
+
+            return json;
+        }
+
+        document.getElementById('send-password-code-btn').addEventListener('click', async () => {
+            const btn = document.getElementById('send-password-code-btn');
+            btn.disabled = true;
+            const original = btn.textContent;
+            btn.textContent = 'Sending...';
+            try {
+                await requestJson('/api/user/password/code', { method: 'POST' });
+                showModal('验证码已发送', '验证码已发送到您的账户邮箱，请在 10 分钟内完成修改。', null, false);
+            } catch (e) {
+                showModal('发送失败', e.message || '验证码发送失败，请稍后重试', null, false);
+            } finally {
+                setTimeout(() => {
+                    btn.disabled = false;
+                    btn.textContent = original;
+                }, 30000);
+            }
+        });
+
+        document.getElementById('change-password-btn').addEventListener('click', async () => {
+            const currentPassword = document.getElementById('current-password').value;
+            const newPassword = document.getElementById('new-password').value;
+            const confirmPassword = document.getElementById('confirm-new-password').value;
+            const code = document.getElementById('password-code').value.trim();
+
+            if (!currentPassword || !newPassword || !confirmPassword || !code) {
+                showModal('提示', '请填写当前密码、新密码、确认密码和邮箱验证码。', null, false);
+                return;
+            }
+            if (newPassword.length < 6) {
+                showModal('提示', '新密码至少 6 位。', null, false);
+                return;
+            }
+            if (newPassword !== confirmPassword) {
+                showModal('提示', '两次输入的新密码不一致。', null, false);
+                return;
+            }
+            if (!/^\d{6}$/.test(code)) {
+                showModal('提示', '请输入 6 位邮箱验证码。', null, false);
+                return;
+            }
+
+            const btn = document.getElementById('change-password-btn');
+            btn.disabled = true;
+            const original = btn.textContent;
+            btn.textContent = 'Updating...';
+            try {
+                await requestJson('/api/user/password/change', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        current_password: currentPassword,
+                        new_password: newPassword,
+                        code,
+                    }),
+                });
+                document.getElementById('current-password').value = '';
+                document.getElementById('new-password').value = '';
+                document.getElementById('confirm-new-password').value = '';
+                document.getElementById('password-code').value = '';
+                showModal('修改成功', '密码已更新，下次登录请使用新密码。', null, false);
+            } catch (e) {
+                showModal('修改失败', e.message || '密码修改失败，请稍后重试', null, false);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = original;
+            }
+        });
+
+        async function loadClasses() {
+            try {
+                const json = await requestJson('/api/class/list', { method: 'GET' });
+                if(json.status === 'success') {
+                    renderClasses('teaching-list', json.data.teaching);
+                    renderClasses('joined-list', json.data.joined);
+                }
+            } catch(e) {
+                console.error('Failed to load classes', e);
+                document.getElementById('teaching-list').innerHTML = `<div style="color:var(--accent)">${e.message}</div>`;
+                document.getElementById('joined-list').innerHTML = `<div style="color:var(--accent)">${e.message}</div>`;
+            }
+        }
+
+        function renderClasses(containerId, list) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            if(list.length === 0) {
+                container.innerHTML = '<div style="color:var(--text-secondary)">暂无班级</div>';
+                return;
+            }
+            list.forEach(c => {
+                container.innerHTML += `
+                    <div class="workspace-card">
+                        <div class="workspace-icon" style="background: rgba(255,42,95,0.1); color: var(--accent);">📚</div>
+                        <div class="workspace-title">${c.name}</div>
+                        <div class="workspace-desc" style="margin-bottom: 10px;">${c.description}</div>
+                        <div class="workspace-desc" style="font-size:0.8rem;">教师: ${c.teacher_name}</div>
+                        <div class="workspace-desc" style="font-size:0.8rem; color:var(--accent);">邀请码: ${c.invite_code}</div>
+                    </div>
+                `;
+            });
+        }
+
+        function showModal(title, contentHtml, onConfirm, showCancel = true) {
+            const overlay = document.getElementById('custom-modal-overlay');
+            document.getElementById('custom-modal-title').textContent = title;
+            document.getElementById('custom-modal-content').innerHTML = contentHtml;
+            
+            const btnCancel = document.getElementById('custom-modal-cancel');
+            const btnConfirm = document.getElementById('custom-modal-confirm');
+            
+            btnCancel.style.display = showCancel ? 'block' : 'none';
+            
+            const newConfirm = btnConfirm.cloneNode(true);
+            btnConfirm.parentNode.replaceChild(newConfirm, btnConfirm);
+            const newCancel = btnCancel.cloneNode(true);
+            btnCancel.parentNode.replaceChild(newCancel, btnCancel);
+            newConfirm.disabled = false;
+            newConfirm.textContent = '确定';
+            newCancel.disabled = false;
+            newCancel.textContent = '取消';
+            
+            newConfirm.addEventListener('click', async () => {
+                newConfirm.disabled = true;
+                newConfirm.textContent = '处理中...';
+                if (onConfirm) {
+                    try {
+                        const close = await onConfirm();
+                        if(close !== false) overlay.classList.remove('active');
+                    } catch (error) {
+                        console.error('Modal action failed:', error);
+                        showModal("操作失败", error.message || "请求失败，请稍后重试", null, false);
+                    }
+                } else {
+                    overlay.classList.remove('active');
+                }
+            });
+            
+            newCancel.addEventListener('click', () => overlay.classList.remove('active'));
+            overlay.classList.add('active');
+            
+            const input = overlay.querySelector('input');
+            if(input) setTimeout(() => input.focus(), 100);
+        }
+
+        function createClass() {
+            showModal("创建班级", `
+                <div class="form-group" style="margin-bottom:15px">
+                    <label>班级名称</label>
+                    <input type="text" id="class-name-input" class="form-control" placeholder="例如: 线性代数春季班">
+                </div>
+                <div class="form-group" style="margin-bottom:0">
+                    <label>班级简介 (选填)</label>
+                    <input type="text" id="class-desc-input" class="form-control" placeholder="一句话介绍这个班级">
+                </div>
+            `, async () => {
+                const name = document.getElementById('class-name-input').value.trim();
+                if(!name) { showModal("提示", "班级名称不能为空", null, false); return false; }
+                const description = document.getElementById('class-desc-input').value.trim();
+                
+                const json = await requestJson('/api/class/create', {
+                    method: 'POST',
+                    body: JSON.stringify({ name, description })
+                });
+                if(json.status === 'success') {
+                    showModal("创建成功", `您的班级邀请码为: <strong style="color:var(--accent); font-size:1.2rem;">${json.data.invite_code}</strong><br><br>请将此邀请码发送给学生。`, () => { loadClasses(); }, false);
+                } else {
+                    showModal("创建失败", json.message, null, false);
+                }
+                return false;
+            });
+        }
+
+        function joinClass() {
+            showModal("加入班级", `
+                <div class="form-group" style="margin-bottom:0">
+                    <label>班级邀请码</label>
+                    <input type="text" id="class-code-input" class="form-control" placeholder="输入 6 位邀请码" maxlength="6" style="text-transform: uppercase;">
+                </div>
+            `, async () => {
+                const invite_code = document.getElementById('class-code-input').value.trim();
+                if(!invite_code || invite_code.length !== 6) {
+                    showModal("提示", "请输入 6 位有效邀请码", null, false);
+                    return false;
+                }
+                
+                const json = await requestJson('/api/class/join', {
+                    method: 'POST',
+                    body: JSON.stringify({ invite_code: invite_code.toUpperCase() })
+                });
+                if(json.status === 'success') {
+                    showModal("加入成功！", "您已成功加入该班级。", () => { loadClasses(); }, false);
+                } else {
+                    showModal("加入失败", json.message, null, false);
+                }
+                return false;
+            });
+        }
+
+    </script>
+</body>
+</html>

@@ -16,9 +16,15 @@
 //!   GET  /metrics              ← Prometheus scrape
 
 mod auth;
+mod class;
 mod config;
+mod db;
+mod lesson;
 mod metrics;
 mod proxy;
+mod user_auth;
+mod whiteboard;
+mod whiteboard_live;
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
@@ -47,14 +53,18 @@ use crate::auth::TokenService;
 use crate::config::Config;
 use crate::metrics::Metrics;
 use crate::proxy::AppState;
+use crate::user_auth::{MailConfig, UserAuthState};
+use crate::whiteboard_live::{WhiteboardLiveAppState, WhiteboardLiveState};
 
 #[tokio::main]
 async fn main() -> Result<()> {
     let _ = dotenvy::dotenv();
 
     tracing_subscriber::fmt()
-        .with_env_filter(EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| EnvFilter::new("hologrip_proxy=info,tower_http=info")))
+        .with_env_filter(
+            EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| EnvFilter::new("hologrip_proxy=info,tower_http=info")),
+        )
         .with_target(false)
         .init();
 
@@ -72,6 +82,10 @@ async fn main() -> Result<()> {
         .build()
         .context("构建 HTTP 客户端失败")?;
 
+    // 数据库连接池
+    let pool = db::init_pool(&cfg.database_url).await?;
+    info!("数据库连接就绪");
+
     // Token 服务 + 后台清扫
     let token_svc = TokenService::new(
         &cfg.auth_hmac_secret,
@@ -87,6 +101,22 @@ async fn main() -> Result<()> {
         token_svc,
         issue_allowed_origins: Arc::new(cfg.auth_issue_allowed_origins.clone()),
     };
+
+    let user_state = UserAuthState {
+        pool,
+        jwt_secret: Arc::new(cfg.jwt_secret.clone()),
+        jwt_expires_secs: cfg.jwt_expires_secs,
+        mail: Arc::new(MailConfig {
+            smtp_host: cfg.smtp_host.clone(),
+            smtp_port: cfg.smtp_port,
+            smtp_username: cfg.smtp_username.clone(),
+            smtp_password: cfg.smtp_password.clone(),
+            smtp_from: cfg.smtp_from.clone(),
+            smtp_tls: cfg.smtp_tls,
+            app_public_base_url: cfg.app_public_base_url.clone(),
+        }),
+    };
+    let live_state = WhiteboardLiveState::default();
 
     // CORS:浏览器 preflight 必须放行 Authorization
     let cors = build_cors(&cfg.cors_allowed_origins);
@@ -109,10 +139,83 @@ async fn main() -> Result<()> {
             proxy::require_token,
         ));
 
+    // /api/user/* 子路由:用户注册/登录/个人信息
+    let me_routes = Router::new()
+        .route("/me", axum::routing::get(user_auth::me))
+        .route(
+            "/password/code",
+            axum::routing::post(user_auth::send_password_code),
+        )
+        .route(
+            "/password/change",
+            axum::routing::post(user_auth::change_password),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            user_state.clone(),
+            user_auth::jwt_auth,
+        ));
+    let user_routes = Router::new()
+        .route("/register", axum::routing::post(user_auth::register))
+        .route("/login", axum::routing::post(user_auth::login))
+        .merge(me_routes)
+        .with_state(user_state.clone());
+
+    let class_routes = Router::new()
+        .route("/create", axum::routing::post(class::create_class))
+        .route("/join", axum::routing::post(class::join_class))
+        .route("/list", axum::routing::get(class::list_classes))
+        .route_layer(middleware::from_fn_with_state(
+            user_state.clone(),
+            user_auth::jwt_auth,
+        ))
+        .with_state(user_state.clone());
+
+    let whiteboard_routes = Router::new()
+        .route(
+            "/api/whiteboard",
+            get(whiteboard::get_snapshot).put(whiteboard::put_snapshot),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            user_state.clone(),
+            user_auth::jwt_auth,
+        ))
+        .with_state(user_state.clone());
+
+    let lesson_routes = Router::new()
+        .route(
+            "/api/classes/{class_id}/lessons",
+            get(lesson::list_lessons).post(lesson::create_lesson),
+        )
+        .route(
+            "/api/lessons/{lesson_id}/whiteboard",
+            get(lesson::get_lesson_whiteboard).put(lesson::put_lesson_whiteboard),
+        )
+
+        .route_layer(middleware::from_fn_with_state(
+            user_state.clone(),
+            user_auth::jwt_auth,
+        ))
+        .with_state(user_state.clone());
+
+    let whiteboard_live_routes = Router::new()
+        .route(
+            "/api/lessons/{lesson_id}/whiteboard/live",
+            get(whiteboard_live::live_ws),
+        )
+        .with_state(WhiteboardLiveAppState {
+            auth: user_state.clone(),
+            live: live_state,
+        });
+
     let app = Router::new()
         .route("/healthz", get(health))
         .route("/api/auth/issue", post(proxy::issue_token))
         .nest("/api/gemini", gemini_routes)
+        .nest("/api/user", user_routes)
+        .nest("/api/class", class_routes)
+        .merge(whiteboard_routes)
+        .merge(lesson_routes)
+        .merge(whiteboard_live_routes)
         .with_state(state)
         // 层序:最先 .layer() 的最靠内,最后 .layer() 的最外层。
         // GovernorLayer 必须紧贴 Router,因为它要求下游响应体是 axum::body::Body。
@@ -124,7 +227,8 @@ async fn main() -> Result<()> {
         .layer(TraceLayer::new_for_http());
 
     // 启动主反代监听
-    let listener = tokio::net::TcpListener::bind(bind).await
+    let listener = tokio::net::TcpListener::bind(bind)
+        .await
         .with_context(|| format!("监听 {} 失败", bind))?;
     let serve_main = axum::serve(
         listener,
@@ -152,11 +256,13 @@ async fn main() -> Result<()> {
 
 // ── 辅助 ────────────────────────────────────────────────────────────
 
-async fn health() -> impl IntoResponse { "ok" }
+async fn health() -> impl IntoResponse {
+    "ok"
+}
 
 fn build_cors(spec: &str) -> CorsLayer {
     let base = CorsLayer::new()
-        .allow_methods([Method::GET, Method::POST, Method::OPTIONS])
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::OPTIONS])
         .allow_headers([
             header::CONTENT_TYPE,
             header::ACCEPT,
@@ -185,7 +291,9 @@ fn build_cors(spec: &str) -> CorsLayer {
 }
 
 async fn shutdown_signal() {
-    let ctrl_c = async { tokio::signal::ctrl_c().await.ok(); };
+    let ctrl_c = async {
+        tokio::signal::ctrl_c().await.ok();
+    };
 
     #[cfg(unix)]
     let terminate = async {

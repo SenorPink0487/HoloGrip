@@ -53,22 +53,88 @@ pub struct Config {
     #[serde(default = "default_issue_origins")]
     pub auth_issue_allowed_origins: String,
 
+    // ── 数据库 ────────────────────────────────────────────────────
+    /// MySQL 连接串,格式:mysql://user:pass@host:port/dbname
+    pub database_url: String,
+
+    // ── 用户 JWT ──────────────────────────────────────────────────
+    /// JWT 签名密钥(至少 32 字节)
+    pub jwt_secret: String,
+
+    /// JWT 有效期(秒),默认 7 天
+    #[serde(default = "default_jwt_expires")]
+    pub jwt_expires_secs: u64,
+
+    // ── 账户邮箱验证码（修改密码）────────────────────────────────────
+    #[serde(default)]
+    pub smtp_host: String,
+
+    #[serde(default = "default_smtp_port")]
+    pub smtp_port: u16,
+
+    #[serde(default)]
+    pub smtp_username: String,
+
+    #[serde(default)]
+    pub smtp_password: String,
+
+    #[serde(default)]
+    pub smtp_from: String,
+
+    #[serde(default = "default_smtp_tls")]
+    pub smtp_tls: bool,
+
+    #[serde(default = "default_app_public_base_url")]
+    pub app_public_base_url: String,
+
     // ── Metrics ───────────────────────────────────────────────────
     /// metrics 端点的监听地址,只在 127.0.0.1 暴露。空字符串关闭。
     #[serde(default = "default_metrics_bind")]
     pub metrics_bind: String,
 }
 
-fn default_bind() -> String { "127.0.0.1:8787".into() }
-fn default_cors() -> String { "*".into() }
-fn default_rps() -> u64 { 2 }
-fn default_burst() -> u32 { 10 }
-fn default_max_body() -> usize { 16 * 1024 * 1024 }
-fn default_timeout() -> u64 { 120 }
-fn default_token_quota() -> u64 { 100 }
-fn default_token_ttl() -> u64 { 3600 }
-fn default_issue_origins() -> String { "*".into() }
-fn default_metrics_bind() -> String { "127.0.0.1:9898".into() }
+fn default_bind() -> String {
+    "127.0.0.1:8787".into()
+}
+fn default_cors() -> String {
+    "*".into()
+}
+fn default_rps() -> u64 {
+    2
+}
+fn default_burst() -> u32 {
+    10
+}
+fn default_max_body() -> usize {
+    16 * 1024 * 1024
+}
+fn default_timeout() -> u64 {
+    120
+}
+fn default_token_quota() -> u64 {
+    100
+}
+fn default_token_ttl() -> u64 {
+    3600
+}
+fn default_issue_origins() -> String {
+    "*".into()
+}
+fn default_jwt_expires() -> u64 {
+    604800
+}
+fn default_smtp_port() -> u16 {
+    587
+}
+fn default_smtp_tls() -> bool {
+    true
+}
+fn default_app_public_base_url() -> String {
+    "https://your-domain.example".into()
+}
+fn default_metrics_bind() -> String {
+    "127.0.0.1:9898".into()
+}
 
 impl Config {
     pub fn from_env() -> Result<Self> {
@@ -91,10 +157,39 @@ impl Config {
                 self.auth_hmac_secret.len()
             );
         }
-        let _: SocketAddr = self.proxy_bind.parse()
+        if self.database_url.trim().is_empty() {
+            bail!("DATABASE_URL 未配置");
+        }
+        if self.jwt_secret.len() < 32 {
+            bail!(
+                "JWT_SECRET 长度不足 32 字节(当前 {} 字节)。\
+                 推荐用 `openssl rand -hex 32` 生成",
+                self.jwt_secret.len()
+            );
+        }
+        if self.smtp_host.trim().is_empty() {
+            bail!("SMTP_HOST 未配置");
+        }
+        if self.smtp_username.trim().is_empty() {
+            bail!("SMTP_USERNAME 未配置");
+        }
+        if self.smtp_password.trim().is_empty() {
+            bail!("SMTP_PASSWORD 未配置");
+        }
+        if self.smtp_from.trim().is_empty() {
+            bail!("SMTP_FROM 未配置");
+        }
+        if self.app_public_base_url.trim().is_empty() {
+            bail!("APP_PUBLIC_BASE_URL 未配置");
+        }
+        let _: SocketAddr = self
+            .proxy_bind
+            .parse()
             .with_context(|| format!("PROXY_BIND 不是合法地址: {}", self.proxy_bind))?;
         if !self.metrics_bind.is_empty() {
-            let _: SocketAddr = self.metrics_bind.parse()
+            let _: SocketAddr = self
+                .metrics_bind
+                .parse()
                 .with_context(|| format!("METRICS_BIND 不是合法地址: {}", self.metrics_bind))?;
         }
         Ok(())

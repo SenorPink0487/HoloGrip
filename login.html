@@ -453,6 +453,12 @@
                             <div class="input-focus-line"></div>
                         </div>
 
+                        <div class="input-group" id="username-group" style="max-height: 0; margin-bottom: 0; opacity: 0; overflow: hidden; transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1); pointer-events: none;">
+                            <input type="text" id="username" class="input-field" placeholder=" " autocomplete="username" maxlength="32">
+                            <label for="username" class="input-label">用户名</label>
+                            <div class="input-focus-line"></div>
+                        </div>
+
                         <div class="input-group animate-item" style="animation-delay: 0.8s">
                             <input type="password" id="password" class="input-field" placeholder=" " autocomplete="current-password">
                             <label for="password" class="input-label">登录密码</label>
@@ -636,98 +642,121 @@
         const btnText = document.querySelector('.btn-text');
         const transitionOverlay = document.getElementById('transition-overlay');
 
-        loginForm.addEventListener('submit', (e) => {
+        const emailInput = document.getElementById('email');
+        const pwdInput = document.getElementById('password');
+        const confirmPwdInput = document.getElementById('confirm-password');
+        const usernameInput = document.getElementById('username');
+
+        const setButtonText = async (text) => {
+            btnText.style.opacity = '0';
+            btnText.style.transform = 'translateY(-10px)';
+            await new Promise(r => setTimeout(r, 300));
+            btnText.textContent = text;
+            btnText.style.transform = 'translateY(10px)';
+            requestAnimationFrame(() => {
+                btnText.style.transition = 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease';
+                btnText.style.opacity = '1';
+                btnText.style.transform = 'translateY(0)';
+            });
+        };
+
+        const showError = (inputEl, message) => {
+            const group = inputEl.closest('.input-group');
+            let errMsgEl = group.querySelector('.error-message');
+            if(!errMsgEl) {
+                errMsgEl = document.createElement('div');
+                errMsgEl.className = 'error-message';
+                group.appendChild(errMsgEl);
+            }
+            errMsgEl.textContent = message;
+            group.classList.add('has-error');
+            inputEl.style.animation = 'none';
+            void inputEl.offsetHeight;
+            inputEl.style.animation = 'shake 0.4s cubic-bezier(.36,.07,.19,.97) both';
+        };
+
+        loginForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             
-            // 极致的自定义表单验证
             let isValid = true;
             document.querySelectorAll('.input-group').forEach(group => group.classList.remove('has-error'));
             
-            const emailInput = document.getElementById('email');
-            const pwdInput = document.getElementById('password');
-            const confirmPwdInput = document.getElementById('confirm-password');
-
-            const showError = (inputEl, message) => {
-                const group = inputEl.closest('.input-group');
-                let errMsgEl = group.querySelector('.error-message');
-                if(!errMsgEl) {
-                    errMsgEl = document.createElement('div');
-                    errMsgEl.className = 'error-message';
-                    group.appendChild(errMsgEl);
-                }
-                errMsgEl.textContent = message;
-                group.classList.add('has-error');
-                
-                inputEl.style.animation = 'none';
-                void inputEl.offsetHeight; // trigger reflow
-                inputEl.style.animation = 'shake 0.4s cubic-bezier(.36,.07,.19,.97) both';
+            const markError = (inputEl, message) => {
+                showError(inputEl, message);
                 isValid = false;
             };
 
-            const isLoginMode = btnText.textContent === '进入系统' || btnText.textContent === '验证中...';
+            const isLoginMode = !usernameInput.closest('.input-group').style.maxHeight
+                || usernameInput.closest('.input-group').style.maxHeight === '0px'
+                || usernameInput.closest('.input-group').style.maxHeight === '0';
 
             if(!emailInput.value.trim()) {
-                showError(emailInput, 'PLEASE ENTER EMAIL');
+                markError(emailInput, 'PLEASE ENTER EMAIL');
             } else if(!/^[^@]+@[^@]+\.[^@]+$/.test(emailInput.value)) {
-                showError(emailInput, 'INVALID EMAIL FORMAT');
+                markError(emailInput, 'INVALID EMAIL FORMAT');
             }
 
             if(!pwdInput.value) {
-                showError(pwdInput, 'PASSWORD REQUIRED');
+                markError(pwdInput, 'PASSWORD REQUIRED');
             }
 
             if(!isLoginMode) {
+                if(!usernameInput.value.trim()) {
+                    markError(usernameInput, 'USERNAME REQUIRED');
+                } else if(usernameInput.value.trim().length < 2) {
+                    markError(usernameInput, 'AT LEAST 2 CHARACTERS');
+                }
                 if(!confirmPwdInput.value) {
-                    showError(confirmPwdInput, 'CONFIRM PASSWORD');
+                    markError(confirmPwdInput, 'CONFIRM PASSWORD');
                 } else if(pwdInput.value !== confirmPwdInput.value) {
-                    showError(confirmPwdInput, 'PASSWORDS DO NOT MATCH');
+                    markError(confirmPwdInput, 'PASSWORDS DO NOT MATCH');
                 }
             }
 
             if(!isValid) return;
 
-            btnText.style.opacity = '0';
-            btnText.style.transform = 'translateY(-10px)';
             submitBtnEl.style.pointerEvents = 'none';
-            
-            setTimeout(() => {
-                btnText.textContent = '验证中...';
-                btnText.style.transform = 'translateY(10px)';
-                
-                requestAnimationFrame(() => {
-                    btnText.style.transition = 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.4s ease';
-                    btnText.style.opacity = '1';
-                    btnText.style.transform = 'translateY(0)';
+            await setButtonText('验证中...');
+
+            try {
+                const endpoint = isLoginMode ? '/api/user/login' : '/api/user/register';
+                const payload = isLoginMode
+                    ? { email: emailInput.value.trim(), password: pwdInput.value }
+                    : { username: usernameInput.value.trim(), email: emailInput.value.trim(), password: pwdInput.value };
+
+                const res = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
                 });
-                
-                setTimeout(() => {
-                    btnText.style.opacity = '0';
-                    btnText.style.transform = 'translateY(-10px)';
-                    
-                    setTimeout(() => {
-                        btnText.textContent = '登录成功';
-                        btnText.style.transform = 'translateY(10px)';
-                        
-                        requestAnimationFrame(() => {
-                            btnText.style.transform = 'translateY(0)';
-                            btnText.style.opacity = '1';
-                        });
-                        
-                        setTimeout(() => {
-                            const btnRect = submitBtnEl.getBoundingClientRect();
-                            transitionOverlay.style.top = (btnRect.top + btnRect.height / 2) + 'px';
-                            transitionOverlay.style.left = (btnRect.left + btnRect.width / 2) + 'px';
-                            transitionOverlay.style.transition = 'transform 0.8s cubic-bezier(0.85, 0, 0.15, 1)';
-                            transitionOverlay.style.transform = 'translate(-50%, -50%) scale(300)';
-                            
-                            setTimeout(() => {
-                                window.location.href = 'index.html';
-                            }, 800);
-                        }, 500);
-                        
-                    }, 300);
-                }, 1500);
-            }, 300);
+
+                const data = await res.json();
+
+                if (!res.ok) {
+                    submitBtnEl.style.pointerEvents = '';
+                    await setButtonText(isLoginMode ? '进入系统' : '立即注册');
+                    showError(emailInput, data.error || '请求失败，请重试');
+                    return;
+                }
+
+                localStorage.setItem('hg_token', data.token);
+                localStorage.setItem('hg_user', JSON.stringify(data.user));
+
+                await setButtonText(isLoginMode ? '登录成功' : '注册成功');
+
+                await new Promise(r => setTimeout(r, 500));
+                const btnRect = submitBtnEl.getBoundingClientRect();
+                transitionOverlay.style.top = (btnRect.top + btnRect.height / 2) + 'px';
+                transitionOverlay.style.left = (btnRect.left + btnRect.width / 2) + 'px';
+                transitionOverlay.style.transition = 'transform 0.8s cubic-bezier(0.85, 0, 0.15, 1)';
+                transitionOverlay.style.transform = 'translate(-50%, -50%) scale(300)';
+                setTimeout(() => { window.location.href = 'index.html'; }, 800);
+
+            } catch (err) {
+                submitBtnEl.style.pointerEvents = '';
+                await setButtonText(isLoginMode ? '进入系统' : '立即注册');
+                showError(emailInput, '网络错误，请检查连接');
+            }
         });
         // 7. 登录/注册模式切换
         const formTitle = document.querySelector('.form-title');
@@ -757,6 +786,13 @@
                     confirmPwdGroup.style.opacity = '0';
                     confirmPwdGroup.style.pointerEvents = 'none';
                     document.getElementById('confirm-password').removeAttribute('required');
+                    const ug = document.getElementById('username-group');
+                    ug.style.overflow = 'hidden';
+                    ug.style.maxHeight = '0';
+                    ug.style.marginBottom = '0';
+                    ug.style.opacity = '0';
+                    ug.style.pointerEvents = 'none';
+                    document.getElementById('username').removeAttribute('required');
                 } else {
                     confirmPwdGroup.style.maxHeight = '100px';
                     confirmPwdGroup.style.marginBottom = '2.5rem';
@@ -764,6 +800,13 @@
                     confirmPwdGroup.style.pointerEvents = 'auto';
                     setTimeout(() => confirmPwdGroup.style.overflow = 'visible', 500);
                     document.getElementById('confirm-password').setAttribute('required', 'required');
+                    const ug = document.getElementById('username-group');
+                    ug.style.maxHeight = '100px';
+                    ug.style.marginBottom = '2.5rem';
+                    ug.style.opacity = '1';
+                    ug.style.pointerEvents = 'auto';
+                    setTimeout(() => ug.style.overflow = 'visible', 500);
+                    document.getElementById('username').setAttribute('required', 'required');
                 }
                 
                 setTimeout(() => {

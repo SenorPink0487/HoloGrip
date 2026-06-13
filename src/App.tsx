@@ -10,9 +10,22 @@ import { OverlayUI } from './components/OverlayUI';
 import { MathModel } from './components/MathModel';
 import { Canvas2D } from './components/Canvas2D';
 import type { HandLandmarker } from '@mediapipe/tasks-vision';
-import { Trash2, ZoomIn, ZoomOut, LogOut } from 'lucide-react';
+import { BookOpen, Trash2, ZoomIn, ZoomOut, LogOut } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
 import { CameraPermissionModal } from './components/CameraPermissionModal';
+import { loadWhiteboardSnapshot, saveWhiteboardSnapshot } from './lib/whiteboardSync';
+import {
+  createLesson,
+  LessonVersionConflictError,
+  listClasses,
+  listLessons,
+  loadLessonWhiteboard,
+  openLessonWhiteboardSocket,
+  saveLessonWhiteboard,
+  type ClassInfo,
+  type LessonInfo,
+  type LiveWhiteboardEvent,
+} from './lib/lessonSync';
 
 // New Apple Aesthetic tab components
 import { AppleDock } from './components/AppleDock';
@@ -66,6 +79,13 @@ function OfflineRoomEnvironment() {
   return null;
 }
 
+function todayString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+const WHITEBOARD_WIDTH = 1920;
+const WHITEBOARD_HEIGHT = 1080;
+
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const requestRef = useRef<number>(undefined);
@@ -111,10 +131,233 @@ export default function App() {
 
   const penColor = useARStore(state => state.penColor);
   const penThickness = useARStore(state => state.penThickness);
+  const pages = useARStore(state => state.pages);
+  const currentPageIndex = useARStore(state => state.currentPageIndex);
+  const saveCurrentPageWhiteboard = useARStore(state => state.saveCurrentPageWhiteboard);
+  const restoreWhiteboardSnapshot = useARStore(state => state.restoreWhiteboardSnapshot);
+
+  const whiteboardHydratedRef = useRef(false);
+  const skipNextWhiteboardPersistRef = useRef(false);
+  const applyingRemoteWhiteboardRef = useRef(false);
+  const lessonVersionRef = useRef(0);
+  const liveSocketRef = useRef<WebSocket | null>(null);
+  const clientIdRef = useRef(`wb_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
+
+  const [classes, setClasses] = useState<ClassInfo[]>([]);
+  const [lessons, setLessons] = useState<LessonInfo[]>([]);
+  const [selectedClassId, setSelectedClassId] = useState<number | null>(null);
+  const [selectedLessonId, setSelectedLessonId] = useState<number | null>(null);
+  const [selectedLessonDate, setSelectedLessonDate] = useState(todayString());
+  const [classroomMenuOpen, setClassroomMenuOpen] = useState(false);
+  const [lessonStatus, setLessonStatus] = useState('个人白板');
+
+  useEffect(() => {
+    let cancelled = false;
+    whiteboardHydratedRef.current = false;
+    skipNextWhiteboardPersistRef.current = false;
+
+    const load = selectedLessonId
+      ? loadLessonWhiteboard(selectedLessonId).then((data) => {
+          lessonVersionRef.current = data.version;
+          setLessonStatus(`课次白板 v${data.version}`);
+          return data.snapshot;
+        })
+      : loadWhiteboardSnapshot();
+
+    load
+      .then((snapshot) => {
+        if (cancelled || !snapshot) return;
+        skipNextWhiteboardPersistRef.current = true;
+        restoreWhiteboardSnapshot(snapshot.pages, snapshot.currentPageIndex);
+      })
+      .catch((error) => {
+        console.warn('Whiteboard load failed; keeping local empty board for this session.', error);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          whiteboardHydratedRef.current = true;
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [restoreWhiteboardSnapshot, selectedLessonId]);
+
+  useEffect(() => {
+    if (!whiteboardHydratedRef.current) return;
+    if (skipNextWhiteboardPersistRef.current) {
+      skipNextWhiteboardPersistRef.current = false;
+      return;
+    }
+    if (applyingRemoteWhiteboardRef.current) {
+      applyingRemoteWhiteboardRef.current = false;
+      return;
+    }
+
+    const snapshot = {
+      version: 1 as const,
+      pages,
+      currentPageIndex,
+    };
+
+    const timer = window.setTimeout(() => {
+      if (selectedLessonId) {
+        saveLessonWhiteboard(selectedLessonId, snapshot, lessonVersionRef.current)
+          .then((version) => {
+            lessonVersionRef.current = version;
+            if (liveSocketRef.current?.readyState === WebSocket.OPEN) {
+              const event: LiveWhiteboardEvent = {
+                type: 'snapshot_saved',
+                client_id: clientIdRef.current,
+                snapshot,
+                version,
+              };
+              liveSocketRef.current.send(JSON.stringify(event));
+            }
+            setLessonStatus(`课次白板 v${version}`);
+          })
+          .catch((error) => {
+            if (error instanceof LessonVersionConflictError) {
+              lessonVersionRef.current = error.version;
+              if (error.snapshot) {
+                applyingRemoteWhiteboardRef.current = true;
+                restoreWhiteboardSnapshot(error.snapshot.pages, error.snapshot.currentPageIndex);
+              }
+              setLessonStatus(`课次已更新 v${error.version}`);
+              return;
+            }
+            console.warn('Lesson whiteboard save failed; current session state was kept locally.', error);
+            setLessonStatus('课次白板保存失败');
+          });
+      } else {
+        saveWhiteboardSnapshot(snapshot).catch((error) => {
+          console.warn('Whiteboard save failed; current session state was kept locally.', error);
+        });
+      }
+    }, 700);
+
+    return () => window.clearTimeout(timer);
+  }, [pages, currentPageIndex, selectedLessonId, restoreWhiteboardSnapshot]);
+
+  const getWhiteboardCanvas = () =>
+    document.querySelector('canvas[data-whiteboard-canvas="true"]') as HTMLCanvasElement | null;
+
+  const toWhiteboardPoint = (canvas: HTMLCanvasElement, point: { x: number; y: number }) => {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((point.x - rect.left) / rect.width) * WHITEBOARD_WIDTH,
+      y: ((point.y - rect.top) / rect.height) * WHITEBOARD_HEIGHT,
+    };
+  };
+
+  useEffect(() => {
+    const handleLocalStroke = (event: Event) => {
+      if (!selectedLessonId || liveSocketRef.current?.readyState !== WebSocket.OPEN) return;
+      const liveEvent: LiveWhiteboardEvent = {
+        type: 'stroke_commit',
+        client_id: clientIdRef.current,
+        stroke: (event as CustomEvent<LiveWhiteboardEvent['stroke']>).detail,
+      };
+      liveSocketRef.current.send(JSON.stringify(liveEvent));
+    };
+
+    window.addEventListener('holomath:whiteboard-local-stroke', handleLocalStroke);
+    return () => window.removeEventListener('holomath:whiteboard-local-stroke', handleLocalStroke);
+  }, [selectedLessonId]);
+
+  useEffect(() => {
+    listClasses()
+      .then((data) => {
+        const all = [...data.teaching, ...data.joined];
+        setClasses(all);
+        if (!selectedClassId && all.length > 0) {
+          setSelectedClassId(all[0].id);
+        }
+      })
+      .catch((error) => {
+        console.warn('Load classes failed', error);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!selectedClassId) {
+      setLessons([]);
+      setSelectedLessonId(null);
+      return;
+    }
+    listLessons(selectedClassId, selectedLessonDate)
+      .then((items) => {
+        setLessons(items);
+        if (selectedLessonId && !items.some(item => item.id === selectedLessonId)) {
+          setSelectedLessonId(null);
+        }
+      })
+      .catch((error) => {
+        console.warn('Load lessons failed', error);
+        setLessons([]);
+      });
+  }, [selectedClassId, selectedLessonDate]);
+
+  useEffect(() => {
+    liveSocketRef.current?.close();
+    liveSocketRef.current = null;
+    if (!selectedLessonId) {
+      setLessonStatus('个人白板');
+      return;
+    }
+
+    const socket = openLessonWhiteboardSocket(selectedLessonId, (event) => {
+      if (event.client_id === clientIdRef.current) return;
+      if (event.type === 'stroke_commit' && event.stroke) {
+        window.dispatchEvent(new CustomEvent('holomath:whiteboard-remote-stroke', { detail: event.stroke }));
+        return;
+      }
+      if (event.type === 'snapshot_saved') {
+        if (typeof event.version === 'number') {
+          lessonVersionRef.current = event.version;
+        }
+        setLessonStatus(`课次白板 v${lessonVersionRef.current}`);
+        return;
+      }
+      if (!event.snapshot) return;
+      applyingRemoteWhiteboardRef.current = true;
+      if (typeof event.version === 'number') {
+        lessonVersionRef.current = event.version;
+      }
+      restoreWhiteboardSnapshot(event.snapshot.pages, event.snapshot.currentPageIndex);
+      setLessonStatus(`收到协作更新 v${lessonVersionRef.current}`);
+    });
+    liveSocketRef.current = socket;
+    if (socket) {
+      socket.onopen = () => setLessonStatus(`课次白板 v${lessonVersionRef.current}`);
+      socket.onclose = () => setLessonStatus('实时连接已断开');
+      socket.onerror = () => setLessonStatus('实时连接异常');
+    }
+
+    return () => {
+      socket?.close();
+    };
+  }, [selectedLessonId, restoreWhiteboardSnapshot]);
+
+  const handleCreateLesson = async () => {
+    if (!selectedClassId) return;
+    const title = window.prompt('请输入课次标题', `课堂 ${selectedLessonDate}`);
+    if (!title?.trim()) return;
+    try {
+      const lessonId = await createLesson(selectedClassId, title.trim(), selectedLessonDate);
+      const items = await listLessons(selectedClassId, selectedLessonDate);
+      setLessons(items);
+      setSelectedLessonId(lessonId);
+    } catch (error) {
+      console.warn('Create lesson failed', error);
+      alert('创建课次失败。请确认你是该班级教师。');
+    }
+  };
 
   // 1. 沿边画直线的回调 (由 Ruler 和 TriangleRuler 触发)
   const drawLineOnWhiteboard = (p1: { x: number; y: number }, p2: { x: number; y: number }) => {
-    const canvas = document.querySelector('canvas') as HTMLCanvasElement;
+    const canvas = getWhiteboardCanvas();
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
@@ -122,8 +365,10 @@ export default function App() {
 
     ctx.save();
     ctx.beginPath();
-    ctx.moveTo(p1.x, p1.y);
-    ctx.lineTo(p2.x, p2.y);
+    const start = toWhiteboardPoint(canvas, p1);
+    const end = toWhiteboardPoint(canvas, p2);
+    ctx.moveTo(start.x, start.y);
+    ctx.lineTo(end.x, end.y);
     ctx.globalCompositeOperation = 'source-over';
     ctx.strokeStyle = penColor;
     ctx.lineWidth = penThickness;
@@ -131,6 +376,7 @@ export default function App() {
     ctx.lineJoin = 'round';
     ctx.stroke();
     ctx.restore();
+    saveCurrentPageWhiteboard(canvas.toDataURL(), { width: WHITEBOARD_WIDTH, height: WHITEBOARD_HEIGHT });
   };
 
   // 2. 印刻角度或圆弧的回调 (由 Protractor 和 Compass 触发)
@@ -140,7 +386,7 @@ export default function App() {
     startAngle: number,
     endAngle: number
   ) => {
-    const canvas = document.querySelector('canvas') as HTMLCanvasElement;
+    const canvas = getWhiteboardCanvas();
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
@@ -148,13 +394,17 @@ export default function App() {
 
     ctx.save();
     ctx.beginPath();
-    ctx.arc(center.x, center.y, radius, startAngle, endAngle, startAngle > endAngle);
+    const logicalCenter = toWhiteboardPoint(canvas, center);
+    const rect = canvas.getBoundingClientRect();
+    const logicalRadius = radius * (WHITEBOARD_WIDTH / rect.width);
+    ctx.arc(logicalCenter.x, logicalCenter.y, logicalRadius, startAngle, endAngle, startAngle > endAngle);
     ctx.globalCompositeOperation = 'source-over';
     ctx.strokeStyle = penColor;
     ctx.lineWidth = penThickness;
     ctx.lineCap = 'round';
     ctx.stroke();
     ctx.restore();
+    saveCurrentPageWhiteboard(canvas.toDataURL(), { width: WHITEBOARD_WIDTH, height: WHITEBOARD_HEIGHT });
   };
 
   // For synthetic clicks
@@ -455,6 +705,66 @@ export default function App() {
       {isDesktop && <TitleBar />}
 
       <div ref={stageRef} className="relative flex-1 min-h-0 overflow-hidden">
+      {activeTab === 'whiteboard' && (
+        <button
+          type="button"
+          onClick={() => setClassroomMenuOpen(open => !open)}
+          className="absolute left-4 top-4 z-[65] flex h-10 w-10 items-center justify-center rounded-lg border border-black/10 bg-white/90 text-zinc-800 shadow-lg backdrop-blur-xl transition hover:bg-white dark:border-white/10 dark:bg-zinc-950/85 dark:text-zinc-100"
+          title="课堂选择"
+          aria-label="课堂选择"
+          aria-expanded={classroomMenuOpen}
+        >
+          <BookOpen size={18} />
+        </button>
+      )}
+      {activeTab === 'whiteboard' && classroomMenuOpen && (
+        <div className="absolute top-16 left-4 z-[60] flex max-w-[calc(100vw-2rem)] flex-col items-stretch gap-2 rounded-lg border border-black/10 dark:border-white/10 bg-white/90 dark:bg-zinc-950/85 px-3 py-3 text-xs text-zinc-800 dark:text-zinc-100 shadow-lg backdrop-blur-xl sm:flex-row sm:flex-wrap sm:items-center">
+          <select
+            value={selectedClassId ?? ''}
+            onChange={(e) => {
+              setSelectedClassId(e.target.value ? Number(e.target.value) : null);
+              setSelectedLessonId(null);
+            }}
+            className="h-8 w-full rounded-md border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900 px-2 outline-none sm:w-auto"
+            title="选择班级"
+          >
+            {classes.length === 0 && <option value="">暂无班级</option>}
+            {classes.map(item => (
+              <option key={item.id} value={item.id}>{item.name}</option>
+            ))}
+          </select>
+          <input
+            type="date"
+            value={selectedLessonDate}
+            onChange={(e) => {
+              setSelectedLessonDate(e.target.value || todayString());
+              setSelectedLessonId(null);
+            }}
+            className="h-8 w-full rounded-md border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900 px-2 outline-none sm:w-auto"
+            title="按日期查看课次"
+          />
+          <select
+            value={selectedLessonId ?? ''}
+            onChange={(e) => setSelectedLessonId(e.target.value ? Number(e.target.value) : null)}
+            className="h-8 w-full min-w-[140px] rounded-md border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900 px-2 outline-none sm:w-auto"
+            title="选择课次"
+          >
+            <option value="">个人白板</option>
+            {lessons.map(item => (
+              <option key={item.id} value={item.id}>{item.title}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleCreateLesson}
+            disabled={!selectedClassId}
+            className="h-8 w-full rounded-md bg-cyan-600 px-3 font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
+            title="创建课次"
+          >
+            创建课次
+          </button>
+          <span className="max-w-[160px] truncate text-[11px] text-zinc-500 dark:text-zinc-400">{lessonStatus}</span>
+        </div>
+      )}
       {/* 1. 微点底纹背景 (用于白板等 2D 教学模块，不包括函数探究) */}
       {activeTab !== 'ar_3d' && activeTab !== 'function' && (
         <div 
