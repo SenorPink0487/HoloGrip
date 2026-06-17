@@ -32,6 +32,7 @@ export default defineConfig(({ mode }) => {
           about:     path.resolve(__dirname, 'about.html'),
           login:     path.resolve(__dirname, 'login.html'),
           dashboard: path.resolve(__dirname, 'dashboard.html'),
+          admin:     path.resolve(__dirname, 'admin.html'),
           holomath:  path.resolve(__dirname, 'holomath.html'),
           physics:   path.resolve(__dirname, 'physics.html'),
           hall:      path.resolve(__dirname, 'hall.html'),

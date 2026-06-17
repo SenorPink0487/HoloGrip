@@ -50,6 +50,7 @@ export function WhiteboardCanvas() {
   const totalPages = pages.length;
 
   const saveCurrentPageWhiteboard = useARStore(state => state.saveCurrentPageWhiteboard);
+  const clearPageWhiteboard = useARStore(state => state.clearPageWhiteboard);
 
   const drawStrokeSegment = (
     ctx: CanvasRenderingContext2D,
@@ -92,15 +93,15 @@ export function WhiteboardCanvas() {
     }
   }, []);
 
-  // 娓呯┖鐢绘澘
+  // 清空画板
   useEffect(() => {
     const canvas = canvasRef.current;
     const ctx = ctxRef.current;
     if (canvas && ctx) {
       ctx.clearRect(0, 0, WHITEBOARD_WIDTH, WHITEBOARD_HEIGHT);
-      // 娓呯┖鏃讹紝濡傛灉鏄櫘閫氭竻绌轰笉鏄崲椤碉紝鏈€濂戒篃鍚屾鏇存柊涓?store
+      // 清空时，如果是普通清空而不是换页，也同步更新 store
       if (triggerClearCanvas > 0) {
-        saveCurrentPageWhiteboard(canvas.toDataURL(), { width: WHITEBOARD_WIDTH, height: WHITEBOARD_HEIGHT });
+        saveCurrentPageWhiteboard(null, { width: WHITEBOARD_WIDTH, height: WHITEBOARD_HEIGHT });
       }
     }
   }, [triggerClearCanvas]);
@@ -144,6 +145,21 @@ export function WhiteboardCanvas() {
     window.addEventListener('holomath:whiteboard-remote-stroke', handleRemoteStroke);
     return () => window.removeEventListener('holomath:whiteboard-remote-stroke', handleRemoteStroke);
   }, [currentPageIndex]);
+
+  useEffect(() => {
+    const handleRemoteClear = (event: Event) => {
+      const detail = (event as CustomEvent<{ pageIndex: number }>).detail;
+      const pageIndex = typeof detail?.pageIndex === 'number' ? detail.pageIndex : currentPageIndex;
+      if (pageIndex === currentPageIndex) {
+        const ctx = ctxRef.current;
+        ctx?.clearRect(0, 0, WHITEBOARD_WIDTH, WHITEBOARD_HEIGHT);
+      }
+      clearPageWhiteboard(pageIndex);
+    };
+
+    window.addEventListener('holomath:whiteboard-remote-clear', handleRemoteClear);
+    return () => window.removeEventListener('holomath:whiteboard-remote-clear', handleRemoteClear);
+  }, [clearPageWhiteboard, currentPageIndex]);
 
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
     if (interactMode === 'interact') return;
@@ -439,7 +455,7 @@ export function WhiteboardCanvas() {
 
         <div className={cn("w-full h-px transition-colors", isDark ? "bg-white/10" : "bg-black/10")} />
 
-        {/* 姗＄毊鎿? 鍦ㄤ功鍐欐ā寮忎笅鎿︾瑪杩? 鍦ㄦ搷浣滄ā寮忎笅鎿﹀嚑浣曞璞?*/}
+        {/* 橡皮擦：书写模式下擦笔迹，操作模式下擦几何对象 */}
         <motion.button
           onClick={() => setIsEraser(!isEraser)}
           whileHover={{ 
@@ -453,7 +469,7 @@ export function WhiteboardCanvas() {
               ? (isDark ? "text-rose-300 shadow-md ring-1 ring-rose-400/30" : "text-rose-600 shadow-sm ring-1 ring-rose-300/50")
               : (isDark ? "text-zinc-500 hover:text-white" : "text-zinc-400 hover:text-zinc-800")
           )}
-          title={isEraser ? "閫€鍑烘鐨摝" : "姗＄毊鎿?(涔﹀啓妯″紡鎿︾瑪杩?/ 鎿嶄綔妯″紡鎿﹀嚑浣?"}
+          title={isEraser ? "退出橡皮擦" : "橡皮擦（书写模式擦笔迹 / 操作模式擦几何对象）"}
         >
           {isEraser && (
             <motion.div

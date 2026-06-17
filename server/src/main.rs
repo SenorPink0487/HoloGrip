@@ -15,6 +15,7 @@
 //! 内网端点(单独绑 127.0.0.1:9898,不通过 Nginx 暴露):
 //!   GET  /metrics              ← Prometheus scrape
 
+mod admin;
 mod auth;
 mod class;
 mod config;
@@ -34,7 +35,7 @@ use axum::{
     http::{header, HeaderName, HeaderValue, Method},
     middleware,
     response::IntoResponse,
-    routing::{any, get, post},
+    routing::{any, delete, get, post, put},
     Router,
 };
 use reqwest::Client;
@@ -116,6 +117,12 @@ async fn main() -> Result<()> {
             app_public_base_url: cfg.app_public_base_url.clone(),
         }),
     };
+    if !cfg.admin_bootstrap_invite_code.trim().is_empty() {
+        admin::seed_bootstrap_invite(&user_state, &cfg.admin_bootstrap_invite_code)
+            .await
+            .context("seed admin bootstrap invite failed")?;
+        info!("admin bootstrap invite seeded");
+    }
     let live_state = WhiteboardLiveState::default();
 
     // CORS:浏览器 preflight 必须放行 Authorization
@@ -190,7 +197,6 @@ async fn main() -> Result<()> {
             "/api/lessons/{lesson_id}/whiteboard",
             get(lesson::get_lesson_whiteboard).put(lesson::put_lesson_whiteboard),
         )
-
         .route_layer(middleware::from_fn_with_state(
             user_state.clone(),
             user_auth::jwt_auth,
@@ -207,12 +213,66 @@ async fn main() -> Result<()> {
             live: live_state,
         });
 
+    let admin_public_routes = Router::new()
+        .route("/invites/redeem", post(admin::redeem_invite))
+        .route_layer(middleware::from_fn_with_state(
+            user_state.clone(),
+            user_auth::jwt_auth,
+        ))
+        .with_state(user_state.clone());
+
+    let admin_protected_routes = Router::new()
+        .route("/me", get(admin::me))
+        .route("/overview", get(admin::overview))
+        .route("/users", get(admin::list_users))
+        .route("/users/{user_id}", delete(admin::delete_user))
+        .route("/classes", get(admin::list_classes))
+        .route("/classes/{class_id}", delete(admin::delete_class))
+        .route(
+            "/classes/{class_id}/members",
+            get(admin::list_class_members),
+        )
+        .route("/lessons", get(admin::list_lessons))
+        .route("/lessons/{lesson_id}", delete(admin::delete_lesson))
+        .route("/whiteboards/users", get(admin::list_user_whiteboards))
+        .route(
+            "/whiteboards/users/{user_id}",
+            delete(admin::clear_user_whiteboard),
+        )
+        .route("/whiteboards/lessons", get(admin::list_lesson_whiteboards))
+        .route(
+            "/whiteboards/lessons/{lesson_id}",
+            delete(admin::clear_lesson_whiteboard),
+        )
+        .route(
+            "/invites",
+            get(admin::list_invites).post(admin::create_invite),
+        )
+        .route(
+            "/invites/{invite_id}",
+            put(admin::update_invite).delete(admin::delete_invite),
+        )
+        .route_layer(middleware::from_fn_with_state(
+            user_state.clone(),
+            admin::require_admin,
+        ))
+        .route_layer(middleware::from_fn_with_state(
+            user_state.clone(),
+            user_auth::jwt_auth,
+        ))
+        .with_state(user_state.clone());
+
+    let admin_routes = Router::new()
+        .merge(admin_public_routes)
+        .merge(admin_protected_routes);
+
     let app = Router::new()
         .route("/healthz", get(health))
         .route("/api/auth/issue", post(proxy::issue_token))
         .nest("/api/gemini", gemini_routes)
         .nest("/api/user", user_routes)
         .nest("/api/class", class_routes)
+        .nest("/api/admin", admin_routes)
         .merge(whiteboard_routes)
         .merge(lesson_routes)
         .merge(whiteboard_live_routes)

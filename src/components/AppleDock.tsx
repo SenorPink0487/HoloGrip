@@ -128,6 +128,7 @@ export function AppleDock() {
           <button
             onClick={() => {
               clearCanvas();
+              window.dispatchEvent(new CustomEvent('holomath:whiteboard-local-clear'));
               clearModelLines();
             }}
             className="p-2.5 rounded-xl text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-500/10 dark:hover:bg-red-500/20 transition-all duration-200 active:scale-90 cursor-pointer"

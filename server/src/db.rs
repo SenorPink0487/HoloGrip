@@ -11,6 +11,17 @@ pub struct UserRow {
     pub username: String,
     pub email: String,
     pub password_hash: String,
+    pub role: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct AdminUserRow {
+    pub id: u64,
+    pub username: String,
+    pub email: String,
+    pub role: String,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 /// 修改密码邮箱验证码记录
@@ -44,6 +55,29 @@ pub struct ClassDetailRow {
 }
 
 #[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct AdminClassRow {
+    pub id: u64,
+    pub name: String,
+    pub description: String,
+    pub teacher_id: u64,
+    pub teacher_name: String,
+    pub invite_code: String,
+    pub member_count: i64,
+    pub lesson_count: i64,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct AdminClassMemberRow {
+    pub class_id: u64,
+    pub user_id: u64,
+    pub username: String,
+    pub email: String,
+    pub joined_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
 pub struct LessonRow {
     pub id: u64,
     pub class_id: u64,
@@ -51,6 +85,52 @@ pub struct LessonRow {
     pub lesson_date: NaiveDate,
     pub created_by: u64,
     pub creator_name: String,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct AdminLessonRow {
+    pub id: u64,
+    pub class_id: u64,
+    pub class_name: String,
+    pub title: String,
+    pub lesson_date: NaiveDate,
+    pub created_by: u64,
+    pub creator_name: String,
+    pub has_whiteboard: bool,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct AdminUserWhiteboardRow {
+    pub user_id: u64,
+    pub username: String,
+    pub email: String,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct AdminLessonWhiteboardRow {
+    pub lesson_id: u64,
+    pub title: String,
+    pub class_name: String,
+    pub version: u64,
+    pub updated_by: u64,
+    pub updater_name: String,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct AdminInviteRow {
+    pub id: u64,
+    pub code: Option<String>,
+    pub created_by: Option<u64>,
+    pub creator_name: Option<String>,
+    pub used_by: Option<u64>,
+    pub used_by_name: Option<String>,
+    pub used_at: Option<NaiveDateTime>,
+    pub expires_at: Option<NaiveDateTime>,
+    pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
@@ -75,6 +155,7 @@ pub async fn init_pool(database_url: &str) -> Result<MySqlPool> {
           username      VARCHAR(32)      NOT NULL UNIQUE,
           email         VARCHAR(255)     NOT NULL UNIQUE,
           password_hash VARCHAR(255)     NOT NULL,
+          role          VARCHAR(16)      NOT NULL DEFAULT 'user',
           created_at    DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at    DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -83,6 +164,15 @@ pub async fn init_pool(database_url: &str) -> Result<MySqlPool> {
     .execute(&pool)
     .await
     .context("创建 users 表失败")?;
+
+    ensure_column(
+        &pool,
+        "users",
+        "role",
+        "ALTER TABLE users ADD COLUMN role VARCHAR(16) NOT NULL DEFAULT 'user' AFTER password_hash",
+    )
+    .await
+    .context("ensure users.role failed")?;
 
     sqlx::query(
         r#"
@@ -188,7 +278,64 @@ pub async fn init_pool(database_url: &str) -> Result<MySqlPool> {
     .await
     .context("创建 lesson_whiteboard_snapshots 表失败")?;
 
+    sqlx::query(
+        r#"
+        CREATE TABLE IF NOT EXISTS admin_invites (
+          id            BIGINT UNSIGNED  AUTO_INCREMENT PRIMARY KEY,
+          code          VARCHAR(32)      NULL,
+          code_hash     VARCHAR(64)      NOT NULL UNIQUE,
+          created_by    BIGINT UNSIGNED  NULL,
+          used_by       BIGINT UNSIGNED  NULL,
+          used_at       DATETIME         NULL,
+          expires_at    DATETIME         NULL,
+          created_at    DATETIME         NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          INDEX idx_admin_invites_used_at (used_at),
+          INDEX idx_admin_invites_expires_at (expires_at),
+          FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+          FOREIGN KEY (used_by) REFERENCES users(id) ON DELETE SET NULL
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .context("create admin_invites failed")?;
+
+    ensure_column(
+        &pool,
+        "admin_invites",
+        "code",
+        "ALTER TABLE admin_invites ADD COLUMN code VARCHAR(32) NULL AFTER id",
+    )
+    .await
+    .context("ensure admin_invites.code failed")?;
+
     Ok(pool)
+}
+
+async fn ensure_column(
+    pool: &MySqlPool,
+    table_name: &str,
+    column_name: &str,
+    alter_sql: &str,
+) -> Result<(), sqlx::Error> {
+    let exists: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = ?
+          AND COLUMN_NAME = ?
+        "#,
+    )
+    .bind(table_name)
+    .bind(column_name)
+    .fetch_one(pool)
+    .await?;
+
+    if exists == 0 {
+        sqlx::query(alter_sql).execute(pool).await?;
+    }
+    Ok(())
 }
 
 /// 创建用户，返回新用户 id
@@ -211,7 +358,7 @@ pub async fn create_user(
 /// 按 email 查找用户
 pub async fn find_by_email(pool: &MySqlPool, email: &str) -> Result<Option<UserRow>, sqlx::Error> {
     sqlx::query_as::<_, UserRow>(
-        "SELECT id, username, email, password_hash FROM users WHERE email = ?",
+        "SELECT id, username, email, password_hash, role FROM users WHERE email = ?",
     )
     .bind(email)
     .fetch_optional(pool)
@@ -221,7 +368,7 @@ pub async fn find_by_email(pool: &MySqlPool, email: &str) -> Result<Option<UserR
 /// 按 id 查找用户
 pub async fn find_by_id(pool: &MySqlPool, id: u64) -> Result<Option<UserRow>, sqlx::Error> {
     sqlx::query_as::<_, UserRow>(
-        "SELECT id, username, email, password_hash FROM users WHERE id = ?",
+        "SELECT id, username, email, password_hash, role FROM users WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -240,6 +387,90 @@ pub async fn update_user_password(
         .execute(pool)
         .await?;
     Ok(())
+}
+
+pub async fn is_admin(pool: &MySqlPool, user_id: u64) -> Result<bool, sqlx::Error> {
+    let role: Option<String> = sqlx::query_scalar("SELECT role FROM users WHERE id = ?")
+        .bind(user_id)
+        .fetch_optional(pool)
+        .await?;
+    Ok(role.as_deref() == Some("admin"))
+}
+
+pub async fn insert_admin_invite_if_absent(
+    pool: &MySqlPool,
+    code: &str,
+    code_hash: &str,
+    expires_at: Option<NaiveDateTime>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO admin_invites (code, code_hash, expires_at)
+        VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE code = COALESCE(code, VALUES(code))
+        "#,
+    )
+    .bind(code)
+    .bind(code_hash)
+    .bind(expires_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn create_admin_invite(
+    pool: &MySqlPool,
+    code: &str,
+    code_hash: &str,
+    created_by: u64,
+    expires_at: Option<NaiveDateTime>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO admin_invites (code, code_hash, created_by, expires_at)
+        VALUES (?, ?, ?, ?)
+        "#,
+    )
+    .bind(code)
+    .bind(code_hash)
+    .bind(created_by)
+    .bind(expires_at)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn redeem_admin_invite(
+    pool: &MySqlPool,
+    code_hash: &str,
+    user_id: u64,
+) -> Result<bool, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    let result = sqlx::query(
+        r#"
+        UPDATE admin_invites
+        SET used_by = ?, used_at = CURRENT_TIMESTAMP
+        WHERE code_hash = ?
+          AND used_at IS NULL
+          AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)
+        "#,
+    )
+    .bind(user_id)
+    .bind(code_hash)
+    .execute(&mut *tx)
+    .await?;
+
+    if result.rows_affected() == 0 {
+        tx.rollback().await?;
+        return Ok(false);
+    }
+
+    sqlx::query("UPDATE users SET role = 'admin' WHERE id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(true)
 }
 
 /// 保存或覆盖修改密码邮箱验证码

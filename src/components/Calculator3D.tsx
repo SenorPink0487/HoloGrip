@@ -926,7 +926,7 @@ export function Calculator3D() {
     refs.controls.autoRotateSpeed = 1.2;
   }, [autoRotate]);
 
-  const prevStructStrRef = useRef<string>();
+  const prevStructStrRef = useRef<string>('');
 
   // Rebuild content (user-added objects) whenever objects/scope/theme changes
   useEffect(() => {

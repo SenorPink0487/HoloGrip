@@ -72,7 +72,7 @@ interface Segment {
 interface Circle {
   id: string;
   centerId: string;
-  radiusPointId: string; // 杈圭紭涓婄殑鐐癸紝鐢ㄤ簬纭畾鍗婂緞
+  radiusPointId: string; // 边缘上的点，用于确定半径
 }
 
 const WHITEBOARD_WIDTH = 1920;
@@ -90,28 +90,28 @@ export function GeometryBoard() {
   const whiteboardRestoreVersion = useARStore(state => state.whiteboardRestoreVersion);
   const saveCurrentPageGeometry = useARStore(state => state.saveCurrentPageGeometry);
 
-  // 鐢绘澘鐘舵€?
+  // 画板状态
   const [points, setPoints] = useState<Point[]>([]);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [circles, setCircles] = useState<Circle[]>([]);
 
-  // 褰撳墠鐢绘澘閫夋嫨鐨勫伐鍏? 'drag' | 'add_point' | 'add_segment' | 'add_circle'
+  // 当前画板选择的工具: 'drag' | 'add_point' | 'add_segment' | 'add_circle'
   const [activeTool, setActiveTool] = useState<'drag' | 'add_point' | 'add_segment' | 'add_circle'>('drag');
   
-  // 閫変腑鐨勭偣锛堢敤浜庤繛绾挎垨鐢诲渾锛?
+  // 选中的点（用于连线或画圆）
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   
-  // 姝ｅ湪鎷栨嫿鐨勭偣 ID
+  // 正在拖拽的点 ID
   const [draggingPointId, setDraggingPointId] = useState<string | null>(null);
 
-  // 姝ｅ湪鎷栨嫿鐨勫杈瑰舰 (鐐?ID 闆嗗悎) 涓庤捣濮嬩綅缃?
+  // 正在拖拽的多边形（点 ID 集合）与起始位置
   const [draggingPolygon, setDraggingPolygon] = useState<{
     pointIds: Set<string>;
     startMouse: { x: number; y: number };
     startPositions: Record<string, { x: number; y: number }>;
   } | null>(null);
 
-  // 榧犳爣鎮仠鐨勫璞?(鐢ㄤ簬鍙戝厜楂樹寒)
+  // 鼠标悬停的对象（用于发光高亮）
   type HoverEntity =
     | { type: 'point'; id: string }
     | { type: 'segment'; id: string }
@@ -120,13 +120,13 @@ export function GeometryBoard() {
     | null;
   const [hoverEntity, setHoverEntity] = useState<HoverEntity>(null);
 
-  // 瀹氱悊婕旂ず閫夋嫨锛?board' | 'pythagoras' | 'circle_area'
+  // 定理演示选择: 'board' | 'pythagoras' | 'circle_area'
   const [subModule, setSubModule] = useState<'board' | 'pythagoras' | 'circle_area'>('board');
 
-  // 瀹氱悊鍔ㄧ敾鐘舵€?
-  const [pythagorasStep, setPythagorasStep] = useState<number>(0); // 0: 鍒濆, 1: 鎷煎悎
+  // 定理动画状态
+  const [pythagorasStep, setPythagorasStep] = useState<number>(0); // 0: 初始, 1: 拼合
   const [circleSlicesCount, setCircleSlicesCount] = useState<number>(16);
-  const [circleAreaAnimProgress, setCircleAreaAnimProgress] = useState<boolean>(false); // false: 鍦? true: 闀挎柟褰?
+  const [circleAreaAnimProgress, setCircleAreaAnimProgress] = useState<boolean>(false); // false: 圆形, true: 长方形
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
@@ -139,21 +139,21 @@ export function GeometryBoard() {
   };
 
 
-  // 鍒濆鍖栦竴涓粡鍏哥殑鈥滀笁瑙掑舰涓変腑绾夸氦浜庨噸蹇冣€濇紨绀?
+  // 初始化一个经典的“三角形三条中线交于重心”演示
   const loadCentroidDemo = () => {
     const pA: Point = { id: 'pA', name: 'A', x: 400, y: 150, isFree: true };
     const pB: Point = { id: 'pB', name: 'B', x: 250, y: 450, isFree: true };
     const pC: Point = { id: 'pC', name: 'C', x: 600, y: 480, isFree: true };
     
-    // 涓偣鍧愭爣 (鍙€氳繃渚濊禆绠楋紝涓嶆斁鍏?points state锛屽噺灏戞洿鏂板啑浣?
+    // 中点坐标只通过依赖计算，不放入 points state，减少更新成本
     setPoints([pA, pB, pC]);
 
     const segs: Segment[] = [
-      // 涓夎褰笁杈?
+      // 三角形三边
       { id: 'sAB', p1Id: 'pA', p2Id: 'pB', color: 'rgba(255,255,255,0.4)' },
       { id: 'sBC', p1Id: 'pB', p2Id: 'pC', color: 'rgba(255,255,255,0.4)' },
       { id: 'sCA', p1Id: 'pC', p2Id: 'pA', color: 'rgba(255,255,255,0.4)' },
-      // 涓夋潯涓嚎锛堝湪娓叉煋鏃惰绠椾腑鐐瑰苟缁樺埗锛?
+      // 三条中线（渲染时计算中点并绘制）
     ];
     setSegments(segs);
     setCircles([]);
@@ -166,10 +166,10 @@ export function GeometryBoard() {
     }
   }, [activeTab]);
 
-  // 鍝嶅簲鍏ㄥ眬娓呯┖淇″彿: 鍚屾椂娓呯┖鎵€鏈夊嚑浣曞璞?(鐐?/ 绾挎 / 鍦?/ 閫変腑鎬?
+  // 响应全局清空信号: 同时清空所有几何对象（点 / 线段 / 圆 / 选中状态）
   const triggerClearCanvas = useARStore(state => state.triggerClearCanvas);
   useEffect(() => {
-    if (triggerClearCanvas === 0) return; // 璺宠繃鍒濆鎸傝浇
+    if (triggerClearCanvas === 0) return; // 跳过初始挂载
     setPoints([]);
     setSegments([]);
     setCircles([]);
@@ -178,13 +178,13 @@ export function GeometryBoard() {
     setDraggingPolygon(null);
     setHoverEntity(null);
     
-    // 濡傛灉鏄櫘閫氭竻绌轰笉鏄崲椤碉紝涔熷悓姝ユ洿鏂颁笅 store
+    // 如果是普通清空而不是换页，也同步更新 store
     saveCurrentPageGeometry([], [], []);
   }, [triggerClearCanvas]);
 
   const isSwitchingPageRef = useRef(false);
 
-  // 鐩戝惉鎹㈤〉锛屼粠 store 鎭㈠鍑犱綍鐘舵€?
+  // 监听换页，从 store 恢复几何状态
   useEffect(() => {
     const currentPage = pages[currentPageIndex];
     if (currentPage && currentPage.geometry) {
@@ -205,24 +205,24 @@ export function GeometryBoard() {
       setDraggingPolygon(null);
       setHoverEntity(null);
       
-      // 鎭㈠瀹屾瘯鍚庯紝閲嶇疆 flag
+      // 恢复完毕后，重置 flag
       setTimeout(() => {
         isSwitchingPageRef.current = false;
       }, 50);
     }
-  }, [currentPageIndex, whiteboardRestoreVersion]); // 娉ㄦ剰涓嶈鎶?pages 鏀捐繘渚濊禆锛屽惁鍒欎細鏃犻檺寰幆
+  }, [currentPageIndex, whiteboardRestoreVersion]); // 注意不要把 pages 放进依赖，否则会无限循环
 
-  // 鐩戝惉鍑犱綍鐘舵€佹敼鍙橈紝淇濆瓨鍒?store
+  // 监听几何状态变化，保存到 store
   useEffect(() => {
     if (!isSwitchingPageRef.current) {
       saveCurrentPageGeometry(points, segments, circles);
     }
-  }, [points, segments, circles]); // 褰撳眬閮ㄧ姸鎬佹敼鍙樻椂淇濆瓨
+  }, [points, segments, circles]); // 当局部状态改变时保存
 
-  // 娉? 涔嬪墠鐨?鑷姩鍔犺浇涓夎褰㈤噸蹇冩紨绀?宸茬Щ闄? 鐧芥澘榛樿涓虹┖鐢绘澘,
-  // 鐢ㄦ埛鍙€氳繃椤堕儴宸ュ叿鏉′富鍔ㄦ弿鐐?/ 鐢荤嚎 / 鐢诲渾銆?
+  // 注: 之前自动加载“三角形重心”演示已移除。白板默认是空画板，
+  // 用户可以通过顶部工具栏主动描点 / 画线 / 画圆。
 
-  // 璁＄畻涓嚎鐩稿叧鐨勪緷璧栫偣
+  // 计算中线相关的派生点
   const getDerivedElements = () => {
     const ptA = points.find(p => p.id === 'pA');
     const ptB = points.find(p => p.id === 'pB');
@@ -253,12 +253,12 @@ export function GeometryBoard() {
   const { midPoints, centroid } = getDerivedElements();
 
   // ============================================================
-  // 鐢?segments 璁＄畻鎵€鏈夌畝鍗曠幆 (鍗抽棴鍚堝杈瑰舰)
-  // 澶嶆潅搴? 鍦ㄥ皬鍥?(~ 20 鐐? 涓嬭冻澶熷揩
+  // 用 segments 计算所有简单环（即闭合多边形）
+  // 复杂度在小图（约 20 个点）下足够快
   // ============================================================
   const polygons = useMemo<Array<string[]>>(() => {
     if (points.length < 3 || segments.length < 3) return [];
-    // 閭绘帴琛?
+    // 邻接表
     const adj = new Map<string, Set<string>>();
     for (const p of points) adj.set(p.id, new Set());
     for (const s of segments) {
@@ -268,7 +268,7 @@ export function GeometryBoard() {
     const cycles: string[][] = [];
     const seenCycles = new Set<string>();
 
-    /** 鎶婄幆瑙勮寖鍖? 鎵炬渶灏忚捣鐐?+ 閫夊瓧鍏稿簭杈冨皬鐨勬柟鍚?*/
+    /** 将环规范化: 找最小起点 + 选择字典序较小的方向 */
     const canonicalize = (cycle: string[]): string => {
       const n = cycle.length;
       let minIdx = 0;
@@ -282,22 +282,22 @@ export function GeometryBoard() {
       return a < b ? a : b;
     };
 
-    // DFS: 浠庢瘡涓妭鐐瑰紑濮嬫壘鍥炶矾
+    // DFS: 从每个节点开始找回路
     for (const start of points) {
       const stack: Array<{ node: string; path: string[] }> = [{ node: start.id, path: [start.id] }];
       while (stack.length) {
         const { node, path } = stack.pop()!;
-        if (path.length > 8) continue; // 闄愬埗鐜暱搴﹂伩鍏嶇垎鐐?
+        if (path.length > 8) continue; // 限制环长度避免爆点
         for (const nb of adj.get(node) ?? []) {
           if (nb === start.id && path.length >= 3) {
-            // 鎵惧埌鐜?
+            // 找到环
             const key = canonicalize(path);
             if (!seenCycles.has(key)) {
               seenCycles.add(key);
               cycles.push([...path]);
             }
           } else if (!path.includes(nb) && nb > start.id) {
-            // 鍙蛋 id 瀛楀吀搴忓ぇ浜?start 鐨? 閬垮厤閲嶅
+            // 只走 id 字典序大于 start 的点，避免重复
             stack.push({ node: nb, path: [...path, nb] });
           }
         }
@@ -306,7 +306,7 @@ export function GeometryBoard() {
     return cycles;
   }, [points, segments]);
 
-  /** 鎶婄幆 (point id 鏁扮粍) 杞崲涓哄潗鏍囨暟缁?*/
+  /** 将环（point id 数组）转换为坐标数组 */
   const polygonCoords = useCallback((cycle: string[]): Array<{ x: number; y: number }> => {
     return cycle.map(id => {
       const p = points.find(pp => pp.id === id);
@@ -316,14 +316,14 @@ export function GeometryBoard() {
 
 
   // ============================================================
-  // 鍛戒腑妫€娴?(杩斿洖鏈€杩戠殑瀵硅薄)
+  // 命中检测（返回最近的对象）
   // ============================================================
   const HIT_RADIUS = 24;
   const SEG_HIT = 16;
 
-  /** 鍦ㄥ睆骞曞潗鏍?(x, y) 澶勬壘鍒版渶杩戠殑瀵硅薄, 浼樺厛绾? 鐐?> 绾挎 > 鍦嗗懆 > 澶氳竟褰㈠唴閮?*/
+  /** 在屏幕坐标 (x, y) 处找到最近的对象，优先级: 点 > 线段 > 圆周 > 多边形内部 */
   const hitTest = useCallback((x: number, y: number): HoverEntity => {
-    // 鐐?
+    // 点
     let bestPoint: { id: string; d: number } | null = null;
     for (const p of points) {
       const d = Math.hypot(p.x - x, p.y - y);
@@ -377,10 +377,10 @@ export function GeometryBoard() {
 
     const hit = hitTest(x, y);
 
-    // 姗＄毊鎿︽ā寮? 鍛戒腑鍗冲垹闄?
+    // 橡皮擦模式: 命中即删除
     if (isEraser) {
       if (hit?.type === 'point') {
-        // 鍒犻櫎鐐?+ 涓庝箣鐩稿叧鐨勭嚎娈?鍦?
+        // 删除点 + 与之相关的线段和圆
         setPoints(prev => prev.filter(p => p.id !== hit.id));
         setSegments(prev => prev.filter(s => s.p1Id !== hit.id && s.p2Id !== hit.id));
         setCircles(prev => prev.filter(c => c.centerId !== hit.id && c.radiusPointId !== hit.id));
@@ -389,7 +389,7 @@ export function GeometryBoard() {
       } else if (hit?.type === 'circle') {
         setCircles(prev => prev.filter(c => c.id !== hit.id));
       } else if (hit?.type === 'polygon') {
-        // 鍒犻櫎鏋勬垚澶氳竟褰㈢殑鎵€鏈夌嚎娈?(淇濈暀鐐? 鐢ㄦ埛鍙兘杩樿鐢?
+        // 删除构成多边形的所有线段（保留点，用户可能还要用）
         const ids = new Set(hit.pointIds);
         setSegments(prev => prev.filter(s => !(ids.has(s.p1Id) && ids.has(s.p2Id))));
       }
@@ -397,7 +397,7 @@ export function GeometryBoard() {
     }
 
     if (activeTool === 'drag') {
-      // 浼樺厛鎷栧崟涓偣
+      // 优先拖单个点
       if (hit?.type === 'point') {
         const p = points.find(pp => pp.id === hit.id);
         if (p && p.isFree) {
@@ -406,7 +406,7 @@ export function GeometryBoard() {
           return;
         }
       }
-      // 鍏舵: 鎷栨暣涓杈瑰舰
+      // 其次: 拖整个多边形
       if (hit?.type === 'polygon') {
         const ids = new Set(hit.pointIds);
         const startPositions: Record<string, { x: number; y: number }> = {};
@@ -483,7 +483,7 @@ export function GeometryBoard() {
     if (!svgRef.current) return;
     const { x, y } = pointerToBoard(e);
 
-    // 鎷栧崟涓偣
+    // 拖单个点
     if (draggingPointId) {
       const cx = Math.max(10, Math.min(WHITEBOARD_WIDTH - 10, x));
       const cy = Math.max(10, Math.min(WHITEBOARD_HEIGHT - 10, y));
@@ -491,7 +491,7 @@ export function GeometryBoard() {
       return;
     }
 
-    // 鎷栨暣涓杈瑰舰
+    // 拖整个多边形
     if (draggingPolygon) {
       const dx = x - draggingPolygon.startMouse.x;
       const dy = y - draggingPolygon.startMouse.y;
@@ -505,7 +505,7 @@ export function GeometryBoard() {
       return;
     }
 
-    // 鏅€氭偓鍋? 鍛戒腑妫€娴嬩互楂樹寒
+    // 普通悬停: 命中检测并高亮
     const hit = hitTest(x, y);
     setHoverEntity(hit);
   };
@@ -625,10 +625,10 @@ export function GeometryBoard() {
         </div>
       )}
 
-      {/* 涓绘帰绌跺尯 - 鎾戞弧鍏ㄥ眬锛屽交搴曡В鍐充笌瓒呯骇鐧芥澘鍒囨崲鏃剁殑 Layout Shift */}
+      {/* 主探究区 - 撑满全局，彻底解决与超级白板切换时的 Layout Shift */}
       <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center p-8 z-[35]">
         
-        {/* 1. 鑷敱鍑犱綍鐢绘澘娓叉煋 (SVG) */}
+        {/* 1. 自由几何画板渲染 (SVG) */}
         {subModule === 'board' && (
           <svg
             ref={svgRef}
@@ -640,7 +640,7 @@ export function GeometryBoard() {
             onPointerLeave={handleSvgPointerLeave}
             className={cn(
               'aspect-video w-[min(100vw,calc(100vh*16/9))] max-w-full max-h-full bg-white/40 dark:bg-zinc-950/40 rounded-[2rem] border border-black/5 dark:border-white/5 shadow-inner transition-colors duration-500',
-              // cursor 鍙嶉
+              // cursor 反馈
               isEraser
                 ? 'cursor-crosshair'
                 : activeTool === 'drag'
@@ -653,7 +653,7 @@ export function GeometryBoard() {
               <pattern id="geometry-grid" width="40" height="40" patternUnits="userSpaceOnUse">
                 <path d="M 40 0 L 0 0 0 40" fill="none" stroke={theme === 'dark' ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.04)"} strokeWidth="1" />
               </pattern>
-              {/* 鍑犱綍瑕佺礌鍙戝厜婊ら暅 (hover 鏃? */}
+              {/* 几何元素发光滤镜（hover 时） */}
               <filter id="geo-glow-cyan" x="-50%" y="-50%" width="200%" height="200%">
                 <feGaussianBlur stdDeviation="3" result="b" />
                 <feMerge>
@@ -671,7 +671,7 @@ export function GeometryBoard() {
             </defs>
             <rect width="100%" height="100%" fill="url(#geometry-grid)" />
 
-            {/* === 澶氳竟褰㈤珮浜?(鎷栧姩 / 姗＄毊鎿︽偓鍋? === */}
+            {/* === 多边形高亮（拖动 / 橡皮擦悬停） === */}
             {hoverEntity?.type === 'polygon' && (() => {
               const coords = polygonCoords(hoverEntity.pointIds);
               const d = coords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x},${c.y}`).join(' ') + ' Z';
@@ -797,18 +797,18 @@ export function GeometryBoard() {
           </svg>
         )}
 
-        {/* 2. 鍕捐偂瀹氱悊鍓茶ˉ婕旂ず鍖?*/}
+        {/* 2. 勾股定理割补演示区 */}
         {subModule === 'pythagoras' && (
           <div className="w-full h-full flex items-center justify-center relative select-none">
-            {/* 鍥惧舰鍗＄墖 */}
+            {/* 图形卡片 */}
             <div className="relative w-[450px] h-[450px] bg-white/70 dark:bg-zinc-900/60 backdrop-blur-md rounded-3xl border border-black/5 dark:border-white/10 p-8 flex items-center justify-center shadow-2xl overflow-hidden transition-all duration-500 text-zinc-800 dark:text-white">
               <svg width="360" height="360" className="overflow-visible">
-                {/* 瀹氱悊涓讳綋姝ｆ柟褰㈡锛岃竟闀夸负 a+b = 150 + 90 = 240 */}
+                {/* 定理主体正方形框，边长为 a+b = 150 + 90 = 240 */}
                 {/* a = 150px, b = 90px, c = sqrt(150^2 + 90^2) = 174.9px */}
                 <rect x="60" y="60" width="240" height="240" fill="none" stroke={theme === 'dark' ? "rgba(255,255,255,0.2)" : "rgba(15,23,42,0.15)"} strokeWidth="3" strokeDasharray="5,5" />
                 
-                {/* 鍥涗釜鎷煎浘鐩磋涓夎褰?(a=150, b=90) */}
-                {/* 涓夎褰?1 */}
+                {/* 四个拼图直角三角形 (a=150, b=90) */}
+                {/* 三角形 1 */}
                 <g style={{ 
                   transform: pythagorasStep === 1 ? 'translate(0px, 0px) rotate(0deg)' : 'translate(0px, 0px)',
                   transition: 'transform 1.5s cubic-bezier(0.25, 1, 0.5, 1)'
@@ -907,16 +907,16 @@ export function GeometryBoard() {
           </div>
         )}
 
-        {/* 3. 鍦嗛潰绉瀬闄愬睍寮€鎷兼帴婕旂ず鍖?*/}
+        {/* 3. 圆面积极限展开拼接演示区 */}
         {subModule === 'circle_area' && (
           <div className="w-full h-full flex items-center justify-center relative select-none">
-            {/* 涓荤粯鍥惧尯 */}
+              {/* 主绘图区 */}
             <div className="relative w-[650px] h-[380px] bg-white/70 dark:bg-zinc-900/60 backdrop-blur-md rounded-3xl border border-black/5 dark:border-white/10 p-8 flex flex-col items-center justify-center shadow-2xl overflow-hidden transition-all duration-500 text-zinc-800 dark:text-white">
               <svg width="600" height="320" className="overflow-visible">
-                {/* 1. 鍦嗗舰鐘舵€?*/}
+                {/* 1. 圆形状态 */}
                 {!circleAreaAnimProgress && (
                   <g transform="translate(300, 160)">
-                    {/* 鐢绘墖褰㈠垏鐗?*/}
+                    {/* 绘制扇形切片 */}
                     {Array.from({ length: circleSlicesCount }).map((_, i) => {
                       const angleStep = 360 / circleSlicesCount;
                       const startAngle = i * angleStep;
@@ -931,7 +931,7 @@ export function GeometryBoard() {
                       const x2 = r * Math.cos(radEnd);
                       const y2 = r * Math.sin(radEnd);
                       
-                      // 鎵囧舰 path
+                      // 扇形 path
                       const pathData = `M 0,0 L ${x1},${y1} A ${r},${r} 0 0,1 ${x2},${y2} Z`;
                       const fill = i % 2 === 0 ? 'rgba(6, 182, 212, 0.6)' : 'rgba(236, 72, 153, 0.6)';
                       const stroke = i % 2 === 0 ? '#06b6d4' : '#ec4899';
@@ -951,20 +951,20 @@ export function GeometryBoard() {
                       );
                     })}
                     <circle cx="0" cy="0" r="100" fill="none" stroke={theme === 'dark' ? "rgba(255,255,255,0.2)" : "rgba(15,23,42,0.15)"} strokeWidth="1" />
-                    <text x="-25" y="5" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-sm font-bold">鍗婂緞 r</text>
+                    <text x="-25" y="5" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-sm font-bold">半径 r</text>
                   </g>
                 )}
 
-                {/* 2. 鏋侀檺鎷兼帴鐘舵€?(杩戜技闀挎柟褰? */}
+                {/* 2. 极限拼接状态（近似长方形） */}
                 {circleAreaAnimProgress && (
                   <g transform="translate(100, 110)">
-                    {/* 涓婃帓鍒囩墖锛氬€掓寕锛岀孩鑹诧紝8 涓?*/}
+                    {/* 上排切片：倒挂，红色，8 个 */}
                     {Array.from({ length: circleSlicesCount / 2 }).map((_, i) => {
-                      const w = 360 / (circleSlicesCount / 2); // 瀹藉害
+                      const w = 360 / (circleSlicesCount / 2); // 宽度
                       const xOffset = i * w;
-                      const r = 100; // 楂樺害鍗冲崐寰?
+                      const r = 100; // 高度即半径
                       
-                      // 杩戜技涓夎褰?鎵囧舰锛氶《瑙掑湪搴曢潰
+                      // 近似三角形扇形：顶角在底面
                       const pathData = `M ${xOffset},0 L ${xOffset + w/2},${r} L ${xOffset + w},0 Z`;
                       
                       return (
@@ -978,11 +978,11 @@ export function GeometryBoard() {
                       );
                     })}
 
-                    {/* 涓嬫帓鍒囩墖锛氭绔嬶紝钃濊壊锛屼氦閿欙紝8 涓?*/}
+                    {/* 下排切片：正立，蓝色，交错，8 个 */}
                     {Array.from({ length: circleSlicesCount / 2 }).map((_, i) => {
-                      const w = 360 / (circleSlicesCount / 2); // 瀹藉害
+                      const w = 360 / (circleSlicesCount / 2); // 宽度
                       const xOffset = i * w + w/2;
-                      const r = 100; // 楂樺害鍗冲崐寰?
+                      const r = 100; // 高度即半径
                       
                       const pathData = `M ${xOffset},${r} L ${xOffset + w/2},0 L ${xOffset + w},${r} Z`;
                       
@@ -997,27 +997,27 @@ export function GeometryBoard() {
                       );
                     })}
 
-                    {/* 闀挎柟褰㈣緟鍔╂绾?*/}
+                    {/* 长方形辅助框线 */}
                     <rect x="0" y="0" width="380" height="100" fill="none" stroke={theme === 'dark' ? "rgba(255,255,255,0.3)" : "rgba(15,23,42,0.2)"} strokeWidth="2" strokeDasharray="6,4" />
                     
-                    {/* 闀垮鏍囩ず绾?*/}
-                    {/* 楂樺嵆鍗婂緞 r */}
+                    {/* 长宽标示线 */}
+                    {/* 高即半径 r */}
                     <line x1="-20" y1="0" x2="-20" y2="100" stroke={theme === 'dark' ? '#fff' : '#475569'} strokeWidth="1.5" />
                     <line x1="-25" y1="0" x2="-15" y2="0" stroke={theme === 'dark' ? '#fff' : '#475569'} strokeWidth="1.5" />
                     <line x1="-25" y1="100" x2="-15" y2="100" stroke={theme === 'dark' ? '#fff' : '#475569'} strokeWidth="1.5" />
-                    <text x="-65" y="55" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-xs font-semibold">瀹?= r</text>
+                    <text x="-65" y="55" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-xs font-semibold">宽 = r</text>
 
-                    {/* 闀垮嵆鍦嗗懆闀夸竴鍗?蟺r */}
+                    {/* 长即圆周长一半 πr */}
                     <line x1="0" y1="120" x2="380" y2="120" stroke={theme === 'dark' ? '#fff' : '#475569'} strokeWidth="1.5" />
                     <line x1="0" y1="115" x2="0" y2="125" stroke={theme === 'dark' ? '#fff' : '#475569'} strokeWidth="1.5" />
                     <line x1="380" y1="115" x2="380" y2="125" stroke={theme === 'dark' ? '#fff' : '#475569'} strokeWidth="1.5" />
-                    <text x="160" y="145" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-xs font-semibold">闀?= 陆C = 蟺r</text>
+                    <text x="160" y="145" fill={theme === 'dark' ? '#fff' : '#1e293b'} className="text-xs font-semibold">长 = 1/2C = πr</text>
                   </g>
                 )}
               </svg>
             </div>
 
-            {/* 鍙充笂瑙掓瘺鐜荤拑瀹氱悊璇存槑娴獥 */}
+            {/* 右上角毛玻璃定理说明浮窗 */}
             <div className="absolute top-8 right-8 w-80 p-5 rounded-2xl bg-white/75 dark:bg-zinc-900/75 backdrop-blur-md border border-black/5 dark:border-white/10 shadow-2xl z-[38] select-none text-zinc-800 dark:text-white transition-all duration-500">
               <h3 className="text-sm font-bold text-pink-600 dark:text-pink-400 mb-2 font-sans flex items-center gap-1.5">
                 <span className="w-1.5 h-3.5 bg-pink-500 rounded-full" />
@@ -1036,7 +1036,7 @@ export function GeometryBoard() {
               </div>
             </div>
 
-            {/* 搴曢儴鎮诞鎺у埗鏍?*/}
+            {/* 底部悬浮控制栏 */}
             <div className="absolute bottom-8 left-1/2 -translate-x-1/2 p-3.5 rounded-2xl bg-white/70 dark:bg-zinc-900/80 backdrop-blur-md border border-black/5 dark:border-white/10 shadow-xl flex items-center gap-6 z-[38] transition-all duration-500">
               <div className="flex items-center gap-3">
                 <span className="text-zinc-500 dark:text-zinc-400 text-xs">等分数</span>
@@ -1048,7 +1048,7 @@ export function GeometryBoard() {
                   value={circleSlicesCount}
                   onChange={(e) => {
                     setCircleSlicesCount(Number(e.target.value));
-                    setCircleAreaAnimProgress(false); // 璋冭妭浠芥暟鏃跺己鍒跺洖鍒板渾褰㈠紡
+                    setCircleAreaAnimProgress(false); // 调节份数时强制回到圆形
                   }}
                   className="w-40 h-1 bg-black/10 dark:bg-white/10 rounded-lg appearance-none cursor-pointer accent-cyan-500"
                 />

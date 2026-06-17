@@ -3,7 +3,7 @@ import { Magnet, Zap, Activity, ArrowRight, ArrowLeft } from 'lucide-react';
 import './Launcher.css';
 
 interface LauncherProps {
-  onSelectProject: (projectId: 'magnet' | 'faraday' | 'hall') => void;
+  onSelectProject: (projectId: 'magnet' | 'faraday') => void;
 }
 
 export const Launcher: React.FC<LauncherProps> = ({ onSelectProject }) => {
@@ -48,7 +48,7 @@ export const Launcher: React.FC<LauncherProps> = ({ onSelectProject }) => {
           {/* 磁场可视化项目 */}
           <div 
             className="project-card magnet" 
-            ref={el => cardsRef.current[0] = el}
+            ref={el => { cardsRef.current[0] = el; }}
             onClick={() => onSelectProject('magnet')}
           >
             <div className="project-icon-wrapper">
@@ -67,7 +67,7 @@ export const Launcher: React.FC<LauncherProps> = ({ onSelectProject }) => {
           {/* 法拉第电磁感应实验 */}
           <div 
             className="project-card faraday" 
-            ref={el => cardsRef.current[1] = el}
+            ref={el => { cardsRef.current[1] = el; }}
             onClick={() => onSelectProject('faraday')}
           >
             <div className="project-icon-wrapper">
@@ -86,7 +86,7 @@ export const Launcher: React.FC<LauncherProps> = ({ onSelectProject }) => {
           {/* 霍尔效应仿真 */}
           <div 
             className="project-card hall" 
-            ref={el => cardsRef.current[2] = el}
+            ref={el => { cardsRef.current[2] = el; }}
             onClick={() => { window.location.href = '/hall.html'; }}
           >
             <div className="project-icon-wrapper">

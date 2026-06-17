@@ -174,17 +174,17 @@ export async function parseGeometryImage(
 
   const bodyStr = JSON.stringify(body);
   let resp = await fetch(endpoint, { method: 'POST', headers, body: bodyStr });
+  let rawText = await resp.text();
 
-  // 反代模式下,401 通常是 token 过期或 quota 耗尽 → 重签一次重试
-  if (IS_PROXY_MODE && resp.status === 401) {
+  if (IS_PROXY_MODE && resp.status === 401 && shouldRefreshProxyToken(rawText)) {
     invalidateProxyToken();
     headers.Authorization = `Bearer ${await getProxyToken(true)}`;
     resp = await fetch(endpoint, { method: 'POST', headers, body: bodyStr });
+    rawText = await resp.text();
   }
 
-  const rawText = await resp.text();
   if (!resp.ok) {
-    throw new Error(`AI 接口返回 ${resp.status}: ${truncate(rawText, 500)}`);
+    throw new Error(formatAiHttpError(resp.status, rawText));
   }
 
   let envelope: any;
@@ -256,8 +256,36 @@ function stripJsonFence(s: string): string {
   return trimmed;
 }
 
+function shouldRefreshProxyToken(rawText: string): boolean {
+  const lower = rawText.toLowerCase();
+  if (lower.includes('new_api_error') || lower.includes('invalid token')) {
+    return false;
+  }
+  return true;
+}
+
+function formatAiHttpError(status: number, rawText: string): string {
+  const message = extractErrorMessage(rawText);
+  if (status === 401 && /invalid token/i.test(message)) {
+    return 'AI 服务认证失败：服务器配置的上游 API Key 无效或已过期。请检查 UPSTREAM_API_KEY / UPSTREAM_BASE_URL，然后重启后端服务。';
+  }
+  if (status === 401) {
+    return `AI 服务认证失败：${message || '请求未通过鉴权，请稍后重试'}`;
+  }
+  return `AI 接口返回 ${status}: ${truncate(message || rawText, 500)}`;
+}
+
+function extractErrorMessage(rawText: string): string {
+  try {
+    const data = JSON.parse(rawText);
+    return String(data?.error?.message || data?.message || rawText);
+  } catch {
+    return rawText;
+  }
+}
+
 function truncate(s: string, n: number): string {
-  return s.length > n ? `${s.slice(0, n)}…` : s;
+  return s.length > n ? `${s.slice(0, n)}...` : s;
 }
 
 /**

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use axum::{
     extract::{
@@ -81,9 +81,24 @@ async fn handle_socket(live: WhiteboardLiveState, lesson_id: u64, socket: WebSoc
     let (mut ws_sender, mut ws_receiver) = socket.split();
 
     let outbound = tokio::spawn(async move {
-        while let Ok(text) = receiver.recv().await {
-            if ws_sender.send(Message::Text(text.into())).await.is_err() {
-                break;
+        let mut heartbeat = tokio::time::interval(Duration::from_secs(20));
+        loop {
+            tokio::select! {
+                _ = heartbeat.tick() => {
+                    if ws_sender.send(Message::Ping(Vec::new().into())).await.is_err() {
+                        break;
+                    }
+                }
+                msg = receiver.recv() => {
+                    match msg {
+                        Ok(text) => {
+                            if ws_sender.send(Message::Text(text.into())).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
             }
         }
     });
@@ -93,6 +108,8 @@ async fn handle_socket(live: WhiteboardLiveState, lesson_id: u64, socket: WebSoc
             Ok(Message::Text(text)) => {
                 let _ = sender.send(text.to_string());
             }
+            Ok(Message::Pong(_)) => {}
+            Ok(Message::Ping(_)) => {}
             Ok(Message::Close(_)) => break,
             Ok(_) => {}
             Err(_) => break,

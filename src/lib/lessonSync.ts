@@ -40,6 +40,7 @@ export interface LiveWhiteboardEvent {
     thickness: number;
     eraser: boolean;
   };
+  pageIndex?: number;
   version?: number;
 }
 

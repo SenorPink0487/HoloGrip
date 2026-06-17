@@ -87,6 +87,9 @@ pub struct Config {
     #[serde(default = "default_app_public_base_url")]
     pub app_public_base_url: String,
 
+    #[serde(default)]
+    pub admin_bootstrap_invite_code: String,
+
     // ── Metrics ───────────────────────────────────────────────────
     /// metrics 端点的监听地址,只在 127.0.0.1 暴露。空字符串关闭。
     #[serde(default = "default_metrics_bind")]

@@ -444,6 +444,7 @@ export function OverlayUI() {
               <button 
                 onClick={() => {
                   clearCanvas();
+                  window.dispatchEvent(new CustomEvent('holomath:whiteboard-local-clear'));
                   useARStore.getState().clearModelLines();
                   useARStore.getState().clearSurfaceStrokes();
                 }}

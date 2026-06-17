@@ -136,7 +136,8 @@ interface ARState {
   addPage: () => void;
   removePage: (index: number) => void;
   switchPage: (index: number) => void;
-  saveCurrentPageWhiteboard: (dataUrl: string, size?: { width: number; height: number }) => void;
+  saveCurrentPageWhiteboard: (dataUrl: string | null, size?: { width: number; height: number }) => void;
+  clearPageWhiteboard: (pageIndex: number) => void;
   saveCurrentPageGeometry: (points: any[], segments: any[], circles: any[]) => void;
   restoreWhiteboardSnapshot: (pages: PageData[], currentPageIndex: number) => void;
 
@@ -329,6 +330,17 @@ export const useARStore = create<ARState>((set) => ({
       whiteboardDataUrl: dataUrl,
       boardWidth: size?.width ?? WHITEBOARD_WIDTH,
       boardHeight: size?.height ?? WHITEBOARD_HEIGHT,
+    };
+    return { pages: newPages };
+  }),
+  clearPageWhiteboard: (pageIndex) => set((state) => {
+    if (pageIndex < 0 || pageIndex >= state.pages.length) return state;
+    const newPages = [...state.pages];
+    newPages[pageIndex] = {
+      ...newPages[pageIndex],
+      whiteboardDataUrl: null,
+      boardWidth: WHITEBOARD_WIDTH,
+      boardHeight: WHITEBOARD_HEIGHT,
     };
     return { pages: newPages };
   }),

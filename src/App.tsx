@@ -13,6 +13,7 @@ import type { HandLandmarker } from '@mediapipe/tasks-vision';
 import { BookOpen, Trash2, ZoomIn, ZoomOut, LogOut } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
 import { CameraPermissionModal } from './components/CameraPermissionModal';
+import { PromptModal } from './components/PromptModal';
 import { loadWhiteboardSnapshot, saveWhiteboardSnapshot } from './lib/whiteboardSync';
 import {
   createLesson,
@@ -150,6 +151,8 @@ export default function App() {
   const [selectedLessonDate, setSelectedLessonDate] = useState(todayString());
   const [classroomMenuOpen, setClassroomMenuOpen] = useState(false);
   const [lessonStatus, setLessonStatus] = useState('个人白板');
+  const [createLessonPromptOpen, setCreateLessonPromptOpen] = useState(false);
+  const [newLessonTitle, setNewLessonTitle] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -267,6 +270,21 @@ export default function App() {
   }, [selectedLessonId]);
 
   useEffect(() => {
+    const handleLocalClear = () => {
+      if (!selectedLessonId || liveSocketRef.current?.readyState !== WebSocket.OPEN) return;
+      const liveEvent: LiveWhiteboardEvent = {
+        type: 'canvas_clear',
+        client_id: clientIdRef.current,
+        pageIndex: currentPageIndex,
+      };
+      liveSocketRef.current.send(JSON.stringify(liveEvent));
+    };
+
+    window.addEventListener('holomath:whiteboard-local-clear', handleLocalClear);
+    return () => window.removeEventListener('holomath:whiteboard-local-clear', handleLocalClear);
+  }, [currentPageIndex, selectedLessonId]);
+
+  useEffect(() => {
     listClasses()
       .then((data) => {
         const all = [...data.teaching, ...data.joined];
@@ -313,6 +331,13 @@ export default function App() {
         window.dispatchEvent(new CustomEvent('holomath:whiteboard-remote-stroke', { detail: event.stroke }));
         return;
       }
+      if (event.type === 'canvas_clear') {
+        applyingRemoteWhiteboardRef.current = true;
+        window.dispatchEvent(new CustomEvent('holomath:whiteboard-remote-clear', {
+          detail: { pageIndex: event.pageIndex ?? useARStore.getState().currentPageIndex },
+        }));
+        return;
+      }
       if (event.type === 'snapshot_saved') {
         if (typeof event.version === 'number') {
           lessonVersionRef.current = event.version;
@@ -340,12 +365,24 @@ export default function App() {
     };
   }, [selectedLessonId, restoreWhiteboardSnapshot]);
 
-  const handleCreateLesson = async () => {
+  const handleCreateLesson = () => {
     if (!selectedClassId) return;
-    const title = window.prompt('请输入课次标题', `课堂 ${selectedLessonDate}`);
-    if (!title?.trim()) return;
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const date = now.getDate();
+    const hours = now.getHours().toString().padStart(2, '0');
+    const minutes = now.getMinutes().toString().padStart(2, '0');
+    setNewLessonTitle(`课堂 ${month}月${date}日 ${hours}:${minutes}`);
+    setCreateLessonPromptOpen(true);
+  };
+
+  const handleConfirmCreateLesson = async () => {
+    if (!selectedClassId) return;
+    const title = newLessonTitle.trim();
+    if (!title) return;
+    setCreateLessonPromptOpen(false);
     try {
-      const lessonId = await createLesson(selectedClassId, title.trim(), selectedLessonDate);
+      const lessonId = await createLesson(selectedClassId, title, selectedLessonDate);
       const items = await listLessons(selectedClassId, selectedLessonDate);
       setLessons(items);
       setSelectedLessonId(lessonId);
@@ -709,16 +746,16 @@ export default function App() {
         <button
           type="button"
           onClick={() => setClassroomMenuOpen(open => !open)}
-          className="absolute left-4 top-4 z-[65] flex h-10 w-10 items-center justify-center rounded-lg border border-black/10 bg-white/90 text-zinc-800 shadow-lg backdrop-blur-xl transition hover:bg-white dark:border-white/10 dark:bg-zinc-950/85 dark:text-zinc-100"
+          className="absolute left-[126px] top-8 z-[65] flex h-16 w-16 items-center justify-center rounded-2xl border border-black/5 bg-white/70 text-zinc-800 shadow-xl backdrop-blur-md transition-all hover:bg-white hover:-translate-y-0.5 active:translate-y-0 active:scale-95 focus:outline-none dark:border-white/10 dark:bg-zinc-900/80 dark:text-zinc-100 dark:hover:bg-zinc-800/90"
           title="课堂选择"
           aria-label="课堂选择"
           aria-expanded={classroomMenuOpen}
         >
-          <BookOpen size={18} />
+          <BookOpen size={26} strokeWidth={2.2} />
         </button>
       )}
       {activeTab === 'whiteboard' && classroomMenuOpen && (
-        <div className="absolute top-16 left-4 z-[60] flex max-w-[calc(100vw-2rem)] flex-col items-stretch gap-2 rounded-lg border border-black/10 dark:border-white/10 bg-white/90 dark:bg-zinc-950/85 px-3 py-3 text-xs text-zinc-800 dark:text-zinc-100 shadow-lg backdrop-blur-xl sm:flex-row sm:flex-wrap sm:items-center">
+        <div className="absolute top-[108px] left-[100px] z-[60] flex max-w-[calc(100vw-4rem)] flex-col items-stretch gap-2 rounded-2xl border border-black/5 dark:border-white/10 bg-white/80 dark:bg-zinc-900/90 px-4 py-4 text-sm text-zinc-800 dark:text-zinc-100 shadow-2xl backdrop-blur-xl sm:flex-row sm:flex-wrap sm:items-center">
           <select
             value={selectedClassId ?? ''}
             onChange={(e) => {
@@ -762,7 +799,6 @@ export default function App() {
           >
             创建课次
           </button>
-          <span className="max-w-[160px] truncate text-[11px] text-zinc-500 dark:text-zinc-400">{lessonStatus}</span>
         </div>
       )}
       {/* 1. 微点底纹背景 (用于白板等 2D 教学模块，不包括函数探究) */}
@@ -883,6 +919,14 @@ export default function App() {
             onConfirm={handleConfirmPermission}
           />
         )}
+        <PromptModal
+          isOpen={createLessonPromptOpen}
+          title="请输入课次标题"
+          value={newLessonTitle}
+          onChange={setNewLessonTitle}
+          onConfirm={handleConfirmCreateLesson}
+          onCancel={() => setCreateLessonPromptOpen(false)}
+        />
       </AnimatePresence>
     </div>
   );
