@@ -1395,8 +1395,8 @@ export function MathModel() {
             const isHovered = hoveredLineIndex === idx;
             const isSelected = selectedLineIndex === idx;
 
-            // 辅助线：银灰色实线；普通线：金黄实线
-            const baseColor = line.isAuxiliary ? "#94a3b8" : "#facc15";
+            // 辅助线：银灰色实线；普通线：亮青色实线
+            const baseColor = line.isAuxiliary ? "#94a3b8" : "#22d3ee";
             const color = isSelected ? "#ef4444" : isHovered ? "#38bdf8" : baseColor;
             const width = isSelected ? 8 : isHovered ? 7 : (line.isAuxiliary ? 3 : 5);
 
@@ -1422,7 +1422,7 @@ export function MathModel() {
                  {extP1 && line.extendBefore > 0 && (
                    <Line
                      points={[extP1, p1]}
-                     color={line.isAuxiliary ? "#64748b" : "#d4a017"}
+                     color={line.isAuxiliary ? "#64748b" : "#0891b2"}
                      lineWidth={Math.max(1, width - 2)}
                      depthTest={false}
                    />
@@ -1430,7 +1430,7 @@ export function MathModel() {
                  {extP2 && line.extendAfter > 0 && (
                    <Line
                      points={[p2, extP2]}
-                     color={line.isAuxiliary ? "#64748b" : "#d4a017"}
+                     color={line.isAuxiliary ? "#64748b" : "#0891b2"}
                      lineWidth={Math.max(1, width - 2)}
                      depthTest={false}
                    />
@@ -1454,7 +1454,7 @@ export function MathModel() {
                     p1={p1}
                     p2={p2}
                     label={p1.clone().multiply(logicalScale).distanceTo(p2.clone().multiply(logicalScale)).toFixed(0)}
-                    color={line.isAuxiliary ? "rgba(148,163,184,0.95)" : "rgba(250,204,21,0.95)"}
+                    color={line.isAuxiliary ? "rgba(148,163,184,0.95)" : "rgba(34, 211, 238, 0.95)"}
                   />
                 )}
               </group>
@@ -1565,9 +1565,9 @@ export function MathModel() {
                     width: '22px',
                     height: '22px',
                     borderRadius: '4px',
-                    border: '1px solid #facc15',
+                    border: '1px solid #22d3ee',
                     backgroundColor: '#1e293b',
-                    color: '#facc15',
+                    color: '#22d3ee',
                     fontSize: '13px',
                     fontWeight: 'bold',
                     pointerEvents: 'none',
