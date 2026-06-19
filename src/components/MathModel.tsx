@@ -486,6 +486,8 @@ export function MathModel() {
             let finalT = bestT;
             let alignedWithVertex = false;
 
+            const scaleFactor = axisInfo.name === 'X轴' ? logicalScale.x : (axisInfo.name === 'Y轴' ? logicalScale.y : logicalScale.z);
+
             const snapThreshold = 0.08;
             for (let i = 0; i < snapPointsRef.current.length; i++) {
               const sp = snapPointsRef.current[i].coord;
@@ -513,11 +515,16 @@ export function MathModel() {
               }
             }
 
+            // 强行对齐到整数逻辑长度 (终点必须是整数长度)
+            const logicalLen = finalT * scaleFactor;
+            const roundedLogicalLen = Math.round(logicalLen);
+            finalT = roundedLogicalLen / scaleFactor;
+
             closestVertLocal.copy(S).add(axisInfo.dir.clone().multiplyScalar(finalT));
             foundVertex = true;
             matchedSnapLabel = alignedWithVertex 
-              ? `${axisInfo.name}对齐 (对齐顶点)` 
-              : `${axisInfo.name}对齐`;
+              ? `${axisInfo.name}对齐 (对齐顶点, 长度: ${roundedLogicalLen})` 
+              : `${axisInfo.name}对齐 (长度: ${roundedLogicalLen})`;
           }
         } else {
           // 1. Check original geometry snap points
@@ -1474,31 +1481,28 @@ export function MathModel() {
                 <Line
                   points={[[S.x - 15, S.y, S.z], [S.x + 15, S.y, S.z]]}
                   color="#ef4444"
-                  lineWidth={1.5}
-                  dashed
-                  dashSize={0.15}
-                  gapSize={0.08}
+                  lineWidth={2}
                   depthTest={false}
+                  transparent
+                  opacity={0.8}
                 />
                 {/* Y axis (Green) */}
                 <Line
                   points={[[S.x, S.y - 15, S.z], [S.x, S.y + 15, S.z]]}
                   color="#10b981"
-                  lineWidth={1.5}
-                  dashed
-                  dashSize={0.15}
-                  gapSize={0.08}
+                  lineWidth={2}
                   depthTest={false}
+                  transparent
+                  opacity={0.8}
                 />
                 {/* Z axis (Blue) */}
                 <Line
                   points={[[S.x, S.y, S.z - 15], [S.x, S.y, S.z + 15]]}
                   color="#3b82f6"
-                  lineWidth={1.5}
-                  dashed
-                  dashSize={0.15}
-                  gapSize={0.08}
+                  lineWidth={2}
                   depthTest={false}
+                  transparent
+                  opacity={0.8}
                 />
               </group>
             );
