@@ -1233,6 +1233,7 @@ export function MathModel() {
   const activeTab = useARStore(state => state.activeTab);
   const modelLines = useARStore(state => state.modelLines);
   const activeLineStart = useARStore(state => state.activeLineStart);
+  const isLineDrawingActive = useARStore(state => state.isLineDrawingActive);
   const isXYZDrawingActive = useARStore(state => state.isXYZDrawingActive);
   const surfaceStrokes = useARStore(state => state.surfaceStrokes);
   const showAllLengths = useARStore(state => state.showAllLengths);
