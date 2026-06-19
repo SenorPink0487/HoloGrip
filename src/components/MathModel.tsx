@@ -183,6 +183,84 @@ function CustomEdges({ model }: { model: CustomModel }) {
   );
 }
 
+/**
+ * 连线/画线过程中的实时长度标签：从 R3F 预览线 ref 读取端点，平滑且无 React 渲染开销地在 3D 空间更新
+ */
+interface PreviewLengthLabelProps {
+  previewLineRef: React.RefObject<THREE.Line | null>;
+  logicalScale: THREE.Vector3;
+  isLineDrawingActive: boolean;
+  isXYZDrawingActive: boolean;
+}
+
+function PreviewLengthLabel({ previewLineRef, logicalScale, isLineDrawingActive, isXYZDrawingActive }: PreviewLengthLabelProps) {
+  const groupRef = useRef<THREE.Group>(null);
+  const textRef = useRef<HTMLDivElement>(null);
+
+  useFrame(() => {
+    const store = useARStore.getState();
+    const start = store.activeLineStart;
+    const active = (isLineDrawingActive || isXYZDrawingActive) && store.rightHand.isVisible && !store.leftHand.isPinched;
+
+    if (!start || !active || !previewLineRef.current || !groupRef.current || !textRef.current) {
+      if (textRef.current) {
+        textRef.current.style.display = 'none';
+      }
+      return;
+    }
+
+    const line = previewLineRef.current;
+    const posAttr = line.geometry.attributes.position;
+    const p1 = new THREE.Vector3(posAttr.getX(0), posAttr.getY(0), posAttr.getZ(0));
+    const p2 = new THREE.Vector3(posAttr.getX(1), posAttr.getY(1), posAttr.getZ(1));
+
+    // 计算逻辑距离长度
+    const dist = p1.clone().multiply(logicalScale).distanceTo(p2.clone().multiply(logicalScale));
+
+    // 中点位置
+    const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+
+    // 偏移微调（垂直于线段，避免重叠）
+    const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+    const ref = Math.abs(dir.y) < 0.9
+      ? new THREE.Vector3(0, 1, 0)
+      : new THREE.Vector3(1, 0, 0);
+    const perp = new THREE.Vector3().crossVectors(dir, ref).normalize();
+    mid.add(perp.multiplyScalar(0.08));
+
+    // 更新三维标签位置与文字
+    groupRef.current.position.copy(mid);
+    groupRef.current.updateMatrixWorld();
+    textRef.current.style.display = 'block';
+    textRef.current.innerText = dist.toFixed(0);
+  });
+
+  return (
+    <group ref={groupRef}>
+      <Html center zIndexRange={[110, 0]}>
+        <div
+          ref={textRef}
+          style={{
+            display: 'none',
+            color: 'rgba(252, 211, 77, 0.95)', // 亮金黄色，与普通线段颜色区分开
+            backgroundColor: 'transparent',
+            fontSize: '26px',
+            fontWeight: '700',
+            fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+            padding: '2px 8px',
+            pointerEvents: 'none',
+            userSelect: 'none',
+            whiteSpace: 'nowrap',
+            letterSpacing: '0.5px',
+            textShadow: '0 2px 4px rgba(0,0,0,0.8), 0 0 8px rgba(0,0,0,0.6)',
+            lineHeight: '1.2',
+          }}
+        />
+      </Html>
+    </group>
+  );
+}
+
 export function MathModel() {
   const groupRef = useRef<THREE.Group>(null);
   const meshRef = useRef<THREE.Mesh>(null);
@@ -1510,6 +1588,14 @@ export function MathModel() {
 
           {/* Preview line - 使用稳定的 useMemo 对象避免每帧重建 */}
           <primitive object={previewLineObj} ref={previewLineRef as any} visible={false} />
+
+          {/* 连线时的实时长度悬浮标签 */}
+          <PreviewLengthLabel 
+            previewLineRef={previewLineRef} 
+            logicalScale={logicalScale}
+            isLineDrawingActive={isLineDrawingActive}
+            isXYZDrawingActive={isXYZDrawingActive}
+          />
         </group>
       )}
     </group>
