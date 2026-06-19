@@ -35,6 +35,7 @@ export function OverlayUI() {
   const isXYZDrawingActive = useARStore(state => state.isXYZDrawingActive);
   const setXYZDrawingActive = useARStore(state => state.setXYZDrawingActive);
   const snappedPointInfo = useARStore(state => state.snappedPointInfo);
+  const activeLineStart = useARStore(state => state.activeLineStart);
 
   const customModels = useARStore(state => state.customModels);
   const activeCustomModelId = useARStore(state => state.activeCustomModelId);
@@ -219,15 +220,29 @@ export function OverlayUI() {
     <>
       {/* Top Center Snap Point Info HUD */}
       <AnimatePresence>
-        {snappedPointInfo && (
+        {(isLineDrawingActive || isXYZDrawingActive) && (
           <motion.div
             initial={{ opacity: 0, y: -20, scale: 0.95 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -20, scale: 0.95 }}
             className="fixed top-10 left-1/2 -translate-x-1/2 z-50 px-6 py-3 rounded-2xl bg-zinc-950/80 backdrop-blur-xl border border-white/10 shadow-[0_12px_40px_rgba(0,0,0,0.5)] text-white font-medium text-sm flex items-center gap-3 select-none pointer-events-none"
           >
-            <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#22d3ee]" />
-            <span>吸附：{snappedPointInfo}</span>
+            {snappedPointInfo ? (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]" />
+                <span>吸附：{snappedPointInfo}</span>
+              </>
+            ) : !activeLineStart ? (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-white/70 shadow-[0_0_6px_rgba(255,255,255,0.5)]" />
+                <span className="text-white/80">请选择连线起点...</span>
+              </>
+            ) : (
+              <>
+                <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#22d3ee]" />
+                <span className="text-white/90">请选择连线终点...</span>
+              </>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
