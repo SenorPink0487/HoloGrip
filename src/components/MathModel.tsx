@@ -1148,6 +1148,7 @@ export function MathModel() {
   const activeTab = useARStore(state => state.activeTab);
   const modelLines = useARStore(state => state.modelLines);
   const activeLineStart = useARStore(state => state.activeLineStart);
+  const isXYZDrawingActive = useARStore(state => state.isXYZDrawingActive);
   const surfaceStrokes = useARStore(state => state.surfaceStrokes);
   const showAllLengths = useARStore(state => state.showAllLengths);
 
@@ -1465,8 +1466,8 @@ export function MathModel() {
           )}
 
           {/* XYZ Axis Guide Lines for XYZ mode */}
-          {isXYZDrawingActive && store.activeLineStart && (() => {
-            const S = new THREE.Vector3(store.activeLineStart.x, store.activeLineStart.y, store.activeLineStart.z);
+          {isXYZDrawingActive && activeLineStart && (() => {
+            const S = new THREE.Vector3(activeLineStart.x, activeLineStart.y, activeLineStart.z);
             return (
               <group>
                 {/* X axis (Red) */}
