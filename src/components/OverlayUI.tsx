@@ -230,7 +230,7 @@ export function OverlayUI() {
             {snappedPointInfo ? (
               <>
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shadow-[0_0_8px_#34d399]" />
-                <span>吸附：{snappedPointInfo}</span>
+                <span>{snappedPointInfo}</span>
               </>
             ) : !activeLineStart ? (
               <>

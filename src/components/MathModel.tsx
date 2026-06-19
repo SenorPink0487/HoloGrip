@@ -387,11 +387,18 @@ export function MathModel() {
             
             points.push({ coord: p1, label: '顶点' });
             points.push({ coord: p2, label: '顶点' });
-            points.push({ coord: p1.clone().lerp(p2, 0.25), label: '四分之一' });
-            points.push({ coord: p1.clone().lerp(p2, 0.75), label: '四分之一' });
-            points.push({ coord: p1.clone().lerp(p2, 1/3), label: '三分之一' });
-            points.push({ coord: p1.clone().lerp(p2, 2/3), label: '三分之一' });
-            points.push({ coord: p1.clone().lerp(p2, 0.5), label: '二分之一' });
+            
+            // 删掉几分之几的设定，改为单位长度为整数的点
+            const p1Scale = p1.clone().multiply(logicalScale);
+            const p2Scale = p2.clone().multiply(logicalScale);
+            const D_log = p1Scale.distanceTo(p2Scale);
+            const numPoints = Math.floor(D_log - 1e-4);
+            for (let k = 1; k <= numPoints; k++) {
+              const t = k / D_log;
+              if (t > 0 && t < 1) {
+                points.push({ coord: p1.clone().lerp(p2, t), label: `线段整数点 (距离端点: ${k})` });
+              }
+            }
           }
         }
 
@@ -608,7 +615,7 @@ export function MathModel() {
           // 1. Check original geometry snap points
           for (let i = 0; i < snapPointsRef.current.length; i++) {
             const sp = snapPointsRef.current[i];
-            checkSnapPoint(sp.coord, sp.label);
+            checkSnapPoint(sp.coord, sp.label.startsWith('吸附：') ? sp.label : `吸附：${sp.label}`);
           }
           
           // 2. Check dynamically drawn auxiliary lines
@@ -618,24 +625,31 @@ export function MathModel() {
             const p2 = new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z);
             
             // Create snap points on the drawn line
-            checkSnapPoint(p1, '顶点');
-            checkSnapPoint(p2, '顶点');
-            checkSnapPoint(p1.clone().lerp(p2, 0.25), '四分之一');
-            checkSnapPoint(p1.clone().lerp(p2, 0.75), '四分之一');
-            checkSnapPoint(p1.clone().lerp(p2, 1/3), '三分之一');
-            checkSnapPoint(p1.clone().lerp(p2, 2/3), '三分之一');
-            checkSnapPoint(p1.clone().lerp(p2, 0.5), '二分之一');
+            checkSnapPoint(p1, '吸附：顶点');
+            checkSnapPoint(p2, '吸附：顶点');
+            
+            // 删掉几分之几的设定，改为单位长度为整数的点
+            const p1Scale = p1.clone().multiply(logicalScale);
+            const p2Scale = p2.clone().multiply(logicalScale);
+            const D_log = p1Scale.distanceTo(p2Scale);
+            const numPoints = Math.floor(D_log - 1e-4);
+            for (let k = 1; k <= numPoints; k++) {
+              const t = k / D_log;
+              if (t > 0 && t < 1) {
+                checkSnapPoint(p1.clone().lerp(p2, t), `吸附：线段整数点 (距离端点: ${k})`);
+              }
+            }
 
             // 3. Check auxiliary line extension endpoints for snapping
             if (ml.isAuxiliary) {
               const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
               if (ml.extendBefore > 0) {
                 const extP1 = p1.clone().sub(dir.clone().multiplyScalar(ml.extendBefore));
-                checkSnapPoint(extP1, '延长线端点');
+                checkSnapPoint(extP1, '吸附：延长线端点');
               }
               if (ml.extendAfter > 0) {
                 const extP2 = p2.clone().add(dir.clone().multiplyScalar(ml.extendAfter));
-                checkSnapPoint(extP2, '延长线端点');
+                checkSnapPoint(extP2, '吸附：延长线端点');
               }
             }
           }
@@ -667,7 +681,7 @@ export function MathModel() {
                 const cp1 = a1.clone().add(d1.clone().multiplyScalar(s));
                 const cp2 = b1.clone().add(d2.clone().multiplyScalar(t));
                 if (cp1.distanceTo(cp2) < 0.05) {
-                  checkSnapPoint(cp1.clone().add(cp2).multiplyScalar(0.5), '交点');
+                  checkSnapPoint(cp1.clone().add(cp2).multiplyScalar(0.5), '吸附：交点');
                 }
               }
             }
@@ -719,9 +733,16 @@ export function MathModel() {
             if (bestRay) {
               const rayInfo = bestRay as { dir: THREE.Vector3; type: 'axis'; refName: string };
               const projLen = vCur.dot(rayInfo.dir);
-              closestVertLocal.copy(S).add(rayInfo.dir.clone().multiplyScalar(projLen));
+              
+              // 强制截断到整数逻辑长度 (终点必须是整数长度)
+              const scaleFactor = rayInfo.refName === 'X轴' ? logicalScale.x : (rayInfo.refName === 'Y轴' ? logicalScale.y : logicalScale.z);
+              const logicalLen = projLen * scaleFactor;
+              const roundedLogicalLen = Math.max(1, Math.round(logicalLen));
+              const finalProjLen = roundedLogicalLen / scaleFactor;
+
+              closestVertLocal.copy(S).add(rayInfo.dir.clone().multiplyScalar(finalProjLen));
               foundVertex = true;
-              matchedSnapLabel = `${rayInfo.refName}正交`;
+              matchedSnapLabel = `吸附：${rayInfo.refName}正交 (长度: ${roundedLogicalLen})`;
               
               inferenceMatch = {
                 start: S.clone(),
@@ -749,7 +770,32 @@ export function MathModel() {
         }
 
         if (!foundVertex) {
-          closestVertLocal.copy(fallbackLocal);
+          if (store.activeLineStart) {
+            // 如果连线激活且有起点，我们将自由拖拽的终点限制到最近的整数逻辑长度上
+            const S = new THREE.Vector3(store.activeLineStart.x, store.activeLineStart.y, store.activeLineStart.z);
+            const fallbackPt = fallbackLocal.clone();
+            
+            // 计算逻辑空间里的距离和方向
+            const fallbackScale = fallbackPt.clone().multiply(logicalScale);
+            const SScale = S.clone().multiply(logicalScale);
+            const vecLog = fallbackScale.clone().sub(SScale);
+            const D_log = vecLog.length();
+            
+            // 限制到最近整数长度（至少为1）
+            const roundedLen = Math.max(1, Math.round(D_log));
+            
+            if (D_log > 1e-4) {
+              vecLog.normalize().multiplyScalar(roundedLen);
+            } else {
+              vecLog.set(1, 0, 0).multiplyScalar(roundedLen);
+            }
+            
+            closestVertLocal.copy(SScale.clone().add(vecLog).divide(logicalScale));
+            foundVertex = true;
+            matchedSnapLabel = `自由绘制 (当前长度: ${roundedLen})`;
+          } else {
+            closestVertLocal.copy(fallbackLocal);
+          }
         }
 
         // Update snap point info to Zustand store
