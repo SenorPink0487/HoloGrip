@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useARStore, HandState, MathShape } from '../store';
 import { cn } from '../lib/utils';
-import { Box, Circle, Cylinder, Cone, Triangle, PenTool, Cuboid, Palette, Eraser, Trash2, Unplug, Upload, X, Network } from 'lucide-react';
+import { Box, Circle, Cylinder, Cone, Triangle, PenTool, Cuboid, Palette, Eraser, Trash2, Unplug, Upload, X, Network, Ruler } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { parseGeometryImage } from '../lib/gemini';
 import { normalizeVertices } from '../lib/geometry';
@@ -36,6 +36,8 @@ export function OverlayUI() {
   const setXYZDrawingActive = useARStore(state => state.setXYZDrawingActive);
   const snappedPointInfo = useARStore(state => state.snappedPointInfo);
   const activeLineStart = useARStore(state => state.activeLineStart);
+  const showAllLengths = useARStore(state => state.showAllLengths);
+  const toggleShowAllLengths = useARStore(state => state.toggleShowAllLengths);
 
   const customModels = useARStore(state => state.customModels);
   const activeCustomModelId = useARStore(state => state.activeCustomModelId);
@@ -481,6 +483,19 @@ export function OverlayUI() {
                 </svg>
                 <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
                   XYZ 轴辅助线
+                </span>
+              </button>
+
+              <button 
+                onClick={() => toggleShowAllLengths()}
+                className={cn(
+                  "relative group p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
+                  showAllLengths ? "bg-amber-500/20 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.2)]" : "text-white/60 hover:bg-white/10"
+                )}
+              >
+                <Ruler className="w-8 h-8" />
+                <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                  显示线段长度
                 </span>
               </button>
 
