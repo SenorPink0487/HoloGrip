@@ -242,7 +242,7 @@ function PreviewLengthLabel({ previewLineRef, logicalScale, isLineDrawingActive,
           ref={textRef}
           style={{
             display: 'none',
-            color: 'rgba(252, 211, 77, 0.95)', // 亮金黄色，与普通线段颜色区分开
+            color: 'rgba(34, 211, 238, 0.95)', // 亮青色，与普通线段颜色区分开
             backgroundColor: 'transparent',
             fontSize: '26px',
             fontWeight: '700',
@@ -348,7 +348,7 @@ export function MathModel() {
   const previewLineObj = useMemo(() => {
     const geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
-    const mat = new THREE.LineBasicMaterial({ color: '#fcd34d', depthTest: false, transparent: true, opacity: 0.8 });
+    const mat = new THREE.LineBasicMaterial({ color: '#22d3ee', depthTest: false, transparent: true, opacity: 0.8 });
     return new THREE.Line(geom, mat);
   }, []);
 
@@ -819,7 +819,7 @@ export function MathModel() {
             if (rightPinching) {
                material.color.setHex(0x22d3ee); 
             } else {
-               material.color.setHex(0xfacc15); // Yellow hover highlight
+               material.color.setHex(0x38bdf8); // Sky blue hover highlight
             }
           }
         }
