@@ -29,7 +29,7 @@ from PIL import Image, ImageDraw
 
 # ─── 配置 ──────────────────────────────────────────────────
 ROOT = Path(__file__).resolve().parent.parent
-SRC = ROOT / "logo.png"
+SRC = ROOT / "src-tauri" / "logo.png"
 ICONS_DIR = ROOT / "src-tauri" / "icons"
 
 ROUND_RATIO = 0.18                 # 圆角半径 = 边长 * ROUND_RATIO

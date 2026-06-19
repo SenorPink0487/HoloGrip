@@ -4,8 +4,8 @@
 # iOS, etc.) inherits the rounded shape.
 
 param(
-    [string]$LogoPath = (Join-Path $PSScriptRoot '..\logo.png'),
-    [string]$OutPath  = (Join-Path $PSScriptRoot '..\logo-rounded.png'),
+    [string]$LogoPath = (Join-Path $PSScriptRoot '..\src-tauri\logo.png'),
+    [string]$OutPath  = (Join-Path $PSScriptRoot '..\src-tauri\logo-rounded.png'),
 
     # Apple/iOS HIG corner radius is ~22.37% of the icon edge. We use the
     # same ratio so the result feels native on every modern platform.

@@ -3,7 +3,7 @@
 # title bar. The welcome/finish sidebar image was intentionally removed.
 
 param(
-    [string]$LogoPath = (Join-Path $PSScriptRoot '..\logo-rounded.png'),
+    [string]$LogoPath = (Join-Path $PSScriptRoot '..\src-tauri\logo-rounded.png'),
     [string]$OutDir   = (Join-Path $PSScriptRoot '..\src-tauri\icons')
 )
 

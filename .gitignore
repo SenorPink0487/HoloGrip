@@ -14,10 +14,9 @@ coverage/
 HoloMath/
 _physics_preview/
 *.zip
-logo-rounded.png
-logo.png
-portal-avatar.png
-备案图标.png
+src-tauri/logo-rounded.png
+src-tauri/logo.png
+public/assets/portal-avatar.png
 public/assets/备案图标.png
 src-tauri/icons/
 .agents/
