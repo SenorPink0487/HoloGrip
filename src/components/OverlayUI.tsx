@@ -32,6 +32,8 @@ export function OverlayUI() {
   const clearCanvas = useARStore(state => state.clearCanvas);
   const isLineDrawingActive = useARStore(state => state.isLineDrawingActive);
   const setLineDrawingActive = useARStore(state => state.setLineDrawingActive);
+  const isXYZDrawingActive = useARStore(state => state.isXYZDrawingActive);
+  const setXYZDrawingActive = useARStore(state => state.setXYZDrawingActive);
 
   const customModels = useARStore(state => state.customModels);
   const activeCustomModelId = useARStore(state => state.activeCustomModelId);
@@ -92,7 +94,7 @@ export function OverlayUI() {
   const handleTabClick = (tab: 'model' | 'pen') => {
     if (tab === 'pen') {
       // dock 视角下，画笔与连线同属"绘图体系"，共享同一个三段式循环
-      const drawingActive = isPenActive || isLineDrawingActive;
+      const drawingActive = isPenActive || isLineDrawingActive || isXYZDrawingActive;
 
       // 同时只展开一个面板：开画笔时关掉模型面板
       if (!drawingActive && !isPenPanelOpen) {
@@ -107,6 +109,7 @@ export function OverlayUI() {
         // 第三态 → 第一态：彻底取消绘图体系激活
         setPenActive(false);
         setLineDrawingActive(false);
+        setXYZDrawingActive(false);
         setPenPanelOpen(false);
       } else {
         // 边界态：未激活但面板开着 → 收起面板回到第一态
@@ -284,7 +287,7 @@ export function OverlayUI() {
             <div className="w-px h-14 bg-white/20 mx-2 self-center rounded-full" />
 
             <DockButton 
-              active={isPenActive || isLineDrawingActive} 
+              active={isPenActive || isLineDrawingActive || isXYZDrawingActive} 
               onClick={() => handleTabClick('pen')}
               label="画笔工具"
             >
@@ -426,6 +429,27 @@ export function OverlayUI() {
                 <Network className="w-8 h-8" />
                 <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
                   3D 连线绘制
+                </span>
+              </button>
+
+              <button 
+                onClick={() => {
+                  setXYZDrawingActive(!isXYZDrawingActive);
+                  if (!isXYZDrawingActive && isEraser) setIsEraser(false);
+                }}
+                className={cn(
+                  "relative group p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
+                  isXYZDrawingActive ? "bg-cyan-500/20 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.2)]" : "text-white/60 hover:bg-white/10"
+                )}
+              >
+                <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+                  <line x1="12" y1="12" x2="20" y2="17" stroke="#ef4444" strokeWidth="2.5" />
+                  <line x1="12" y1="12" x2="4" y2="17" stroke="#10b981" strokeWidth="2.5" />
+                  <line x1="12" y1="12" x2="12" y2="3" stroke="#3b82f6" strokeWidth="2.5" />
+                </svg>
+                <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                  XYZ 轴辅助线
                 </span>
               </button>
 

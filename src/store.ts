@@ -88,6 +88,7 @@ interface ARState {
   interactMode: 'draw' | 'interact';
   
   isLineDrawingActive: boolean;
+  isXYZDrawingActive: boolean;
   showAllLengths: boolean;         // 全局开关：显示所有线段长度
 
   presetDimensions: Record<MathShape, Record<string, number>>;
@@ -136,10 +137,11 @@ interface ARState {
   setInteractMode: (m: 'draw' | 'interact') => void;
   
   setLineDrawingActive: (a: boolean) => void;
+  setXYZDrawingActive: (a: boolean) => void;
   toggleShowAllLengths: () => void;
   updatePresetDimension: (shape: MathShape, key: string, value: number) => void;
 
-  addModelLine: (p1: Point3D, p2: Point3D) => void;
+  addModelLine: (p1: Point3D, p2: Point3D, isAuxiliary?: boolean) => void;
   setActiveLineStart: (p: Point3D | null) => void;
   clearModelLines: () => void;
   removeModelLine: (index: number) => void;
@@ -199,6 +201,7 @@ export const useARStore = create<ARState>((set) => ({
   interactMode: 'draw',
   
   isLineDrawingActive: false,
+  isXYZDrawingActive: false,
   showAllLengths: false,
 
   presetDimensions: {
@@ -289,19 +292,26 @@ export const useARStore = create<ARState>((set) => ({
   setPenPanelOpen: (o) => set({ isPenPanelOpen: o }),
   // 画笔与连线互斥：启用画笔时自动关闭连线模式，避免捏合手势同时触发两种行为
   setPenActive: (a) => set(() => a
-    ? { isPenActive: true, isLineDrawingActive: false }
+    ? { isPenActive: true, isLineDrawingActive: false, isXYZDrawingActive: false, isEraser: false }
     : { isPenActive: false }
   ),
   setPenColor: (c) => set({ penColor: c, isEraser: false }),
   setPenThickness: (t) => set({ penThickness: t }),
-  setIsEraser: (e) => set({ isEraser: e }),
+  setIsEraser: (e) => set(() => e
+    ? { isEraser: true, isPenActive: false, isLineDrawingActive: false, isXYZDrawingActive: false }
+    : { isEraser: false }
+  ),
   clearCanvas: () => set((state) => ({ triggerClearCanvas: state.triggerClearCanvas + 1 })),
   setInteractMode: (m) => set({ interactMode: m }),
 
-  // 启用连线时同步关闭画笔写字行为；面板保持打开，用户仍可在面板内切换工具
+  // 启用连线时同步关闭画笔与XYZ轴连线行为；面板保持打开，用户仍可在面板内切换工具
   setLineDrawingActive: (a) => set(() => a
-    ? { isLineDrawingActive: true, isPenActive: false }
+    ? { isLineDrawingActive: true, isPenActive: false, isXYZDrawingActive: false }
     : { isLineDrawingActive: false }
+  ),
+  setXYZDrawingActive: (a) => set(() => a
+    ? { isXYZDrawingActive: true, isLineDrawingActive: false, isPenActive: false, isEraser: false }
+    : { isXYZDrawingActive: false }
   ),
   toggleShowAllLengths: () => set((state) => ({ showAllLengths: !state.showAllLengths })),
   
@@ -315,11 +325,11 @@ export const useARStore = create<ARState>((set) => ({
     }
   })),
 
-  addModelLine: (p1, p2) => set((state) => {
+  addModelLine: (p1, p2, isAuxiliary = false) => set((state) => {
     const line: AuxiliaryLine = {
       id: `ml_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
       p1, p2,
-      isAuxiliary: false,
+      isAuxiliary,
       extendBefore: 0,
       extendAfter: 0,
       showLength: true,

@@ -369,10 +369,11 @@ export function MathModel() {
 
     const isEraser = store.isEraser;
     const isLineDrawingActive = store.isLineDrawingActive;
+    const isXYZDrawingActive = store.isXYZDrawingActive;
     const modelLinesStore = store.modelLines;
 
-    // Only allow vertex connection if line drawing is active and not erasing
-    if (isLineDrawingActive && !isEraser && rightHand.isVisible && !leftPinching) {
+    // Only allow vertex connection if line drawing or XYZ axis drawing is active and not erasing
+    if ((isLineDrawingActive || isXYZDrawingActive) && !isEraser && rightHand.isVisible && !leftPinching) {
       raycaster.setFromCamera(rightHand.cursor, camera);
       const ray = raycaster.ray;
 
@@ -436,69 +437,153 @@ export function MathModel() {
           }
         };
 
-        // 1. Check original geometry snap points
-        for (let i = 0; i < snapPointsRef.current.length; i++) {
-          const sp = snapPointsRef.current[i];
-          checkSnapPoint(sp.coord, sp.label);
-        }
-        
-        // 2. Check dynamically drawn auxiliary lines
-        for (let i = 0; i < modelLinesStore.length; i++) {
-          const ml = modelLinesStore[i];
-          const p1 = new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z);
-          const p2 = new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z);
-          
-          // Create snap points on the drawn line
-          checkSnapPoint(p1, '顶点');
-          checkSnapPoint(p2, '顶点');
-          checkSnapPoint(p1.clone().lerp(p2, 0.25), '四分之一');
-          checkSnapPoint(p1.clone().lerp(p2, 0.75), '四分之一');
-          checkSnapPoint(p1.clone().lerp(p2, 1/3), '三分之一');
-          checkSnapPoint(p1.clone().lerp(p2, 2/3), '三分之一');
-          checkSnapPoint(p1.clone().lerp(p2, 0.5), '二分之一');
+        if (isXYZDrawingActive && store.activeLineStart) {
+          // --- Force XYZ snap logic ---
+          const S = new THREE.Vector3(store.activeLineStart.x, store.activeLineStart.y, store.activeLineStart.z);
+          const invMatrix = new THREE.Matrix4().copy(meshRef.current.matrixWorld).invert();
+          const localRayOrigin = ray.origin.clone().applyMatrix4(invMatrix);
+          const localRayDir = ray.direction.clone().transformDirection(invMatrix).normalize();
 
-          // 3. Check auxiliary line extension endpoints for snapping
-          if (ml.isAuxiliary) {
-            const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
-            if (ml.extendBefore > 0) {
-              const extP1 = p1.clone().sub(dir.clone().multiplyScalar(ml.extendBefore));
-              checkSnapPoint(extP1, '延长线端点');
+          const axes = [
+            { dir: new THREE.Vector3(1, 0, 0), name: 'X轴' },
+            { dir: new THREE.Vector3(0, 1, 0), name: 'Y轴' },
+            { dir: new THREE.Vector3(0, 0, 1), name: 'Z轴' }
+          ];
+
+          let bestAxis = null;
+          let bestT = 0;
+          let minRayDist = Infinity;
+
+          axes.forEach(axis => {
+            const A = axis.dir;
+            const R = new THREE.Vector3().subVectors(localRayOrigin, S);
+            const b = localRayDir.dot(A);
+            const c = R.dot(localRayDir);
+            const d = R.dot(A);
+
+            let t = 0;
+            const denom = 1 - b * b;
+            if (Math.abs(denom) > 1e-6) {
+              t = (d - b * c) / denom;
+            } else {
+              t = d;
             }
-            if (ml.extendAfter > 0) {
-              const extP2 = p2.clone().add(dir.clone().multiplyScalar(ml.extendAfter));
-              checkSnapPoint(extP2, '延长线端点');
+
+            const u = b * t - c;
+            const P_axis = S.clone().add(A.clone().multiplyScalar(t));
+            const P_ray = localRayOrigin.clone().add(localRayDir.clone().multiplyScalar(u));
+
+            const dist = P_axis.distanceTo(P_ray);
+            if (dist < minRayDist) {
+              minRayDist = dist;
+              bestAxis = axis;
+              bestT = t;
+            }
+          });
+
+          if (bestAxis) {
+            const axisInfo = bestAxis as { dir: THREE.Vector3; name: string };
+            let finalT = bestT;
+            let alignedWithVertex = false;
+
+            const snapThreshold = 0.08;
+            for (let i = 0; i < snapPointsRef.current.length; i++) {
+              const sp = snapPointsRef.current[i].coord;
+              if (axisInfo.name === 'X轴') {
+                const targetX = sp.x;
+                if (Math.abs((S.x + finalT) - targetX) < snapThreshold) {
+                  finalT = targetX - S.x;
+                  alignedWithVertex = true;
+                  break;
+                }
+              } else if (axisInfo.name === 'Y轴') {
+                const targetY = sp.y;
+                if (Math.abs((S.y + finalT) - targetY) < snapThreshold) {
+                  finalT = targetY - S.y;
+                  alignedWithVertex = true;
+                  break;
+                }
+              } else if (axisInfo.name === 'Z轴') {
+                const targetZ = sp.z;
+                if (Math.abs((S.z + finalT) - targetZ) < snapThreshold) {
+                  finalT = targetZ - S.z;
+                  alignedWithVertex = true;
+                  break;
+                }
+              }
+            }
+
+            closestVertLocal.copy(S).add(axisInfo.dir.clone().multiplyScalar(finalT));
+            foundVertex = true;
+            matchedSnapLabel = alignedWithVertex 
+              ? `${axisInfo.name}对齐 (对齐顶点)` 
+              : `${axisInfo.name}对齐`;
+          }
+        } else {
+          // 1. Check original geometry snap points
+          for (let i = 0; i < snapPointsRef.current.length; i++) {
+            const sp = snapPointsRef.current[i];
+            checkSnapPoint(sp.coord, sp.label);
+          }
+          
+          // 2. Check dynamically drawn auxiliary lines
+          for (let i = 0; i < modelLinesStore.length; i++) {
+            const ml = modelLinesStore[i];
+            const p1 = new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z);
+            const p2 = new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z);
+            
+            // Create snap points on the drawn line
+            checkSnapPoint(p1, '顶点');
+            checkSnapPoint(p2, '顶点');
+            checkSnapPoint(p1.clone().lerp(p2, 0.25), '四分之一');
+            checkSnapPoint(p1.clone().lerp(p2, 0.75), '四分之一');
+            checkSnapPoint(p1.clone().lerp(p2, 1/3), '三分之一');
+            checkSnapPoint(p1.clone().lerp(p2, 2/3), '三分之一');
+            checkSnapPoint(p1.clone().lerp(p2, 0.5), '二分之一');
+
+            // 3. Check auxiliary line extension endpoints for snapping
+            if (ml.isAuxiliary) {
+              const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+              if (ml.extendBefore > 0) {
+                const extP1 = p1.clone().sub(dir.clone().multiplyScalar(ml.extendBefore));
+                checkSnapPoint(extP1, '延长线端点');
+              }
+              if (ml.extendAfter > 0) {
+                const extP2 = p2.clone().add(dir.clone().multiplyScalar(ml.extendAfter));
+                checkSnapPoint(extP2, '延长线端点');
+              }
             }
           }
-        }
 
-        // 4. Check line-line intersection points for snapping
-        const allLineSegments: [THREE.Vector3, THREE.Vector3][] = modelLinesStore.map(ml => [
-          new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z),
-          new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z),
-        ]);
-        for (let i = 0; i < allLineSegments.length; i++) {
-          for (let j = i + 1; j < allLineSegments.length; j++) {
-            const [a1, a2] = allLineSegments[i];
-            const [b1, b2] = allLineSegments[j];
-            // Compute closest point between two 3D line segments
-            const d1 = new THREE.Vector3().subVectors(a2, a1);
-            const d2 = new THREE.Vector3().subVectors(b2, b1);
-            const r = new THREE.Vector3().subVectors(a1, b1);
-            const a = d1.dot(d1);
-            const e = d2.dot(d2);
-            const f = d2.dot(r);
-            const denom = a * e - d1.dot(d2) * d1.dot(d2);
-            if (Math.abs(denom) > 1e-8) {
-              const b = d1.dot(d2);
-              const c = d1.dot(r);
-              let s = (b * f - c * e) / denom;
-              let t = (a * f - b * c) / denom;
-              s = Math.max(0, Math.min(1, s));
-              t = Math.max(0, Math.min(1, t));
-              const cp1 = a1.clone().add(d1.clone().multiplyScalar(s));
-              const cp2 = b1.clone().add(d2.clone().multiplyScalar(t));
-              if (cp1.distanceTo(cp2) < 0.05) {
-                checkSnapPoint(cp1.clone().add(cp2).multiplyScalar(0.5), '交点');
+          // 4. Check line-line intersection points for snapping
+          const allLineSegments: [THREE.Vector3, THREE.Vector3][] = modelLinesStore.map(ml => [
+            new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z),
+            new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z),
+          ]);
+          for (let i = 0; i < allLineSegments.length; i++) {
+            for (let j = i + 1; j < allLineSegments.length; j++) {
+              const [a1, a2] = allLineSegments[i];
+              const [b1, b2] = allLineSegments[j];
+              // Compute closest point between two 3D line segments
+              const d1 = new THREE.Vector3().subVectors(a2, a1);
+              const d2 = new THREE.Vector3().subVectors(b2, b1);
+              const r = new THREE.Vector3().subVectors(a1, b1);
+              const a = d1.dot(d1);
+              const e = d2.dot(d2);
+              const f = d2.dot(r);
+              const denom = a * e - d1.dot(d2) * d1.dot(d2);
+              if (Math.abs(denom) > 1e-8) {
+                const b = d1.dot(d2);
+                const c = d1.dot(r);
+                let s = (b * f - c * e) / denom;
+                let t = (a * f - b * c) / denom;
+                s = Math.max(0, Math.min(1, s));
+                t = Math.max(0, Math.min(1, t));
+                const cp1 = a1.clone().add(d1.clone().multiplyScalar(s));
+                const cp2 = b1.clone().add(d2.clone().multiplyScalar(t));
+                if (cp1.distanceTo(cp2) < 0.05) {
+                  checkSnapPoint(cp1.clone().add(cp2).multiplyScalar(0.5), '交点');
+                }
               }
             }
           }
@@ -508,7 +593,7 @@ export function MathModel() {
 
         // --- 智能几何推导吸附逻辑 (SolidWorks 风格) ---
         let inferenceMatch = null;
-        if (isLineDrawingActive && !isEraser && store.activeLineStart && !foundVertex) {
+        if (isLineDrawingActive && !isXYZDrawingActive && !isEraser && store.activeLineStart && !foundVertex) {
           const S = new THREE.Vector3(store.activeLineStart.x, store.activeLineStart.y, store.activeLineStart.z);
           
           let dist = 5; 
@@ -612,7 +697,7 @@ export function MathModel() {
           if (foundVertex) {
             const pt: Point3D = { x: closestVertLocal.x, y: closestVertLocal.y, z: closestVertLocal.z };
             if (store.activeLineStart) {
-              store.addModelLine(store.activeLineStart, pt);
+              store.addModelLine(store.activeLineStart, pt, isXYZDrawingActive);
               store.setActiveLineStart(null);
             } else {
               store.setActiveLineStart(pt);
@@ -989,6 +1074,7 @@ export function MathModel() {
     const canDrawOnSurface =
       penState.isPenActive &&
       !penState.isLineDrawingActive &&
+      !penState.isXYZDrawingActive &&
       !penState.isEraser &&
       rightHand.isVisible &&
       rightPinching &&
@@ -1377,6 +1463,45 @@ export function MathModel() {
               </Html>
             </group>
           )}
+
+          {/* XYZ Axis Guide Lines for XYZ mode */}
+          {isXYZDrawingActive && store.activeLineStart && (() => {
+            const S = new THREE.Vector3(store.activeLineStart.x, store.activeLineStart.y, store.activeLineStart.z);
+            return (
+              <group>
+                {/* X axis (Red) */}
+                <Line
+                  points={[[S.x - 15, S.y, S.z], [S.x + 15, S.y, S.z]]}
+                  color="#ef4444"
+                  lineWidth={1.5}
+                  dashed
+                  dashSize={0.15}
+                  gapSize={0.08}
+                  depthTest={false}
+                />
+                {/* Y axis (Green) */}
+                <Line
+                  points={[[S.x, S.y - 15, S.z], [S.x, S.y + 15, S.z]]}
+                  color="#10b981"
+                  lineWidth={1.5}
+                  dashed
+                  dashSize={0.15}
+                  gapSize={0.08}
+                  depthTest={false}
+                />
+                {/* Z axis (Blue) */}
+                <Line
+                  points={[[S.x, S.y, S.z - 15], [S.x, S.y, S.z + 15]]}
+                  color="#3b82f6"
+                  lineWidth={1.5}
+                  dashed
+                  dashSize={0.15}
+                  gapSize={0.08}
+                  depthTest={false}
+                />
+              </group>
+            );
+          })()}
 
           {/* Preview line - 使用稳定的 useMemo 对象避免每帧重建 */}
           <primitive object={previewLineObj} ref={previewLineRef as any} visible={false} />
