@@ -813,6 +813,14 @@ export function Calculator3D() {
     dir.position.set(10, 12, 8);
     dir.castShadow = true;
     dir.shadow.mapSize.set(1024, 1024);
+    dir.shadow.camera.left = -10;
+    dir.shadow.camera.right = 10;
+    dir.shadow.camera.top = 10;
+    dir.shadow.camera.bottom = -10;
+    dir.shadow.camera.near = 0.5;
+    dir.shadow.camera.far = 40;
+    dir.shadow.bias = -0.0005;
+    dir.shadow.normalBias = 0.03;
     scene.add(dir);
     const fill = new THREE.DirectionalLight(0x88aaff, 0.4);
     fill.position.set(-8, 5, -6);

@@ -39,6 +39,19 @@ export interface SurfaceStroke {
   thickness: number;
 }
 
+/**
+ * 辅助线/连线：支持延伸到模型外、长度标注等
+ */
+export interface AuxiliaryLine {
+  id: string;
+  p1: Point3D;
+  p2: Point3D;
+  isAuxiliary: boolean;   // true=辅助线(虚线,可延伸到模型外)
+  extendBefore: number;   // 向p1方向延伸的长度(局部坐标单位)
+  extendAfter: number;    // 向p2方向延伸的长度(局部坐标单位)
+  showLength: boolean;    // 是否显示长度标注
+}
+
 export interface PageData {
   id: string;
   whiteboardDataUrl: string | null;
@@ -75,9 +88,13 @@ interface ARState {
   interactMode: 'draw' | 'interact';
   
   isLineDrawingActive: boolean;
+  showAllLengths: boolean;         // 全局开关：显示所有线段长度
 
-  modelLines: Array<[Point3D, Point3D]>;
+  presetDimensions: Record<MathShape, Record<string, number>>;
+
+  modelLines: AuxiliaryLine[];
   activeLineStart: Point3D | null;
+  snappedPointInfo: string | null;
 
   // 写在模型表面的笔迹（局部坐标系，跟随模型变换）
   surfaceStrokes: SurfaceStroke[];
@@ -119,11 +136,17 @@ interface ARState {
   setInteractMode: (m: 'draw' | 'interact') => void;
   
   setLineDrawingActive: (a: boolean) => void;
+  toggleShowAllLengths: () => void;
+  updatePresetDimension: (shape: MathShape, key: string, value: number) => void;
 
   addModelLine: (p1: Point3D, p2: Point3D) => void;
   setActiveLineStart: (p: Point3D | null) => void;
   clearModelLines: () => void;
   removeModelLine: (index: number) => void;
+  updateLineExtension: (index: number, before: number, after: number) => void;
+  toggleLineLength: (index: number) => void;
+  toggleLineAuxiliary: (index: number) => void;
+  setSnappedPointInfo: (info: string | null) => void;
 
   // 模型表面笔迹
   beginSurfaceStroke: (color: string, thickness: number) => string;
@@ -176,9 +199,19 @@ export const useARStore = create<ARState>((set) => ({
   interactMode: 'draw',
   
   isLineDrawingActive: false,
+  showAllLengths: false,
+
+  presetDimensions: {
+    cube: { size: 10 },
+    sphere: { radius: 10 },
+    cylinder: { radius: 10, height: 20 },
+    cone: { radius: 10, height: 20 },
+    pyramid: { radius: 10 },
+  },
 
   modelLines: [],
   activeLineStart: null,
+  snappedPointInfo: null,
 
   surfaceStrokes: [],
   isWritingOnSurface: false,
@@ -232,14 +265,14 @@ export const useARStore = create<ARState>((set) => ({
 
     return { leftHand: nextLeftHand, rightHand: nextRightHand };
   }),
-  setActiveModel: (m) => set({ activeModel: m, activeCustomModelId: null, modelScale: 2.5, modelLines: [], activeLineStart: null, surfaceStrokes: [] }),
-  setActiveCustomModel: (id) => set({ activeCustomModelId: id, activeModel: null, modelScale: 2.5, modelLines: [], activeLineStart: null, surfaceStrokes: [] }),
+  setActiveModel: (m) => set({ activeModel: m, activeCustomModelId: null, modelScale: 2.5, modelLines: [] as AuxiliaryLine[], activeLineStart: null, surfaceStrokes: [] }),
+  setActiveCustomModel: (id) => set({ activeCustomModelId: id, activeModel: null, modelScale: 2.5, modelLines: [] as AuxiliaryLine[], activeLineStart: null, surfaceStrokes: [] }),
   addCustomModel: (model) => set((state) => ({
     customModels: [...state.customModels, model],
     activeCustomModelId: model.id,
     activeModel: null,
     modelScale: 2.5,
-    modelLines: [],
+    modelLines: [] as AuxiliaryLine[],
     activeLineStart: null,
     surfaceStrokes: [],
   })),
@@ -270,11 +303,42 @@ export const useARStore = create<ARState>((set) => ({
     ? { isLineDrawingActive: true, isPenActive: false }
     : { isLineDrawingActive: false }
   ),
+  toggleShowAllLengths: () => set((state) => ({ showAllLengths: !state.showAllLengths })),
+  
+  updatePresetDimension: (shape, key, value) => set((state) => ({
+    presetDimensions: {
+      ...state.presetDimensions,
+      [shape]: {
+        ...state.presetDimensions[shape],
+        [key]: value
+      }
+    }
+  })),
 
-  addModelLine: (p1, p2) => set((state) => ({ modelLines: [...state.modelLines, [p1, p2]] })),
+  addModelLine: (p1, p2) => set((state) => {
+    const line: AuxiliaryLine = {
+      id: `ml_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+      p1, p2,
+      isAuxiliary: false,
+      extendBefore: 0,
+      extendAfter: 0,
+      showLength: true,
+    };
+    return { modelLines: [...state.modelLines, line] };
+  }),
   setActiveLineStart: (p) => set({ activeLineStart: p }),
-  clearModelLines: () => set({ modelLines: [], activeLineStart: null }),
+  clearModelLines: () => set({ modelLines: [] as AuxiliaryLine[], activeLineStart: null }),
   removeModelLine: (index) => set((state) => ({ modelLines: state.modelLines.filter((_, i) => i !== index) })),
+  updateLineExtension: (index, before, after) => set((state) => ({
+    modelLines: state.modelLines.map((l, i) => i === index ? { ...l, extendBefore: before, extendAfter: after } : l),
+  })),
+  toggleLineLength: (index) => set((state) => ({
+    modelLines: state.modelLines.map((l, i) => i === index ? { ...l, showLength: !l.showLength } : l),
+  })),
+  toggleLineAuxiliary: (index) => set((state) => ({
+    modelLines: state.modelLines.map((l, i) => i === index ? { ...l, isAuxiliary: !l.isAuxiliary } : l),
+  })),
+  setSnappedPointInfo: (info) => set({ snappedPointInfo: info }),
 
   beginSurfaceStroke: (color, thickness) => {
     const id = `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;

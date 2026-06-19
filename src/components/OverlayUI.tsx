@@ -276,7 +276,7 @@ export function OverlayUI() {
             <DockButton 
               active={activeModel !== null || activeCustomModelId !== null} 
               onClick={() => handleTabClick('model')}
-              label="3D Models"
+              label="3D 模型"
             >
               <Cuboid className="w-10 h-10" />
             </DockButton>
@@ -286,7 +286,7 @@ export function OverlayUI() {
             <DockButton 
               active={isPenActive || isLineDrawingActive} 
               onClick={() => handleTabClick('pen')}
-              label="Drawing Pen"
+              label="画笔工具"
             >
               <PenTool className="w-10 h-10" />
             </DockButton>
@@ -303,19 +303,19 @@ export function OverlayUI() {
       >
         <div className="flex items-center bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[3rem] p-3 gap-3">
           {/* 预设模型按钮 */}
-          <DockButton active={activeModel === 'cube'} onClick={() => handleModelSelect('cube')} label="Cube">
+          <DockButton active={activeModel === 'cube'} onClick={() => handleModelSelect('cube')} label="正方体">
             <Box className="w-8 h-8" />
           </DockButton>
-          <DockButton active={activeModel === 'sphere'} onClick={() => handleModelSelect('sphere')} label="Sphere">
+          <DockButton active={activeModel === 'sphere'} onClick={() => handleModelSelect('sphere')} label="球体">
             <Circle className="w-8 h-8" />
           </DockButton>
-          <DockButton active={activeModel === 'cylinder'} onClick={() => handleModelSelect('cylinder')} label="Cylinder">
+          <DockButton active={activeModel === 'cylinder'} onClick={() => handleModelSelect('cylinder')} label="圆柱体">
             <Cylinder className="w-8 h-8" />
           </DockButton>
-          <DockButton active={activeModel === 'cone'} onClick={() => handleModelSelect('cone')} label="Cone">
+          <DockButton active={activeModel === 'cone'} onClick={() => handleModelSelect('cone')} label="圆锥体">
             <Cone className="w-8 h-8" />
           </DockButton>
-          <DockButton active={activeModel === 'pyramid'} onClick={() => handleModelSelect('pyramid')} label="Pyramid">
+          <DockButton active={activeModel === 'pyramid'} onClick={() => handleModelSelect('pyramid')} label="棱锥体">
             <Triangle className="w-8 h-8" />
           </DockButton>
 
@@ -419,12 +419,14 @@ export function OverlayUI() {
                   if (!isLineDrawingActive && isEraser) setIsEraser(false);
                 }}
                 className={cn(
-                  "p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
+                  "relative group p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
                   isLineDrawingActive ? "bg-cyan-500/20 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.2)]" : "text-white/60 hover:bg-white/10"
                 )}
-                title="Toggle 3D Line Drawing"
               >
                 <Network className="w-8 h-8" />
+                <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                  3D 连线绘制
+                </span>
               </button>
 
               <div className="w-px h-8 bg-white/10 mx-2 rounded-full" />
@@ -435,11 +437,14 @@ export function OverlayUI() {
                   if (!isEraser && isLineDrawingActive) setLineDrawingActive(false);
                 }}
                 className={cn(
-                  "p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
+                  "relative group p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
                   isEraser ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.2)]" : "text-white/60 hover:bg-white/10"
                 )}
               >
                 <Eraser className="w-8 h-8" />
+                <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                  橡皮擦
+                </span>
               </button>
               <button 
                 onClick={() => {
@@ -448,10 +453,12 @@ export function OverlayUI() {
                   useARStore.getState().clearModelLines();
                   useARStore.getState().clearSurfaceStrokes();
                 }}
-                className="p-4 rounded-full text-white/60 hover:bg-red-500/20 hover:text-red-400 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90"
-                title="Clear Everything"
+                className="relative group p-4 rounded-full text-white/60 hover:bg-red-500/20 hover:text-red-400 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90"
               >
                 <Trash2 className="w-8 h-8" />
+                <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                  清空全部
+                </span>
               </button>
             </div>
           </div>
@@ -512,12 +519,15 @@ function DockButton({ children, active, onClick, label }: { children: React.Reac
         "relative group p-6 rounded-full transition-all duration-300 ease-out",
         active ? "bg-white/15 text-white" : "text-white/50 hover:bg-white/5 hover:text-white/90"
       )}
-      title={label}
     >
       {children}
       {active && (
         <span className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_10px_white]" />
       )}
+      {/* Custom Tooltip */}
+      <span className="absolute -top-12 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+        {label}
+      </span>
     </button>
   );
 }

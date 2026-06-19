@@ -2,8 +2,9 @@ import { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Box, Sphere, Cylinder, Cone, Tetrahedron, Edges, Line, Text, Billboard, Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { useARStore, Point3D, CustomModel, MathShape } from '../store';
+import { useARStore, Point3D, CustomModel, MathShape, AuxiliaryLine } from '../store';
 import { triangulateFaces } from '../lib/geometry';
+import { LineLengthLabel, PRESET_EDGE_DEFS } from './LineLengthLabel';
 import {
   ROTATION_TUNING,
   smoothingAlpha,
@@ -81,7 +82,7 @@ function VertexLabels({ vertices }: { vertices: { label: string; x: number; y: n
         // 让字母朝着偏离中心的方向向外延伸，而不是全部往上（+y）偏移
         // 这样底部的点字母会往下，侧面的点会往侧面，避免和模型重叠
         const len = Math.sqrt(v.x * v.x + v.y * v.y + v.z * v.z) || 1;
-        const offset = 0.15; // 偏移距离
+        const offset = 0.22; // 偏移距离
         const posX = v.x + (v.x / len) * offset;
         const posY = v.y + (v.y / len) * offset;
         const posZ = v.z + (v.z / len) * offset;
@@ -96,7 +97,7 @@ function VertexLabels({ vertices }: { vertices: { label: string; x: number; y: n
             <div
               style={{
                 color: 'rgba(255, 255, 255, 0.95)',
-                fontSize: '18px',
+                fontSize: '26px',
                 fontWeight: '600',
                 fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"',
                 pointerEvents: 'none',
@@ -195,10 +196,24 @@ export function MathModel() {
   const [selectedLineIndex, setSelectedLineIndex] = useState<number | null>(null);
   const prevHovered = useRef<number | null>(null);
 
+  // Smart inference snapping states & refs (SolidWorks style)
+  const [inferenceActive, setInferenceActive] = useState<{
+    start: THREE.Vector3;
+    dir: THREE.Vector3;
+    type: 'parallel' | 'perpendicular' | 'axis';
+    refName: string;
+  } | null>(null);
+  const prevInferenceRef = useRef<any>(null);
+  const inferenceTargetGroupRef = useRef<THREE.Group>(null);
+
   const grabOffset = useRef(new THREE.Vector3());
   const prevPinchDist = useRef<number | null>(null);
   const prevPinchAngle = useRef<number | null>(null);
   const prevPinchCenter = useRef<THREE.Vector2 | null>(null);
+  
+  // Extension dragging state
+  const draggingExtRef = useRef<{ index: number, type: 'before'|'after', p1: THREE.Vector3, p2: THREE.Vector3, initHitDist: number, initialExt: number } | null>(null);
+
   const targetQuaternion = useRef(new THREE.Quaternion());
 
   // 一阶低通滤波后的光标(NDC)，用来吃掉 MediaPipe 的微抖动
@@ -223,11 +238,33 @@ export function MathModel() {
   // 上一次写到模型表面的局部坐标（用来做距离阈值判断，避免点过密）
   const lastSurfacePoint = useRef<THREE.Vector3 | null>(null);
 
-  const { camera, raycaster } = useThree();
   const activeModel = useARStore(state => state.activeModel);
   const activeCustomModelId = useARStore(state => state.activeCustomModelId);
   const customModels = useARStore(state => state.customModels);
-  const snapPointsRef = useRef<THREE.Vector3[]>([]);
+  const presetDimensions = useARStore(state => state.presetDimensions);
+  const snapPointsRef = useRef<{ coord: THREE.Vector3; label: string }[]>([]);
+  const { camera, raycaster } = useThree();
+
+  const logicalScale = useMemo(() => {
+    const scale = new THREE.Vector3(1, 1, 1);
+    if (!activeModel) return scale;
+    const dims = presetDimensions[activeModel] as any;
+    if (activeModel === 'cube') {
+      const r = (dims.size || 1) / 1.2;
+      scale.set(r, r, r);
+    } else if (activeModel === 'sphere') {
+      const r = (dims.radius || 1) / 0.8;
+      scale.set(r, r, r);
+    } else if (activeModel === 'cylinder') {
+      scale.set((dims.radius || 1) / 0.6, (dims.height || 1) / 1.6, (dims.radius || 1) / 0.6);
+    } else if (activeModel === 'cone') {
+      scale.set((dims.radius || 1) / 0.8, (dims.height || 1) / 1.5, (dims.radius || 1) / 0.8);
+    } else if (activeModel === 'pyramid') {
+      const r = (dims.radius || 1) / 1.2;
+      scale.set(r, r, r);
+    }
+    return scale;
+  }, [activeModel, presetDimensions]);
 
   // 稳定的 preview line 对象（避免每次渲染创建新对象）
   const previewLineObj = useMemo(() => {
@@ -263,32 +300,34 @@ export function MathModel() {
     try {
         const edgeGeom = new THREE.EdgesGeometry(geom, activeModel === 'sphere' ? 15 : 45);
         const pos = edgeGeom.attributes.position;
-        const points: THREE.Vector3[] = [];
+        const points: { coord: THREE.Vector3; label: string }[] = [];
         
         if (pos) {
           for (let i = 0; i < pos.count; i += 2) {
             const p1 = new THREE.Vector3().fromBufferAttribute(pos as THREE.BufferAttribute, i);
             const p2 = new THREE.Vector3().fromBufferAttribute(pos as THREE.BufferAttribute, i + 1);
             
-            points.push(p1);
-            points.push(p2);
-            points.push(p1.clone().lerp(p2, 1/3));
-            points.push(p1.clone().lerp(p2, 0.5));
-            points.push(p1.clone().lerp(p2, 2/3));
+            points.push({ coord: p1, label: '顶点' });
+            points.push({ coord: p2, label: '顶点' });
+            points.push({ coord: p1.clone().lerp(p2, 0.25), label: '四分之一' });
+            points.push({ coord: p1.clone().lerp(p2, 0.75), label: '四分之一' });
+            points.push({ coord: p1.clone().lerp(p2, 1/3), label: '三分之一' });
+            points.push({ coord: p1.clone().lerp(p2, 2/3), label: '三分之一' });
+            points.push({ coord: p1.clone().lerp(p2, 0.5), label: '二分之一' });
           }
         }
 
         const origPos = geom.attributes.position;
         if (origPos) {
           for (let i = 0; i < origPos.count; i++) {
-              points.push(new THREE.Vector3().fromBufferAttribute(origPos as THREE.BufferAttribute, i));
+              points.push({ coord: new THREE.Vector3().fromBufferAttribute(origPos as THREE.BufferAttribute, i), label: '顶点' });
           }
         }
         
         // Remove duplicates
-        const uniquePoints: THREE.Vector3[] = [];
+        const uniquePoints: { coord: THREE.Vector3; label: string }[] = [];
         points.forEach(p => {
-          if (!uniquePoints.some(up => up.distanceToSquared(p) < 0.001)) {
+          if (!uniquePoints.some(up => up.coord.distanceToSquared(p.coord) < 0.001)) {
             uniquePoints.push(p);
           }
         });
@@ -303,7 +342,8 @@ export function MathModel() {
   const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
 
   useFrame((state, delta) => {
-    const { leftHand, rightHand, modelScale, activeTab } = useARStore.getState();
+    const store = useARStore.getState();
+    const { leftHand, rightHand, modelScale, activeTab } = store;
 
     // Scale smoothing: 帧率无关的指数逼近(基于半衰期)
     if (groupRef.current) {
@@ -327,9 +367,9 @@ export function MathModel() {
     let foundVertex = false;
     let closestVertLocal = new THREE.Vector3();
 
-    const isEraser = useARStore.getState().isEraser;
-    const isLineDrawingActive = useARStore.getState().isLineDrawingActive;
-    const modelLinesStore = useARStore.getState().modelLines;
+    const isEraser = store.isEraser;
+    const isLineDrawingActive = store.isLineDrawingActive;
+    const modelLinesStore = store.modelLines;
 
     // Only allow vertex connection if line drawing is active and not erasing
     if (isLineDrawingActive && !isEraser && rightHand.isVisible && !leftPinching) {
@@ -340,10 +380,38 @@ export function MathModel() {
         meshRef.current.updateMatrixWorld();
         const geom = (meshRef.current as any).geometry as THREE.BufferGeometry;
         const posAttr = geom.attributes.position;
+
+        // Calculate fallback coordinate projected onto a billboard plane facing the camera.
+        // If drawing a line, use the starting point depth; otherwise, use the model origin depth.
+        const billboardPlane = new THREE.Plane();
+        const planeNormal = new THREE.Vector3();
+        camera.getWorldDirection(planeNormal);
+        planeNormal.negate(); // Face the camera
+
+        const refPointLocal = new THREE.Vector3(0, 0, 0);
+        if (store.activeLineStart) {
+          refPointLocal.set(store.activeLineStart.x, store.activeLineStart.y, store.activeLineStart.z);
+        }
+        const refPointWorld = refPointLocal.clone().applyMatrix4(meshRef.current.matrixWorld);
+        billboardPlane.setFromNormalAndCoplanarPoint(planeNormal, refPointWorld);
+
+        const fallbackLocal = new THREE.Vector3();
+        const intersectWorld = new THREE.Vector3();
+        if (ray.intersectPlane(billboardPlane, intersectWorld)) {
+          const invMatrix = new THREE.Matrix4().copy(meshRef.current.matrixWorld).invert();
+          fallbackLocal.copy(intersectWorld).applyMatrix4(invMatrix);
+        } else {
+          let dist = 5;
+          if (groupRef.current) dist = groupRef.current.position.distanceTo(camera.position);
+          const cursorPtWorld = ray.at(dist, new THREE.Vector3());
+          const invMatrix = new THREE.Matrix4().copy(meshRef.current.matrixWorld).invert();
+          fallbackLocal.copy(cursorPtWorld).applyMatrix4(invMatrix);
+        }
         
         let closestDistSq = Infinity;
+        let matchedSnapLabel: string | null = null;
         
-        const checkSnapPoint = (vLocal: THREE.Vector3) => {
+        const checkSnapPoint = (vLocal: THREE.Vector3, typeLabel: string) => {
           const vWorld = vLocal.clone().applyMatrix4(meshRef.current!.matrixWorld);
           
           // To ensure we don't snap to vertices behind the camera
@@ -364,25 +432,161 @@ export function MathModel() {
             closestDistSq = distSq;
             closestVertLocal.copy(vLocal);
             foundVertex = true;
+            matchedSnapLabel = typeLabel;
           }
         };
 
         // 1. Check original geometry snap points
         for (let i = 0; i < snapPointsRef.current.length; i++) {
-          checkSnapPoint(snapPointsRef.current[i]);
+          const sp = snapPointsRef.current[i];
+          checkSnapPoint(sp.coord, sp.label);
         }
         
         // 2. Check dynamically drawn auxiliary lines
         for (let i = 0; i < modelLinesStore.length; i++) {
-          const p1 = new THREE.Vector3(modelLinesStore[i][0].x, modelLinesStore[i][0].y, modelLinesStore[i][0].z);
-          const p2 = new THREE.Vector3(modelLinesStore[i][1].x, modelLinesStore[i][1].y, modelLinesStore[i][1].z);
+          const ml = modelLinesStore[i];
+          const p1 = new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z);
+          const p2 = new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z);
           
-          // Create snap points on the drawn line (start, end, 1/3, 1/2, 2/3)
-          checkSnapPoint(p1);
-          checkSnapPoint(p2);
-          checkSnapPoint(p1.clone().lerp(p2, 1/3));
-          checkSnapPoint(p1.clone().lerp(p2, 0.5));
-          checkSnapPoint(p1.clone().lerp(p2, 2/3));
+          // Create snap points on the drawn line
+          checkSnapPoint(p1, '顶点');
+          checkSnapPoint(p2, '顶点');
+          checkSnapPoint(p1.clone().lerp(p2, 0.25), '四分之一');
+          checkSnapPoint(p1.clone().lerp(p2, 0.75), '四分之一');
+          checkSnapPoint(p1.clone().lerp(p2, 1/3), '三分之一');
+          checkSnapPoint(p1.clone().lerp(p2, 2/3), '三分之一');
+          checkSnapPoint(p1.clone().lerp(p2, 0.5), '二分之一');
+
+          // 3. Check auxiliary line extension endpoints for snapping
+          if (ml.isAuxiliary) {
+            const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+            if (ml.extendBefore > 0) {
+              const extP1 = p1.clone().sub(dir.clone().multiplyScalar(ml.extendBefore));
+              checkSnapPoint(extP1, '延长线端点');
+            }
+            if (ml.extendAfter > 0) {
+              const extP2 = p2.clone().add(dir.clone().multiplyScalar(ml.extendAfter));
+              checkSnapPoint(extP2, '延长线端点');
+            }
+          }
+        }
+
+        // 4. Check line-line intersection points for snapping
+        const allLineSegments: [THREE.Vector3, THREE.Vector3][] = modelLinesStore.map(ml => [
+          new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z),
+          new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z),
+        ]);
+        for (let i = 0; i < allLineSegments.length; i++) {
+          for (let j = i + 1; j < allLineSegments.length; j++) {
+            const [a1, a2] = allLineSegments[i];
+            const [b1, b2] = allLineSegments[j];
+            // Compute closest point between two 3D line segments
+            const d1 = new THREE.Vector3().subVectors(a2, a1);
+            const d2 = new THREE.Vector3().subVectors(b2, b1);
+            const r = new THREE.Vector3().subVectors(a1, b1);
+            const a = d1.dot(d1);
+            const e = d2.dot(d2);
+            const f = d2.dot(r);
+            const denom = a * e - d1.dot(d2) * d1.dot(d2);
+            if (Math.abs(denom) > 1e-8) {
+              const b = d1.dot(d2);
+              const c = d1.dot(r);
+              let s = (b * f - c * e) / denom;
+              let t = (a * f - b * c) / denom;
+              s = Math.max(0, Math.min(1, s));
+              t = Math.max(0, Math.min(1, t));
+              const cp1 = a1.clone().add(d1.clone().multiplyScalar(s));
+              const cp2 = b1.clone().add(d2.clone().multiplyScalar(t));
+              if (cp1.distanceTo(cp2) < 0.05) {
+                checkSnapPoint(cp1.clone().add(cp2).multiplyScalar(0.5), '交点');
+              }
+            }
+          }
+        }
+
+
+
+        // --- 智能几何推导吸附逻辑 (SolidWorks 风格) ---
+        let inferenceMatch = null;
+        if (isLineDrawingActive && !isEraser && store.activeLineStart && !foundVertex) {
+          const S = new THREE.Vector3(store.activeLineStart.x, store.activeLineStart.y, store.activeLineStart.z);
+          
+          let dist = 5; 
+          if (groupRef.current) dist = groupRef.current.position.distanceTo(camera.position);
+          const cursorPtWorld = ray.at(dist, new THREE.Vector3());
+          const cursorPtLocal = groupRef.current ? groupRef.current.worldToLocal(cursorPtWorld.clone()) : cursorPtWorld.clone();
+          
+          const vCur = new THREE.Vector3().subVectors(cursorPtLocal, S);
+          const lenCur = vCur.length();
+          
+          if (lenCur > 0.18) { // 限制最小长度，避免起点附近剧烈跳变，提升手势画线操控感
+            const dCur = vCur.clone().normalize();
+            const SNAP_THRESHOLD = 0.9975; // 约 4 度以内才吸附，避免磁吸感过强
+            
+            // 寻找最佳匹配方向 (仅允许 local X, Y, Z 轴向，对应起点所在面的法向/切向相对关系)
+            let bestDot = 0;
+            let bestRay: { dir: THREE.Vector3; type: 'axis'; refName: string } | null = null;
+            
+            // A. 测试坐标轴对齐
+            const axes = [
+              { dir: new THREE.Vector3(1, 0, 0), name: 'X轴' },
+              { dir: new THREE.Vector3(0, 1, 0), name: 'Y轴' },
+              { dir: new THREE.Vector3(0, 0, 1), name: 'Z轴' }
+            ];
+            axes.forEach(axis => {
+              const dotVal = dCur.dot(axis.dir);
+              const absDot = Math.abs(dotVal);
+              if (absDot > SNAP_THRESHOLD && absDot > bestDot) {
+                bestDot = absDot;
+                bestRay = {
+                  dir: axis.dir.clone().multiplyScalar(Math.sign(dotVal)),
+                  type: 'axis',
+                  refName: axis.name
+                };
+              }
+            });
+            
+            if (bestRay) {
+              const rayInfo = bestRay as { dir: THREE.Vector3; type: 'axis'; refName: string };
+              const projLen = vCur.dot(rayInfo.dir);
+              closestVertLocal.copy(S).add(rayInfo.dir.clone().multiplyScalar(projLen));
+              foundVertex = true;
+              matchedSnapLabel = `${rayInfo.refName}正交`;
+              
+              inferenceMatch = {
+                start: S.clone(),
+                dir: rayInfo.dir.clone(),
+                type: rayInfo.type,
+                refName: rayInfo.refName
+              };
+            }
+          }
+        }
+        
+        const hasChanged = (inferenceMatch === null && prevInferenceRef.current !== null) ||
+                           (inferenceMatch !== null && prevInferenceRef.current === null) ||
+                           (inferenceMatch !== null && prevInferenceRef.current !== null && (
+                             inferenceMatch.refName !== prevInferenceRef.current.refName ||
+                             inferenceMatch.type !== prevInferenceRef.current.type
+                           ));
+        if (hasChanged) {
+          prevInferenceRef.current = inferenceMatch;
+          setInferenceActive(inferenceMatch);
+        }
+        
+        if (inferenceMatch && inferenceTargetGroupRef.current) {
+          inferenceTargetGroupRef.current.position.copy(closestVertLocal);
+        }
+
+        if (!foundVertex) {
+          closestVertLocal.copy(fallbackLocal);
+        }
+
+        // Update snap point info to Zustand store
+        if (foundVertex && matchedSnapLabel) {
+          store.setSnappedPointInfo(matchedSnapLabel);
+        } else {
+          store.setSnappedPointInfo(null);
         }
 
         if (foundVertex) {
@@ -402,10 +606,11 @@ export function MathModel() {
                material.color.setHex(0xfacc15); // Yellow hover highlight
             }
           }
+        }
 
-          if (rightPinching && !prevRightPinch.current) {
+        if (rightPinching && !prevRightPinch.current) {
+          if (foundVertex) {
             const pt: Point3D = { x: closestVertLocal.x, y: closestVertLocal.y, z: closestVertLocal.z };
-            const store = useARStore.getState();
             if (store.activeLineStart) {
               store.addModelLine(store.activeLineStart, pt);
               store.setActiveLineStart(null);
@@ -417,25 +622,13 @@ export function MathModel() {
       }
 
       // Handle Preview Line
-      const store = useARStore.getState();
       if (store.activeLineStart && previewLineRef.current) {
          const start = store.activeLineStart;
          const lineGeom = previewLineRef.current.geometry;
          const pos = lineGeom.attributes.position.array as Float32Array;
          if (pos) {
            pos[0] = start.x; pos[1] = start.y; pos[2] = start.z;
-           
-           if (foundVertex) {
-             pos[3] = closestVertLocal.x; pos[4] = closestVertLocal.y; pos[5] = closestVertLocal.z;
-           } else {
-             let dist = 5; 
-             if (groupRef.current) dist = groupRef.current.position.distanceTo(camera.position);
-             const cursorPtWorld = ray.at(dist, new THREE.Vector3());
-             let cursorPtLocal = cursorPtWorld;
-             if (groupRef.current) cursorPtLocal = groupRef.current.worldToLocal(cursorPtWorld);
-             
-             pos[3] = cursorPtLocal.x; pos[4] = cursorPtLocal.y; pos[5] = cursorPtLocal.z;
-           }
+           pos[3] = closestVertLocal.x; pos[4] = closestVertLocal.y; pos[5] = closestVertLocal.z;
            
            lineGeom.attributes.position.needsUpdate = true;
            previewLineRef.current.visible = true;
@@ -460,8 +653,8 @@ export function MathModel() {
         
         for (let i = 0; i < modelLinesStore.length; i++) {
           const line = modelLinesStore[i];
-          const p1Local = new THREE.Vector3(line[0].x, line[0].y, line[0].z);
-          const p2Local = new THREE.Vector3(line[1].x, line[1].y, line[1].z);
+          const p1Local = new THREE.Vector3(line.p1.x, line.p1.y, line.p1.z);
+          const p2Local = new THREE.Vector3(line.p2.x, line.p2.y, line.p2.z);
           
           const p1World = p1Local.clone().applyMatrix4(groupRef.current.matrixWorld);
           const p2World = p2Local.clone().applyMatrix4(groupRef.current.matrixWorld);
@@ -634,30 +827,94 @@ export function MathModel() {
       if (leftPinching && !rightPinching) {
         raycaster.setFromCamera(leftHand.cursor, camera);
         
-        if (!isGrabbed && !isRotating) {
-          // Attempt to grab
-          let hitModel = false;
-          if (meshRef.current) {
-            const hits = raycaster.intersectObject(meshRef.current);
-            if (hits.length > 0) {
-              setIsGrabbed(true);
-              const hitPoint = hits[0].point;
-              grabOffset.current.copy(groupRef.current!.position).sub(hitPoint);
-              // 锁定初始抓取深度的 Z 坐标值，避免基准面漂移导致"橡皮筋"迟滞感
-              dragPlaneZ.current = hitPoint.z;
-              hitModel = true;
+        if (!isGrabbed && !isRotating && !draggingExtRef.current) {
+          // Attempt to grab extension points first
+          let hitExt = false;
+          if (groupRef.current) {
+            const extHits = raycaster.intersectObjects(groupRef.current.children, true).filter(hit => hit.object.name && hit.object.name.startsWith('ext-'));
+            if (extHits.length > 0) {
+              const name = extHits[0].object.name; // ext-<idx>-before
+              const parts = name.split('-');
+              const idx = parseInt(parts[1]);
+              const type = parts[2] as 'before' | 'after';
+              const line = useARStore.getState().modelLines[idx];
+              if (line) {
+                const p1 = new THREE.Vector3(line.p1.x, line.p1.y, line.p1.z);
+                const p2 = new THREE.Vector3(line.p2.x, line.p2.y, line.p2.z);
+                const lineDir = new THREE.Vector3().subVectors(p2, p1).normalize();
+                
+                const localHit = groupRef.current.worldToLocal(extHits[0].point.clone());
+                const vec = new THREE.Vector3().subVectors(localHit, type === 'before' ? p1 : p2);
+                const hitDist = type === 'before' ? -vec.dot(lineDir) : vec.dot(lineDir);
+
+                draggingExtRef.current = {
+                  index: idx, type, p1, p2, initHitDist: hitDist,
+                  initialExt: type === 'before' ? line.extendBefore : line.extendAfter
+                };
+                dragPlaneZ.current = extHits[0].point.z;
+                hitExt = true;
+              }
             }
           }
-          if (!hitModel) {
-            // 捏在模型之外的空白区域：启动 Arcball 单手旋转
-            setIsRotating(true);
-            prevRotateCursor.current = leftHand.cursor.clone();
-            // 重置左手滤波器，以光标当前位置为起点
-            smoothLeft.current.x = leftHand.cursor.x;
-            smoothLeft.current.y = leftHand.cursor.y;
-            smoothLeft.current.valid = true;
-            leftXFilter.current.inited = false;
-            leftYFilter.current.inited = false;
+
+          if (!hitExt) {
+            // Attempt to grab model
+            let hitModel = false;
+            if (meshRef.current) {
+              const hits = raycaster.intersectObject(meshRef.current);
+              if (hits.length > 0) {
+                setIsGrabbed(true);
+                const hitPoint = hits[0].point;
+                grabOffset.current.copy(groupRef.current!.position).sub(hitPoint);
+                // 锁定初始抓取深度的 Z 坐标值，避免基准面漂移导致"橡皮筋"迟滞感
+                dragPlaneZ.current = hitPoint.z;
+                hitModel = true;
+              }
+            }
+            if (!hitModel) {
+              // 捏在模型之外的空白区域：启动 Arcball 单手旋转
+              setIsRotating(true);
+              prevRotateCursor.current = leftHand.cursor.clone();
+              // 重置左手滤波器，以光标当前位置为起点
+              smoothLeft.current.x = leftHand.cursor.x;
+              smoothLeft.current.y = leftHand.cursor.y;
+              smoothLeft.current.valid = true;
+              leftXFilter.current.inited = false;
+              leftYFilter.current.inited = false;
+            }
+          }
+        } else if (draggingExtRef.current) {
+          // Drag extension
+          const extInfo = draggingExtRef.current;
+          raycaster.setFromCamera(leftHand.cursor, camera);
+          dragPlane.setFromNormalAndCoplanarPoint(
+            new THREE.Vector3(0, 0, 1), 
+            new THREE.Vector3(0, 0, dragPlaneZ.current)
+          );
+          const targetPos = new THREE.Vector3();
+          raycaster.ray.intersectPlane(dragPlane, targetPos);
+          if (targetPos && groupRef.current) {
+             groupRef.current.worldToLocal(targetPos);
+             const lineDir = new THREE.Vector3().subVectors(extInfo.p2, extInfo.p1).normalize();
+             let rawDist = 0;
+             if (extInfo.type === 'before') {
+                 const vec = new THREE.Vector3().subVectors(targetPos, extInfo.p1);
+                 rawDist = -vec.dot(lineDir);
+             } else {
+                 const vec = new THREE.Vector3().subVectors(targetPos, extInfo.p2);
+                 rawDist = vec.dot(lineDir);
+             }
+             const deltaDist = rawDist - extInfo.initHitDist;
+             const newExt = Math.max(0, extInfo.initialExt + deltaDist);
+             
+             const line = useARStore.getState().modelLines[extInfo.index];
+             if (line) {
+                 useARStore.getState().updateLineExtension(
+                     extInfo.index,
+                     extInfo.type === 'before' ? newExt : line.extendBefore,
+                     extInfo.type === 'after' ? newExt : line.extendAfter
+                 );
+             }
           }
         } else if (isGrabbed) {
           // 抓取模型平移：使用锁定的固定 Z 轴深度投影面进行计算
@@ -705,6 +962,7 @@ export function MathModel() {
         // 松开左手：清空单手交互状态
         setIsGrabbed(false);
         setIsRotating(false);
+        draggingExtRef.current = null;
         prevRotateCursor.current = null;
         // 同步重置左手滤波器，下次进入交互时重新从当前位置初始化
         leftXFilter.current.inited = false;
@@ -796,7 +1054,7 @@ export function MathModel() {
         useARStore.getState().setWritingOnSurface(false);
       }
     } else if (useARStore.getState().isWritingOnSurface) {
-      // 不在写表面也不在画 stroke，保险起见清旗
+
       useARStore.getState().setWritingOnSurface(false);
     }
   });
@@ -805,9 +1063,40 @@ export function MathModel() {
   const modelLines = useARStore(state => state.modelLines);
   const activeLineStart = useARStore(state => state.activeLineStart);
   const surfaceStrokes = useARStore(state => state.surfaceStrokes);
+  const showAllLengths = useARStore(state => state.showAllLengths);
 
   // 获取当前预设模型的顶点标签
   const presetLabels = activeModel ? (PRESET_VERTEX_LABELS[activeModel] || []) : [];
+
+  // 预设模型棱边长度标注数据
+  const presetEdgeLabels = useMemo(() => {
+    if (!activeModel || !showAllLengths) return [];
+    const edges = PRESET_EDGE_DEFS[activeModel];
+    const vertices = PRESET_VERTEX_LABELS[activeModel];
+    if (!edges || !vertices) return [];
+    return edges.map(([i, j]) => {
+      const v1 = vertices[i];
+      const v2 = vertices[j];
+      const p1 = new THREE.Vector3(v1.x, v1.y, v1.z);
+      const p2 = new THREE.Vector3(v2.x, v2.y, v2.z);
+      const label = p1.clone().multiply(logicalScale).distanceTo(p2.clone().multiply(logicalScale)).toFixed(0);
+      return { p1, p2, label, key: `${v1.label}-${v2.label}` };
+    });
+  }, [activeModel, showAllLengths, logicalScale]);
+
+  // 自定义模型棱边长度标注数据
+  const customEdgeLabels = useMemo(() => {
+    if (!activeCustomModel || !showAllLengths) return [];
+    return activeCustomModel.edges.map((edge, idx) => {
+      const v1 = activeCustomModel.vertices[edge[0]];
+      const v2 = activeCustomModel.vertices[edge[1]];
+      if (!v1 || !v2) return null;
+      const p1 = new THREE.Vector3(v1.x, v1.y, v1.z);
+      const p2 = new THREE.Vector3(v2.x, v2.y, v2.z);
+      const label = p1.clone().multiply(logicalScale).distanceTo(p2.clone().multiply(logicalScale)).toFixed(0);
+      return { p1, p2, label, key: `custom-edge-${idx}` };
+    }).filter(Boolean) as { p1: THREE.Vector3; p2: THREE.Vector3; label: string; key: string }[];
+  }, [activeCustomModel, showAllLengths, logicalScale]);
 
   return (
     <group ref={groupRef} position={[0, 0, -2]}>
@@ -857,27 +1146,175 @@ export function MathModel() {
               <VertexLabels vertices={activeCustomModel.vertices} />
             </>
           )}
+
+          {/* ========== 棱边长度自动标注 ========== */}
+          {presetEdgeLabels.map(({ p1, p2, label, key }) => (
+            <LineLengthLabel
+              key={key}
+              p1={p1}
+              p2={p2}
+              label={label}
+              color="rgba(255,255,255,0.8)"
+              offset={0.06}
+            />
+          ))}
+          {customEdgeLabels.map(({ p1, p2, label, key }) => (
+            <LineLengthLabel
+              key={key}
+              p1={p1}
+              p2={p2}
+              label={label}
+              color="rgba(255,255,255,0.8)"
+              offset={0.06}
+            />
+          ))}
           
           {/* Render User Drawn Lines connecting vertices */}
           {modelLines.map((line, idx) => {
-            const p1 = new THREE.Vector3(line[0].x, line[0].y, line[0].z);
-            const p2 = new THREE.Vector3(line[1].x, line[1].y, line[1].z);
+            const p1 = new THREE.Vector3(line.p1.x, line.p1.y, line.p1.z);
+            const p2 = new THREE.Vector3(line.p2.x, line.p2.y, line.p2.z);
             const isHovered = hoveredLineIndex === idx;
             const isSelected = selectedLineIndex === idx;
-            const color = isSelected ? "#ef4444" : isHovered ? "#38bdf8" : "#facc15";
-            const width = isSelected ? 8 : isHovered ? 7 : 5;
+
+            // 辅助线：银灰色虚线；普通线：金黄实线
+            const baseColor = line.isAuxiliary ? "#94a3b8" : "#facc15";
+            const color = isSelected ? "#ef4444" : isHovered ? "#38bdf8" : baseColor;
+            const width = isSelected ? 8 : isHovered ? 7 : (line.isAuxiliary ? 3 : 5);
+
+            // 计算延伸端点
+            const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+            const extP1 = line.isAuxiliary
+              ? p1.clone().sub(dir.clone().multiplyScalar(line.extendBefore))
+              : null;
+            const extP2 = line.isAuxiliary
+              ? p2.clone().add(dir.clone().multiplyScalar(line.extendAfter))
+              : null;
+
             return (
-              <Line 
-                key={idx} 
-                points={[p1, p2]}
-                color={color} 
-                lineWidth={width}
-                depthTest={false}
-              />
+              <group key={line.id}>
+                {/* 主线段 */}
+                <Line
+                  points={[p1, p2]}
+                  color={color}
+                  lineWidth={width}
+                  depthTest={false}
+                  {...(line.isAuxiliary ? { dashed: true, dashSize: 0.08, gapSize: 0.04, dashScale: 1 } : {})}
+                />
+                 {/* 辅助线延伸部分（更细的虚线） */}
+                 {extP1 && line.extendBefore > 0 && (
+                   <Line
+                     points={[extP1, p1]}
+                     color={line.isAuxiliary ? "#64748b" : "#d4a017"}
+                     lineWidth={Math.max(1, width - 2)}
+                     depthTest={false}
+                     dashed
+                     dashSize={0.04}
+                     gapSize={0.04}
+                     dashScale={1}
+                   />
+                 )}
+                 {extP2 && line.extendAfter > 0 && (
+                   <Line
+                     points={[p2, extP2]}
+                     color={line.isAuxiliary ? "#64748b" : "#d4a017"}
+                     lineWidth={Math.max(1, width - 2)}
+                     depthTest={false}
+                     dashed
+                     dashSize={0.04}
+                     gapSize={0.04}
+                     dashScale={1}
+                   />
+                 )}
+                {/* 延伸端点小球 */}
+                {extP1 && (
+                  <mesh name={`ext-${idx}-before`} position={[extP1.x, extP1.y, extP1.z]}>
+                    <sphereGeometry args={[0.025, 8, 8]} />
+                    <meshBasicMaterial color="#64748b" depthTest={false} transparent opacity={0.6} />
+                  </mesh>
+                )}
+                {extP2 && (
+                  <mesh name={`ext-${idx}-after`} position={[extP2.x, extP2.y, extP2.z]}>
+                    <sphereGeometry args={[0.025, 8, 8]} />
+                    <meshBasicMaterial color="#64748b" depthTest={false} transparent opacity={0.6} />
+                  </mesh>
+                )}
+                {/* 长度标注 */}
+                {line.showLength && (
+                  <LineLengthLabel
+                    p1={p1}
+                    p2={p2}
+                    label={p1.clone().multiply(logicalScale).distanceTo(p2.clone().multiply(logicalScale)).toFixed(0)}
+                    color={line.isAuxiliary ? "rgba(148,163,184,0.95)" : "rgba(250,204,21,0.95)"}
+                  />
+                )}
+              </group>
             );
           })}
 
-          {/* Render handwriting on the 3D surface (in local coordinates) */}
+            {/* Selected line floating context menu */}
+            {selectedLineIndex !== null && modelLines[selectedLineIndex] && (
+              (() => {
+                const line = modelLines[selectedLineIndex];
+                const p1 = new THREE.Vector3(line.p1.x, line.p1.y, line.p1.z);
+                const p2 = new THREE.Vector3(line.p2.x, line.p2.y, line.p2.z);
+                const midPoint = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
+                return (
+                  <group position={[midPoint.x, midPoint.y, midPoint.z]}>
+                    <Html center zIndexRange={[150, 0]}>
+                      <div className="flex flex-col gap-1.5 p-2 bg-slate-900/95 border border-slate-700/80 backdrop-blur-md rounded-xl shadow-2xl text-white text-xs select-none w-36 pointer-events-auto">
+                        <div className="text-[10px] text-slate-400 font-bold border-b border-slate-700 pb-1 mb-1 text-center">
+                          编辑已选线段
+                        </div>
+                        
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            useARStore.getState().toggleLineAuxiliary(selectedLineIndex);
+                          }}
+                          className={`w-full py-1 px-2 rounded-lg font-medium transition-all text-left flex items-center justify-between ${
+                            line.isAuxiliary 
+                              ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/40' 
+                              : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-transparent'
+                          }`}
+                        >
+                          <span>辅助虚线</span>
+                          <span className="text-[10px] opacity-80">{line.isAuxiliary ? '开' : '关'}</span>
+                        </button>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            useARStore.getState().toggleLineLength(selectedLineIndex);
+                          }}
+                          className={`w-full py-1 px-2 rounded-lg font-medium transition-all text-left flex items-center justify-between ${
+                            line.showLength 
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40' 
+                              : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-transparent'
+                          }`}
+                        >
+                          <span>显示长度</span>
+                          <span className="text-[10px] opacity-80">{line.showLength ? '开' : '关'}</span>
+                        </button>
+
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            useARStore.getState().removeModelLine(selectedLineIndex);
+                            setSelectedLineIndex(null);
+                          }}
+                          className="w-full py-1 px-2 rounded-lg bg-red-500/20 hover:bg-red-500/35 border border-red-500/30 text-red-300 font-medium transition-all text-left flex items-center justify-between"
+                        >
+                          <span>删除线段</span>
+                          <span>✕</span>
+                        </button>
+                      </div>
+                    </Html>
+                  </group>
+                );
+              })()
+            )}
+
+            {/* Render handwriting on the 3D surface (in local coordinates) */}
           {surfaceStrokes.map((stroke) => {
             if (stroke.points.length < 2) return null;
             const pts = stroke.points.map(p => new THREE.Vector3(p.x, p.y, p.z));
@@ -905,6 +1342,41 @@ export function MathModel() {
              <sphereGeometry args={[1, 16, 16]} />
              <meshBasicMaterial color="#e2e8f0" depthTest={false} transparent opacity={0.8} />
           </mesh>
+
+          {/* Smart Inference Snapping Indicator (SolidWorks style - clean and minimal) */}
+          {inferenceActive && (
+            <group ref={inferenceTargetGroupRef}>
+              <Html center zIndexRange={[120, 0]}>
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    width: '22px',
+                    height: '22px',
+                    borderRadius: '4px',
+                    border: '1px solid #facc15',
+                    backgroundColor: '#1e293b',
+                    color: '#facc15',
+                    fontSize: '13px',
+                    fontWeight: 'bold',
+                    pointerEvents: 'none',
+                    userSelect: 'none',
+                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.5)',
+                  }}
+                  title={
+                    inferenceActive.type === 'parallel' ? `平行于 ${inferenceActive.refName}` :
+                    inferenceActive.type === 'perpendicular' ? `垂直于 ${inferenceActive.refName}` :
+                    `对齐 ${inferenceActive.refName}`
+                  }
+                >
+                  {inferenceActive.type === 'parallel' && '∥'}
+                  {inferenceActive.type === 'perpendicular' && '⊥'}
+                  {inferenceActive.type === 'axis' && '⇳'}
+                </div>
+              </Html>
+            </group>
+          )}
 
           {/* Preview line - 使用稳定的 useMemo 对象避免每帧重建 */}
           <primitive object={previewLineObj} ref={previewLineRef as any} visible={false} />
