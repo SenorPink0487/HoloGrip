@@ -1349,7 +1349,7 @@ export function MathModel() {
             const isHovered = hoveredLineIndex === idx;
             const isSelected = selectedLineIndex === idx;
 
-            // 辅助线：银灰色虚线；普通线：金黄实线
+            // 辅助线：银灰色实线；普通线：金黄实线
             const baseColor = line.isAuxiliary ? "#94a3b8" : "#facc15";
             const color = isSelected ? "#ef4444" : isHovered ? "#38bdf8" : baseColor;
             const width = isSelected ? 8 : isHovered ? 7 : (line.isAuxiliary ? 3 : 5);
@@ -1371,19 +1371,14 @@ export function MathModel() {
                   color={color}
                   lineWidth={width}
                   depthTest={false}
-                  {...(line.isAuxiliary ? { dashed: true, dashSize: 0.08, gapSize: 0.04, dashScale: 1 } : {})}
                 />
-                 {/* 辅助线延伸部分（更细的虚线） */}
+                 {/* 辅助线延伸部分（更细的实线） */}
                  {extP1 && line.extendBefore > 0 && (
                    <Line
                      points={[extP1, p1]}
                      color={line.isAuxiliary ? "#64748b" : "#d4a017"}
                      lineWidth={Math.max(1, width - 2)}
                      depthTest={false}
-                     dashed
-                     dashSize={0.04}
-                     gapSize={0.04}
-                     dashScale={1}
                    />
                  )}
                  {extP2 && line.extendAfter > 0 && (
@@ -1392,10 +1387,6 @@ export function MathModel() {
                      color={line.isAuxiliary ? "#64748b" : "#d4a017"}
                      lineWidth={Math.max(1, width - 2)}
                      depthTest={false}
-                     dashed
-                     dashSize={0.04}
-                     gapSize={0.04}
-                     dashScale={1}
                    />
                  )}
                 {/* 延伸端点小球 */}
@@ -1450,7 +1441,7 @@ export function MathModel() {
                               : 'bg-white/5 hover:bg-white/10 text-slate-300 border border-transparent'
                           }`}
                         >
-                          <span>辅助虚线</span>
+                          <span>辅助线</span>
                           <span className="text-[10px] opacity-80">{line.isAuxiliary ? '开' : '关'}</span>
                         </button>
 
