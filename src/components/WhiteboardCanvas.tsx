@@ -2,8 +2,9 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useARStore } from '../store';
 import { cn } from '../lib/utils';
 import { isIPadOS } from '../lib/platform';
-import { Eraser, Trash2, Edit3, Move, Plus, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
-import { motion, useDragControls, AnimatePresence } from 'motion/react';
+import { Eraser, Edit3, Move } from 'lucide-react';
+import { motion, useDragControls } from 'motion/react';
+import { Tooltip } from './Tooltip';
 
 interface Point {
   x: number;
@@ -40,19 +41,42 @@ const WHITEBOARD_WIDTH = 1920;
 const WHITEBOARD_HEIGHT = 1080;
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.04,
+      delayChildren: 0.05
+    }
+  }
+} as const;
+
+const cardVariants = {
+  hidden: { opacity: 0, scale: 0.88, y: 8 },
+  show: { 
+    opacity: 1, 
+    scale: 1, 
+    y: 0,
+    transition: {
+      type: "spring",
+      stiffness: 350,
+      damping: 24
+    }
+  }
+} as const;
+
 export function WhiteboardCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
-  const [isPageMenuOpen, setIsPageMenuOpen] = useState(false);
   const isDrawingRef = useRef(false);
   const lastSample = useRef<StrokeSample | null>(null);
   const activePointerId = useRef<number | null>(null);
   const activeTouchId = useRef<number | null>(null);
   const isToolbarForwardedStroke = useRef(false);
   const lastPenInputAt = useRef(0);
-  const pageMenuRef = useRef<HTMLDivElement>(null);
 
   const activeTab = useARStore(state => state.activeTab);
   const penColor = useARStore(state => state.penColor);
@@ -501,7 +525,7 @@ export function WhiteboardCanvas() {
     }
   }, [activeTab]);
 
-  // 鑷姩鏍规嵁浜殫鑹插垏鎹㈢櫧鑹蹭笌榛戣壊鐢荤瑪锛岄槻姝功鍐欑湅涓嶈
+  // 自动根据亮暗色切换白色与黑色画笔，防止书写看不见
   useEffect(() => {
     if (theme === 'light' && penColor === '#ffffff') {
       setPenColor('#09090b');
@@ -510,9 +534,9 @@ export function WhiteboardCanvas() {
     }
   }, [theme, penColor, setPenColor]);
 
-  // 澶у睆蹇嵎閿垨鎵嬪娍鍒囨崲鐢荤瑪/鎿嶄綔妯″紡
+  // 大屏快捷键或手势切换画笔/操作模式
   useEffect(() => {
-    // 鍏佽閫氳繃绌烘牸閿揩閫熷垏鎹功鍐欎笌鎿嶄綔妯″紡
+    // 允许通过空格键快速切换书写与操作模式
     const handleKeyDown = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
       if (
@@ -530,32 +554,12 @@ export function WhiteboardCanvas() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
-  useEffect(() => {
-    if (!isPageMenuOpen) return;
-
-    const handlePointerDown = (e: PointerEvent) => {
-      const target = e.target as Node;
-      if (pageMenuRef.current?.contains(target)) return;
-      setIsPageMenuOpen(false);
-    };
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setIsPageMenuOpen(false);
-    };
-
-    window.addEventListener('pointerdown', handlePointerDown);
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('pointerdown', handlePointerDown);
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isPageMenuOpen]);
 
   if (activeTab !== 'whiteboard' && activeTab !== 'function') return null;
 
   return (
     <>
-      {/* 2D Canvas 涔﹀啓灞?- 缃簬椤跺眰浣嗗彲琚┛閫?*/}
+      {/* 2D Canvas 书写层 - 置于顶层但可被穿透 */}
       <canvas
         ref={canvasRef}
         data-whiteboard-canvas="true"
@@ -580,7 +584,7 @@ export function WhiteboardCanvas() {
         }}
       />
 
-      {/* 鎮诞鑻规灉缇庡鐢荤瑪宸ュ叿绠?*/}
+      {/* 悬浮苹果美学画笔工具箱 */}
       <motion.div
         ref={toolbarRef}
         drag
@@ -590,7 +594,7 @@ export function WhiteboardCanvas() {
         dragElastic={0}
         onDragStart={() => setIsDragging(true)}
         onDragEnd={() => setIsDragging(false)}
-        initial={{ x: 100, y: 150 }}
+        initial={{ x: 32, y: 96 }}
         style={{ position: 'absolute', left: 0, top: 0 }}
         className={cn(
           "absolute z-40 flex flex-col items-center gap-3 p-3 rounded-2xl backdrop-blur-xl border select-none pointer-events-auto cursor-default",
@@ -600,69 +604,72 @@ export function WhiteboardCanvas() {
             : "bg-white/80 border-black/10 text-zinc-800 shadow-[0_12px_40px_rgba(15,23,42,0.08)] hover:shadow-[0_20px_50px_rgba(15,23,42,0.15)]"
         )}
       >
-        {/* 椤堕儴鎷栧姩鏉?*/}
-        <div
-          onPointerDown={(e) => dragControls.start(e)}
-          className={cn(
-            "w-full py-1.5 flex justify-center items-center cursor-grab active:cursor-grabbing rounded-t-2xl transition-colors",
-            isDark ? "hover:bg-white/5" : "hover:bg-black/5"
-          )}
-          title="拖动工具栏"
-        >
-          <div className={cn("w-12 h-1.5 rounded-full transition-colors", isDark ? "bg-white/20" : "bg-black/15")} />
-        </div>
+        {/* 顶部拖动条 */}
+        <Tooltip content="拖动工具栏" position="right">
+          <div
+            onPointerDown={(e) => dragControls.start(e)}
+            className={cn(
+              "w-28 py-1.5 flex justify-center items-center cursor-grab active:cursor-grabbing rounded-t-2xl transition-colors",
+              isDark ? "hover:bg-white/5" : "hover:bg-black/5"
+            )}
+          >
+            <div className={cn("w-12 h-1.5 rounded-full transition-colors", isDark ? "bg-white/20" : "bg-black/15")} />
+          </div>
+        </Tooltip>
 
-        {/* 妯″紡鍒囨崲 (涔﹀啓 vs 鎿嶄綔) */}
+        {/* 模式切换 (书写 vs 操作) */}
         <div className={cn("relative flex rounded-xl p-1 gap-1 transition-colors", isDark ? "bg-white/5" : "bg-black/5")}>
-          <button
-            onClick={() => setInteractMode('draw')}
-            className={cn(
-              "relative p-2.5 rounded-lg flex items-center justify-center w-10 h-10 transition-colors z-10",
-              interactMode === 'draw'
-                ? (isDark ? "text-cyan-400" : "text-cyan-600")
-                : (isDark ? "text-zinc-500 hover:text-white" : "text-zinc-400 hover:text-zinc-800")
-            )}
-            title="涔﹀啓妯″紡 (Space)"
-          >
-            <Edit3 className="w-4 h-4" />
-            {interactMode === 'draw' && (
-              <motion.div
-                layoutId="activeModeBg"
-                className={cn(
-                  "absolute inset-0 rounded-lg -z-10",
-                  isDark ? "bg-cyan-500/20" : "bg-cyan-500/15 shadow-sm"
-                )}
-                transition={{ type: "spring", stiffness: 380, damping: 30 }}
-              />
-            )}
-          </button>
-          <button
-            onClick={() => setInteractMode('interact')}
-            className={cn(
-              "relative p-2.5 rounded-lg flex items-center justify-center w-10 h-10 transition-colors z-10",
-              interactMode === 'interact'
-                ? (isDark ? "text-cyan-400" : "text-cyan-600")
-                : (isDark ? "text-zinc-500 hover:text-white" : "text-zinc-400 hover:text-zinc-800")
-            )}
-            title="鎿嶄綔妯″紡 (Space)"
-          >
-            <Move className="w-4 h-4" />
-            {interactMode === 'interact' && (
-              <motion.div
-                layoutId="activeModeBg"
-                className={cn(
-                  "absolute inset-0 rounded-lg -z-10",
-                  isDark ? "bg-cyan-500/20" : "bg-cyan-500/15 shadow-sm"
-                )}
-                transition={{ type: "spring", stiffness: 380, damping: 30 }}
-              />
-            )}
-          </button>
+          <Tooltip content="书写模式 (Space)" position="right">
+            <button
+              onClick={() => setInteractMode('draw')}
+              className={cn(
+                "relative p-2.5 rounded-lg flex items-center justify-center w-10 h-10 transition-colors z-10 cursor-pointer",
+                interactMode === 'draw'
+                  ? (isDark ? "text-cyan-400" : "text-cyan-600")
+                  : (isDark ? "text-zinc-500 hover:text-white" : "text-zinc-400 hover:text-zinc-800")
+              )}
+            >
+              <Edit3 className="w-4 h-4" />
+              {interactMode === 'draw' && (
+                <motion.div
+                  layoutId="activeModeBg"
+                  className={cn(
+                    "absolute inset-0 rounded-lg -z-10",
+                    isDark ? "bg-cyan-500/20" : "bg-cyan-500/15 shadow-sm"
+                  )}
+                  transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                />
+              )}
+            </button>
+          </Tooltip>
+          <Tooltip content="操作模式 (Space)" position="right">
+            <button
+              onClick={() => setInteractMode('interact')}
+              className={cn(
+                "relative p-2.5 rounded-lg flex items-center justify-center w-10 h-10 transition-colors z-10 cursor-pointer",
+                interactMode === 'interact'
+                  ? (isDark ? "text-cyan-400" : "text-cyan-600")
+                  : (isDark ? "text-zinc-500 hover:text-white" : "text-zinc-400 hover:text-zinc-800")
+              )}
+            >
+              <Move className="w-4 h-4" />
+              {interactMode === 'interact' && (
+                <motion.div
+                  layoutId="activeModeBg"
+                  className={cn(
+                    "absolute inset-0 rounded-lg -z-10",
+                    isDark ? "bg-cyan-500/20" : "bg-cyan-500/15 shadow-sm"
+                  )}
+                  transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                />
+              )}
+            </button>
+          </Tooltip>
         </div>
 
         <div className={cn("w-full h-px transition-colors", isDark ? "bg-white/10" : "bg-black/10")} />
 
-        {/* 棰滆壊闈㈡澘 */}
+        {/* 颜色面板 */}
         <div className="flex flex-col gap-2.5 items-center">
           {(isDark 
             ? ['#ffffff', '#ef4444', '#3b82f6', '#10b981', '#f59e0b'] 
@@ -702,7 +709,7 @@ export function WhiteboardCanvas() {
 
         <div className={cn("w-full h-px transition-colors", isDark ? "bg-white/10" : "bg-black/10")} />
 
-        {/* 鐢荤瑪绮楃粏 */}
+        {/* 画笔粗细 */}
         <div className={cn("relative flex flex-col gap-2 items-center rounded-xl p-1.5 transition-colors", isDark ? "bg-white/5" : "bg-black/5")}>
           {[3, 6, 12].map(thickness => {
             const isActive = penThickness === thickness;
@@ -747,206 +754,36 @@ export function WhiteboardCanvas() {
         <div className={cn("w-full h-px transition-colors", isDark ? "bg-white/10" : "bg-black/10")} />
 
         {/* 橡皮擦：书写模式下擦笔迹，操作模式下擦几何对象 */}
-        <motion.button
-          onClick={() => setIsEraser(!isEraser)}
-          whileHover={{ 
-            rotate: [0, -6, 6, -6, 6, 0],
-            transition: { duration: 0.45, ease: "easeInOut" }
-          }}
-          whileTap={{ scale: 0.9 }}
-          className={cn(
-            "p-2.5 rounded-xl transition-colors duration-200 relative cursor-pointer",
-            isEraser
-              ? (isDark ? "text-rose-300 shadow-md ring-1 ring-rose-400/30" : "text-rose-600 shadow-sm ring-1 ring-rose-300/50")
-              : (isDark ? "text-zinc-500 hover:text-white" : "text-zinc-400 hover:text-zinc-800")
-          )}
-          title={isEraser ? "退出橡皮擦" : "橡皮擦（书写模式擦笔迹 / 操作模式擦几何对象）"}
-        >
-          {isEraser && (
-            <motion.div
-              layoutId="activeEraserBg"
-              className={cn(
-                "absolute inset-0 rounded-xl -z-10",
-                isDark ? "bg-rose-500/20" : "bg-rose-500/10"
-              )}
-              transition={{ type: "spring", stiffness: 300, damping: 25 }}
-            />
-          )}
-          <Eraser className="w-5 h-5" />
-        </motion.button>
+        <Tooltip content={isEraser ? "退出橡皮擦" : "橡皮擦（书写模式擦笔迹 / 操作模式擦几何对象）"} position="right">
+          <motion.button
+            onClick={() => setIsEraser(!isEraser)}
+            whileHover={{ 
+              rotate: [0, -6, 6, -6, 6, 0],
+              transition: { duration: 0.45, ease: "easeInOut" }
+            }}
+            whileTap={{ scale: 0.9 }}
+            className={cn(
+              "p-2.5 rounded-xl transition-colors duration-200 relative cursor-pointer",
+              isEraser
+                ? (isDark ? "text-rose-300 shadow-md ring-1 ring-rose-400/30" : "text-rose-600 shadow-sm ring-1 ring-rose-300/50")
+                : (isDark ? "text-zinc-500 hover:text-white" : "text-zinc-400 hover:text-zinc-800")
+            )}
+          >
+            {isEraser && (
+              <motion.div
+                layoutId="activeEraserBg"
+                className={cn(
+                  "absolute inset-0 rounded-xl -z-10",
+                  isDark ? "bg-rose-500/20" : "bg-rose-500/10"
+                )}
+                transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              />
+            )}
+            <Eraser className="w-5 h-5" />
+          </motion.button>
+        </Tooltip>
 
       </motion.div>
-      <div
-        ref={pageMenuRef}
-        className="absolute bottom-[7.25rem] left-1/2 z-[41] flex -translate-x-1/2 justify-center pointer-events-auto"
-      >
-        <div
-          className={cn(
-            "overflow-hidden border backdrop-blur-md shadow-lg transition-[width,border-radius,padding] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
-            isPageMenuOpen ? "w-[min(48rem,calc(100vw-2rem))] rounded-[28px] p-3" : "w-[104px] rounded-[26px] p-1.5",
-            isDark ? "border-white/12 bg-zinc-950/92 text-white" : "border-black/10 bg-white/92 text-zinc-950"
-          )}
-        >
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsPageMenuOpen(open => !open)}
-              className={cn(
-                "flex h-10 items-center gap-2 rounded-full px-3 transition-all cursor-pointer shrink-0",
-                isDark ? "hover:bg-white/10" : "hover:bg-black/5"
-              )}
-              title="页面预览"
-            >
-              <Layers className="h-4 w-4" />
-              <span className="text-xs font-semibold tabular-nums">{currentPageIndex + 1} / {totalPages}</span>
-            </button>
-
-            <AnimatePresence initial={false}>
-              {isPageMenuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.96, filter: "blur(4px)" }}
-                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
-                  exit={{ 
-                    opacity: 0, 
-                    scale: 0.92, 
-                    filter: "blur(6px)",
-                    transition: { duration: 0.12, ease: "easeIn" }
-                  }}
-                  transition={{ duration: 0.25, ease: "easeOut" }}
-                  className="flex shrink-0 items-center gap-2 overflow-hidden"
-                >
-                  <div className={cn("h-8 w-px shrink-0", isDark ? "bg-white/10" : "bg-black/10")} />
-                  <button
-                    onClick={() => switchPage(currentPageIndex - 1)}
-                    disabled={currentPageIndex === 0}
-                    className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all",
-                      currentPageIndex === 0
-                        ? "cursor-not-allowed opacity-30"
-                        : (isDark ? "text-zinc-300 hover:bg-white/10 hover:text-white" : "text-zinc-600 hover:bg-black/5 hover:text-zinc-950")
-                    )}
-                    title="上一页"
-                  >
-                    <ChevronLeft className="h-4 w-4" />
-                  </button>
-
-                  <div className="flex max-w-[min(32rem,calc(100vw-15rem))] gap-2 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-                    {pages.map((page, index) => {
-                      const isActive = index === currentPageIndex;
-                      const geometryCount =
-                        (page.geometry?.points?.length ?? 0) +
-                        (page.geometry?.segments?.length ?? 0) +
-                        (page.geometry?.circles?.length ?? 0);
-                      const hasContent = Boolean(page.whiteboardDataUrl) || geometryCount > 0;
-
-                      return (
-                        <button
-                          key={page.id}
-                          onClick={() => switchPage(index)}
-                          className={cn(
-                            "group relative shrink-0 rounded-[1.15rem] p-1.5 text-left transition-all duration-200",
-                            isActive
-                              ? (isDark ? "bg-cyan-400/18 shadow-[0_0_0_1px_rgba(103,232,249,0.45),0_12px_34px_rgba(8,145,178,0.24)]" : "bg-cyan-500/12 shadow-[0_0_0_1px_rgba(8,145,178,0.28),0_12px_30px_rgba(8,145,178,0.16)]")
-                              : (isDark ? "hover:bg-white/8" : "hover:bg-black/5")
-                          )}
-                          title={`第 ${index + 1} 页`}
-                        >
-                          <div className={cn(
-                            "relative h-[4.1rem] w-[7rem] overflow-hidden rounded-xl border",
-                            isActive
-                              ? (isDark ? "border-cyan-300/65" : "border-cyan-500/55")
-                              : (isDark ? "border-white/10" : "border-black/10")
-                          )}>
-                            <div className={cn("absolute inset-0", isDark ? "bg-zinc-950" : "bg-zinc-50")}>
-                              <div
-                                className={cn(
-                                  "absolute inset-0 opacity-60",
-                                  isDark
-                                    ? "bg-[linear-gradient(rgba(255,255,255,0.045)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.045)_1px,transparent_1px)]"
-                                    : "bg-[linear-gradient(rgba(15,23,42,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.06)_1px,transparent_1px)]"
-                                )}
-                                style={{ backgroundSize: '18px 18px' }}
-                              />
-                            </div>
-                            {page.whiteboardDataUrl && (
-                              <img
-                                src={page.whiteboardDataUrl}
-                                alt=""
-                                className={cn("absolute inset-0 h-full w-full object-cover", !isDark && "invert hue-rotate-180")}
-                                draggable={false}
-                              />
-                            )}
-                            {!hasContent && (
-                              <div className={cn("absolute inset-0 flex items-center justify-center text-[11px] font-medium", isDark ? "text-zinc-600" : "text-zinc-400")}>
-                                空白
-                              </div>
-                            )}
-                            {geometryCount > 0 && (
-                              <div className={cn("absolute bottom-1.5 right-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur-md", isDark ? "bg-zinc-950/70 text-cyan-200" : "bg-white/75 text-cyan-700")}>
-                                {geometryCount}
-                              </div>
-                            )}
-                          </div>
-                          <div className="mt-1.5 flex items-center justify-between px-1">
-                            <span className={cn("text-[11px] font-semibold", isActive ? (isDark ? "text-cyan-200" : "text-cyan-700") : (isDark ? "text-zinc-400" : "text-zinc-500"))}>
-                              {index + 1}
-                            </span>
-                            {isActive && totalPages > 1 && (
-                              <span
-                                role="button"
-                                tabIndex={0}
-                                onClick={(event) => {
-                                  event.stopPropagation();
-                                  if (confirm('确定要删除当前页面吗？')) removePage(currentPageIndex);
-                                }}
-                                onKeyDown={(event) => {
-                                  if (event.key !== 'Enter' && event.key !== ' ') return;
-                                  event.stopPropagation();
-                                  if (confirm('确定要删除当前页面吗？')) removePage(currentPageIndex);
-                                }}
-                                className={cn(
-                                  "flex h-6 w-6 items-center justify-center rounded-full opacity-80 transition-all hover:opacity-100",
-                                  isDark ? "text-rose-300 hover:bg-rose-400/15" : "text-rose-500 hover:bg-rose-500/10"
-                                )}
-                                title="删除当前页"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-
-                  <button
-                    onClick={() => switchPage(currentPageIndex + 1)}
-                    disabled={currentPageIndex === totalPages - 1}
-                    className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all",
-                      currentPageIndex === totalPages - 1
-                        ? "cursor-not-allowed opacity-30"
-                        : (isDark ? "text-zinc-300 hover:bg-white/10 hover:text-white" : "text-zinc-600 hover:bg-black/5 hover:text-zinc-950")
-                    )}
-                    title="下一页"
-                  >
-                    <ChevronRight className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={addPage}
-                    className={cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all",
-                      isDark ? "bg-cyan-400/15 text-cyan-300 hover:bg-cyan-400/25" : "bg-cyan-500/10 text-cyan-600 hover:bg-cyan-500/15"
-                    )}
-                    title="添加新页面"
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-        </div>
-      </div>
     </>
   );
 }

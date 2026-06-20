@@ -1,9 +1,10 @@
-﻿import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { cn } from '../lib/utils';
 import { useARStore } from '../store';
 import { useApplePencilInput, type PencilSample } from '../hooks/useApplePencilInput';
 import { isIPadOS } from '../lib/platform';
-import { motion } from 'motion/react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Tooltip } from './Tooltip';
 import { 
   Play, 
   RotateCcw, 
@@ -616,101 +617,113 @@ export function GeometryBoard() {
   return (
     <div className="w-full h-full bg-transparent select-none relative">
       {/* 椤堕儴涓ぎ鎮诞宸ュ叿鏉?- 鍦ㄨ秴绾х櫧鏉夸笅鏄剧ず */}
-      {activeTab === 'whiteboard' && (
-        <div className="absolute top-8 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 rounded-2xl bg-white/70 dark:bg-zinc-900/80 backdrop-blur-md border border-black/5 dark:border-white/10 shadow-xl select-none z-[38] transition-all duration-500">
-          <button
-            onClick={() => { setActiveTool('drag'); setSelectedPointId(null); setInteractMode('interact'); }}
-            className={cn(
-              "relative p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium cursor-pointer",
-              activeTool === 'drag' 
-                ? "text-zinc-900 dark:text-white" 
-                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
-            )}
-            title="拖拽点移动"
+      <AnimatePresence>
+        {activeTab === 'whiteboard' && interactMode === 'interact' && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            transition={{ type: "spring", stiffness: 320, damping: 26 }}
+            className="absolute top-8 left-1/2 -translate-x-1/2 flex items-center gap-2 p-1.5 rounded-2xl bg-white/70 dark:bg-zinc-900/80 backdrop-blur-md border border-black/5 dark:border-white/10 shadow-xl select-none z-[38]"
           >
-            {activeTool === 'drag' && (
-              <motion.div
-                layoutId="activeToolPill"
-                className="absolute inset-0 bg-black/5 dark:bg-white/10 rounded-xl"
-                transition={{ type: "spring", stiffness: 380, damping: 30 }}
-              />
-            )}
-            <span className="relative z-10 flex items-center gap-2">
-              <MousePointer className="w-4 h-4" />
-              <span>拖拽</span>
-            </span>
-          </button>
-          
-          <button
-            onClick={() => { setActiveTool('add_point'); setSelectedPointId(null); setInteractMode('interact'); }}
-            className={cn(
-              "relative p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium cursor-pointer",
-              activeTool === 'add_point' 
-                ? "text-zinc-900 dark:text-white" 
-                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
-            )}
-            title="鍦ㄧ┖鐧藉鍔犵偣"
-          >
-            {activeTool === 'add_point' && (
-              <motion.div
-                layoutId="activeToolPill"
-                className="absolute inset-0 bg-black/5 dark:bg-white/10 rounded-xl"
-                transition={{ type: "spring", stiffness: 380, damping: 30 }}
-              />
-            )}
-            <span className="relative z-10 flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              <span>描点</span>
-            </span>
-          </button>
+            <Tooltip content="拖拽点移动" position="bottom">
+              <button
+                onClick={() => { setActiveTool('drag'); setSelectedPointId(null); setInteractMode('interact'); }}
+                className={cn(
+                  "relative p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium cursor-pointer",
+                  activeTool === 'drag' 
+                    ? "text-zinc-900 dark:text-white" 
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                )}
+              >
+                {activeTool === 'drag' && (
+                  <motion.div
+                    layoutId="activeToolPill"
+                    className="absolute inset-0 bg-black/5 dark:bg-white/10 rounded-xl"
+                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-2">
+                  <MousePointer className="w-4 h-4" />
+                  <span>拖拽</span>
+                </span>
+              </button>
+            </Tooltip>
+            
+            <Tooltip content="在空白处加点" position="bottom">
+              <button
+                onClick={() => { setActiveTool('add_point'); setSelectedPointId(null); setInteractMode('interact'); }}
+                className={cn(
+                  "relative p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium cursor-pointer",
+                  activeTool === 'add_point' 
+                    ? "text-zinc-900 dark:text-white" 
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                )}
+              >
+                {activeTool === 'add_point' && (
+                  <motion.div
+                    layoutId="activeToolPill"
+                    className="absolute inset-0 bg-black/5 dark:bg-white/10 rounded-xl"
+                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-2">
+                  <Plus className="w-4 h-4" />
+                  <span>描点</span>
+                </span>
+              </button>
+            </Tooltip>
 
-          <button
-            onClick={() => { setActiveTool('add_segment'); setSelectedPointId(null); setInteractMode('interact'); }}
-            className={cn(
-              "relative p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium cursor-pointer",
-              activeTool === 'add_segment' 
-                ? "text-zinc-900 dark:text-white" 
-                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
-            )}
-            title="鐐瑰嚮涓ょ偣杩炴帴鎴愮嚎"
-          >
-            {activeTool === 'add_segment' && (
-              <motion.div
-                layoutId="activeToolPill"
-                className="absolute inset-0 bg-black/5 dark:bg-white/10 rounded-xl"
-                transition={{ type: "spring", stiffness: 380, damping: 30 }}
-              />
-            )}
-            <span className="relative z-10 flex items-center gap-2">
-              <span className="w-4 h-0.5 bg-current rounded-full" />
-              <span>画线段</span>
-            </span>
-          </button>
+            <Tooltip content="点击两点连接成线" position="bottom">
+              <button
+                onClick={() => { setActiveTool('add_segment'); setSelectedPointId(null); setInteractMode('interact'); }}
+                className={cn(
+                  "relative p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium cursor-pointer",
+                  activeTool === 'add_segment' 
+                    ? "text-zinc-900 dark:text-white" 
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                )}
+              >
+                {activeTool === 'add_segment' && (
+                  <motion.div
+                    layoutId="activeToolPill"
+                    className="absolute inset-0 bg-black/5 dark:bg-white/10 rounded-xl"
+                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-2">
+                  <span className="w-4 h-0.5 bg-current rounded-full" />
+                  <span>画线段</span>
+                </span>
+              </button>
+            </Tooltip>
 
-          <button
-            onClick={() => { setActiveTool('add_circle'); setSelectedPointId(null); setInteractMode('interact'); }}
-            className={cn(
-              "relative p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium cursor-pointer",
-              activeTool === 'add_circle' 
-                ? "text-zinc-900 dark:text-white" 
-                : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
-            )}
-            title="閫夋嫨鍦嗗績鍜屽崐寰勭偣鐢诲渾"
-          >
-            {activeTool === 'add_circle' && (
-              <motion.div
-                layoutId="activeToolPill"
-                className="absolute inset-0 bg-black/5 dark:bg-white/10 rounded-xl"
-                transition={{ type: "spring", stiffness: 380, damping: 30 }}
-              />
-            )}
-            <span className="relative z-10 flex items-center gap-2">
-              <span className="w-3.5 h-3.5 border-2 border-current rounded-full" />
-              <span>画圆</span>
-            </span>
-          </button>
-        </div>
-      )}
+            <Tooltip content="选择圆心和半径点画圆" position="bottom">
+              <button
+                onClick={() => { setActiveTool('add_circle'); setSelectedPointId(null); setInteractMode('interact'); }}
+                className={cn(
+                  "relative p-3 rounded-xl transition-all flex items-center gap-2 text-sm font-medium cursor-pointer",
+                  activeTool === 'add_circle' 
+                    ? "text-zinc-900 dark:text-white" 
+                    : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white"
+                )}
+              >
+                {activeTool === 'add_circle' && (
+                  <motion.div
+                    layoutId="activeToolPill"
+                    className="absolute inset-0 bg-black/5 dark:bg-white/10 rounded-xl"
+                    transition={{ type: "spring", stiffness: 380, damping: 30 }}
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-2">
+                  <span className="w-3.5 h-3.5 border-2 border-current rounded-full" />
+                  <span>画圆</span>
+                </span>
+              </button>
+            </Tooltip>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* 主探究区 - 撑满全局，彻底解决与超级白板切换时的 Layout Shift */}
       <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center p-8 z-[35]">

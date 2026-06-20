@@ -10,8 +10,10 @@ import { OverlayUI } from './components/OverlayUI';
 import { MathModel } from './components/MathModel';
 import { Canvas2D } from './components/Canvas2D';
 import type { HandLandmarker } from '@mediapipe/tasks-vision';
-import { BookOpen, Trash2, ZoomIn, ZoomOut, LogOut } from 'lucide-react';
-import { AnimatePresence } from 'motion/react';
+import { BookOpen, Trash2, ZoomIn, ZoomOut, LogOut, Layers, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { cn } from './lib/utils';
+import { Tooltip } from './components/Tooltip';
 import { CameraPermissionModal } from './components/CameraPermissionModal';
 import { PromptModal } from './components/PromptModal';
 import { loadWhiteboardSnapshot, saveWhiteboardSnapshot } from './lib/whiteboardSync';
@@ -87,6 +89,31 @@ function todayString() {
 const WHITEBOARD_WIDTH = 1920;
 const WHITEBOARD_HEIGHT = 1080;
 
+const containerVariants = {
+  hidden: { opacity: 0 },
+  show: {
+    opacity: 1,
+    transition: {
+      staggerChildren: 0.04,
+      delayChildren: 0.05
+    }
+  }
+} as const;
+
+const cardVariants = {
+  hidden: { opacity: 0, scale: 0.88, y: 8 },
+  show: { 
+    opacity: 1, 
+    scale: 1, 
+    y: 0,
+    transition: {
+      type: "spring",
+      stiffness: 350,
+      damping: 24
+    }
+  }
+} as const;
+
 export default function App() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const requestRef = useRef<number>(undefined);
@@ -102,6 +129,7 @@ export default function App() {
   const updateHands = useARStore(state => state.updateHands);
   const setLoaderVisible = useARStore(state => state.setLoaderVisible);
   const theme = useARStore(state => state.theme);
+  const isDark = theme === 'dark';
 
   const [showCameraPermissionModal, setShowCameraPermissionModal] = useState(false);
   const [cameraTrigger, setCameraTrigger] = useState(0);
@@ -134,6 +162,9 @@ export default function App() {
   const penThickness = useARStore(state => state.penThickness);
   const pages = useARStore(state => state.pages);
   const currentPageIndex = useARStore(state => state.currentPageIndex);
+  const addPage = useARStore(state => state.addPage);
+  const switchPage = useARStore(state => state.switchPage);
+  const removePage = useARStore(state => state.removePage);
   const saveCurrentPageWhiteboard = useARStore(state => state.saveCurrentPageWhiteboard);
   const restoreWhiteboardSnapshot = useARStore(state => state.restoreWhiteboardSnapshot);
 
@@ -150,9 +181,33 @@ export default function App() {
   const [selectedLessonId, setSelectedLessonId] = useState<number | null>(null);
   const [selectedLessonDate, setSelectedLessonDate] = useState(todayString());
   const [classroomMenuOpen, setClassroomMenuOpen] = useState(false);
+  const classroomMenuRef = useRef<HTMLDivElement>(null);
+  const menuToggleButtonRef = useRef<HTMLButtonElement>(null);
   const [lessonStatus, setLessonStatus] = useState('个人白板');
   const [createLessonPromptOpen, setCreateLessonPromptOpen] = useState(false);
   const [newLessonTitle, setNewLessonTitle] = useState('');
+
+  useEffect(() => {
+    if (!classroomMenuOpen) return;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (classroomMenuRef.current?.contains(target)) return;
+      if (menuToggleButtonRef.current?.contains(target)) return;
+      setClassroomMenuOpen(false);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setClassroomMenuOpen(false);
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [classroomMenuOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -727,6 +782,7 @@ export default function App() {
     useARStore.getState().setActiveTab('whiteboard');
   };
 
+
   return (
     <div
       className={[
@@ -742,63 +798,262 @@ export default function App() {
       {isDesktop && <TitleBar />}
 
       <div ref={stageRef} className="relative flex-1 min-h-0 overflow-hidden">
-      {activeTab === 'whiteboard' && (
-        <button
+      {(activeTab === 'whiteboard' || activeTab === 'function') && (
+        <motion.button
+          ref={menuToggleButtonRef}
           type="button"
           onClick={() => setClassroomMenuOpen(open => !open)}
-          className="absolute left-[126px] top-8 z-[65] flex h-16 w-16 items-center justify-center rounded-2xl border border-black/5 bg-white/70 text-zinc-800 shadow-xl backdrop-blur-md transition-all hover:bg-white hover:-translate-y-0.5 active:translate-y-0 active:scale-95 focus:outline-none dark:border-white/10 dark:bg-zinc-900/80 dark:text-zinc-100 dark:hover:bg-zinc-800/90"
-          title="课堂选择"
-          aria-label="课堂选择"
+          whileHover={{ scale: 1.01, y: -1 }}
+          whileTap={{ scale: 0.99, y: 0 }}
+          className={cn(
+            "absolute left-8 top-8 z-[65] flex h-12 items-center gap-3 rounded-full border px-4 shadow-xl backdrop-blur-md transition-all duration-300 focus:outline-none cursor-pointer",
+            classroomMenuOpen
+              ? "border-cyan-500/30 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 text-cyan-600 dark:border-cyan-400/40 dark:from-cyan-400/15 dark:to-blue-400/15 dark:text-cyan-300 shadow-[0_0_20px_rgba(6,182,212,0.15)]"
+              : "border-black/5 bg-white/70 text-zinc-800 hover:bg-white dark:border-white/10 dark:bg-zinc-900/80 dark:text-zinc-100 dark:hover:bg-zinc-800"
+          )}
+          title="课堂与页面选择"
+          aria-label="课堂与页面选择"
           aria-expanded={classroomMenuOpen}
         >
-          <BookOpen size={26} strokeWidth={2.2} />
-        </button>
+          <motion.div
+            animate={{ 
+              scale: classroomMenuOpen ? 1.08 : 1,
+              rotate: classroomMenuOpen ? -5 : 0 
+            }}
+            className="flex items-center justify-center text-current opacity-90"
+          >
+            <BookOpen className="w-[18px] h-[18px]" strokeWidth={2.2} />
+          </motion.div>
+
+          <div className={cn(
+            "h-4 w-px transition-colors duration-300",
+            classroomMenuOpen ? "bg-cyan-500/20 dark:bg-cyan-400/30" : "bg-zinc-300 dark:bg-zinc-700"
+          )} />
+
+          <div className="flex items-center gap-1.5 font-semibold text-sm">
+            <motion.div
+              animate={{ 
+                rotate: classroomMenuOpen ? 15 : 0,
+                scale: classroomMenuOpen ? 1.1 : 1
+              }}
+              transition={{ type: "spring", stiffness: 300, damping: 15 }}
+              className="flex items-center justify-center text-current opacity-80"
+            >
+              <Layers className="w-4 h-4" strokeWidth={2.2} />
+            </motion.div>
+            <span className="tabular-nums">
+              {currentPageIndex + 1} / {pages.length}
+            </span>
+          </div>
+        </motion.button>
       )}
-      {activeTab === 'whiteboard' && classroomMenuOpen && (
-        <div className="absolute top-[108px] left-[100px] z-[60] flex max-w-[calc(100vw-4rem)] flex-col items-stretch gap-2 rounded-2xl border border-black/5 dark:border-white/10 bg-white/80 dark:bg-zinc-900/90 px-4 py-4 text-sm text-zinc-800 dark:text-zinc-100 shadow-2xl backdrop-blur-xl sm:flex-row sm:flex-wrap sm:items-center">
-          <select
-            value={selectedClassId ?? ''}
-            onChange={(e) => {
-              setSelectedClassId(e.target.value ? Number(e.target.value) : null);
-              setSelectedLessonId(null);
-            }}
-            className="h-8 w-full rounded-md border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900 px-2 outline-none sm:w-auto"
-            title="选择班级"
-          >
-            {classes.length === 0 && <option value="">暂无班级</option>}
-            {classes.map(item => (
-              <option key={item.id} value={item.id}>{item.name}</option>
-            ))}
-          </select>
-          <input
-            type="date"
-            value={selectedLessonDate}
-            onChange={(e) => {
-              setSelectedLessonDate(e.target.value || todayString());
-              setSelectedLessonId(null);
-            }}
-            className="h-8 w-full rounded-md border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900 px-2 outline-none sm:w-auto"
-            title="按日期查看课次"
-          />
-          <select
-            value={selectedLessonId ?? ''}
-            onChange={(e) => setSelectedLessonId(e.target.value ? Number(e.target.value) : null)}
-            className="h-8 w-full min-w-[140px] rounded-md border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-900 px-2 outline-none sm:w-auto"
-            title="选择课次"
-          >
-            <option value="">个人白板</option>
-            {lessons.map(item => (
-              <option key={item.id} value={item.id}>{item.title}</option>
-            ))}
-          </select>
-          <button
-            onClick={handleCreateLesson}
-            disabled={!selectedClassId}
-            className="h-8 w-full rounded-md bg-cyan-600 px-3 font-medium text-white transition-colors hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-40 sm:w-auto"
-            title="创建课次"
-          >
-            创建课次
-          </button>
+      {(activeTab === 'whiteboard' || activeTab === 'function') && classroomMenuOpen && (
+        <div
+          ref={classroomMenuRef}
+          className={cn(
+            "absolute top-[92px] left-8 z-[60] flex flex-col gap-3 rounded-3xl border p-4 text-sm shadow-2xl backdrop-blur-xl transition-all duration-200",
+            "w-[min(48rem,calc(100vw-4rem))]",
+            isDark 
+              ? "border-white/10 bg-zinc-900/90 text-zinc-100" 
+              : "border-black/5 bg-white/90 text-zinc-800"
+          )}
+        >
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={selectedClassId ?? ''}
+              onChange={(e) => {
+                setSelectedClassId(e.target.value ? Number(e.target.value) : null);
+                setSelectedLessonId(null);
+              }}
+              className="h-9 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-950 px-3 outline-none text-sm transition-all focus:border-cyan-500/50 dark:focus:border-cyan-400/50 w-full sm:w-auto"
+              title="选择班级"
+            >
+              {classes.length === 0 && <option value="">暂无班级</option>}
+              {classes.map(item => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </select>
+
+            <input
+              type="date"
+              value={selectedLessonDate}
+              onChange={(e) => {
+                setSelectedLessonDate(e.target.value || todayString());
+                setSelectedLessonId(null);
+              }}
+              className="h-9 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-950 px-3 outline-none text-sm transition-all focus:border-cyan-500/50 dark:focus:border-cyan-400/50 w-full sm:w-auto"
+              title="按日期查看课次"
+            />
+
+            <select
+              value={selectedLessonId ?? ''}
+              onChange={(e) => setSelectedLessonId(e.target.value ? Number(e.target.value) : null)}
+              className="h-9 min-w-[140px] rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-950 px-3 outline-none text-sm transition-all focus:border-cyan-500/50 dark:focus:border-cyan-400/50 w-full sm:w-auto"
+              title="选择课次"
+            >
+              <option value="">个人白板</option>
+              {lessons.map(item => (
+                <option key={item.id} value={item.id}>{item.title}</option>
+              ))}
+            </select>
+
+            <button
+              onClick={handleCreateLesson}
+              disabled={!selectedClassId}
+              className="h-9 rounded-xl bg-cyan-600 px-4 font-medium text-white transition-all hover:bg-cyan-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 w-full sm:w-auto"
+              title="创建课次"
+            >
+              创建课次
+            </button>
+          </div>
+
+          <div className="h-px w-full bg-black/5 dark:bg-white/10 my-1" />
+
+          <div className="flex items-center gap-2">
+            <Tooltip content="上一页" position="top">
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={() => switchPage(currentPageIndex - 1)}
+                disabled={currentPageIndex === 0}
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all",
+                  currentPageIndex === 0
+                    ? "cursor-not-allowed opacity-30"
+                    : (isDark ? "text-zinc-300 hover:bg-white/10 hover:text-white" : "text-zinc-600 hover:bg-black/5 hover:text-zinc-950")
+                )}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </motion.button>
+            </Tooltip>
+
+            <motion.div
+              variants={containerVariants}
+              initial="hidden"
+              animate="show"
+              className="flex max-w-[min(38rem,calc(100vw-12rem))] gap-2 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {pages.map((page, index) => {
+                const isActive = index === currentPageIndex;
+                const geometryCount =
+                  (page.geometry?.points?.length ?? 0) +
+                  (page.geometry?.segments?.length ?? 0) +
+                  (page.geometry?.circles?.length ?? 0);
+                const hasContent = Boolean(page.whiteboardDataUrl) || geometryCount > 0;
+
+                return (
+                  <motion.button
+                    variants={cardVariants}
+                    whileTap={{ scale: 0.96 }}
+                    key={page.id}
+                    onClick={() => switchPage(index)}
+                    className={cn(
+                      "group relative shrink-0 rounded-[1.15rem] p-1.5 text-left transition-all duration-200",
+                      isActive
+                        ? (isDark ? "bg-cyan-400/18 shadow-[0_0_0_1px_rgba(103,232,249,0.45),0_12px_34px_rgba(8,145,178,0.24)]" : "bg-cyan-500/12 shadow-[0_0_0_1px_rgba(8,145,178,0.28),0_12px_30px_rgba(8,145,178,0.16)]")
+                        : (isDark ? "hover:bg-white/8" : "hover:bg-black/5")
+                    )}
+                    title={`第 ${index + 1} 页`}
+                  >
+                    <div className={cn(
+                      "relative h-[3.8rem] w-[6.5rem] overflow-hidden rounded-xl border",
+                      isActive
+                        ? (isDark ? "border-cyan-300/65" : "border-cyan-500/55")
+                        : (isDark ? "border-white/10" : "border-black/10")
+                    )}>
+                      <div className={cn("absolute inset-0", isDark ? "bg-zinc-950" : "bg-zinc-50")}>
+                        <div
+                          className={cn(
+                            "absolute inset-0 opacity-60",
+                            isDark
+                              ? "bg-[linear-gradient(rgba(255,255,255,0.045)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.045)_1px,transparent_1px)]"
+                              : "bg-[linear-gradient(rgba(15,23,42,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.06)_1px,transparent_1px)]"
+                          )}
+                          style={{ backgroundSize: '18px 18px' }}
+                        />
+                      </div>
+                      {page.whiteboardDataUrl && (
+                        <img
+                          src={page.whiteboardDataUrl}
+                          alt=""
+                          className={cn("absolute inset-0 h-full w-full object-cover", !isDark && "invert hue-rotate-180")}
+                          draggable={false}
+                        />
+                      )}
+                      {!hasContent && (
+                        <div className={cn("absolute inset-0 flex items-center justify-center text-[11px] font-medium", isDark ? "text-zinc-600" : "text-zinc-400")}>
+                          空白
+                        </div>
+                      )}
+                      {geometryCount > 0 && (
+                        <div className={cn("absolute bottom-1.5 right-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur-md", isDark ? "bg-zinc-950/70 text-cyan-200" : "bg-white/75 text-cyan-700")}>
+                          {geometryCount}
+                        </div>
+                      )}
+                    </div>
+                    <div className="mt-1.5 flex items-center justify-between px-1">
+                      <span className={cn("text-[11px] font-semibold", isActive ? (isDark ? "text-cyan-200" : "text-cyan-700") : (isDark ? "text-zinc-400" : "text-zinc-500"))}>
+                        {index + 1}
+                      </span>
+                      {isActive && pages.length > 1 && (
+                        <Tooltip content="删除当前页" position="top">
+                          <span
+                            role="button"
+                            tabIndex={0}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              if (confirm('确定要删除当前页面吗？')) removePage(currentPageIndex);
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key !== 'Enter' && event.key !== ' ') return;
+                              event.stopPropagation();
+                              if (confirm('确定要删除当前页面吗？')) removePage(currentPageIndex);
+                            }}
+                            className={cn(
+                              "flex h-6 w-6 items-center justify-center rounded-full opacity-80 transition-all hover:opacity-100 cursor-pointer",
+                              isDark ? "text-rose-300 hover:bg-rose-400/15" : "text-rose-500 hover:bg-rose-500/10"
+                            )}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </span>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </motion.button>
+                );
+              })}
+            </motion.div>
+
+            <Tooltip content="下一页" position="top">
+              <motion.button
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={() => switchPage(currentPageIndex + 1)}
+                disabled={currentPageIndex === pages.length - 1}
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all",
+                  currentPageIndex === pages.length - 1
+                    ? "cursor-not-allowed opacity-30"
+                    : (isDark ? "text-zinc-300 hover:bg-white/10 hover:text-white" : "text-zinc-600 hover:bg-black/5 hover:text-zinc-950")
+                )}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </motion.button>
+            </Tooltip>
+            <Tooltip content="添加新页面" position="top">
+              <motion.button
+                whileHover={{ scale: 1.1, rotate: 90 }}
+                whileTap={{ scale: 0.9 }}
+                onClick={addPage}
+                className={cn(
+                  "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all",
+                  isDark ? "bg-cyan-400/15 text-cyan-300 hover:bg-cyan-400/25" : "bg-cyan-500/10 text-cyan-600 hover:bg-cyan-500/15"
+                )}
+              >
+                <Plus className="h-4 w-4" />
+              </motion.button>
+            </Tooltip>
+          </div>
         </div>
       )}
       {/* 1. 微点底纹背景 (用于白板等 2D 教学模块，不包括函数探究) */}
