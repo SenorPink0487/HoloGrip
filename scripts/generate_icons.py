@@ -17,8 +17,8 @@
 但 TitleBar 现在用文字 + 圆点呈现,源码里没有引用该图,
 打包到 dist 反而成了死资源,因此该步骤已删除。
 
-圆角半径默认取边长 * 18%,接近 macOS Big Sur 与 Windows 11 之间的折中。
-若想换"超圆"风格改 ROUND_RATIO=0.22;想要"方一点"改 0.10。
+圆角半径默认取边长 * 25%,匹配当前 HoloGrip 图标源文件的圆角规范。
+若想换"超圆"风格改 ROUND_RATIO=0.28;想要"方一点"改 0.10。
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src-tauri" / "logo.png"
 ICONS_DIR = ROOT / "src-tauri" / "icons"
 
-ROUND_RATIO = 0.18                 # 圆角半径 = 边长 * ROUND_RATIO
+ROUND_RATIO = 0.25                 # 圆角半径 = 边长 * ROUND_RATIO
 SUPERSAMPLE = 4                    # 抗锯齿倍率(画大再缩,边缘平滑)
 MASTER_SIZE = 1024                 # 主图尺寸,后续所有规格从这里下采样
 

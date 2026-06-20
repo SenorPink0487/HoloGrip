@@ -1,6 +1,8 @@
 ﻿import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { cn } from '../lib/utils';
 import { useARStore } from '../store';
+import { useApplePencilInput, type PencilSample } from '../hooks/useApplePencilInput';
+import { isIPadOS } from '../lib/platform';
 import { motion } from 'motion/react';
 import { 
   Play, 
@@ -77,6 +79,7 @@ interface Circle {
 
 const WHITEBOARD_WIDTH = 1920;
 const WHITEBOARD_HEIGHT = 1080;
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 export function GeometryBoard() {
   const activeTab = useARStore(state => state.activeTab);
@@ -130,13 +133,21 @@ export function GeometryBoard() {
 
   const svgRef = useRef<SVGSVGElement>(null);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
-  const pointerToBoard = (e: React.PointerEvent<SVGSVGElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
+  const clientToBoard = useCallback((clientX: number, clientY: number) => {
+    const svg = svgRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const rect = svg.getBoundingClientRect();
     return {
-      x: ((e.clientX - rect.left) / rect.width) * WHITEBOARD_WIDTH,
-      y: ((e.clientY - rect.top) / rect.height) * WHITEBOARD_HEIGHT,
+      x: ((clientX - rect.left) / rect.width) * WHITEBOARD_WIDTH,
+      y: ((clientY - rect.top) / rect.height) * WHITEBOARD_HEIGHT,
     };
-  };
+  }, []);
+  const {
+    getPointerSample,
+    getTouchSample,
+    shouldAcceptPointer,
+    pickDrawingTouch,
+  } = useApplePencilInput(clientToBoard);
 
 
   // 初始化一个经典的“三角形三条中线交于重心”演示
@@ -321,13 +332,24 @@ export function GeometryBoard() {
   const HIT_RADIUS = 24;
   const SEG_HIT = 16;
 
+  const getInputHitScale = useCallback((sample?: PencilSample) => {
+    if (!sample) return 1;
+    if (sample.pointerType === 'pen') {
+      return clamp(0.82 + sample.pressure * 0.25 + sample.tilt * 0.25, 0.85, 1.3);
+    }
+    if (sample.pointerType === 'touch') return 1.45;
+    return 1;
+  }, []);
+
   /** 在屏幕坐标 (x, y) 处找到最近的对象，优先级: 点 > 线段 > 圆周 > 多边形内部 */
-  const hitTest = useCallback((x: number, y: number): HoverEntity => {
+  const hitTest = useCallback((x: number, y: number, hitScale = 1): HoverEntity => {
+    const pointHitRadius = HIT_RADIUS * hitScale;
+    const segmentHitRadius = SEG_HIT * hitScale;
     // 点
     let bestPoint: { id: string; d: number } | null = null;
     for (const p of points) {
       const d = Math.hypot(p.x - x, p.y - y);
-      if (d < HIT_RADIUS && (!bestPoint || d < bestPoint.d)) bestPoint = { id: p.id, d };
+      if (d < pointHitRadius && (!bestPoint || d < bestPoint.d)) bestPoint = { id: p.id, d };
     }
     if (bestPoint) return { type: 'point', id: bestPoint.id };
 
@@ -338,7 +360,7 @@ export function GeometryBoard() {
       const p2 = points.find(p => p.id === s.p2Id);
       if (!p1 || !p2) continue;
       const d = distPointToSegment(x, y, p1.x, p1.y, p2.x, p2.y);
-      if (d < SEG_HIT && (!bestSeg || d < bestSeg.d)) bestSeg = { id: s.id, d };
+      if (d < segmentHitRadius && (!bestSeg || d < bestSeg.d)) bestSeg = { id: s.id, d };
     }
     if (bestSeg) return { type: 'segment', id: bestSeg.id };
 
@@ -350,7 +372,7 @@ export function GeometryBoard() {
       if (!cp || !rp) continue;
       const r = Math.hypot(rp.x - cp.x, rp.y - cp.y);
       const d = distPointToCircle(x, y, cp.x, cp.y, r);
-      if (d < SEG_HIT && (!bestCircle || d < bestCircle.d)) bestCircle = { id: c.id, d };
+      if (d < segmentHitRadius && (!bestCircle || d < bestCircle.d)) bestCircle = { id: c.id, d };
     }
     if (bestCircle) return { type: 'circle', id: bestCircle.id };
 
@@ -371,11 +393,11 @@ export function GeometryBoard() {
   // ============================================================
   // 榧犳爣/瑙︽帶浜や簰
   // ============================================================
-  const handleSvgPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (!svgRef.current) return;
-    const { x, y } = pointerToBoard(e);
+  const handleBoardInputStart = useCallback((sample: PencilSample) => {
+    const { x, y } = sample;
+    const hit = hitTest(x, y, getInputHitScale(sample));
 
-    const hit = hitTest(x, y);
+    setHoverEntity(hit);
 
     // 橡皮擦模式: 命中即删除
     if (isEraser) {
@@ -393,7 +415,7 @@ export function GeometryBoard() {
         const ids = new Set(hit.pointIds);
         setSegments(prev => prev.filter(s => !(ids.has(s.p1Id) && ids.has(s.p2Id))));
       }
-      return;
+      return false;
     }
 
     if (activeTool === 'drag') {
@@ -402,8 +424,7 @@ export function GeometryBoard() {
         const p = points.find(pp => pp.id === hit.id);
         if (p && p.isFree) {
           setDraggingPointId(p.id);
-          e.currentTarget.setPointerCapture(e.pointerId);
-          return;
+          return true;
         }
       }
       // 其次: 拖整个多边形
@@ -419,11 +440,10 @@ export function GeometryBoard() {
             startMouse: { x, y },
             startPositions,
           });
-          e.currentTarget.setPointerCapture(e.pointerId);
-          return;
+          return true;
         }
       }
-      return;
+      return false;
     }
 
     if (activeTool === 'add_point') {
@@ -435,9 +455,9 @@ export function GeometryBoard() {
           y,
           isFree: true,
         };
-        setPoints([...points, newPoint]);
+        setPoints(prev => [...prev, newPoint]);
       }
-      return;
+      return false;
     }
 
     if (activeTool === 'add_segment') {
@@ -451,12 +471,12 @@ export function GeometryBoard() {
               p1Id: selectedPointId,
               p2Id: hit.id,
             };
-            setSegments([...segments, newSeg]);
+            setSegments(prev => [...prev, newSeg]);
           }
           setSelectedPointId(null);
         }
       }
-      return;
+      return false;
     }
 
     if (activeTool === 'add_circle') {
@@ -470,24 +490,24 @@ export function GeometryBoard() {
               centerId: selectedPointId,
               radiusPointId: hit.id,
             };
-            setCircles([...circles, newCircle]);
+            setCircles(prev => [...prev, newCircle]);
           }
           setSelectedPointId(null);
         }
       }
-      return;
+      return false;
     }
-  };
+    return false;
+  }, [activeTool, circles, getInputHitScale, hitTest, isEraser, points, selectedPointId, segments]);
 
-  const handleSvgPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
-    if (!svgRef.current) return;
-    const { x, y } = pointerToBoard(e);
+  const handleBoardInputMove = useCallback((sample: PencilSample) => {
+    const { x, y } = sample;
 
     // 拖单个点
     if (draggingPointId) {
       const cx = Math.max(10, Math.min(WHITEBOARD_WIDTH - 10, x));
       const cy = Math.max(10, Math.min(WHITEBOARD_HEIGHT - 10, y));
-      setPoints(points.map(p => p.id === draggingPointId ? { ...p, x: cx, y: cy } : p));
+      setPoints(prev => prev.map(p => p.id === draggingPointId ? { ...p, x: cx, y: cy } : p));
       return;
     }
 
@@ -506,9 +526,9 @@ export function GeometryBoard() {
     }
 
     // 普通悬停: 命中检测并高亮
-    const hit = hitTest(x, y);
+    const hit = hitTest(x, y, getInputHitScale(sample));
     setHoverEntity(hit);
-  };
+  }, [draggingPointId, draggingPolygon, getInputHitScale, hitTest]);
 
   const handleSvgPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
     if (draggingPointId) {
@@ -524,6 +544,73 @@ export function GeometryBoard() {
   const handleSvgPointerLeave = () => {
     setHoverEntity(null);
   };
+
+  const handleSvgPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!shouldAcceptPointer(e.nativeEvent)) return;
+    const shouldCapture = handleBoardInputStart(getPointerSample(e.nativeEvent));
+    if (shouldCapture) {
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+    }
+    e.preventDefault();
+  };
+
+  const handleSvgPointerMove = (e: React.PointerEvent<SVGSVGElement>) => {
+    if (!shouldAcceptPointer(e.nativeEvent)) return;
+    handleBoardInputMove(getPointerSample(e.nativeEvent));
+    e.preventDefault();
+  };
+
+  useEffect(() => {
+    if (!isIPadOS) return;
+
+    const svg = svgRef.current;
+    if (!svg) return;
+
+    let activeTouchId: number | null = null;
+
+    const findActiveTouch = (touches: TouchList) => {
+      if (activeTouchId === null) return null;
+      for (let i = 0; i < touches.length; i += 1) {
+        if (touches[i].identifier === activeTouchId) return touches[i];
+      }
+      return null;
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      const touch = pickDrawingTouch(e.changedTouches);
+      if (!touch) return;
+      activeTouchId = touch.identifier;
+      handleBoardInputStart(getTouchSample(touch));
+      e.preventDefault();
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      const touch = findActiveTouch(e.changedTouches);
+      if (!touch) return;
+      handleBoardInputMove(getTouchSample(touch));
+      e.preventDefault();
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const touch = findActiveTouch(e.changedTouches);
+      if (!touch) return;
+      activeTouchId = null;
+      setDraggingPointId(null);
+      setDraggingPolygon(null);
+      e.preventDefault();
+    };
+
+    svg.addEventListener('touchstart', handleTouchStart, { passive: false });
+    svg.addEventListener('touchmove', handleTouchMove, { passive: false });
+    svg.addEventListener('touchend', handleTouchEnd, { passive: false });
+    svg.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+    return () => {
+      svg.removeEventListener('touchstart', handleTouchStart);
+      svg.removeEventListener('touchmove', handleTouchMove);
+      svg.removeEventListener('touchend', handleTouchEnd);
+      svg.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, [getTouchSample, handleBoardInputMove, handleBoardInputStart, pickDrawingTouch]);
 
 
   return (
@@ -1070,4 +1157,3 @@ export function GeometryBoard() {
     </div>
   );
 }
-

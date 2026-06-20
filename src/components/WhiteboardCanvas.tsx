@@ -1,7 +1,8 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useARStore } from '../store';
 import { cn } from '../lib/utils';
-import { Palette, Eraser, Trash2, Edit3, Move, Plus, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
+import { isIPadOS } from '../lib/platform';
+import { Eraser, Trash2, Edit3, Move, Plus, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import { motion, useDragControls, AnimatePresence } from 'motion/react';
 
 interface Point {
@@ -18,15 +19,40 @@ interface LiveStroke {
   eraser: boolean;
 }
 
+interface StrokeSample extends Point {
+  pressure: number;
+  tilt: number;
+  pointerType: string;
+}
+
+type NativePointerEvent = PointerEvent & {
+  getCoalescedEvents?: () => PointerEvent[];
+};
+
+type AppleTouch = Touch & {
+  altitudeAngle?: number;
+  azimuthAngle?: number;
+  force?: number;
+  touchType?: string;
+};
+
 const WHITEBOARD_WIDTH = 1920;
 const WHITEBOARD_HEIGHT = 1080;
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
 export function WhiteboardCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const toolbarRef = useRef<HTMLDivElement>(null);
   const ctxRef = useRef<CanvasRenderingContext2D | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [isPageMenuOpen, setIsPageMenuOpen] = useState(false);
-  const lastPoint = useRef<Point>({ x: 0, y: 0 });
+  const isDrawingRef = useRef(false);
+  const lastSample = useRef<StrokeSample | null>(null);
+  const activePointerId = useRef<number | null>(null);
+  const activeTouchId = useRef<number | null>(null);
+  const isToolbarForwardedStroke = useRef(false);
+  const lastPenInputAt = useRef(0);
+  const pageMenuRef = useRef<HTMLDivElement>(null);
 
   const activeTab = useARStore(state => state.activeTab);
   const penColor = useARStore(state => state.penColor);
@@ -52,7 +78,7 @@ export function WhiteboardCanvas() {
   const saveCurrentPageWhiteboard = useARStore(state => state.saveCurrentPageWhiteboard);
   const clearPageWhiteboard = useARStore(state => state.clearPageWhiteboard);
 
-  const drawStrokeSegment = (
+  const drawStrokeSegment = useCallback((
     ctx: CanvasRenderingContext2D,
     from: Point,
     to: Point,
@@ -74,7 +100,14 @@ export function WhiteboardCanvas() {
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.stroke();
-  };
+  }, []);
+
+  const saveCurrentCanvasSnapshot = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (canvas) {
+      saveCurrentPageWhiteboard(canvas.toDataURL(), { width: WHITEBOARD_WIDTH, height: WHITEBOARD_HEIGHT });
+    }
+  }, [saveCurrentPageWhiteboard]);
 
   const dragControls = useDragControls();
   const [isDragging, setIsDragging] = useState(false);
@@ -161,69 +194,303 @@ export function WhiteboardCanvas() {
     return () => window.removeEventListener('holomath:whiteboard-remote-clear', handleRemoteClear);
   }, [clearPageWhiteboard, currentPageIndex]);
 
-  const startDrawing = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (interactMode === 'interact') return;
-    
-    setIsDrawing(true);
-    const pos = getCoordinates(e);
-    lastPoint.current = pos;
-  };
-
-  const draw = (e: React.MouseEvent<HTMLCanvasElement> | React.TouchEvent<HTMLCanvasElement>) => {
-    if (!isDrawing || interactMode === 'interact') return;
-    e.preventDefault();
-
-    const ctx = ctxRef.current;
-    if (!ctx) return;
-
-    const currentPoint = getCoordinates(e);
-
-    const strokeColor = (!isDark && penColor === '#09090b') ? '#ffffff' : penColor;
-    const strokeThickness = isEraser ? penThickness * 8 : penThickness;
-    drawStrokeSegment(ctx, lastPoint.current, currentPoint, strokeColor, strokeThickness, isEraser);
-
-    const canvas = canvasRef.current;
-    if (canvas) {
-      const stroke: LiveStroke = {
-        pageIndex: currentPageIndex,
-        from: lastPoint.current,
-        to: currentPoint,
-        color: strokeColor,
-        thickness: strokeThickness,
-        eraser: isEraser,
-      };
-      window.dispatchEvent(new CustomEvent('holomath:whiteboard-local-stroke', { detail: stroke }));
-    }
-    lastPoint.current = currentPoint;
-  };
-
-  const stopDrawing = () => {
-    if (isDrawing) {
-      setIsDrawing(false);
-      // 淇濆瓨蹇収
-      const canvas = canvasRef.current;
-      if (canvas) {
-        saveCurrentPageWhiteboard(canvas.toDataURL(), { width: WHITEBOARD_WIDTH, height: WHITEBOARD_HEIGHT });
-      }
-    }
-  };
-
-  const getCoordinates = (e: React.MouseEvent | React.TouchEvent): Point => {
+  const toLogicalPoint = useCallback((clientX: number, clientY: number): Point => {
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
 
     const rect = canvas.getBoundingClientRect();
-    const toLogicalPoint = (clientX: number, clientY: number): Point => ({
+    return {
       x: ((clientX - rect.left) / rect.width) * WHITEBOARD_WIDTH,
       y: ((clientY - rect.top) / rect.height) * WHITEBOARD_HEIGHT,
-    });
-    if ('touches' in e) {
-      if (e.touches.length === 0) return lastPoint.current;
-      return toLogicalPoint(e.touches[0].clientX, e.touches[0].clientY);
-    } else {
-      return toLogicalPoint(e.clientX, e.clientY);
+    };
+  }, []);
+
+  const getPointerSample = useCallback((e: PointerEvent): StrokeSample => {
+    const point = toLogicalPoint(e.clientX, e.clientY);
+    const isPen = e.pointerType === 'pen';
+    const pressure = isPen
+      ? clamp(e.pressure || 0.35, 0.08, 1)
+      : e.pointerType === 'touch'
+        ? clamp(e.pressure || 0.5, 0.25, 1)
+        : 0.55;
+    const tilt = Math.hypot(e.tiltX || 0, e.tiltY || 0) / 90;
+
+    return {
+      ...point,
+      pressure,
+      tilt: clamp(tilt, 0, 1),
+      pointerType: e.pointerType || 'mouse',
+    };
+  }, [toLogicalPoint]);
+
+  const getTouchSample = useCallback((touch: AppleTouch): StrokeSample => {
+    const point = toLogicalPoint(touch.clientX, touch.clientY);
+    const isStylus = touch.touchType === 'stylus';
+    const pressure = clamp(touch.force || (isStylus ? 0.45 : 0.5), isStylus ? 0.08 : 0.25, 1);
+    const tilt = typeof touch.altitudeAngle === 'number'
+      ? clamp(1 - touch.altitudeAngle / (Math.PI / 2), 0, 1)
+      : 0;
+
+    return {
+      ...point,
+      pressure,
+      tilt,
+      pointerType: isStylus ? 'pen' : 'touch',
+    };
+  }, [toLogicalPoint]);
+
+  const getStrokeWidth = useCallback((sample: StrokeSample) => {
+    if (isEraser) {
+      return penThickness * (5.5 + sample.pressure * 3);
     }
+
+    if (sample.pointerType === 'pen') {
+      const pressureWidth = penThickness * (0.35 + sample.pressure * 1.25);
+      const tiltBoost = penThickness * sample.tilt * 0.35;
+      return clamp(pressureWidth + tiltBoost, penThickness * 0.35, penThickness * 1.9);
+    }
+
+    return penThickness;
+  }, [isEraser, penThickness]);
+
+  const paintSampleSegment = useCallback((from: StrokeSample, to: StrokeSample) => {
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+
+    const strokeColor = (!isDark && penColor === '#09090b') ? '#ffffff' : penColor;
+    const strokeThickness = (getStrokeWidth(from) + getStrokeWidth(to)) / 2;
+    drawStrokeSegment(ctx, from, to, strokeColor, strokeThickness, isEraser);
+
+    const stroke: LiveStroke = {
+      pageIndex: currentPageIndex,
+      from,
+      to,
+      color: strokeColor,
+      thickness: strokeThickness,
+      eraser: isEraser,
+    };
+    window.dispatchEvent(new CustomEvent('holomath:whiteboard-local-stroke', { detail: stroke }));
+  }, [currentPageIndex, drawStrokeSegment, getStrokeWidth, isDark, isEraser, penColor]);
+
+  const shouldAcceptPointerEvent = useCallback((e: PointerEvent) => {
+    if (interactMode === 'interact') return false;
+    if (isIPadOS && (e.pointerType === 'pen' || e.pointerType === 'touch')) return false;
+    if (activePointerId.current !== null) {
+      return e.pointerId === activePointerId.current || (e.type === 'pointerdown' && e.pointerType === 'pen');
+    }
+    if (e.pointerType === 'touch' && Date.now() - lastPenInputAt.current < 700) return false;
+    return e.isPrimary || e.pointerType === 'pen' || e.pointerType === 'mouse';
+  }, [interactMode]);
+
+  const startDrawingFromPointer = useCallback((e: PointerEvent, captureTarget?: HTMLElement) => {
+    if (!shouldAcceptPointerEvent(e)) return false;
+
+    if (activePointerId.current !== null && activePointerId.current !== e.pointerId && e.pointerType === 'pen') {
+      isDrawingRef.current = false;
+      activePointerId.current = null;
+      isToolbarForwardedStroke.current = false;
+      lastSample.current = null;
+    }
+
+    activePointerId.current = e.pointerId;
+    activeTouchId.current = null;
+    if (e.pointerType === 'pen') lastPenInputAt.current = Date.now();
+    isDrawingRef.current = true;
+    setIsDrawing(true);
+    lastSample.current = getPointerSample(e);
+    if (captureTarget) {
+      try { captureTarget.setPointerCapture(e.pointerId); } catch {}
+    }
+    return true;
+  }, [getPointerSample, shouldAcceptPointerEvent]);
+
+  const drawFromPointer = useCallback((e: PointerEvent) => {
+    if (!isDrawingRef.current || !shouldAcceptPointerEvent(e)) return false;
+
+    if (e.pointerType === 'pen') lastPenInputAt.current = Date.now();
+    const nativeEvent = e as NativePointerEvent;
+    const events = nativeEvent.getCoalescedEvents?.() ?? [nativeEvent];
+    for (const pointerEvent of events) {
+      const currentSample = getPointerSample(pointerEvent);
+      if (lastSample.current) {
+        paintSampleSegment(lastSample.current, currentSample);
+      }
+      lastSample.current = currentSample;
+    }
+    return true;
+  }, [getPointerSample, paintSampleSegment, shouldAcceptPointerEvent]);
+
+  const stopDrawingFromPointer = useCallback((e?: PointerEvent, captureTarget?: HTMLElement) => {
+    if (e && activePointerId.current !== e.pointerId) return false;
+    if (e && captureTarget) {
+      try { captureTarget.releasePointerCapture(e.pointerId); } catch {}
+    }
+    const wasDrawing = isDrawingRef.current;
+    isDrawingRef.current = false;
+    setIsDrawing(false);
+    activePointerId.current = null;
+    isToolbarForwardedStroke.current = false;
+    lastSample.current = null;
+    if (wasDrawing) saveCurrentCanvasSnapshot();
+    return wasDrawing;
+  }, [saveCurrentCanvasSnapshot]);
+
+  const findActiveTouch = useCallback((touches: TouchList) => {
+    if (activeTouchId.current === null) return null;
+    for (let i = 0; i < touches.length; i += 1) {
+      if (touches[i].identifier === activeTouchId.current) {
+        return touches[i] as AppleTouch;
+      }
+    }
+    return null;
+  }, []);
+
+  const pickDrawingTouch = useCallback((touches: TouchList) => {
+    for (let i = 0; i < touches.length; i += 1) {
+      const touch = touches[i] as AppleTouch;
+      if (touch.touchType === 'stylus') return touch;
+    }
+    return touches[0] as AppleTouch | undefined;
+  }, []);
+
+  const startDrawingFromTouch = useCallback((touch: AppleTouch) => {
+    if (interactMode === 'interact') return false;
+
+    activeTouchId.current = touch.identifier;
+    activePointerId.current = null;
+    isToolbarForwardedStroke.current = false;
+    isDrawingRef.current = true;
+    setIsDrawing(true);
+    lastSample.current = getTouchSample(touch);
+    if (touch.touchType === 'stylus') lastPenInputAt.current = Date.now();
+    return true;
+  }, [getTouchSample, interactMode]);
+
+  const drawFromTouch = useCallback((touch: AppleTouch) => {
+    if (!isDrawingRef.current || activeTouchId.current !== touch.identifier) return false;
+
+    const currentSample = getTouchSample(touch);
+    if (lastSample.current) {
+      paintSampleSegment(lastSample.current, currentSample);
+    }
+    lastSample.current = currentSample;
+    if (touch.touchType === 'stylus') lastPenInputAt.current = Date.now();
+    return true;
+  }, [getTouchSample, paintSampleSegment]);
+
+  const stopDrawingFromTouch = useCallback((touch?: AppleTouch) => {
+    if (touch && activeTouchId.current !== touch.identifier) return false;
+    const wasDrawing = isDrawingRef.current;
+    activeTouchId.current = null;
+    isDrawingRef.current = false;
+    setIsDrawing(false);
+    lastSample.current = null;
+    if (wasDrawing) saveCurrentCanvasSnapshot();
+    return wasDrawing;
+  }, [saveCurrentCanvasSnapshot]);
+
+  const startDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!startDrawingFromPointer(e.nativeEvent, e.currentTarget)) return;
+    isToolbarForwardedStroke.current = false;
+    e.preventDefault();
   };
+
+  const draw = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawFromPointer(e.nativeEvent)) return;
+    e.preventDefault();
+  };
+
+  const stopDrawing = (e?: React.PointerEvent<HTMLCanvasElement>) => {
+    stopDrawingFromPointer(e?.nativeEvent, e?.currentTarget);
+  };
+
+  useEffect(() => {
+    if (!isIPadOS) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const handleTouchStart = (e: TouchEvent) => {
+      const touch = pickDrawingTouch(e.changedTouches);
+      if (!touch || !startDrawingFromTouch(touch)) return;
+      e.preventDefault();
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      const touch = findActiveTouch(e.changedTouches);
+      if (!touch || !drawFromTouch(touch)) return;
+      e.preventDefault();
+    };
+
+    const handleTouchEnd = (e: TouchEvent) => {
+      const touch = findActiveTouch(e.changedTouches);
+      if (!touch) return;
+      stopDrawingFromTouch(touch);
+      e.preventDefault();
+    };
+
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+    canvas.addEventListener('touchcancel', handleTouchEnd, { passive: false });
+    return () => {
+      canvas.removeEventListener('touchstart', handleTouchStart);
+      canvas.removeEventListener('touchmove', handleTouchMove);
+      canvas.removeEventListener('touchend', handleTouchEnd);
+      canvas.removeEventListener('touchcancel', handleTouchEnd);
+    };
+  }, [drawFromTouch, findActiveTouch, pickDrawingTouch, startDrawingFromTouch, stopDrawingFromTouch]);
+
+  useEffect(() => {
+    if (isIPadOS) return;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      if (e.pointerType !== 'pen') return;
+      const toolbar = toolbarRef.current;
+      if (!toolbar || !toolbar.contains(e.target as Node)) return;
+      if (!startDrawingFromPointer(e)) return;
+      isToolbarForwardedStroke.current = true;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const handlePointerMove = (e: PointerEvent) => {
+      if (
+        e.pointerType !== 'pen' ||
+        activePointerId.current !== e.pointerId ||
+        !isToolbarForwardedStroke.current
+      ) {
+        return;
+      }
+      if (!drawFromPointer(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    const handlePointerEnd = (e: PointerEvent) => {
+      if (
+        e.pointerType !== 'pen' ||
+        activePointerId.current !== e.pointerId ||
+        !isToolbarForwardedStroke.current
+      ) {
+        return;
+      }
+      stopDrawingFromPointer(e);
+      e.preventDefault();
+      e.stopPropagation();
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown, true);
+    window.addEventListener('pointermove', handlePointerMove, true);
+    window.addEventListener('pointerup', handlePointerEnd, true);
+    window.addEventListener('pointercancel', handlePointerEnd, true);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown, true);
+      window.removeEventListener('pointermove', handlePointerMove, true);
+      window.removeEventListener('pointerup', handlePointerEnd, true);
+      window.removeEventListener('pointercancel', handlePointerEnd, true);
+    };
+  }, [drawFromPointer, startDrawingFromPointer, stopDrawingFromPointer]);
 
 
   useEffect(() => {
@@ -263,6 +530,27 @@ export function WhiteboardCanvas() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  useEffect(() => {
+    if (!isPageMenuOpen) return;
+
+    const handlePointerDown = (e: PointerEvent) => {
+      const target = e.target as Node;
+      if (pageMenuRef.current?.contains(target)) return;
+      setIsPageMenuOpen(false);
+    };
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsPageMenuOpen(false);
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isPageMenuOpen]);
+
   if (activeTab !== 'whiteboard' && activeTab !== 'function') return null;
 
   return (
@@ -271,13 +559,11 @@ export function WhiteboardCanvas() {
       <canvas
         ref={canvasRef}
         data-whiteboard-canvas="true"
-        onMouseDown={startDrawing}
-        onMouseMove={draw}
-        onMouseUp={stopDrawing}
-        onMouseLeave={stopDrawing}
-        onTouchStart={startDrawing}
-        onTouchMove={draw}
-        onTouchEnd={stopDrawing}
+        onPointerDown={startDrawing}
+        onPointerMove={draw}
+        onPointerUp={stopDrawing}
+        onPointerCancel={stopDrawing}
+        onLostPointerCapture={stopDrawing}
         className={cn(
           "absolute left-1/2 top-1/2 aspect-video max-h-full max-w-full -translate-x-1/2 -translate-y-1/2 transition-all duration-200",
           "w-[min(100vw,calc(100vh*16/9))] h-auto",
@@ -286,12 +572,17 @@ export function WhiteboardCanvas() {
             : "z-20 pointer-events-none"
         )}
         style={{
-          filter: isDark ? 'none' : 'invert(1) hue-rotate(180deg)'
+          filter: isDark ? 'none' : 'invert(1) hue-rotate(180deg)',
+          touchAction: 'none',
+          WebkitUserSelect: 'none',
+          userSelect: 'none',
+          WebkitTouchCallout: 'none',
         }}
       />
 
       {/* 鎮诞鑻规灉缇庡鐢荤瑪宸ュ叿绠?*/}
       <motion.div
+        ref={toolbarRef}
         drag
         dragControls={dragControls}
         dragListener={false}
@@ -484,119 +775,178 @@ export function WhiteboardCanvas() {
           <Eraser className="w-5 h-5" />
         </motion.button>
 
-        <div className={cn("w-full h-px transition-colors my-1", isDark ? "bg-white/10" : "bg-black/10")} />
-
-        {/* 鎶樺彔鎮诞寮忓垎椤垫帶浠?*/}
-        <div 
-          className="relative w-full flex justify-center"
-          onMouseEnter={() => setIsPageMenuOpen(true)}
-          onMouseLeave={() => setIsPageMenuOpen(false)}
+      </motion.div>
+      <div
+        ref={pageMenuRef}
+        className="absolute bottom-[7.25rem] left-1/2 z-[41] flex -translate-x-1/2 justify-center pointer-events-auto"
+      >
+        <div
+          className={cn(
+            "overflow-hidden border backdrop-blur-md shadow-lg transition-[width,border-radius,padding] duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
+            isPageMenuOpen ? "w-[min(48rem,calc(100vw-2rem))] rounded-[28px] p-3" : "w-[104px] rounded-[26px] p-1.5",
+            isDark ? "border-white/12 bg-zinc-950/92 text-white" : "border-black/10 bg-white/92 text-zinc-950"
+          )}
         >
-          {/* 涓绘寜閽?(鍙樉绀洪〉鐮佸浘鏍? */}
-          <button
-            className={cn(
-              "p-2.5 rounded-xl transition-colors duration-200 relative cursor-pointer flex items-center justify-center",
-              isPageMenuOpen 
-                ? (isDark ? "bg-white/10 text-white" : "bg-black/5 text-black")
-                : (isDark ? "text-zinc-400 hover:text-white" : "text-zinc-500 hover:text-black")
-            )}
-            title="多页面管理"
-          >
-            <Layers className="w-5 h-5" />
-            <div className="absolute top-1 right-1 px-[3px] py-[1px] rounded bg-cyan-500 text-white text-[8px] font-bold leading-none transform translate-x-1 -translate-y-1 shadow-sm">
-              {currentPageIndex + 1}
-            </div>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsPageMenuOpen(open => !open)}
+              className={cn(
+                "flex h-10 items-center gap-2 rounded-full px-3 transition-all cursor-pointer shrink-0",
+                isDark ? "hover:bg-white/10" : "hover:bg-black/5"
+              )}
+              title="页面预览"
+            >
+              <Layers className="h-4 w-4" />
+              <span className="text-xs font-semibold tabular-nums">{currentPageIndex + 1} / {totalPages}</span>
+            </button>
 
-          {/* 鎮诞寮瑰嚭鐨勬í鍚戝垎椤垫帶浠?*/}
-          <AnimatePresence>
-            {isPageMenuOpen && (
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, x: -5 }}
-                animate={{ opacity: 1, scale: 1, x: 0 }}
-                exit={{ opacity: 0, scale: 0.95, x: -5 }}
-                transition={{ type: "spring", stiffness: 400, damping: 25 }}
-                className={cn(
-                  "absolute left-full ml-4 top-1/2 -translate-y-1/2 flex items-center gap-1 p-1.5 rounded-2xl backdrop-blur-2xl border shadow-[0_8px_30px_rgb(0,0,0,0.12)]",
-                  isDark ? "bg-zinc-900/90 border-white/10" : "bg-white/90 border-black/5"
-                )}
-              >
-                {totalPages > 1 && (
+            <AnimatePresence initial={false}>
+              {isPageMenuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.96, filter: "blur(4px)" }}
+                  animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+                  exit={{ 
+                    opacity: 0, 
+                    scale: 0.92, 
+                    filter: "blur(6px)",
+                    transition: { duration: 0.12, ease: "easeIn" }
+                  }}
+                  transition={{ duration: 0.25, ease: "easeOut" }}
+                  className="flex shrink-0 items-center gap-2 overflow-hidden"
+                >
+                  <div className={cn("h-8 w-px shrink-0", isDark ? "bg-white/10" : "bg-black/10")} />
                   <button
                     onClick={() => switchPage(currentPageIndex - 1)}
                     disabled={currentPageIndex === 0}
                     className={cn(
-                      "p-2 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center",
-                      currentPageIndex === 0 
-                        ? "opacity-30 cursor-not-allowed" 
-                        : (isDark ? "hover:bg-white/10 text-zinc-300 hover:text-white" : "hover:bg-black/5 text-zinc-600 hover:text-black")
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all",
+                      currentPageIndex === 0
+                        ? "cursor-not-allowed opacity-30"
+                        : (isDark ? "text-zinc-300 hover:bg-white/10 hover:text-white" : "text-zinc-600 hover:bg-black/5 hover:text-zinc-950")
                     )}
                     title="上一页"
                   >
-                    <ChevronLeft className="w-4 h-4" />
+                    <ChevronLeft className="h-4 w-4" />
                   </button>
-                )}
 
-                <div className={cn("flex items-center justify-center", totalPages > 1 ? "min-w-[3rem]" : "min-w-[2rem]")}>
-                  <span className={cn("text-xs font-bold tracking-wide", isDark ? "text-zinc-200" : "text-zinc-800")}>
-                    {currentPageIndex + 1} 
-                    {totalPages > 1 && (
-                      <><span className="opacity-40 font-normal mx-0.5">/</span> {totalPages}</>
-                    )}
-                  </span>
-                </div>
+                  <div className="flex max-w-[min(32rem,calc(100vw-15rem))] gap-2 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                    {pages.map((page, index) => {
+                      const isActive = index === currentPageIndex;
+                      const geometryCount =
+                        (page.geometry?.points?.length ?? 0) +
+                        (page.geometry?.segments?.length ?? 0) +
+                        (page.geometry?.circles?.length ?? 0);
+                      const hasContent = Boolean(page.whiteboardDataUrl) || geometryCount > 0;
 
-                {totalPages > 1 && (
+                      return (
+                        <button
+                          key={page.id}
+                          onClick={() => switchPage(index)}
+                          className={cn(
+                            "group relative shrink-0 rounded-[1.15rem] p-1.5 text-left transition-all duration-200",
+                            isActive
+                              ? (isDark ? "bg-cyan-400/18 shadow-[0_0_0_1px_rgba(103,232,249,0.45),0_12px_34px_rgba(8,145,178,0.24)]" : "bg-cyan-500/12 shadow-[0_0_0_1px_rgba(8,145,178,0.28),0_12px_30px_rgba(8,145,178,0.16)]")
+                              : (isDark ? "hover:bg-white/8" : "hover:bg-black/5")
+                          )}
+                          title={`第 ${index + 1} 页`}
+                        >
+                          <div className={cn(
+                            "relative h-[4.1rem] w-[7rem] overflow-hidden rounded-xl border",
+                            isActive
+                              ? (isDark ? "border-cyan-300/65" : "border-cyan-500/55")
+                              : (isDark ? "border-white/10" : "border-black/10")
+                          )}>
+                            <div className={cn("absolute inset-0", isDark ? "bg-zinc-950" : "bg-zinc-50")}>
+                              <div
+                                className={cn(
+                                  "absolute inset-0 opacity-60",
+                                  isDark
+                                    ? "bg-[linear-gradient(rgba(255,255,255,0.045)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.045)_1px,transparent_1px)]"
+                                    : "bg-[linear-gradient(rgba(15,23,42,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.06)_1px,transparent_1px)]"
+                                )}
+                                style={{ backgroundSize: '18px 18px' }}
+                              />
+                            </div>
+                            {page.whiteboardDataUrl && (
+                              <img
+                                src={page.whiteboardDataUrl}
+                                alt=""
+                                className={cn("absolute inset-0 h-full w-full object-cover", !isDark && "invert hue-rotate-180")}
+                                draggable={false}
+                              />
+                            )}
+                            {!hasContent && (
+                              <div className={cn("absolute inset-0 flex items-center justify-center text-[11px] font-medium", isDark ? "text-zinc-600" : "text-zinc-400")}>
+                                空白
+                              </div>
+                            )}
+                            {geometryCount > 0 && (
+                              <div className={cn("absolute bottom-1.5 right-1.5 rounded-full px-1.5 py-0.5 text-[9px] font-semibold backdrop-blur-md", isDark ? "bg-zinc-950/70 text-cyan-200" : "bg-white/75 text-cyan-700")}>
+                                {geometryCount}
+                              </div>
+                            )}
+                          </div>
+                          <div className="mt-1.5 flex items-center justify-between px-1">
+                            <span className={cn("text-[11px] font-semibold", isActive ? (isDark ? "text-cyan-200" : "text-cyan-700") : (isDark ? "text-zinc-400" : "text-zinc-500"))}>
+                              {index + 1}
+                            </span>
+                            {isActive && totalPages > 1 && (
+                              <span
+                                role="button"
+                                tabIndex={0}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  if (confirm('确定要删除当前页面吗？')) removePage(currentPageIndex);
+                                }}
+                                onKeyDown={(event) => {
+                                  if (event.key !== 'Enter' && event.key !== ' ') return;
+                                  event.stopPropagation();
+                                  if (confirm('确定要删除当前页面吗？')) removePage(currentPageIndex);
+                                }}
+                                className={cn(
+                                  "flex h-6 w-6 items-center justify-center rounded-full opacity-80 transition-all hover:opacity-100",
+                                  isDark ? "text-rose-300 hover:bg-rose-400/15" : "text-rose-500 hover:bg-rose-500/10"
+                                )}
+                                title="删除当前页"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
                   <button
                     onClick={() => switchPage(currentPageIndex + 1)}
                     disabled={currentPageIndex === totalPages - 1}
                     className={cn(
-                      "p-2 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center",
-                      currentPageIndex === totalPages - 1 
-                        ? "opacity-30 cursor-not-allowed" 
-                        : (isDark ? "hover:bg-white/10 text-zinc-300 hover:text-white" : "hover:bg-black/5 text-zinc-600 hover:text-black")
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all",
+                      currentPageIndex === totalPages - 1
+                        ? "cursor-not-allowed opacity-30"
+                        : (isDark ? "text-zinc-300 hover:bg-white/10 hover:text-white" : "text-zinc-600 hover:bg-black/5 hover:text-zinc-950")
                     )}
                     title="下一页"
                   >
-                    <ChevronRight className="w-4 h-4" />
+                    <ChevronRight className="h-4 w-4" />
                   </button>
-                )}
-
-                <div className={cn("w-px h-4 mx-1 rounded-full", isDark ? "bg-white/20" : "bg-black/10")} />
-
-                <button
-                  onClick={() => addPage()}
-                  className={cn(
-                    "p-2 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center",
-                    isDark ? "hover:bg-cyan-500/20 text-cyan-400" : "hover:bg-cyan-50 text-cyan-600"
-                  )}
-                  title="添加新页面"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
-
-                {totalPages > 1 && (
                   <button
-                    onClick={() => {
-                      if (confirm('确定要删除当前页面吗？')) {
-                        removePage(currentPageIndex);
-                      }
-                    }}
+                    onClick={addPage}
                     className={cn(
-                      "p-2 rounded-xl transition-all duration-200 cursor-pointer flex items-center justify-center",
-                      isDark ? "hover:bg-rose-500/20 text-rose-400" : "hover:bg-rose-50 text-rose-500"
+                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-all",
+                      isDark ? "bg-cyan-400/15 text-cyan-300 hover:bg-cyan-400/25" : "bg-cyan-500/10 text-cyan-600 hover:bg-cyan-500/15"
                     )}
-                    title="删除当前页"
+                    title="添加新页面"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <Plus className="h-4 w-4" />
                   </button>
-                )}
-              </motion.div>
-            )}
-          </AnimatePresence>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </div>
-
-      </motion.div>
+      </div>
     </>
   );
 }
