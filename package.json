@@ -6,7 +6,9 @@
   "license": "GPL-3.0-or-later",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev:ipad": "HOLO_TARGET=ipad vite --host=0.0.0.0 --port=3002 --strictPort",
     "build": "vite build",
+    "build:ipad": "HOLO_TARGET=ipad vite build && node scripts/sync-ios-assets.mjs",
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",

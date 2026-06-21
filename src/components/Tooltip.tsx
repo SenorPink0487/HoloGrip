@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
@@ -18,6 +18,11 @@ export function Tooltip({
   const [isVisible, setIsVisible] = useState(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const hideTooltip = () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setIsVisible(false);
+  };
+
   const handleMouseEnter = () => {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
     
@@ -28,9 +33,12 @@ export function Tooltip({
   };
 
   const handleMouseLeave = () => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-    setIsVisible(false);
+    hideTooltip();
   };
+
+  useEffect(() => () => {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+  }, []);
 
   const positionClasses = {
     top: 'bottom-full left-1/2 -translate-x-1/2 mb-2.5',
@@ -66,12 +74,32 @@ export function Tooltip({
       if (childProps.onMouseLeave) childProps.onMouseLeave(e);
     },
     onFocus: (e: React.FocusEvent) => {
-      setIsVisible(true);
+      if (e.currentTarget.matches(':focus-visible')) setIsVisible(true);
       if (childProps.onFocus) childProps.onFocus(e);
     },
     onBlur: (e: React.FocusEvent) => {
-      setIsVisible(false);
+      hideTooltip();
       if (childProps.onBlur) childProps.onBlur(e);
+    },
+    onPointerDown: (e: React.PointerEvent) => {
+      hideTooltip();
+      if (childProps.onPointerDown) childProps.onPointerDown(e);
+    },
+    onPointerLeave: (e: React.PointerEvent) => {
+      hideTooltip();
+      if (childProps.onPointerLeave) childProps.onPointerLeave(e);
+    },
+    onPointerCancel: (e: React.PointerEvent) => {
+      hideTooltip();
+      if (childProps.onPointerCancel) childProps.onPointerCancel(e);
+    },
+    onTouchStart: (e: React.TouchEvent) => {
+      hideTooltip();
+      if (childProps.onTouchStart) childProps.onTouchStart(e);
+    },
+    onClick: (e: React.MouseEvent) => {
+      hideTooltip();
+      if (childProps.onClick) childProps.onClick(e);
     },
   } as any);
 

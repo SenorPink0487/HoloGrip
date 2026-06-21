@@ -132,8 +132,8 @@ async fn ai_models_dir<R: Runtime>(app: tauri::AppHandle<R>) -> CmdResult<String
 /// 打开 HoloMath 仿真窗口。
 ///
 /// 如果窗口已经存在（label = "simulation"），就把它带回前台、focus；
-/// 否则用 `WebviewWindowBuilder` 新建并加载 `app.html`。该路径会被 Tauri
-/// 自动解析：开发期解析到 vite dev server 的 `/app.html`，发布期解析到
+/// 否则用 `WebviewWindowBuilder` 新建并加载 `holomath.html`。该路径会被 Tauri
+/// 自动解析：开发期解析到 vite dev server 的 `/holomath.html`，发布期解析到
 /// `frontendDist` 中的对应文件。
 #[tauri::command]
 async fn open_simulation_window<R: Runtime>(app: tauri::AppHandle<R>) -> CmdResult<()> {
@@ -149,7 +149,7 @@ async fn open_simulation_window<R: Runtime>(app: tauri::AppHandle<R>) -> CmdResu
         return Ok(());
     }
 
-    WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::App("app.html".into()))
+    WebviewWindowBuilder::new(&app, LABEL, WebviewUrl::App("holomath.html".into()))
         .title("HoloMath - 空间三维几何画板")
         .inner_size(1280.0, 820.0)
         .min_inner_size(960.0, 640.0)

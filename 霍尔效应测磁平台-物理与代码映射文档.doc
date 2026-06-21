@@ -1,0 +1,538 @@
+<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head>
+<meta charset="utf-8">
+<title>霍尔效应测磁平台物理与代码映射文档</title>
+<style>
+  body { font-family: "Microsoft YaHei", SimSun, sans-serif; line-height: 1.6; color: #333; }
+  h1 { font-size: 22pt; text-align: center; margin-bottom: 30px; color: #111; font-weight: bold; }
+  h2 { font-size: 15pt; margin-top: 25px; border-bottom: 2px solid #0056b3; padding-bottom: 5px; color: #0056b3; font-weight: bold; }
+  h3 { font-size: 12.5pt; margin-top: 15px; color: #2c3e50; font-weight: bold; border-left: 4px solid #0056b3; padding-left: 8px; }
+  p { font-size: 10.5pt; text-indent: 2em; margin-bottom: 10px; text-align: justify; }
+  ul, ol { font-size: 10.5pt; margin-left: 2em; margin-bottom: 10px; }
+  li { margin-bottom: 5px; }
+  pre { 
+      background-color: #f8f9fa; 
+      padding: 12px; 
+      font-family: Consolas, "Courier New", monospace; 
+      font-size: 9pt;
+      border: 1px solid #e9ecef; 
+      border-radius: 4px;
+      margin-left: 2em; 
+      margin-right: 2em; 
+      white-space: pre-wrap;
+      word-break: break-all;
+  }
+  code { 
+      font-family: Consolas, monospace; 
+      background-color: #f8f9fa; 
+      padding: 2px 4px; 
+      border-radius: 3px;
+      color: #d63384;
+      font-size: 90%;
+  }
+  .formula-container { 
+      text-align: center; 
+      margin: 15px auto; 
+      padding: 10px;
+      background-color: #f1f3f5;
+      border-radius: 4px;
+      width: 85%;
+  }
+  .file-loc {
+      background-color: #fff3cd;
+      border-left: 4px solid #ffc107;
+      padding: 6px 12px;
+      margin: 10px 2em;
+      font-size: 9.5pt;
+      color: #856404;
+      font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<h1>霍尔效应测磁平台 - 物理原理与代码实现映射文档</h1>
+
+<h2>1. 概述</h2>
+<p>本项目通过网页3D可视化技术，模拟了HCC-2型霍尔效应测磁平台。主要仿真实验包括：长螺线管轴线磁场分布规律测定、亥姆霍兹线圈磁场分布规律测定等。在代码实现中，除了基本的UI状态和接线判断，最核心的部分在于利用经典电磁学公式与数值计算方法，在三维空间中实时重构物理场并完成仪器的数值反馈。本技术文档将详细拆解 <code>App.tsx</code> 和 <code>Experiment3D.tsx</code> 中的物理引擎设计，解析代码与物理原理的深度映射。</p>
+
+<h2>2. 核心物理常数与几何参数</h2>
+<p>在程序的头部，定义了构成虚拟实验室的基础物理常数和仪器几何尺寸：</p>
+<div class="file-loc">代码位置：src/physics/hall_magnetometer/App.tsx (第 8 行至第 11 行)</div>
+<pre>
+const MU0 = 4 * Math.PI * 1e-7;
+const SOLENOID_LENGTH_M = 0.3;
+const SOLENOID_DIAMETER_M = 0.034;
+const SIM_SENSOR_K = 220;
+</pre>
+<ul>
+    <li><code>MU0</code> (<math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>&mu;</mi><mn>0</mn></msub></math>)：真空磁导率，取国际单位制常数 
+      <math xmlns="http://www.w3.org/1998/Math/MathML">
+        <mn>4</mn>
+        <mi>&pi;</mi>
+        <mo>&times;</mo>
+        <msup>
+          <mn>10</mn>
+          <mrow>
+            <mo>&minus;</mo>
+            <mn>7</mn>
+          </mrow>
+        </msup>
+        <mtext>&nbsp;T</mtext>
+        <mo>&middot;</mo>
+        <mtext>m/A</mtext>
+      </math>。
+    </li>
+    <li><code>SOLENOID_LENGTH_M</code> (<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>L</mi></math>)：螺线管实际物理长度，定为 0.3 m (30 cm)。</li>
+    <li><code>SOLENOID_DIAMETER_M</code> (<math xmlns="http://www.w3.org/1998/Math/MathML"><mi>D</mi></math>)：螺线管有效截面直径，定为 0.034 m (3.4 cm)。</li>
+    <li><code>SIM_SENSOR_K</code>：系统内置的霍尔传感器灵敏度参数（220 mV/(mA·T)），作为生成仿真原始电压读数的基准因子。</li>
+</ul>
+
+<h2>3. 轴线磁感应强度理论计算模型</h2>
+<p>在用户端计算“理论值”以进行灵敏度标定时，程序采用了精简的一维解析解：</p>
+
+<h3>3.1 长螺线管有限长理论修正</h3>
+<p>对于长宽比有限的实际螺线管，轴线中心点的磁感应强度公式需进行端口几何修正：</p>
+<div class="formula-container">
+  <math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+    <msub>
+      <mi>B</mi>
+      <mtext>theory</mtext>
+    </msub>
+    <mo>=</mo>
+    <msub>
+      <mi>&mu;</mi>
+      <mn>0</mn>
+    </msub>
+    <mo>&middot;</mo>
+    <mfrac>
+      <mi>N</mi>
+      <mi>L</mi>
+    </mfrac>
+    <mo>&middot;</mo>
+    <msub>
+      <mi>I</mi>
+      <mi>m</mi>
+    </msub>
+    <mo>&middot;</mo>
+    <mfrac>
+      <mn>1</mn>
+      <msqrt>
+        <mrow>
+          <mn>1</mn>
+          <mo>+</mo>
+          <msup>
+            <mrow>
+              <mo>(</mo>
+              <mfrac>
+                <mi>D</mi>
+                <mi>L</mi>
+              </mfrac>
+              <mo>)</mo>
+            </mrow>
+            <mn>2</mn>
+          </msup>
+        </mrow>
+      </msqrt>
+    </mfrac>
+  </math>
+</div>
+<div class="file-loc">代码位置：src/physics/hall_magnetometer/App.tsx -> calculateSolenoidTheoryB 函数 (第 13 行至第 19 行)</div>
+<pre>
+function calculateSolenoidTheoryB({ turns, Im }: { turns: number; Im: number }) {
+  const turnDensity = turns / SOLENOID_LENGTH_M; // 计算单位长度匝数 n = N / L
+  // 修正项计算: L / sqrt(D^2 + L^2) 等价于 1 / sqrt(1 + (D/L)^2)
+  const correction = SOLENOID_LENGTH_M / Math.sqrt(
+    SOLENOID_DIAMETER_M ** 2 + SOLENOID_LENGTH_M ** 2
+  );
+  return correction * MU0 * turnDensity * Im;
+}
+</pre>
+
+<h3>3.2 亥姆霍兹双线圈中心轴线磁场近似</h3>
+<p>单个半径为 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>R</mi></math> 的圆线圈在轴线上距离中心 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>p</mi></math> 处的磁感应强度公式为：</p>
+<div class="formula-container">
+  <math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+    <mi>B</mi>
+    <mo stretchy="false">(</mo>
+    <mi>p</mi>
+    <mo stretchy="false">)</mo>
+    <mo>=</mo>
+    <mfrac>
+      <mrow>
+        <msub>
+          <mi>&mu;</mi>
+          <mn>0</mn>
+        </msub>
+        <mo>&middot;</mo>
+        <mi>I</mi>
+        <mo>&middot;</mo>
+        <msup>
+          <mi>R</mi>
+          <mn>2</mn>
+        </msup>
+      </mrow>
+      <mrow>
+        <mn>2</mn>
+        <mo>&middot;</mo>
+        <msup>
+          <mrow>
+            <mo stretchy="false">(</mo>
+            <msup>
+              <mi>R</mi>
+              <mn>2</mn>
+            </msup>
+            <mo>+</mo>
+            <msup>
+              <mi>p</mi>
+              <mn>2</mn>
+            </msup>
+            <mo stretchy="false">)</mo>
+          </mrow>
+          <mfrac>
+            <mn>3</mn>
+            <mn>2</mn>
+          </mfrac>
+        </msup>
+      </mrow>
+    </mfrac>
+  </math>
+</div>
+<p>亥姆霍兹线圈包含两个相距为 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>d</mi><mo>&approx;</mo><mi>R</mi></math> 且同轴的共向载流线圈。代码中模拟探头获取电压时，构建了其沿 x 轴的合成相对空间分布：</p>
+<div class="file-loc">代码位置：src/physics/hall_magnetometer/App.tsx -> calculateVH 函数内 (第 85 行至第 88 行)</div>
+<pre>
+const R = 5.0; // 线圈半径设计值 5.0 cm
+const p = probePos; // 探头沿中心轴的坐标 (cm)
+
+// 计算左、右侧线圈在探头所在位置 p 的空间磁场贡献分量
+const B1 = Math.pow(R, 2) / Math.pow(Math.pow(R, 2) + Math.pow(p - rightCoilPos, 2), 1.5);
+const B2 = Math.pow(R, 2) / Math.pow(Math.pow(R, 2) + Math.pow(p + 2.5, 2), 1.5);
+
+fieldTesla = (B1 + B2) * Im * 0.001 * activeDir;
+</pre>
+
+<h2>4. 三维空间磁场重构（毕奥-萨伐尔定律数值积分）</h2>
+<p>为了在3D场景中生成真实的磁感线走向，代码中实现了一套在三维空间中进行物理数值积分的场求解引擎。</p>
+
+<h3>4.1 单个圆环电流的毕奥-萨伐尔微元求和</h3>
+<p>根据毕奥-萨伐尔定律，半径为 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>R</mi></math>、中心轴向位于 <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>c</mi><mi>x</mi></msub></math> 的单匝圆环电流，在空间任意一点 <math xmlns="http://www.w3.org/1998/Math/MathML"><mo stretchy="false">(</mo><mi>x</mi><mo>,</mo><msup><mi>y</mi><mo>&prime;</mo></msup><mo stretchy="false">)</mo></math> 处的磁感应强度分量 <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>B</mi><mi>x</mi></msub><mo>,</mo><msub><mi>B</mi><mi>y</mi></msub></math> 无法用简单的初等函数表达。在代码中，圆环被离散均分为 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>N</mi><mo>=</mo><mn>32</mn></math> 个电流微元进行数值求和：</p>
+<p>设积分距离公式 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>D</mi></math> 为：</p>
+<div class="formula-container">
+  <math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+    <mi>D</mi>
+    <mo>=</mo>
+    <msup>
+      <mrow>
+        <mo stretchy="false">(</mo>
+        <mi>x</mi>
+        <mo>&minus;</mo>
+        <msub>
+          <mi>c</mi>
+          <mi>x</mi>
+        </msub>
+        <mo stretchy="false">)</mo>
+      </mrow>
+      <mn>2</mn>
+    </msup>
+    <mo>+</mo>
+    <msup>
+      <mi>y</mi>
+      <mrow>
+        <mo>&prime;</mo>
+        <mn>2</mn>
+      </mrow>
+    </msup>
+    <mo>+</mo>
+    <msup>
+      <mi>R</mi>
+      <mn>2</mn>
+    </msup>
+    <mo>&minus;</mo>
+    <mn>2</mn>
+    <mi>R</mi>
+    <msup>
+      <mi>y</mi>
+      <mo>&prime;</mo>
+    </msup>
+    <mi>cos</mi>
+    <mo>&theta;</mo>
+  </math>
+</div>
+<p>则数值积分量满足比例关系（因为后续磁感线追踪只使用归一化向量，因此省略了外层常数系数 <math xmlns="http://www.w3.org/1998/Math/MathML"><mfrac><mrow><msub><mi>&mu;</mi><mn>0</mn></msub><mi>I</mi></mrow><mrow><mn>4</mn><mi>&pi;</mi></mrow></mfrac></math>）：</p>
+<div class="formula-container">
+  <math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+    <msub>
+      <mi>B</mi>
+      <mi>x</mi>
+    </msub>
+    <mo>&propto;</mo>
+    <msubsup>
+      <mo>&int;</mo>
+      <mn>0</mn>
+      <mrow>
+        <mn>2</mn>
+        <mi>&pi;</mi>
+      </mrow>
+    </msubsup>
+    <mfrac>
+      <mrow>
+        <msup>
+          <mi>R</mi>
+          <mn>2</mn>
+        </msup>
+        <mo>&minus;</mo>
+        <mi>R</mi>
+        <msup>
+          <mi>y</mi>
+          <mo>&prime;</mo>
+        </msup>
+        <mi>cos</mi>
+        <mo>&theta;</mo>
+      </mrow>
+      <msup>
+        <mi>D</mi>
+        <mn>1.5</mn>
+      </msup>
+    </mfrac>
+    <mi>d</mi>
+    <mo>&theta;</mo>
+  </math>
+</div>
+<div class="formula-container">
+  <math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+    <msub>
+      <mi>B</mi>
+      <mi>y</mi>
+    </msub>
+    <mo>&propto;</mo>
+    <msubsup>
+      <mo>&int;</mo>
+      <mn>0</mn>
+      <mrow>
+        <mn>2</mn>
+        <mi>&pi;</mi>
+      </mrow>
+    </msubsup>
+    <mfrac>
+      <mrow>
+        <mi>R</mi>
+        <mi>cos</mi>
+        <mo>&theta;</mo>
+        <mo stretchy="false">(</mo>
+        <mi>x</mi>
+        <mo>&minus;</mo>
+        <msub>
+          <mi>c</mi>
+          <mi>x</mi>
+        </msub>
+        <mo stretchy="false">)</mo>
+      </mrow>
+      <msup>
+        <mi>D</mi>
+        <mn>1.5</mn>
+      </msup>
+    </mfrac>
+    <mi>d</mi>
+    <mo>&theta;</mo>
+  </math>
+</div>
+
+<div class="file-loc">代码位置：src/physics/hall_magnetometer/components/Experiment3D.tsx -> getBFieldOffset 函数 (第 765 行至第 779 行)</div>
+<pre>
+function getBFieldOffset(x: number, yPrime: number, cx: number, R: number) {
+   let bx = 0;
+   let by = 0;
+   const N = 32; // 将圆环均分为32份微元
+   const dTheta = 2 * Math.PI / N;
+   
+   for (let i = 0; i &lt; N; i++) {
+       const theta = i * dTheta;
+       const cosT = Math.cos(theta);
+       // 计算场点到电流微元源点的三维距离平方 D
+       const D = Math.pow(x - cx, 2) + Math.pow(yPrime, 2) + Math.pow(R, 2) - 2 * R * yPrime * cosT;
+       const D15 = Math.pow(Math.max(D, 0.01), 1.5); // 防止距离过近产生数值奇点
+       
+       // 微元法积分累加
+       bx += (R * R - R * yPrime * cosT) / D15 * dTheta;
+       by += (R * cosT * (x - cx)) / D15 * dTheta;
+   }
+   return { bx, by };
+}
+</pre>
+
+<h3>4.2 亥姆霍兹线圈的场叠加</h3>
+<p>利用磁场的<b>叠加原理</b>，亥姆霍兹线圈的整体磁场由左侧固定线圈（中心 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi><mo>=</mo><mo>&minus;</mo><mn>2.5</mn></math>, 半径 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>R</mi><mo>=</mo><mn>2.9</mn></math>）和右侧滑动线圈（中心 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi><mo>=</mo><mi>rightCoilPos</mi></math>）各自激发的空间磁场进行向量加和：</p>
+<div class="file-loc">代码位置：src/physics/hall_magnetometer/components/Experiment3D.tsx -> getTotalBField 函数 (第 781 行至第 787 行)</div>
+<pre>
+function getTotalBField(x: number, y: number, rightCoilPos: number) {
+    const yPrime = y - 4.5; // 坐标系偏置平移
+    const R = 2.9;
+    const { bx: bx1, by: by1 } = getBFieldOffset(x, yPrime, -2.5, R);
+    const { bx: bx2, by: by2 } = getBFieldOffset(x, yPrime, rightCoilPos, R);
+    return { bx: bx1 + bx2, by: by1 + by2 }; // 向量叠加
+}
+</pre>
+
+<h3>4.3 螺线管的多线圈离散微元近似</h3>
+<p>在 3D 物理线模拟中，代码采用<b>等效多圆环法</b>，将整个螺线管离散近似为 27 组等间距分布在 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>x</mi><mo>&isin;</mo><mo stretchy="false">[</mo><mo>&minus;</mo><mn>13</mn><mo>,</mo><mn>13</mn><mo stretchy="false">]</mo></math> 的独立载流圆环。通过循环调用圆环磁场函数计算合成磁场：</p>
+<div class="file-loc">代码位置：src/physics/hall_magnetometer/components/Experiment3D.tsx -> getSolenoidBFieldTotal 函数 (第 874 行至第 886 行)</div>
+<pre>
+function getSolenoidBFieldTotal(x: number, y: number) {
+    const yPrime = y - 3.65;
+    const R = 1.4;
+    let bx = 0;
+    let by = 0;
+    // 将30cm长的螺线管离散为27个等效圆环线圈进行磁场积分
+    for (let cx = -13; cx &lt;= 13.01; cx += 1.0) {
+        const { bx: bxi, by: byi } = getBFieldOffset(x, yPrime, cx, R);
+        bx += bxi;
+        by += byi;
+    }
+    return { bx, by };
+}
+</pre>
+
+<h2>5. 磁感线数值流线追踪算法</h2>
+<p>为了渲染出随电流方向流动的动态光效磁感线，代码中实现了一套<b>一阶常微分方程的欧拉积分追踪器（Streamline Tracing）</b>。</p>
+
+<h3>5.1 追踪物理数学原理</h3>
+<p>磁感线上任意一点的切线方向与该点的磁感应强度 <math xmlns="http://www.w3.org/1998/Math/MathML"><mover><mi>B</mi><mo>&rarr;</mo></mover></math> 方向一致。即满足常微分方程：</p>
+<div class="formula-container">
+  <math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+    <mi>d</mi>
+    <mover>
+      <mi>r</mi>
+      <mo>&rarr;</mo>
+    </mover>
+    <mo>=</mo>
+    <mo>&plusmn;</mo>
+    <mfrac>
+      <mover>
+        <mi>B</mi>
+        <mo>&rarr;</mo>
+      </mover>
+      <mrow>
+        <mo stretchy="false">|</mo>
+        <mover>
+          <mi>B</mi>
+          <mo>&rarr;</mo>
+        </mover>
+        <mo stretchy="false">|</mo>
+      </mrow>
+    </mfrac>
+    <mo>&middot;</mo>
+    <mi>d</mi>
+    <mi>s</mi>
+  </math>
+</div>
+<p>给定一个起始“种子点”（Seed Point），顺着磁场方向以固定步长 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>&Delta;</mi><mi>s</mi></math> 逐步累加，可以描绘出一条磁感线（Forward Tracing）；逆着磁场方向以 <math xmlns="http://www.w3.org/1998/Math/MathML"><mo>&minus;</mo><mi>&Delta;</mi><mi>s</mi></math> 迭代，可描绘出另一侧（Backward Tracing），将二者拼接即可生成完整的闭合或半闭合磁流线。</p>
+
+<h3>5.2 欧拉追踪的代码实现</h3>
+<div class="file-loc">代码位置：src/physics/hall_magnetometer/components/Experiment3D.tsx -> MagneticFieldLinesSolenoid 组件内的 traceLine 函数 (第 894 行至第 920 行)</div>
+<pre>
+const traceLine = (startX: number, startY: number) => {
+    const forward: THREE.Vector3[] = [];
+    const backward: THREE.Vector3[] = [];
+    const stepSize = 0.2; // 空间步长 ds
+    const maxSteps = 250; // 最大迭代步数限制
+    
+    // 1. 顺着磁场方向正向积分 (Forward)
+    let cx = startX, cy = startY;
+    for(let i = 0; i &lt; maxSteps; i++) {
+        forward.push(new THREE.Vector3(cx, cy, -8.5));
+        const { bx, by } = getSolenoidBFieldTotal(cx, cy); // 算当前点磁场矢量
+        const mag = Math.sqrt(bx*bx + by*by); // 求模长
+        if (mag &lt; 1e-6) break; // 避开零场区或无限远处
+        
+        cx += (bx / mag) * stepSize; // x(t+dt) = x(t) + (Bx/|B|)*ds
+        cy += (by / mag) * stepSize; // y(t+dt) = y(t) + (By/|B|)*ds
+        if (cx &lt; -20 || cx &gt; 20 || cy &lt; -5 || cy &gt; 15) break; // 边界截断
+    }
+
+    // 2. 逆着磁场方向反向积分 (Backward)
+    cx = startX; cy = startY;
+    for(let i = 0; i &lt; maxSteps; i++) {
+        if (i &gt; 0) backward.push(new THREE.Vector3(cx, cy, -8.5));
+        const { bx, by } = getSolenoidBFieldTotal(cx, cy);
+        const mag = Math.sqrt(bx*bx + by*by);
+        if (mag &lt; 1e-6) break;
+        
+        cx -= (bx / mag) * stepSize; // x(t-dt) = x(t) - (Bx/|B|)*ds
+        cy -= (by / mag) * stepSize; 
+        if (cx &lt; -20 || cx &gt; 20 || cy &lt; -5 || cy &gt; 15) break;
+    }
+    
+    return [...backward.reverse(), ...forward]; // 合并拼接为完整三维几何曲线线段
+};
+</pre>
+<p>对于亥姆霍兹线圈，同样的流线追踪实现于 <code>MagneticFieldLines</code> 组件中的 <code>traceLine</code> 函数（第 819 行至第 845 行），唯一区别是调用 <code>getTotalBField(cx, cy, rightCoilPos)</code> 并将坐标映射至平面 $Z = -2.0$。</p>
+
+<h3>5.3 动画模拟与励磁映射</h3>
+<p>在渲染帧循环中，通过持续减小虚线材质的 <code>dashOffset</code> 来模拟磁流线随电流的运动：</p>
+<div class="file-loc">代码位置：src/physics/hall_magnetometer/components/Experiment3D.tsx -> FlowingLine 组件 (第 789 行至第 811 行)</div>
+<pre>
+useFrame((_, delta) => {
+    if (ref.current && ref.current.material) {
+        // dashOffset 变化速度乘以电流方向 dir (正向流入或反向流出)
+        ref.current.material.dashOffset -= delta * 3.0 * dir; 
+    }
+});
+</pre>
+<p>虚线不透明度与励磁电流映射：不透明度设为 <code>opacity={Math.min(1.0, Im * 1.5) * 0.7}</code>，当电流为 <math xmlns="http://www.w3.org/1998/Math/MathML"><mn>0</mn></math> 时线完全消失，电流大时线条明亮，实时响应调节。</p>
+
+<h2>6. 霍尔效应与电压仿真模型</h2>
+<h3>6.1 霍尔效应基本方程</h3>
+<p>在恒定控制工作电流 <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>I</mi><mi>s</mi></msub></math> 下，霍尔片输出的霍尔电压 <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>V</mi><mi>H</mi></msub></math> 满足：</p>
+<div class="formula-container">
+  <math xmlns="http://www.w3.org/1998/Math/MathML" display="block">
+    <msub>
+      <mi>V</mi>
+      <mi>H</mi>
+    </msub>
+    <mo>=</mo>
+    <mi>K</mi>
+    <mo>&middot;</mo>
+    <msub>
+      <mi>I</mi>
+      <mi>s</mi>
+    </msub>
+    <mo>&middot;</mo>
+    <mi>B</mi>
+  </math>
+</div>
+
+<h3>6.2 正向物理仿真（生成仪器电压读数）</h3>
+<p>当探头处于不同空间位置 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>p</mi></math> 时，计算该位置受激发的实际磁感应强度，并叠加了热扰动或仪器测量波动的随机高斯噪声：</p>
+<div class="file-loc">代码位置：src/physics/hall_magnetometer/App.tsx -> calculateVH 逻辑块 (第 95 行至第 98 行)</div>
+<pre>
+// 真实测量环境中引入的随机小幅白噪声干扰，模拟仪器微小抖动
+const noise = (activeCoil !== 'none' && Im &gt; 0 && Is &gt; 0) ? (Math.random() - 0.5) * 0.02 : 0;
+
+// 电压计算（乘以 1000 转换为毫伏级展示）
+return (SIM_SENSOR_K * Is * fieldTesla + noise) / 1000;
+</pre>
+
+<h3>6.3 逆向标定与未知电磁测量（实验教学核心）</h3>
+<p>在教学实验中，用户需要根据已知长螺线管中心理论磁场 <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>B</mi><mtext>theory</mtext></msub></math> 和当前读到的电压 <math xmlns="http://www.w3.org/1998/Math/MathML"><msub><mi>V</mi><mi>H</mi></msub></math> ，逆向求出传感器校准灵敏度系数 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>K</mi></math>，然后再基于此 <math xmlns="http://www.w3.org/1998/Math/MathML"><mi>K</mi></math> 去测量其他任意位置的未知磁场。代码开发时，核心标定与重算函数实现为：</p>
+<div class="file-loc">代码位置：src/physics/hall_magnetometer/App.tsx -> handleCalibrateK 函数 (第 106 行至第 109 行)</div>
+<pre>
+const handleCalibrateK = () => {
+    if (!canCalibrate) return;
+    // K = |V_H| / (I_s * |B_theory|)
+    setCalibratedK(Math.abs(currentVHMv) / (Is * Math.abs(theoryB)));
+};
+</pre>
+<div class="file-loc">代码位置：src/physics/hall_magnetometer/App.tsx -> calculateBFromHall 函数 (第 21 行至第 24 行)</div>
+<pre>
+function calculateBFromHall({ vhMv, k, Is }: { vhMv: number; k: number | null; Is: number }) {
+  if (!k || Is &lt;= 0) return null;
+  // B = V_H / (K * I_s)
+  return (vhMv / (k * Is)) * 1000; // 返回单位: mT
+}
+</pre>
+
+<h2>7. 总结</h2>
+<p>本项目的电磁仿真引擎并未采取简易查表或静态曲线拟合的方式，而是通过实现基于<b>毕奥-萨伐尔定律的数值积分求和</b>以及<b>欧拉折线场图追踪算法</b>，在前端高度动态地还原了三维电磁场的时空演化。程序将抽象的公式转化为交互式的三维渲染粒子流动和具有实验误差规律的实测仪表盘读数，真正做到了“代码为物理骨架，渲染为物理血肉”。</p>
+
+</body>
+</html>

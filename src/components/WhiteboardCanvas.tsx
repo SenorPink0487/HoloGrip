@@ -569,8 +569,7 @@ export function WhiteboardCanvas() {
         onPointerCancel={stopDrawing}
         onLostPointerCapture={stopDrawing}
         className={cn(
-          "absolute left-1/2 top-1/2 aspect-video max-h-full max-w-full -translate-x-1/2 -translate-y-1/2 transition-all duration-200",
-          "w-[min(100vw,calc(100vh*16/9))] h-auto",
+          "absolute inset-0 h-full w-full transition-all duration-200",
           interactMode === 'draw' 
             ? "z-[36] pointer-events-auto cursor-crosshair" 
             : "z-20 pointer-events-none"

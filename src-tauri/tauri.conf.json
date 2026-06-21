@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "HoloGrip",
   "version": "0.1.1",
-  "identifier": "com.hologrip.holomath",
+  "identifier": "com.hologrip.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:3000",
@@ -13,8 +13,8 @@
     "windows": [
       {
         "label": "main",
-        "title": "HoloMath",
-        "url": "app.html",
+        "title": "HoloGrip",
+        "url": "holomath.html",
         "width": 1280,
         "height": 820,
         "minWidth": 960,

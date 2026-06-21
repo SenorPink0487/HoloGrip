@@ -15,10 +15,12 @@
  */
 
 import { getProxyToken, invalidateProxyToken } from './auth';
+import { isTauriRuntime } from './platform';
 
 const RAW_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
 const RAW_BASE_URL = (import.meta.env.VITE_GEMINI_BASE_URL || 'https://api.gemai.cc').replace(/\/+$/, '');
 const RAW_MODEL = import.meta.env.VITE_GEMINI_MODEL || '[福利]gemini-3.5-flash';
+const IS_IPAD_STANDALONE = import.meta.env.HOLO_TARGET === 'ipad';
 
 /** 是否走自家反代(BASE_URL 以 / 开头视为同源相对路径) */
 const IS_PROXY_MODE = RAW_BASE_URL.startsWith('/');
@@ -42,6 +44,11 @@ export interface AIGeometryResult {
   vertices: AIVertex[];  // 所有顶点（含标签和坐标）
   faces: number[][];     // 每个面由顶点索引组成，如 [[0,1,2], [0,2,3]]
   edges: number[][];     // 棱边，每项为 [起点索引, 终点索引]
+}
+
+interface ParseGeometryImageOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 /**
@@ -127,7 +134,12 @@ const SYSTEM_PROMPT = `你是一个精通中国高中立体几何的数学专家
 export async function parseGeometryImage(
   imageBase64: string,
   mimeType: string,
+  options: ParseGeometryImageOptions = {},
 ): Promise<AIGeometryResult> {
+  if (isTauriRuntime || IS_IPAD_STANDALONE) {
+    return parseGeometryImageWithTauri(imageBase64, mimeType, options);
+  }
+
   if (!IS_PROXY_MODE && !RAW_API_KEY) {
     throw new Error('未配置 VITE_GEMINI_API_KEY(直连模式必填)');
   }
@@ -173,14 +185,27 @@ export async function parseGeometryImage(
   }
 
   const bodyStr = JSON.stringify(body);
-  let resp = await fetch(endpoint, { method: 'POST', headers, body: bodyStr });
-  let rawText = await resp.text();
+  const fetchSignal = createTimeoutSignal(options.signal, options.timeoutMs ?? 45_000);
 
-  if (IS_PROXY_MODE && resp.status === 401 && shouldRefreshProxyToken(rawText)) {
-    invalidateProxyToken();
-    headers.Authorization = `Bearer ${await getProxyToken(true)}`;
-    resp = await fetch(endpoint, { method: 'POST', headers, body: bodyStr });
+  let resp: Response;
+  let rawText: string;
+  try {
+    resp = await fetch(endpoint, { method: 'POST', headers, body: bodyStr, signal: fetchSignal.signal });
     rawText = await resp.text();
+
+    if (IS_PROXY_MODE && resp.status === 401 && shouldRefreshProxyToken(rawText)) {
+      invalidateProxyToken();
+      headers.Authorization = `Bearer ${await getProxyToken(true)}`;
+      resp = await fetch(endpoint, { method: 'POST', headers, body: bodyStr, signal: fetchSignal.signal });
+      rawText = await resp.text();
+    }
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error('AI 解析超时或已取消，请稍后重试。');
+    }
+    throw error;
+  } finally {
+    fetchSignal.cleanup();
   }
 
   if (!resp.ok) {
@@ -242,6 +267,101 @@ export async function parseGeometryImage(
   }
 
   return result;
+}
+
+async function parseGeometryImageWithTauri(
+  imageBase64: string,
+  mimeType: string,
+  options: ParseGeometryImageOptions,
+): Promise<AIGeometryResult> {
+  const timeout = createTimeoutSignal(options.signal, options.timeoutMs ?? 45_000);
+  try {
+    const { invoke } = await import('@tauri-apps/api/core');
+    const result = await Promise.race([
+      invoke<AIGeometryResult>('parse_geometry_image', {
+        imageBase64,
+        mimeType: mimeType || 'image/png',
+      }),
+      rejectWhenAborted(timeout.signal),
+    ]);
+    validateGeometryResult(result);
+    return result;
+  } catch (error) {
+    if (isAbortError(error)) {
+      throw new Error('AI 解析超时或已取消，请稍后重试。');
+    }
+    throw error instanceof Error ? error : new Error(String(error));
+  } finally {
+    timeout.cleanup();
+  }
+}
+
+function createTimeoutSignal(parentSignal: AbortSignal | undefined, timeoutMs: number) {
+  const controller = new AbortController();
+  let timeoutId: number | undefined;
+
+  const abort = () => controller.abort();
+  if (parentSignal?.aborted) {
+    controller.abort();
+  } else if (parentSignal) {
+    parentSignal.addEventListener('abort', abort, { once: true });
+  }
+
+  timeoutId = window.setTimeout(() => controller.abort(), timeoutMs);
+
+  return {
+    signal: controller.signal,
+    cleanup() {
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
+      parentSignal?.removeEventListener('abort', abort);
+    },
+  };
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+function rejectWhenAborted(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    if (signal.aborted) {
+      reject(new DOMException('Aborted', 'AbortError'));
+      return;
+    }
+    signal.addEventListener(
+      'abort',
+      () => reject(new DOMException('Aborted', 'AbortError')),
+      { once: true },
+    );
+  });
+}
+
+function validateGeometryResult(result: AIGeometryResult) {
+  if (!result || !Array.isArray(result.vertices) || result.vertices.length < 3) {
+    throw new Error('AI 返回的顶点数据无效或不足');
+  }
+  if (!Array.isArray(result.faces) || result.faces.length < 1) {
+    throw new Error('AI 返回的面数据无效');
+  }
+  if (!Array.isArray(result.edges) || result.edges.length === 0) {
+    result.edges = derivedEdgesFromFaces(result.faces);
+  }
+
+  const maxIdx = result.vertices.length - 1;
+  for (const face of result.faces) {
+    for (const idx of face) {
+      if (idx < 0 || idx > maxIdx) {
+        throw new Error(`面数据中存在越界索引: ${idx}（共 ${result.vertices.length} 个顶点）`);
+      }
+    }
+  }
+  for (const edge of result.edges) {
+    for (const idx of edge) {
+      if (idx < 0 || idx > maxIdx) {
+        throw new Error(`棱边数据中存在越界索引: ${idx}`);
+      }
+    }
+  }
 }
 
 /** 把 ```json ... ``` 这种 markdown 包装去掉 */

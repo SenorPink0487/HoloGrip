@@ -12,6 +12,8 @@
     icon.icns       (macOS,若环境不支持则跳过)
     StoreLogo.png   (50x50)
     Square30x30Logo.png ~ Square310x310Logo.png  (Windows Store)
+  src-tauri/gen/apple/Assets.xcassets/AppIcon.appiconset/
+    AppIcon-*.png  (iOS/iPadOS AppIcon,若 iOS 工程已生成)
 
 注:之前还会写一份 public/app-logo.png 供 TitleBar 使用,
 但 TitleBar 现在用文字 + 圆点呈现,源码里没有引用该图,
@@ -31,6 +33,7 @@ from PIL import Image, ImageDraw
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src-tauri" / "logo.png"
 ICONS_DIR = ROOT / "src-tauri" / "icons"
+IOS_APPICON_DIR = ROOT / "src-tauri" / "gen" / "apple" / "Assets.xcassets" / "AppIcon.appiconset"
 
 ROUND_RATIO = 0.25                 # 圆角半径 = 边长 * ROUND_RATIO
 SUPERSAMPLE = 4                    # 抗锯齿倍率(画大再缩,边缘平滑)
@@ -61,6 +64,28 @@ SQUARE_LOGOS = {
 # Windows ICO 内嵌的尺寸
 ICO_SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
 
+# Tauri 生成的 Xcode AppIcon 文件名。iOS 图标不能带 alpha，系统会自行套圆角。
+IOS_APPICON_SIZES = {
+    "AppIcon-20x20@2x.png": 40,
+    "AppIcon-20x20@3x.png": 60,
+    "AppIcon-29x29@2x-1.png": 58,
+    "AppIcon-29x29@3x.png": 87,
+    "AppIcon-40x40@2x.png": 80,
+    "AppIcon-40x40@3x.png": 120,
+    "AppIcon-60x60@2x.png": 120,
+    "AppIcon-60x60@3x.png": 180,
+    "AppIcon-20x20@1x.png": 20,
+    "AppIcon-20x20@2x-1.png": 40,
+    "AppIcon-29x29@1x.png": 29,
+    "AppIcon-29x29@2x.png": 58,
+    "AppIcon-40x40@1x.png": 40,
+    "AppIcon-40x40@2x-1.png": 80,
+    "AppIcon-76x76@1x.png": 76,
+    "AppIcon-76x76@2x.png": 152,
+    "AppIcon-83.5x83.5@2x.png": 167,
+    "AppIcon-512@2x.png": 1024,
+}
+
 
 def make_rounded(src_img: Image.Image, size: int, radius_ratio: float = ROUND_RATIO) -> Image.Image:
     """把 src_img 居中正方裁切 + 圆角 + 缩放到 size×size,返回带 alpha 的 RGBA 图。"""
@@ -85,6 +110,16 @@ def make_rounded(src_img: Image.Image, size: int, radius_ratio: float = ROUND_RA
 
     # 3. 缩回目标尺寸
     return out_big.resize((size, size), Image.LANCZOS)
+
+
+def make_ios_icon(src_img: Image.Image, size: int) -> Image.Image:
+    """中心正方裁切并输出无 alpha 的 RGB iOS 图标。"""
+    w, h = src_img.size
+    side = min(w, h)
+    left = (w - side) // 2
+    top = (h - side) // 2
+    cropped = src_img.crop((left, top, left + side, top + side)).convert("RGB")
+    return cropped.resize((size, size), Image.LANCZOS)
 
 
 def main() -> None:
@@ -126,6 +161,15 @@ def main() -> None:
         print(f"  {icns_path.relative_to(ROOT)}")
     except Exception as e:
         print(f"  跳过 icon.icns (Pillow 写 ICNS 失败: {e})")
+
+    # ─── iOS / iPadOS AppIcon ───
+    if IOS_APPICON_DIR.exists():
+        for name, size in IOS_APPICON_SIZES.items():
+            path = IOS_APPICON_DIR / name
+            make_ios_icon(src, size).save(path, "PNG", optimize=True)
+            print(f"  {path.relative_to(ROOT)}")
+    else:
+        print("  跳过 iOS AppIcon (尚未生成 src-tauri/gen/apple)")
 
     print("全部完成。")
 

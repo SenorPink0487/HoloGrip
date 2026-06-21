@@ -11,8 +11,14 @@ interface LoadResponse {
 }
 
 const TOKEN_KEY = 'hg_token';
+const LOCAL_SNAPSHOT_KEY = 'hologrip_ipad_whiteboard_snapshot';
+const IS_IPAD_STANDALONE = import.meta.env.HOLO_TARGET === 'ipad';
 
 export async function loadWhiteboardSnapshot(): Promise<WhiteboardSnapshot | null> {
+  if (IS_IPAD_STANDALONE) {
+    return loadLocalSnapshot();
+  }
+
   const resp = await request('/api/whiteboard', { method: 'GET' });
   const data = (await resp.json()) as LoadResponse;
   if (data.snapshot == null) return null;
@@ -20,6 +26,11 @@ export async function loadWhiteboardSnapshot(): Promise<WhiteboardSnapshot | nul
 }
 
 export async function saveWhiteboardSnapshot(snapshot: WhiteboardSnapshot): Promise<void> {
+  if (IS_IPAD_STANDALONE) {
+    localStorage.setItem(LOCAL_SNAPSHOT_KEY, JSON.stringify(snapshot));
+    return;
+  }
+
   await request('/api/whiteboard', {
     method: 'PUT',
     headers: [['Content-Type', 'application/json']],
@@ -71,6 +82,18 @@ function parseSnapshot(value: unknown): WhiteboardSnapshot | null {
     pages: snapshot.pages,
     currentPageIndex: snapshot.currentPageIndex,
   };
+}
+
+function loadLocalSnapshot(): WhiteboardSnapshot | null {
+  const raw = localStorage.getItem(LOCAL_SNAPSHOT_KEY);
+  if (!raw) return null;
+
+  try {
+    return parseSnapshot(JSON.parse(raw));
+  } catch {
+    localStorage.removeItem(LOCAL_SNAPSHOT_KEY);
+    return null;
+  }
 }
 
 function redirectToLogin(): void {

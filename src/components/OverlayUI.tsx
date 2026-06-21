@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useARStore, HandState, MathShape } from '../store';
 import { cn } from '../lib/utils';
-import { Box, Circle, Cylinder, Cone, Triangle, PenTool, Cuboid, Palette, Eraser, Trash2, Unplug, Upload, X, Network, Ruler } from 'lucide-react';
+import { Box, Cylinder, Cone, Triangle, PenTool, Cuboid, Palette, Eraser, Trash2, Unplug, Upload, X, Network, Ruler, Camera } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { parseGeometryImage } from '../lib/gemini';
 import { normalizeVertices } from '../lib/geometry';
@@ -45,11 +45,15 @@ export function OverlayUI() {
   const removeCustomModel = useARStore(state => state.removeCustomModel);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const cursor1Ref = useRef<HTMLDivElement>(null);
   const cursor2Ref = useRef<HTMLDivElement>(null);
+  const analysisAbortRef = useRef<AbortController | null>(null);
+  const statusTimerRef = useRef<number | null>(null);
 
   // 待删除的自定义模型 ID（非 null 时弹出二次确认弹窗）
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [analysisStatus, setAnalysisStatus] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
   const pendingDeleteModel = pendingDeleteId
     ? customModels.find(m => m.id === pendingDeleteId) ?? null
     : null;
@@ -86,6 +90,16 @@ export function OverlayUI() {
       updateCursor(cursor2Ref.current, state.rightHand);
     });
     return unsub;
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      analysisAbortRef.current?.abort();
+      if (statusTimerRef.current !== null) {
+        window.clearTimeout(statusTimerRef.current);
+      }
+      useARStore.getState().setAnalyzing(false);
+    };
   }, []);
 
   // 工具按钮 3 态循环：
@@ -159,9 +173,63 @@ export function OverlayUI() {
     }
   };
 
-  /**
-   * 处理图片上传：读取文件 -> base64 -> 调用 Gemini -> 归一化 -> 存入 store
-   */
+  const showStatus = (type: 'success' | 'error' | 'info', text: string) => {
+    setAnalysisStatus({ type, text });
+    if (statusTimerRef.current !== null) window.clearTimeout(statusTimerRef.current);
+    statusTimerRef.current = window.setTimeout(() => {
+      setAnalysisStatus(null);
+      statusTimerRef.current = null;
+    }, type === 'error' ? 6000 : 3200);
+  };
+
+  const analyzeGeometryImage = async (image: Blob, source: 'upload' | 'camera') => {
+    const store = useARStore.getState();
+    if (store.isAnalyzing) return;
+
+    analysisAbortRef.current?.abort();
+    const controller = new AbortController();
+    analysisAbortRef.current = controller;
+    store.setAnalyzing(true);
+    showStatus('info', source === 'camera' ? '已拍照，正在识别几何结构...' : '正在压缩并识别图片...');
+
+    try {
+      const { base64, mimeType } = await imageBlobToOptimizedBase64(image, controller.signal);
+      const result = await parseGeometryImage(base64, mimeType, {
+        signal: controller.signal,
+        timeoutMs: 45_000,
+      });
+      if (controller.signal.aborted) return;
+
+      const normalizedVertices = normalizeVertices(result.vertices);
+      const nextIndex = useARStore.getState().customModels.length + 1;
+      const customModel = {
+        id: `custom_${Date.now()}`,
+        name: result.name || `模型 ${nextIndex}`,
+        vertices: normalizedVertices,
+        faces: result.faces,
+        edges: result.edges,
+      };
+
+      store.addCustomModel(customModel);
+      store.setActiveCustomModel(customModel.id);
+      store.setActiveModel(null);
+      store.setModelPanelOpen(true);
+      showStatus('success', `已生成模型：${customModel.name}`);
+    } catch (err) {
+      if (controller.signal.aborted) {
+        showStatus('info', '识别已取消');
+      } else {
+        console.error('几何图解析失败:', err);
+        showStatus('error', `解析失败：${(err as Error).message}`);
+      }
+    } finally {
+      if (analysisAbortRef.current === controller) {
+        analysisAbortRef.current = null;
+      }
+      useARStore.getState().setAnalyzing(false);
+    }
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -169,52 +237,194 @@ export function OverlayUI() {
     // 重置 input，允许再次选择同一文件
     if (fileInputRef.current) fileInputRef.current.value = '';
 
-    const store = useARStore.getState();
-    store.setAnalyzing(true);
-
-    try {
-      // 读取文件为 base64
-      const base64 = await fileToBase64(file);
-      const mimeType = file.type || 'image/png';
-
-      // 调用 Gemini API
-      const result = await parseGeometryImage(base64, mimeType);
-
-      // 归一化坐标
-      const normalizedVertices = normalizeVertices(result.vertices);
-
-      // 生成唯一 ID 并存入 store
-      const customModel = {
-        id: `custom_${Date.now()}`,
-        name: result.name || `模型 ${store.customModels.length + 1}`,
-        vertices: normalizedVertices,
-        faces: result.faces,
-        edges: result.edges,
-      };
-
-      store.addCustomModel(customModel);
-    } catch (err) {
-      console.error('几何图解析失败:', err);
-      alert(`解析失败: ${(err as Error).message}`);
-    } finally {
-      store.setAnalyzing(false);
+    if (!file.type.startsWith('image/')) {
+      showStatus('error', '请选择图片文件');
+      return;
     }
+
+    await analyzeGeometryImage(file, 'upload');
   };
 
-  /**
-   * 将 File 对象转换为不含前缀的纯 base64 字符串
-   */
-  function fileToBase64(file: File): Promise<string> {
+  const handleCameraFileCapture = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (cameraInputRef.current) cameraInputRef.current.value = '';
+
+    if (!file.type.startsWith('image/')) {
+      showStatus('error', '请拍摄或选择图片');
+      return;
+    }
+
+    await analyzeGeometryImage(file, 'camera');
+  };
+
+  const handleRearCameraCapture = async () => {
+    if (useARStore.getState().isAnalyzing) return;
+
+    if (cameraInputRef.current) {
+      cameraInputRef.current.value = '';
+      cameraInputRef.current.click();
+      return;
+    }
+
+    fileInputRef.current?.click();
+  };
+
+  async function imageBlobToOptimizedBase64(blob: Blob, signal: AbortSignal): Promise<{ base64: string; mimeType: string }> {
+    const dataUrl = await blobToDataUrl(blob, signal);
+    const image = await loadImage(dataUrl, signal);
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    const maxSide = 1600;
+    const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('当前设备无法处理图片');
+    ctx.drawImage(image, 0, 0, width, height);
+
+    const outputBlob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((value) => {
+        if (value) resolve(value);
+        else reject(new Error('图片压缩失败'));
+      }, 'image/jpeg', 0.85);
+    });
+
+    const optimizedDataUrl = await blobToDataUrl(outputBlob, signal);
+    const base64 = optimizedDataUrl.split(',')[1];
+    if (!base64) throw new Error('图片编码失败');
+    return { base64, mimeType: 'image/jpeg' };
+  }
+
+  function blobToDataUrl(blob: Blob, signal: AbortSignal): Promise<string> {
     return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+
       const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        // 去除 "data:image/png;base64," 前缀
-        const base64 = dataUrl.split(',')[1];
-        resolve(base64);
+      const abort = () => {
+        reader.abort();
+        reject(new DOMException('Aborted', 'AbortError'));
       };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
+      reader.onload = () => {
+        signal.removeEventListener('abort', abort);
+        resolve(reader.result as string);
+      };
+      reader.onerror = () => {
+        signal.removeEventListener('abort', abort);
+        reject(reader.error ?? new Error('图片读取失败'));
+      };
+      signal.addEventListener('abort', abort, { once: true });
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  function loadImage(src: string, signal: AbortSignal): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      if (signal.aborted) {
+        reject(new DOMException('Aborted', 'AbortError'));
+        return;
+      }
+
+      const image = new Image();
+      const cleanup = () => {
+        signal.removeEventListener('abort', abort);
+        image.onload = null;
+        image.onerror = null;
+      };
+      const abort = () => {
+        cleanup();
+        image.src = '';
+        reject(new DOMException('Aborted', 'AbortError'));
+      };
+      image.onload = () => {
+        cleanup();
+        resolve(image);
+      };
+      image.onerror = () => {
+        cleanup();
+        reject(new Error('图片解码失败'));
+      };
+      signal.addEventListener('abort', abort, { once: true });
+      image.src = src;
+    });
+  }
+
+  async function captureRearCameraFrame(): Promise<Blob> {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('当前设备不支持摄像头拍照');
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: { ideal: 'environment' },
+        width: { ideal: 1600 },
+        height: { ideal: 1200 },
+      },
+      audio: false,
+    });
+
+    try {
+      const video = document.createElement('video');
+      video.muted = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+      await video.play();
+      await waitForVideoFrame(video);
+
+      const width = video.videoWidth || 1280;
+      const height = video.videoHeight || 720;
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('当前设备无法生成拍照画面');
+      ctx.drawImage(video, 0, 0, width, height);
+
+      return await new Promise<Blob>((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob) resolve(blob);
+          else reject(new Error('拍照失败'));
+        }, 'image/jpeg', 0.9);
+      });
+    } finally {
+      stream.getTracks().forEach(track => track.stop());
+    }
+  }
+
+  function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const timeout = window.setTimeout(() => {
+        cleanup();
+        reject(new Error('摄像头启动超时'));
+      }, 5000);
+      const cleanup = () => {
+        window.clearTimeout(timeout);
+        video.removeEventListener('loadeddata', ready);
+        video.removeEventListener('canplay', ready);
+        video.removeEventListener('error', fail);
+      };
+      const ready = () => {
+        if (video.videoWidth > 0 && video.videoHeight > 0) {
+          cleanup();
+          resolve();
+        }
+      };
+      const fail = () => {
+        cleanup();
+        reject(new Error('摄像头画面不可用'));
+      };
+      video.addEventListener('loadeddata', ready);
+      video.addEventListener('canplay', ready);
+      video.addEventListener('error', fail);
+      ready();
     });
   }
 
@@ -227,6 +437,14 @@ export function OverlayUI() {
         accept="image/*"
         className="hidden"
         onChange={handleFileUpload}
+      />
+      <input
+        ref={cameraInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        onChange={handleCameraFileCapture}
       />
 
       {/* 2D Hand Tracking Cursor 1 - Left Hand */}
@@ -262,13 +480,13 @@ export function OverlayUI() {
 
       {/* AI Analyzing Overlay */}
       {isAnalyzing && (
-        <div className="absolute inset-0 z-40 flex items-center justify-center bg-zinc-900/70 backdrop-blur-2xl transition-opacity duration-500">
-          <div className="flex flex-col items-center gap-6">
-            <div className="relative flex items-center justify-center w-20 h-20">
+        <div className="absolute inset-0 z-40 flex items-center justify-center bg-zinc-900/45 backdrop-blur-xl transition-opacity duration-500 pointer-events-none">
+          <div className="flex flex-col items-center gap-5 rounded-3xl border border-white/10 bg-zinc-950/60 px-8 py-7 shadow-2xl">
+            <div className="relative flex items-center justify-center w-16 h-16">
               <div className="absolute inset-0 border-4 border-cyan-500/30 rounded-full animate-spin border-t-cyan-400 duration-700" />
-              <Upload className="w-8 h-8 text-cyan-400 animate-pulse" />
+              <Upload className="w-7 h-7 text-cyan-400 animate-pulse" />
             </div>
-            <h2 className="text-xl font-light text-white font-sans tracking-wide">
+            <h2 className="text-lg font-light text-white font-sans tracking-wide">
               正在分析几何结构...
             </h2>
             <p className="text-white/50 text-sm">AI 正在识别顶点坐标与拓扑关系</p>
@@ -276,10 +494,23 @@ export function OverlayUI() {
         </div>
       )}
 
+      {analysisStatus && !isAnalyzing && (
+        <div
+          className={cn(
+            "absolute left-1/2 top-[calc(env(safe-area-inset-top)+1rem)] z-50 -translate-x-1/2 rounded-2xl border px-4 py-2 text-sm font-medium shadow-2xl backdrop-blur-xl",
+            analysisStatus.type === 'success' && "border-emerald-400/30 bg-emerald-500/15 text-emerald-100",
+            analysisStatus.type === 'error' && "border-red-400/30 bg-red-500/15 text-red-100",
+            analysisStatus.type === 'info' && "border-cyan-400/30 bg-cyan-500/15 text-cyan-100"
+          )}
+        >
+          {analysisStatus.text}
+        </div>
+      )}
+
       {/* Main Categories Dock */}
-      <div className="absolute bottom-28 left-1/2 -translate-x-1/2 z-30 pointer-events-auto">
-        <div className="flex items-center gap-4 p-4 rounded-[3rem] bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl">
-          <div className="flex gap-4 px-2">
+      <div className="absolute bottom-[calc(env(safe-area-inset-bottom)+4.5rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+5.5rem)] left-1/2 -translate-x-1/2 z-30 pointer-events-auto max-w-[calc(100vw-2rem)]">
+        <div className="flex items-center gap-3 p-3 sm:p-4 rounded-[3rem] bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl">
+          <div className="flex gap-3 sm:gap-4 px-1 sm:px-2">
             <DockButton 
               active={activeModel !== null || activeCustomModelId !== null} 
               onClick={() => handleTabClick('model')}
@@ -304,17 +535,14 @@ export function OverlayUI() {
       {/* Model Selection Panel */}
       <div 
         className={cn(
-          "absolute bottom-64 left-1/2 -translate-x-1/2 z-30 pointer-events-auto transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
+          "absolute bottom-[calc(env(safe-area-inset-bottom)+12rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+14rem)] left-1/2 -translate-x-1/2 z-30 pointer-events-auto max-w-[calc(100vw-2rem)] transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
           isModelPanelOpen ? "scale-100 opacity-100 translate-y-0" : "scale-90 opacity-0 translate-y-4 pointer-events-none"
         )}
       >
-        <div className="flex items-center bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[3rem] p-3 gap-3">
+        <div className="flex max-w-full flex-nowrap items-center justify-start overflow-x-auto overflow-y-hidden bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[2rem] sm:rounded-[3rem] p-2.5 sm:p-3 gap-2 sm:gap-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {/* 预设模型按钮 */}
           <DockButton active={activeModel === 'cube'} onClick={() => handleModelSelect('cube')} label="正方体">
             <Box className="w-8 h-8" />
-          </DockButton>
-          <DockButton active={activeModel === 'sphere'} onClick={() => handleModelSelect('sphere')} label="球体">
-            <Circle className="w-8 h-8" />
           </DockButton>
           <DockButton active={activeModel === 'cylinder'} onClick={() => handleModelSelect('cylinder')} label="圆柱体">
             <Cylinder className="w-8 h-8" />
@@ -359,45 +587,60 @@ export function OverlayUI() {
 
           <div className="w-px h-10 bg-white/20 mx-2 self-center rounded-full" />
 
-          {/* 上传按钮 */}
-          <button 
-            onClick={() => fileInputRef.current?.click()}
-            className="p-5 text-white/60 hover:text-cyan-400 hover:bg-cyan-500/20 rounded-full transition-colors active:scale-95"
-            title="上传几何图片"
-          >
-            <Upload className="w-8 h-8" />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* 上传按钮 */}
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isAnalyzing}
+              className="p-4 sm:p-5 text-white/60 hover:text-cyan-400 hover:bg-cyan-500/20 rounded-full transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-40"
+              title="上传几何图片"
+              aria-label="上传几何图片"
+            >
+              <Upload className="w-7 h-7 sm:w-8 sm:h-8" />
+            </button>
+
+            {/* 后置摄像头拍照识别按钮 */}
+            <button
+              onClick={handleRearCameraCapture}
+              disabled={isAnalyzing}
+              className="p-4 sm:p-5 text-white/60 hover:text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-40"
+              title="后置摄像头拍照识别"
+              aria-label="后置摄像头拍照识别"
+            >
+              <Camera className="w-7 h-7 sm:w-8 sm:h-8" />
+            </button>
+          </div>
         </div>
       </div>
 
       {/* Pen Settings Panel */}
       <div 
         className={cn(
-          "absolute bottom-64 left-1/2 -translate-x-1/2 z-30 pointer-events-auto transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
+          "absolute bottom-[calc(env(safe-area-inset-bottom)+12rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+14rem)] left-1/2 -translate-x-1/2 z-30 pointer-events-auto max-w-[calc(100vw-2rem)] transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
           isPenPanelOpen ? "scale-100 opacity-100 translate-y-0" : "scale-90 opacity-0 translate-y-4 pointer-events-none"
         )}
       >
-        <div className="flex flex-col bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[2.5rem] p-6 gap-6">
-          {/* Colors */}
-          <div className="flex gap-5">
-             {['#ffffff', '#ef4444', '#3b82f6', '#10b981', '#f59e0b'].map(color => (
-                <button
-                  key={color}
-                  onClick={() => setPenColor(color)}
-                  className={cn(
-                    "w-12 h-12 rounded-full border-2 transition-all",
-                    penColor === color && !isEraser ? "border-white scale-110" : "border-transparent scale-100 hover:scale-105"
-                  )}
-                  style={{ backgroundColor: color }}
-                />
-             ))}
-          </div>
-          
-          <div className="h-px bg-white/10 w-full" />
+        <div className="flex max-w-full flex-col bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[2rem] sm:rounded-[2.5rem] p-3 sm:p-4 gap-3">
+          <div className="flex max-w-full flex-nowrap items-center justify-center gap-3 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {/* Colors */}
+            <div className="flex shrink-0 justify-center gap-3 sm:gap-4">
+              {['#ffffff', '#ef4444', '#3b82f6', '#10b981', '#f59e0b'].map(color => (
+                  <button
+                    key={color}
+                    onClick={() => setPenColor(color)}
+                    className={cn(
+                      "w-11 h-11 sm:w-12 sm:h-12 rounded-full border-2 transition-all",
+                      penColor === color && !isEraser ? "border-white scale-110" : "border-transparent scale-100 hover:scale-105"
+                    )}
+                    style={{ backgroundColor: color }}
+                  />
+              ))}
+            </div>
 
-          {/* Tools */}
-          <div className="flex items-center justify-between gap-6">
-            <div className="flex gap-3 items-center bg-white/5 rounded-full p-2">
+            <div className="h-10 w-px shrink-0 bg-white/10 rounded-full" />
+
+            {/* 画笔粗细 */}
+            <div className="flex shrink-0 gap-3 items-center bg-white/5 rounded-full p-2">
               <button 
                 onClick={() => setPenThickness(1)}
                 className={cn("w-10 h-10 rounded-full transition-colors flex items-center justify-center", penThickness === 1 ? "bg-white/20" : "")}
@@ -417,91 +660,94 @@ export function OverlayUI() {
                 <div className="w-4 h-4 bg-white rounded-full"/>
               </button>
             </div>
+          </div>
 
-            <div className="flex gap-2 items-center">
-              {/* Draw Lines */}
-              <button 
-                onClick={() => {
-                  setLineDrawingActive(!isLineDrawingActive);
-                  if (!isLineDrawingActive && isEraser) setIsEraser(false);
-                }}
-                className={cn(
-                  "relative group p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
-                  isLineDrawingActive ? "bg-cyan-500/20 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.2)]" : "text-white/60 hover:bg-white/10"
-                )}
-              >
-                <Network className="w-8 h-8" />
-                <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-                  3D 连线绘制
-                </span>
-              </button>
+          <div className="h-px bg-white/10 w-full" />
 
-              <button 
-                onClick={() => {
-                  setXYZDrawingActive(!isXYZDrawingActive);
-                  if (!isXYZDrawingActive && isEraser) setIsEraser(false);
-                }}
-                className={cn(
-                  "relative group p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
-                  isXYZDrawingActive ? "bg-cyan-500/20 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.2)]" : "text-white/60 hover:bg-white/10"
-                )}
-              >
-                <svg viewBox="0 0 24 24" className="w-8 h-8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="1.5" fill="currentColor" />
-                  <line x1="12" y1="12" x2="20" y2="17" stroke="#ef4444" strokeWidth="2.5" />
-                  <line x1="12" y1="12" x2="4" y2="17" stroke="#10b981" strokeWidth="2.5" />
-                  <line x1="12" y1="12" x2="12" y2="3" stroke="#3b82f6" strokeWidth="2.5" />
-                </svg>
-                <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-                  XYZ 轴辅助线
-                </span>
-              </button>
+          {/* Tools */}
+          <div className="flex max-w-full flex-nowrap items-center justify-center gap-2 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {/* Draw Lines */}
+            <button 
+              onClick={() => {
+                setLineDrawingActive(!isLineDrawingActive);
+                if (!isLineDrawingActive && isEraser) setIsEraser(false);
+              }}
+              className={cn(
+                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
+                isLineDrawingActive ? "bg-cyan-500/20 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.2)]" : "text-white/60 hover:bg-white/10"
+              )}
+            >
+              <Network className="w-7 h-7 sm:w-8 sm:h-8" />
+              <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                3D 连线绘制
+              </span>
+            </button>
 
-              <button 
-                onClick={() => toggleShowAllLengths()}
-                className={cn(
-                  "relative group p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
-                  showAllLengths ? "bg-amber-500/20 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.2)]" : "text-white/60 hover:bg-white/10"
-                )}
-              >
-                <Ruler className="w-8 h-8" />
-                <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-                  显示线段长度
-                </span>
-              </button>
+            <button 
+              onClick={() => {
+                setXYZDrawingActive(!isXYZDrawingActive);
+                if (!isXYZDrawingActive && isEraser) setIsEraser(false);
+              }}
+              className={cn(
+                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
+                isXYZDrawingActive ? "bg-cyan-500/20 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.2)]" : "text-white/60 hover:bg-white/10"
+              )}
+            >
+              <svg viewBox="0 0 24 24" className="w-7 h-7 sm:w-8 sm:h-8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+                <line x1="12" y1="12" x2="20" y2="17" stroke="#ef4444" strokeWidth="2.5" />
+                <line x1="12" y1="12" x2="4" y2="17" stroke="#10b981" strokeWidth="2.5" />
+                <line x1="12" y1="12" x2="12" y2="3" stroke="#3b82f6" strokeWidth="2.5" />
+              </svg>
+              <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                XYZ 轴辅助线
+              </span>
+            </button>
 
-              <div className="w-px h-8 bg-white/10 mx-2 rounded-full" />
+            <button 
+              onClick={() => toggleShowAllLengths()}
+              className={cn(
+                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
+                showAllLengths ? "bg-amber-500/20 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.2)]" : "text-white/60 hover:bg-white/10"
+              )}
+            >
+              <Ruler className="w-7 h-7 sm:w-8 sm:h-8" />
+              <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                显示线段长度
+              </span>
+            </button>
 
-              <button 
-                onClick={() => {
-                  setIsEraser(!isEraser);
-                  if (!isEraser && isLineDrawingActive) setLineDrawingActive(false);
-                }}
-                className={cn(
-                  "relative group p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
-                  isEraser ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.2)]" : "text-white/60 hover:bg-white/10"
-                )}
-              >
-                <Eraser className="w-8 h-8" />
-                <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-                  橡皮擦
-                </span>
-              </button>
-              <button 
-                onClick={() => {
-                  clearCanvas();
-                  window.dispatchEvent(new CustomEvent('holomath:whiteboard-local-clear'));
-                  useARStore.getState().clearModelLines();
-                  useARStore.getState().clearSurfaceStrokes();
-                }}
-                className="relative group p-4 rounded-full text-white/60 hover:bg-red-500/20 hover:text-red-400 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90"
-              >
-                <Trash2 className="w-8 h-8" />
-                <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
-                  清空全部
-                </span>
-              </button>
-            </div>
+            <div className="w-px h-8 shrink-0 bg-white/10 mx-1 rounded-full" />
+
+            <button 
+              onClick={() => {
+                setIsEraser(!isEraser);
+                if (!isEraser && isLineDrawingActive) setLineDrawingActive(false);
+              }}
+              className={cn(
+                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
+                isEraser ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.2)]" : "text-white/60 hover:bg-white/10"
+              )}
+            >
+              <Eraser className="w-7 h-7 sm:w-8 sm:h-8" />
+              <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                橡皮擦
+              </span>
+            </button>
+            <button 
+              onClick={() => {
+                clearCanvas();
+                window.dispatchEvent(new CustomEvent('holomath:whiteboard-local-clear'));
+                useARStore.getState().clearModelLines();
+                useARStore.getState().clearSurfaceStrokes();
+              }}
+              className="relative group shrink-0 p-3 sm:p-4 rounded-full text-white/60 hover:bg-red-500/20 hover:text-red-400 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90"
+            >
+              <Trash2 className="w-7 h-7 sm:w-8 sm:h-8" />
+              <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                清空全部
+              </span>
+            </button>
           </div>
         </div>
       </div>
@@ -557,7 +803,7 @@ function DockButton({ children, active, onClick, label }: { children: React.Reac
     <button
       onClick={onClick}
       className={cn(
-        "relative group p-6 rounded-full transition-all duration-300 ease-out",
+        "relative group p-4 sm:p-5 lg:p-6 rounded-full transition-all duration-300 ease-out",
         active ? "bg-white/15 text-white" : "text-white/50 hover:bg-white/5 hover:text-white/90"
       )}
     >

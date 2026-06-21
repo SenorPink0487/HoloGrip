@@ -2,7 +2,18 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+  <key>CFBundleDevelopmentRegion</key>
+  <string>zh-Hans</string>
+  <key>CFBundleLocalizations</key>
+  <array>
+    <string>zh-Hans</string>
+    <string>en</string>
+  </array>
   <key>NSCameraUsageDescription</key>
   <string>HoloMath 需要使用摄像头识别手势，以支持 AR 三维几何互动。</string>
+  <key>NSPhotoLibraryUsageDescription</key>
+  <string>HoloMath 需要访问照片，以便上传几何题目图片并生成三维模型。</string>
+  <key>NSPhotoLibraryAddUsageDescription</key>
+  <string>HoloMath 需要保存处理后的几何图片和学习内容。</string>
 </dict>
 </plist>

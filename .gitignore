@@ -20,3 +20,6 @@ public/assets/portal-avatar.png
 public/assets/备案图标.png
 src-tauri/icons/
 .agents/
+hologrip-proxy-full-replace/
+server-release 2/
+src-tauri/gen/

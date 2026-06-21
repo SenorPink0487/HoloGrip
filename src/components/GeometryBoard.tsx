@@ -133,6 +133,7 @@ export function GeometryBoard() {
   const [circleAreaAnimProgress, setCircleAreaAnimProgress] = useState<boolean>(false); // false: 圆形, true: 长方形
 
   const svgRef = useRef<SVGSVGElement>(null);
+  const activeTouchIdRef = useRef<number | null>(null);
   const [isPanelCollapsed, setIsPanelCollapsed] = useState(false);
   const clientToBoard = useCallback((clientX: number, clientY: number) => {
     const svg = svgRef.current;
@@ -336,7 +337,7 @@ export function GeometryBoard() {
   const getInputHitScale = useCallback((sample?: PencilSample) => {
     if (!sample) return 1;
     if (sample.pointerType === 'pen') {
-      return clamp(0.82 + sample.pressure * 0.25 + sample.tilt * 0.25, 0.85, 1.3);
+      return clamp(1.15 + sample.pressure * 0.35 + sample.tilt * 0.2, 1.25, 1.75);
     }
     if (sample.pointerType === 'touch') return 1.45;
     return 1;
@@ -567,9 +568,8 @@ export function GeometryBoard() {
     const svg = svgRef.current;
     if (!svg) return;
 
-    let activeTouchId: number | null = null;
-
     const findActiveTouch = (touches: TouchList) => {
+      const activeTouchId = activeTouchIdRef.current;
       if (activeTouchId === null) return null;
       for (let i = 0; i < touches.length; i += 1) {
         if (touches[i].identifier === activeTouchId) return touches[i];
@@ -580,8 +580,8 @@ export function GeometryBoard() {
     const handleTouchStart = (e: TouchEvent) => {
       const touch = pickDrawingTouch(e.changedTouches);
       if (!touch) return;
-      activeTouchId = touch.identifier;
-      handleBoardInputStart(getTouchSample(touch));
+      const shouldTrack = handleBoardInputStart(getTouchSample(touch));
+      activeTouchIdRef.current = shouldTrack ? touch.identifier : null;
       e.preventDefault();
     };
 
@@ -595,7 +595,7 @@ export function GeometryBoard() {
     const handleTouchEnd = (e: TouchEvent) => {
       const touch = findActiveTouch(e.changedTouches);
       if (!touch) return;
-      activeTouchId = null;
+      activeTouchIdRef.current = null;
       setDraggingPointId(null);
       setDraggingPolygon(null);
       e.preventDefault();
@@ -726,20 +726,20 @@ export function GeometryBoard() {
       </AnimatePresence>
 
       {/* 主探究区 - 撑满全局，彻底解决与超级白板切换时的 Layout Shift */}
-      <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center p-8 z-[35]">
+      <div className="absolute inset-0 w-full h-full flex flex-col items-center justify-center z-[35]">
         
         {/* 1. 自由几何画板渲染 (SVG) */}
         {subModule === 'board' && (
           <svg
             ref={svgRef}
             viewBox={`0 0 ${WHITEBOARD_WIDTH} ${WHITEBOARD_HEIGHT}`}
-            preserveAspectRatio="xMidYMid meet"
+            preserveAspectRatio="none"
             onPointerDown={handleSvgPointerDown}
             onPointerMove={handleSvgPointerMove}
             onPointerUp={handleSvgPointerUp}
             onPointerLeave={handleSvgPointerLeave}
             className={cn(
-              'aspect-video w-[min(100vw,calc(100vh*16/9))] max-w-full max-h-full bg-white/40 dark:bg-zinc-950/40 rounded-[2rem] border border-black/5 dark:border-white/5 shadow-inner transition-colors duration-500',
+              'h-full w-full bg-white/40 dark:bg-zinc-950/40 border border-black/5 dark:border-white/5 shadow-inner transition-colors duration-500',
               // cursor 反馈
               isEraser
                 ? 'cursor-crosshair'

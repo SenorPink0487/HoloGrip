@@ -1,12 +1,12 @@
 import { create } from 'zustand';
-import * as THREE from 'three';
+import type { Vector2 } from 'three';
 import type { AIVertex } from './lib/gemini';
 
 export type MathShape = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'pyramid';
 export type AppTab = 'whiteboard' | 'function' | 'calculator3d' | 'ar_3d';
 
 export interface HandState {
-  cursor: THREE.Vector2;
+  cursor: Vector2;
   pixelCursor: { x: number, y: number };
   isPinched: boolean;
   isVisible: boolean;
@@ -66,6 +66,28 @@ export interface PageData {
 
 const WHITEBOARD_WIDTH = 1920;
 const WHITEBOARD_HEIGHT = 1080;
+
+class StoreVector2 {
+  constructor(public x: number, public y: number) {}
+
+  copy(value: { x: number; y: number }) {
+    this.x = value.x;
+    this.y = value.y;
+    return this;
+  }
+
+  set(x: number, y: number) {
+    this.x = x;
+    this.y = y;
+    return this;
+  }
+
+  clone() {
+    return new StoreVector2(this.x, this.y) as unknown as Vector2;
+  }
+}
+
+const createHandCursor = () => new StoreVector2(-999, -999) as unknown as Vector2;
 
 interface ARState {
   leftHand: HandState;
@@ -180,8 +202,8 @@ interface ARState {
 }
 
 export const useARStore = create<ARState>((set) => ({
-  leftHand: { cursor: new THREE.Vector2(-999, -999), pixelCursor: { x: 0, y: 0 }, isPinched: false, isVisible: false, pinchDistance: 1 },
-  rightHand: { cursor: new THREE.Vector2(-999, -999), pixelCursor: { x: 0, y: 0 }, isPinched: false, isVisible: false, pinchDistance: 1 },
+  leftHand: { cursor: createHandCursor(), pixelCursor: { x: 0, y: 0 }, isPinched: false, isVisible: false, pinchDistance: 1 },
+  rightHand: { cursor: createHandCursor(), pixelCursor: { x: 0, y: 0 }, isPinched: false, isVisible: false, pinchDistance: 1 },
   activeModel: null,
   activeCustomModelId: null,
   customModels: [],

@@ -3,20 +3,21 @@
 //! 走 Gemini 原生协议 `/v1beta/models/<model>:generateContent`，把 base64 图像和
 //! 系统提示词一起送给模型，让其返回符合预设 JSON Schema 的几何结构。
 //!
-//! 配置通过环境变量读取，避免把密钥硬编码在代码里：
-//!  - `GEMAI_API_KEY` 或 `VITE_GEMINI_API_KEY`：API 密钥（必填）
-//!  - `GEMAI_BASE_URL` 或 `VITE_GEMINI_BASE_URL`：默认 `https://api.gemai.cc`
-//!  - `GEMAI_MODEL`   或 `VITE_GEMINI_MODEL`：默认 `gemini-2.0-flash`
+//! 配置通过环境变量读取：
+//!  - `GEMAI_API_KEY` 或 `VITE_GEMINI_API_KEY`：直连上游时使用
+//!  - `GEMAI_BASE_URL` 或 `VITE_GEMINI_BASE_URL`：默认 `https://hologrip.cn/api/gemini`
+//!  - `GEMAI_MODEL`   或 `VITE_GEMINI_MODEL`：默认 `[福利]gemini-3.5-flash`
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::{anyhow, Context, Result};
 use reqwest::Client;
+use serde::Deserialize;
 use serde_json::{json, Value};
 
-const DEFAULT_BASE_URL: &str = "https://api.gemai.cc";
-const DEFAULT_MODEL: &str = "gemini-2.0-flash";
+const DEFAULT_BASE_URL: &str = "https://hologrip.cn/api/gemini";
+const DEFAULT_MODEL: &str = "[福利]gemini-3.5-flash";
 
 const SYSTEM_PROMPT: &str = r#"你是一个精通中国高中立体几何的数学专家。你的任务是分析数学题目截图中的立体几何图形，输出精确的三维模型数据。
 
@@ -79,18 +80,17 @@ pub fn load_env_from_workspace() -> Result<()> {
     Ok(())
 }
 
-fn read_config() -> Result<(String, String, String)> {
+fn read_config() -> (Option<String>, String, String) {
     let api_key = std::env::var("GEMAI_API_KEY")
         .or_else(|_| std::env::var("VITE_GEMINI_API_KEY"))
-        .map_err(|_| anyhow!("缺少 GEMAI_API_KEY / VITE_GEMINI_API_KEY 环境变量"))?;
-    if api_key.trim().is_empty() {
-        return Err(anyhow!("GEMAI_API_KEY 为空"));
-    }
+        .ok()
+        .filter(|s| !s.trim().is_empty() && s.trim() != "proxied-by-server")
+        .map(|s| s.trim().to_string());
 
     let base_url = std::env::var("GEMAI_BASE_URL")
         .or_else(|_| std::env::var("VITE_GEMINI_BASE_URL"))
         .ok()
-        .filter(|s| !s.trim().is_empty())
+        .filter(|s| !s.trim().is_empty() && !s.trim().starts_with('/'))
         .unwrap_or_else(|| DEFAULT_BASE_URL.to_string())
         .trim_end_matches('/')
         .to_string();
@@ -101,7 +101,7 @@ fn read_config() -> Result<(String, String, String)> {
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_MODEL.to_string());
 
-    Ok((api_key, base_url, model))
+    (api_key, base_url, model)
 }
 
 /// 给 Gemini 的 responseSchema：从 API 层强约束 JSON 结构，避免解析失败。
@@ -145,9 +145,12 @@ fn geometry_schema() -> Value {
 
 /// 发起一次几何识别请求并解析返回的 JSON。
 pub async fn parse_geometry_image(image_base64: &str, mime_type: &str) -> Result<Value> {
-    let (api_key, base_url, model) = read_config()?;
+    let (api_key, base_url, model) = read_config();
 
-    let endpoint = format!("{base_url}/v1beta/models/{model}:generateContent");
+    let endpoint = format!(
+        "{base_url}/v1beta/models/{}:generateContent",
+        encode_path_segment(&model)
+    );
     let mime = if mime_type.is_empty() {
         "image/png"
     } else {
@@ -185,9 +188,15 @@ pub async fn parse_geometry_image(image_base64: &str, mime_type: &str) -> Result
         .build()
         .context("构建 HTTP 客户端失败")?;
 
+    let bearer = if is_proxy_base_url(&base_url) {
+        issue_proxy_token(&client, &base_url).await?
+    } else {
+        api_key.ok_or_else(|| anyhow!("GEMAI_API_KEY 为空"))?
+    };
+
     let resp = client
         .post(&endpoint)
-        .bearer_auth(&api_key)
+        .bearer_auth(&bearer)
         .header("Content-Type", "application/json")
         .json(&body)
         .send()
@@ -228,6 +237,62 @@ pub async fn parse_geometry_image(image_base64: &str, mime_type: &str) -> Result
     Ok(parsed)
 }
 
+#[derive(Debug, Deserialize)]
+struct IssueResponse {
+    token: String,
+}
+
+async fn issue_proxy_token(client: &Client, proxy_base_url: &str) -> Result<String> {
+    let issue_url = proxy_issue_url(proxy_base_url)?;
+    let origin = proxy_origin(proxy_base_url)?;
+    let resp = client
+        .post(&issue_url)
+        .header("Content-Type", "application/json")
+        .header("Origin", origin)
+        .body("{}")
+        .send()
+        .await
+        .with_context(|| format!("请求 {issue_url} 失败"))?;
+
+    let status = resp.status();
+    let raw_text = resp.text().await.context("读取 token 响应体失败")?;
+    if !status.is_success() {
+        return Err(anyhow!(
+            "AI token 签发失败 ({status}): {}",
+            truncate(&raw_text, 500)
+        ));
+    }
+
+    let issued: IssueResponse = serde_json::from_str(&raw_text)
+        .with_context(|| format!("token 响应不是合法 JSON: {}", truncate(&raw_text, 500)))?;
+    if issued.token.trim().is_empty() {
+        return Err(anyhow!("token 签发响应缺少 token"));
+    }
+    Ok(issued.token)
+}
+
+fn is_proxy_base_url(base_url: &str) -> bool {
+    base_url.contains("/api/gemini")
+}
+
+fn proxy_issue_url(proxy_base_url: &str) -> Result<String> {
+    let origin = proxy_origin(proxy_base_url)?;
+    Ok(format!("{origin}/api/auth/issue"))
+}
+
+fn proxy_origin(proxy_base_url: &str) -> Result<String> {
+    let parsed = reqwest::Url::parse(proxy_base_url)
+        .with_context(|| format!("反代地址不是合法 URL: {proxy_base_url}"))?;
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| anyhow!("反代地址缺少 host: {proxy_base_url}"))?;
+    let mut origin = format!("{}://{}", parsed.scheme(), host);
+    if let Some(port) = parsed.port() {
+        origin.push_str(&format!(":{port}"));
+    }
+    Ok(origin)
+}
+
 fn strip_json_fence(s: &str) -> &str {
     let trimmed = s.trim();
     if let Some(rest) = trimmed.strip_prefix("```json") {
@@ -264,4 +329,16 @@ fn truncate(s: &str, n: usize) -> String {
     } else {
         s.to_string()
     }
+}
+
+fn encode_path_segment(input: &str) -> String {
+    let mut encoded = String::with_capacity(input.len());
+    for byte in input.bytes() {
+        if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_' | b'.' | b'~') {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
 }

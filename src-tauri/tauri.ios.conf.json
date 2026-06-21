@@ -1,0 +1,27 @@
+{
+  "productName": "HoloMath",
+  "identifier": "com.hologrip.app",
+  "build": {
+    "devUrl": "http://localhost:3002",
+    "beforeDevCommand": "npm run dev:ipad",
+    "beforeBuildCommand": "npm run build:ipad"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "HoloMath",
+        "url": "holomath.html",
+        "fullscreen": true,
+        "decorations": false,
+        "transparent": false
+      }
+    ]
+  },
+  "bundle": {
+    "targets": ["app"],
+    "iOS": {
+      "bundleVersion": "1"
+    }
+  }
+}
