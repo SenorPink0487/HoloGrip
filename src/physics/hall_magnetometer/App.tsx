@@ -1,27 +1,9 @@
 import { useState, useMemo } from 'react';
 import { Experiment3D } from './components/Experiment3D';
-import { ArrowLeft, Settings2, Zap, Scale3D, Activity, Cable, Save, LineChart as LineChartIcon, Database } from 'lucide-react';
+import { Settings2, Zap, Scale3D, Activity, Cable, Save, LineChart as LineChartIcon, Database } from 'lucide-react';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { DataRecorder, RecordPoint } from './components/DataRecorder';
-
-const MU0 = 4 * Math.PI * 1e-7;
-const SOLENOID_LENGTH_M = 0.3;
-const SOLENOID_DIAMETER_M = 0.034;
-const SIM_SENSOR_K = 220;
-
-function calculateSolenoidTheoryB({ turns, Im }: { turns: number; Im: number }) {
-  const turnDensity = turns / SOLENOID_LENGTH_M;
-  const correction = SOLENOID_LENGTH_M / Math.sqrt(
-    SOLENOID_DIAMETER_M ** 2 + SOLENOID_LENGTH_M ** 2
-  );
-  return correction * MU0 * turnDensity * Im;
-}
-
-function calculateBFromHall({ vhMv, k, Is }: { vhMv: number; k: number | null; Is: number }) {
-  if (!k || Is <= 0) return null;
-  return (vhMv / (k * Is)) * 1000;
-}
 
 export default function App() {
   const [Im, setIm] = useState<number>(0.5); // A
@@ -30,22 +12,17 @@ export default function App() {
   const [probeTarget, setProbeTarget] = useState<'helmholtz' | 'solenoid'>('helmholtz');
   const [rightCoilPos, setRightCoilPos] = useState<number>(2.5); // cm
   const [turns, setTurns] = useState<number>(100); // 匝数
-  const [calibratedK, setCalibratedK] = useState<number | null>(null);
   const [connections, setConnections] = useState<any[]>([]);
   const [records, setRecords] = useState<RecordPoint[]>([]);
   const [showDataRecorder, setShowDataRecorder] = useState(false);
 
   const handleRecord = () => {
-    const vhMv = currentVH * 1000;
     setRecords(prev => [
       ...prev,
       {
         id: Math.random().toString(36).substring(2, 9),
         pos: probePos,
-        vh: vhMv,
-        bMt: calculateBFromHall({ vhMv, k: calibratedK, Is }),
-        k: calibratedK,
-        target: probeTarget,
+        vh: currentVH * 1000,
         im: Im,
         is: Is
       }
@@ -74,39 +51,34 @@ export default function App() {
 
   const activeCoil = coilState.type;
   const activeDir = coilState.dir;
-  const theoryB = calculateSolenoidTheoryB({ turns, Im });
 
   // Calculate Hall Voltage
   const calculateVH = () => {
-    let fieldTesla = 0;
+    let B = 0;
     const R = 5.0; // Coil radius
     const p = probePos; // Current position
     
     if (activeCoil === 'helmholtz' && probeTarget === 'helmholtz') {
       const B1 = Math.pow(R, 2) / Math.pow(Math.pow(R, 2) + Math.pow(p - rightCoilPos, 2), 1.5);
       const B2 = Math.pow(R, 2) / Math.pow(Math.pow(R, 2) + Math.pow(p + 2.5, 2), 1.5);
-      fieldTesla = (B1 + B2) * Im * 0.001 * activeDir;
+      B = (B1 + B2) * activeDir;
     } else if (activeCoil === 'solenoid' && probeTarget === 'solenoid') {
+      const B_center = (turns / 50); 
       // Approximate shape: field is strong inside [-13, 13]
       const bScale = Math.max(0, 1 - Math.pow(p/13, 2));
-      fieldTesla = theoryB * bScale * activeDir;
+      B = B_center * bScale * activeDir;
     }
-
+    
+    // Hall coefficient constant scaled for realistic display (mV)
+    const K = 14; 
+    
     // Add realistic 0.01 fluctuation
     const noise = (activeCoil !== 'none' && Im > 0 && Is > 0) ? (Math.random() - 0.5) * 0.02 : 0;
     
-    return (SIM_SENSOR_K * Is * fieldTesla + noise) / 1000; // Return V, display as mV
+    return (K * Im * Is * B + noise) / 1000; // Return V, display as mV
   };
 
   const currentVH = calculateVH();
-  const currentVHMv = currentVH * 1000;
-  const currentBMt = calculateBFromHall({ vhMv: currentVHMv, k: calibratedK, Is });
-  const canCalibrate = activeCoil === 'solenoid' && probeTarget === 'solenoid' && Im > 0 && Is > 0 && Math.abs(currentVHMv) > 1e-9 && Math.abs(theoryB) > 0;
-
-  const handleCalibrateK = () => {
-    if (!canCalibrate) return;
-    setCalibratedK(Math.abs(currentVHMv) / (Is * Math.abs(theoryB)));
-  };
 
   return (
     <ErrorBoundary>
@@ -115,15 +87,6 @@ export default function App() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* 3D Canvas Area */}
         <div className="flex-1 relative cursor-grab active:cursor-grabbing min-h-0">
-          <button
-            type="button"
-            onClick={() => { window.location.href = '/physics.html'; }}
-            className="absolute top-4 left-4 z-20 flex items-center gap-2 rounded-lg border border-white/10 bg-black/50 px-3 py-2 text-xs font-semibold uppercase tracking-wide text-neutral-300 shadow-xl backdrop-blur-md transition hover:border-white/20 hover:bg-white/10 hover:text-white"
-            title="返回启动器"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            返回启动器
-          </button>
           <Experiment3D 
             Im={Im} 
             Is={Is} 
@@ -140,7 +103,7 @@ export default function App() {
             setConnections={setConnections}
             imDirection={activeDir}
           />
-          <div className="absolute top-4 left-40 bg-black/50 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 shadow-xl pointer-events-none">
+          <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md px-4 py-2 rounded-lg border border-white/10 shadow-xl pointer-events-none">
             <h1 className="text-lg font-bold tracking-tight text-white">霍尔效应测磁平台</h1>
             <p className="text-xs text-neutral-400">HCC-2 3D 可视化模拟</p>
           </div>
@@ -172,6 +135,32 @@ export default function App() {
         </div>
 
         <div className="flex flex-col gap-5">
+          {/* Target Selection */}
+          <div className="bg-black/40 border border-white/5 rounded-2xl p-4 hover:border-white/10 transition-colors duration-300">
+            <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3 block">测量对象位置</label>
+            <div className="flex bg-black/50 border border-white/10 rounded-xl p-1 relative">
+              <div 
+                className="absolute inset-y-1 bg-white/10 rounded-lg transition-all duration-300 ease-out shadow-sm border border-white/10"
+                style={{ 
+                  width: 'calc(50% - 4px)', 
+                  left: probeTarget === 'helmholtz' ? '4px' : 'calc(50%)' 
+                }}
+              />
+              <button 
+                onClick={() => setProbeTarget('helmholtz')}
+                className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors relative z-10 ${probeTarget === 'helmholtz' ? 'text-white drop-shadow-md' : 'text-neutral-500 hover:text-neutral-300'}`}
+              >
+                亥姆霍兹线圈
+              </button>
+              <button 
+                onClick={() => setProbeTarget('solenoid')}
+                className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors relative z-10 ${probeTarget === 'solenoid' ? 'text-white drop-shadow-md' : 'text-neutral-500 hover:text-neutral-300'}`}
+              >
+                长螺线管
+              </button>
+            </div>
+          </div>
+
           {/* Data Recording Controls */}
           <div className="bg-black/40 border border-white/5 rounded-2xl p-4 hover:border-white/10 transition-colors duration-300 group">
             <div className="flex items-center gap-2 mb-4 text-neutral-300">
@@ -203,52 +192,6 @@ export default function App() {
                 <span className="text-xs font-semibold tracking-wide relative z-10">关系曲线</span>
               </button>
             </div>
-          </div>
-
-          {/* Calibration Status */}
-          <div className="bg-black/40 border border-white/5 rounded-2xl p-4 hover:border-white/10 transition-colors duration-300">
-            <div className="flex items-center gap-2 mb-4 text-neutral-300">
-              <div className="p-1.5 bg-cyan-500/10 rounded-md">
-                <Activity className="w-4 h-4 text-cyan-400" />
-              </div>
-              <span className="text-sm font-medium">霍尔灵敏度标定</span>
-            </div>
-            <div className="grid grid-cols-2 gap-x-3 gap-y-2 text-xs font-mono text-neutral-400 mb-4">
-              <span>L = 300 mm</span>
-              <span>D = 34 mm</span>
-              <span>N = {turns} 匝</span>
-              <span>n = {(turns / SOLENOID_LENGTH_M).toFixed(0)} 匝/m</span>
-              <span className="col-span-2">B理论 = {(theoryB * 1000).toFixed(4)} mT</span>
-            </div>
-            <div className="rounded-xl border border-white/10 bg-black/50 p-3 mb-3">
-              <div className="flex justify-between text-xs mb-2">
-                <span className="text-neutral-500">当前 K</span>
-                <span className="font-mono text-cyan-300">
-                  {calibratedK ? `${calibratedK.toFixed(2)} mV·mA⁻¹·T⁻¹` : '未标定'}
-                </span>
-              </div>
-              <div className="flex justify-between text-xs">
-                <span className="text-neutral-500">当前 B</span>
-                <span className="font-mono text-blue-300">
-                  {currentBMt === null ? '--' : `${currentBMt.toFixed(3)} mT`}
-                </span>
-              </div>
-            </div>
-            <button
-              onClick={handleCalibrateK}
-              disabled={!canCalibrate}
-              className={`w-full rounded-xl border px-3 py-2 text-xs font-semibold transition-all ${
-                canCalibrate
-                  ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-300 hover:bg-cyan-500/20'
-                  : 'border-white/5 bg-white/[0.03] text-neutral-600 cursor-not-allowed'
-              }`}
-              title="长螺线管中心点，对应讲义 X=16 cm 标定位置"
-            >
-              用当前读数标定 K
-            </button>
-            <p className="text-[11px] text-neutral-500 mt-3 leading-relaxed">
-              切换到长螺线管并接入螺线管后，用当前 VH 和 B理论计算 K。
-            </p>
           </div>
 
           {/* Active Coil Status */}
@@ -430,31 +373,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Target Selection */}
-            <div className="pt-5 border-t border-white/5">
-              <label className="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-3 block">测量对象位置</label>
-              <div className="flex bg-black/50 border border-white/10 rounded-xl p-1 relative">
-                <div 
-                  className="absolute inset-y-1 bg-white/10 rounded-lg transition-all duration-300 ease-out shadow-sm border border-white/10"
-                  style={{ 
-                    width: 'calc(50% - 4px)', 
-                    left: probeTarget === 'helmholtz' ? '4px' : 'calc(50%)' 
-                  }}
-                />
-                <button 
-                  onClick={() => setProbeTarget('helmholtz')}
-                  className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors relative z-10 ${probeTarget === 'helmholtz' ? 'text-white drop-shadow-md' : 'text-neutral-500 hover:text-neutral-300'}`}
-                >
-                  亥姆霍兹线圈
-                </button>
-                <button 
-                  onClick={() => setProbeTarget('solenoid')}
-                  className={`flex-1 py-2 text-xs font-medium rounded-lg transition-colors relative z-10 ${probeTarget === 'solenoid' ? 'text-white drop-shadow-md' : 'text-neutral-500 hover:text-neutral-300'}`}
-                >
-                  长螺线管
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* Solenoid Turns Control */}

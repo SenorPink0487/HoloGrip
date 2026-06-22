@@ -6,9 +6,6 @@ export interface RecordPoint {
   id: string;
   pos: number;
   vh: number;
-  bMt: number | null;
-  k: number | null;
-  target: 'helmholtz' | 'solenoid';
   im: number;
   is: number;
 }
@@ -22,14 +19,13 @@ interface DataRecorderProps {
 export function DataRecorder({ data, onClear, onClose }: DataRecorderProps) {
   // Sort data by pos for the line chart
   const chartData = useMemo(() => {
-    return [...data].filter(row => row.bMt !== null).sort((a, b) => a.pos - b.pos);
+    return [...data].sort((a, b) => a.pos - b.pos);
   }, [data]);
-  const hasCalibratedData = chartData.length > 0;
 
   return (
     <div className="flex h-full w-full font-sans bg-neutral-950/80 backdrop-blur-2xl border border-white/10 rounded-2xl shadow-[0_0_50px_rgba(0,0,0,0.5)] overflow-hidden">
       {/* Table Side */}
-      <div className="w-[42%] border-r border-white/5 flex flex-col bg-black/40">
+      <div className="w-1/3 border-r border-white/5 flex flex-col bg-black/40">
         <div className="flex justify-between items-center p-4 border-b border-white/5 shrink-0 relative">
           <div className="absolute inset-x-0 bottom-0 h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
           <div className="flex items-center gap-2">
@@ -62,10 +58,8 @@ export function DataRecorder({ data, onClear, onClose }: DataRecorderProps) {
               <tr>
                 <th className="px-4 py-3 font-medium">位置 X</th>
                 <th className="px-4 py-3 font-medium">VH (mV)</th>
-                <th className="px-4 py-3 font-medium">B (mT)</th>
                 <th className="px-4 py-3 font-medium">Im (A)</th>
                 <th className="px-4 py-3 font-medium">Is (mA)</th>
-                <th className="px-4 py-3 font-medium">K</th>
               </tr>
             </thead>
             <tbody>
@@ -73,10 +67,8 @@ export function DataRecorder({ data, onClear, onClose }: DataRecorderProps) {
                 <tr key={row.id} className="border-b border-white/5 hover:bg-white/[0.03] transition-colors group">
                   <td className="px-4 py-3 font-mono text-neutral-400 group-hover:text-neutral-200 transition-colors">{row.pos.toFixed(1)}</td>
                   <td className="px-4 py-3 font-mono text-purple-400 font-medium group-hover:text-purple-300 transition-colors">{row.vh.toFixed(2)}</td>
-                  <td className="px-4 py-3 font-mono text-blue-400 font-medium group-hover:text-blue-300 transition-colors">{row.bMt === null ? '--' : row.bMt.toFixed(3)}</td>
                   <td className="px-4 py-3 font-mono text-neutral-500 group-hover:text-neutral-300 transition-colors">{row.im.toFixed(3)}</td>
                   <td className="px-4 py-3 font-mono text-neutral-500 group-hover:text-neutral-300 transition-colors">{row.is.toFixed(2)}</td>
-                  <td className="px-4 py-3 font-mono text-neutral-500 group-hover:text-neutral-300 transition-colors">{row.k === null ? '--' : row.k.toFixed(1)}</td>
                 </tr>
               ))}
             </tbody>
@@ -85,7 +77,7 @@ export function DataRecorder({ data, onClear, onClose }: DataRecorderProps) {
       </div>
       
       {/* Chart Side */}
-      <div className="flex-1 bg-black/20 p-5 flex flex-col relative overflow-hidden">
+      <div className="w-2/3 bg-black/20 p-5 flex flex-col relative overflow-hidden">
           {/* Subtle Background Glow */}
           <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-purple-500/10 blur-[100px] rounded-full pointer-events-none" />
 
@@ -101,15 +93,11 @@ export function DataRecorder({ data, onClear, onClose }: DataRecorderProps) {
             <div className="p-1.5 bg-purple-500/10 rounded-lg border border-purple-500/20">
               <LineChartIcon className="w-4 h-4 text-purple-400" />
             </div>
-            <h3 className="text-sm font-semibold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">B - X 关系曲线</h3>
+            <h3 className="text-sm font-semibold bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent">VH - X 关系曲线</h3>
           </div>
 
           <div className="flex-1 min-h-0 w-full relative z-10">
-            {!hasCalibratedData ? (
-              <div className="h-full flex items-center justify-center text-neutral-500 text-sm">
-                请先完成 K 标定以绘制 B-X 曲线
-              </div>
-            ) : chartData.length < 2 ? (
+            {chartData.length < 2 ? (
               <div className="h-full flex items-center justify-center text-neutral-500 text-sm">
                 记录至少 2 组数据以绘制曲线
               </div>
@@ -138,7 +126,7 @@ export function DataRecorder({ data, onClear, onClose }: DataRecorderProps) {
                     domain={['auto', 'auto']}
                     tick={{fill: '#666', fontSize: 12, fontWeight: 500}}
                     tickMargin={10}
-                    label={{ value: 'B (mT)', angle: -90, position: 'insideLeft', offset: 25, fill: '#666', fontSize: 12, fontWeight: 500 }} 
+                    label={{ value: 'VH (mV)', angle: -90, position: 'insideLeft', offset: 25, fill: '#666', fontSize: 12, fontWeight: 500 }} 
                   />
                   <Tooltip 
                     cursor={{ stroke: '#a855f7', strokeWidth: 1, strokeDasharray: '4 4' }}
@@ -153,11 +141,11 @@ export function DataRecorder({ data, onClear, onClose }: DataRecorderProps) {
                     itemStyle={{ color: '#c084fc', fontWeight: 600 }}
                     labelStyle={{ color: '#888', marginBottom: '4px' }}
                     labelFormatter={(val) => `位置: ${Number(val).toFixed(1)} cm`}
-                    formatter={(value: number) => [value.toFixed(3), 'B (mT)']}
+                    formatter={(value: number) => [value.toFixed(3), 'VH (mV)']}
                   />
                   <Area 
                     type="monotone" 
-                    dataKey="bMt" 
+                    dataKey="vh" 
                     stroke="#a855f7" 
                     strokeWidth={3} 
                     fillOpacity={1} 

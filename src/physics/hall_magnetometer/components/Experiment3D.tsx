@@ -103,14 +103,7 @@ export function Experiment3D({ Im, Is, probePos, probeTarget, rightCoilPos, turn
   };
 
   return (
-    <Canvas
-      camera={{ position: [0, 15, 25], fov: 45 }}
-      gl={{ preserveDrawingBuffer: true }}
-      onCreated={({ camera }) => {
-        camera.lookAt(0, 2, 0);
-        camera.updateProjectionMatrix();
-      }}
-    >
+    <Canvas camera={{ position: [0, 15, 25], fov: 45 }}>
       <ambientLight intensity={0.5} />
       <directionalLight position={[10, 20, 10]} intensity={1} castShadow />
       <pointLight position={[-10, 10, -10]} intensity={0.5} />
@@ -162,14 +155,12 @@ export function Experiment3D({ Im, Is, probePos, probeTarget, rightCoilPos, turn
 
       <OrbitControls 
         makeDefault
-        target={[0, 2, 0]}
         enabled={!draggingWire}
         minPolarAngle={0} 
         maxPolarAngle={Math.PI / 2 + 0.1} 
         maxDistance={50}
         minDistance={10}
       />
-      <CameraTarget />
       
       <group position={[0, -2, 0]}>
         {/* Instrument Case Base */}
@@ -277,22 +268,6 @@ export function Experiment3D({ Im, Is, probePos, probeTarget, rightCoilPos, turn
       </group>
     </Canvas>
   );
-}
-
-function CameraTarget() {
-  const { camera, controls } = useThree();
-
-  useLayoutEffect(() => {
-    camera.position.set(0, 15, 25);
-    camera.lookAt(0, 2, 0);
-    camera.updateProjectionMatrix();
-
-    const orbitControls = controls as { target?: THREE.Vector3; update?: () => void } | undefined;
-    orbitControls?.target?.set(0, 2, 0);
-    orbitControls?.update?.();
-  }, [camera, controls]);
-
-  return null;
 }
 
 function Screen({ position, rotation, value, label }: { position: [number, number, number], rotation?: [number, number, number], value: string, label: string }) {
