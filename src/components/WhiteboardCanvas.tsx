@@ -5,6 +5,8 @@ import { isIPadOS } from '../lib/platform';
 import { Eraser, Edit3, Move } from 'lucide-react';
 import { motion, useDragControls } from 'motion/react';
 import { Tooltip } from './Tooltip';
+import { StrokeBuilder, renderStrokeSegments } from '../lib/strokeEngine';
+import type { StrokePoint } from '../lib/strokeEngine';
 
 interface Point {
   x: number;
@@ -24,6 +26,7 @@ interface StrokeSample extends Point {
   pressure: number;
   tilt: number;
   pointerType: string;
+  timestamp: number;
 }
 
 type NativePointerEvent = PointerEvent & {
@@ -77,6 +80,7 @@ export function WhiteboardCanvas() {
   const activeTouchId = useRef<number | null>(null);
   const isToolbarForwardedStroke = useRef(false);
   const lastPenInputAt = useRef(0);
+  const strokeBuilderRef = useRef<StrokeBuilder | null>(null);
 
   const activeTab = useARStore(state => state.activeTab);
   const penColor = useARStore(state => state.penColor);
@@ -244,6 +248,7 @@ export function WhiteboardCanvas() {
       pressure,
       tilt: clamp(tilt, 0, 1),
       pointerType: e.pointerType || 'mouse',
+      timestamp: e.timeStamp || performance.now(),
     };
   }, [toLogicalPoint]);
 
@@ -260,6 +265,7 @@ export function WhiteboardCanvas() {
       pressure,
       tilt,
       pointerType: isStylus ? 'pen' : 'touch',
+      timestamp: performance.now(),
     };
   }, [toLogicalPoint]);
 
@@ -277,24 +283,58 @@ export function WhiteboardCanvas() {
     return penThickness;
   }, [isEraser, penThickness]);
 
-  const paintSampleSegment = useCallback((from: StrokeSample, to: StrokeSample) => {
+  const paintWithEngine = useCallback((sample: StrokeSample) => {
     const ctx = ctxRef.current;
     if (!ctx) return;
 
     const strokeColor = (!isDark && penColor === '#09090b') ? '#ffffff' : penColor;
-    const strokeThickness = (getStrokeWidth(from) + getStrokeWidth(to)) / 2;
-    drawStrokeSegment(ctx, from, to, strokeColor, strokeThickness, isEraser);
 
-    const stroke: LiveStroke = {
-      pageIndex: currentPageIndex,
-      from,
-      to,
-      color: strokeColor,
-      thickness: strokeThickness,
-      eraser: isEraser,
+    // Initialize builder on first sample of stroke
+    if (!strokeBuilderRef.current) {
+      strokeBuilderRef.current = new StrokeBuilder(penThickness, isEraser);
+    }
+
+    const point: StrokePoint = {
+      x: sample.x,
+      y: sample.y,
+      pressure: sample.pressure,
+      tilt: sample.tilt,
+      timestamp: sample.timestamp,
+      pointerType: sample.pointerType,
     };
-    window.dispatchEvent(new CustomEvent('holomath:whiteboard-local-stroke', { detail: stroke }));
-  }, [currentPageIndex, drawStrokeSegment, getStrokeWidth, isDark, isEraser, penColor]);
+
+    const segments = strokeBuilderRef.current.addSample(point);
+    if (segments.length > 0) {
+      renderStrokeSegments(ctx, segments, strokeColor, isEraser);
+    }
+
+    // Still emit legacy events for remote sync compatibility
+    if (lastSample.current) {
+      const strokeThickness = (getStrokeWidth(lastSample.current) + getStrokeWidth(sample)) / 2;
+      const stroke: LiveStroke = {
+        pageIndex: currentPageIndex,
+        from: lastSample.current,
+        to: sample,
+        color: strokeColor,
+        thickness: strokeThickness,
+        eraser: isEraser,
+      };
+      window.dispatchEvent(new CustomEvent('holomath:whiteboard-local-stroke', { detail: stroke }));
+    }
+  }, [currentPageIndex, getStrokeWidth, isDark, isEraser, penColor, penThickness]);
+
+  const finishStroke = useCallback(() => {
+    const ctx = ctxRef.current;
+    const builder = strokeBuilderRef.current;
+    if (!ctx || !builder) return;
+
+    const strokeColor = (!isDark && penColor === '#09090b') ? '#ffffff' : penColor;
+    const finalSegments = builder.finish();
+    if (finalSegments.length > 0) {
+      renderStrokeSegments(ctx, finalSegments, strokeColor, isEraser);
+    }
+    strokeBuilderRef.current = null;
+  }, [isDark, isEraser, penColor]);
 
   const shouldAcceptPointerEvent = useCallback((e: PointerEvent) => {
     if (interactMode === 'interact') return false;
@@ -310,6 +350,7 @@ export function WhiteboardCanvas() {
     if (!shouldAcceptPointerEvent(e)) return false;
 
     if (activePointerId.current !== null && activePointerId.current !== e.pointerId && e.pointerType === 'pen') {
+      finishStroke();
       isDrawingRef.current = false;
       activePointerId.current = null;
       isToolbarForwardedStroke.current = false;
@@ -319,14 +360,17 @@ export function WhiteboardCanvas() {
     activePointerId.current = e.pointerId;
     activeTouchId.current = null;
     if (e.pointerType === 'pen') lastPenInputAt.current = Date.now();
+    strokeBuilderRef.current = null; // Reset builder for new stroke
     isDrawingRef.current = true;
     setIsDrawing(true);
-    lastSample.current = getPointerSample(e);
+    const sample = getPointerSample(e);
+    lastSample.current = sample;
+    paintWithEngine(sample);
     if (captureTarget) {
       try { captureTarget.setPointerCapture(e.pointerId); } catch {}
     }
     return true;
-  }, [getPointerSample, shouldAcceptPointerEvent]);
+  }, [finishStroke, getPointerSample, paintWithEngine, shouldAcceptPointerEvent]);
 
   const drawFromPointer = useCallback((e: PointerEvent) => {
     if (!isDrawingRef.current || !shouldAcceptPointerEvent(e)) return false;
@@ -336,13 +380,11 @@ export function WhiteboardCanvas() {
     const events = nativeEvent.getCoalescedEvents?.() ?? [nativeEvent];
     for (const pointerEvent of events) {
       const currentSample = getPointerSample(pointerEvent);
-      if (lastSample.current) {
-        paintSampleSegment(lastSample.current, currentSample);
-      }
+      paintWithEngine(currentSample);
       lastSample.current = currentSample;
     }
     return true;
-  }, [getPointerSample, paintSampleSegment, shouldAcceptPointerEvent]);
+  }, [getPointerSample, paintWithEngine, shouldAcceptPointerEvent]);
 
   const stopDrawingFromPointer = useCallback((e?: PointerEvent, captureTarget?: HTMLElement) => {
     if (e && activePointerId.current !== e.pointerId) return false;
@@ -350,6 +392,7 @@ export function WhiteboardCanvas() {
       try { captureTarget.releasePointerCapture(e.pointerId); } catch {}
     }
     const wasDrawing = isDrawingRef.current;
+    if (wasDrawing) finishStroke();
     isDrawingRef.current = false;
     setIsDrawing(false);
     activePointerId.current = null;
@@ -357,7 +400,7 @@ export function WhiteboardCanvas() {
     lastSample.current = null;
     if (wasDrawing) saveCurrentCanvasSnapshot();
     return wasDrawing;
-  }, [saveCurrentCanvasSnapshot]);
+  }, [finishStroke, saveCurrentCanvasSnapshot]);
 
   const findActiveTouch = useCallback((touches: TouchList) => {
     if (activeTouchId.current === null) return null;
@@ -383,35 +426,37 @@ export function WhiteboardCanvas() {
     activeTouchId.current = touch.identifier;
     activePointerId.current = null;
     isToolbarForwardedStroke.current = false;
+    strokeBuilderRef.current = null; // Reset builder for new stroke
     isDrawingRef.current = true;
     setIsDrawing(true);
-    lastSample.current = getTouchSample(touch);
+    const sample = getTouchSample(touch);
+    lastSample.current = sample;
+    paintWithEngine(sample);
     if (touch.touchType === 'stylus') lastPenInputAt.current = Date.now();
     return true;
-  }, [getTouchSample, interactMode]);
+  }, [getTouchSample, interactMode, paintWithEngine]);
 
   const drawFromTouch = useCallback((touch: AppleTouch) => {
     if (!isDrawingRef.current || activeTouchId.current !== touch.identifier) return false;
 
     const currentSample = getTouchSample(touch);
-    if (lastSample.current) {
-      paintSampleSegment(lastSample.current, currentSample);
-    }
+    paintWithEngine(currentSample);
     lastSample.current = currentSample;
     if (touch.touchType === 'stylus') lastPenInputAt.current = Date.now();
     return true;
-  }, [getTouchSample, paintSampleSegment]);
+  }, [getTouchSample, paintWithEngine]);
 
   const stopDrawingFromTouch = useCallback((touch?: AppleTouch) => {
     if (touch && activeTouchId.current !== touch.identifier) return false;
     const wasDrawing = isDrawingRef.current;
+    if (wasDrawing) finishStroke();
     activeTouchId.current = null;
     isDrawingRef.current = false;
     setIsDrawing(false);
     lastSample.current = null;
     if (wasDrawing) saveCurrentCanvasSnapshot();
     return wasDrawing;
-  }, [saveCurrentCanvasSnapshot]);
+  }, [finishStroke, saveCurrentCanvasSnapshot]);
 
   const startDrawing = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!startDrawingFromPointer(e.nativeEvent, e.currentTarget)) return;
