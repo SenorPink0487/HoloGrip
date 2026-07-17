@@ -284,15 +284,15 @@ const projectDetails = {
         `,
     },
     physics: {
-        title: '02 / HoloPhysics 空间物理沙盒',
-        tag: 'PHYSICS // V0.1.0-BETA',
+        title: '02 / HoloPhysics 未来物理实验室',
+        tag: 'PHYSICS // QUANTUM LAB V0.1.0',
         desc:
-            'HoloPhysics 是用于空间交互力学教学的物理仿真程序，目前正处于开发与测试阶段。该系统通过空气手势作为力场施加器，允许用户实时构建万有引力模型或电磁场。它能实时模拟出行星围绕恒星运行的开普勒椭圆轨道，或者在多刚体发生碰撞时进行高精度的动量守恒定理数值计算。',
+            'HoloPhysics 是一座可漫游的三维交互物理实验室，集成力学、光学、电磁学与热力学四个实验台和九项实验。用户可通过键鼠或 MediaPipe AR 手势直接操作仪器、调节参数、记录数据，并在全息终端中查看实验步骤、物理公式与测量结果。',
         specs: {
-            engine: 'R3F Physics / Canvas Sandbox',
-            perf: 'Collision Solve: < 1.5ms per step',
-            algorithm: 'Newtonian Rigid Body Dynamics',
-            version: 'v0.1.0-beta',
+            engine: 'Three.js / MediaPipe Hands',
+            perf: 'WebGL + Worker Hand Tracking',
+            algorithm: '9 Interactive Physics Experiments',
+            version: 'v0.1.0',
         },
         demoColor: 'var(--accent-emerald)',
         visualClass: 'physics-modal-demo',

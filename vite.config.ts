@@ -9,7 +9,7 @@ import { defineConfig, loadEnv } from 'vite';
  *  - portfolio.html → 作品矩阵
  *  - profile.html   → 关于我们
  *  - holomath.html  → HoloMath 空间几何画板（React）
- *  - physics.html   → HoloPhysics 物理仿真（React）
+ *  - physics.html   → HoloPhysics 三维物理实验室（Three.js）
  */
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
@@ -25,7 +25,6 @@ export default defineConfig(({ mode }) => {
     admin:     path.resolve(__dirname, 'admin.html'),
     holomath:  path.resolve(__dirname, 'holomath.html'),
     physics:   path.resolve(__dirname, 'physics.html'),
-    hall:      path.resolve(__dirname, 'hall.html'),
   };
   const targetInputs: Record<string, Record<string, string>> = {
     ipad: {

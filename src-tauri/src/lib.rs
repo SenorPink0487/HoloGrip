@@ -123,6 +123,16 @@ async fn clear_ai_models<R: Runtime>(app: tauri::AppHandle<R>) -> CmdResult<()> 
     Ok(())
 }
 
+/// Return host metadata to feature modules running inside the shared Tauri shell.
+#[tauri::command]
+fn app_info() -> serde_json::Value {
+    serde_json::json!({
+        "name": "HoloGrip",
+        "version": env!("CARGO_PKG_VERSION"),
+        "description": env!("CARGO_PKG_DESCRIPTION"),
+    })
+}
+
 #[tauri::command]
 async fn ai_models_dir<R: Runtime>(app: tauri::AppHandle<R>) -> CmdResult<String> {
     let dir = ensure_ai_models_dir(&app)?;
@@ -163,6 +173,7 @@ async fn open_simulation_window<R: Runtime>(app: tauri::AppHandle<R>) -> CmdResu
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -182,6 +193,7 @@ pub fn run() {
             delete_ai_model,
             clear_ai_models,
             ai_models_dir,
+            app_info,
             open_simulation_window,
         ])
         .run(tauri::generate_context!())
