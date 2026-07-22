@@ -5,6 +5,7 @@ import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { createHallDemoEquipment } from '../../experiments/hallDemoEquipment.js';
 import { createElectricFieldEquipment } from '../../experiments/electricFieldEquipment.js';
+import { createInducedElectricFieldEquipment } from '../../experiments/inducedElectricFieldEquipment.js';
 import {
   gaussFluxParticleEmphasis,
   gaussFluxParticleRadiusNorm,
@@ -135,8 +136,6 @@ export function createStationEquipment(ctx) {
     let lastRadius = NaN;
     let lastFieldSignature = '';
     let pendingFieldRebuild = false;
-    let fieldRebuildTimer = 0;
-    let pendingFieldSnapshot = null;
     function rebuildSurface(radius) {
       const worldRadius = radius * WORLD_PER_SOURCE_UNIT;
       fluxWorldRadius = worldRadius;
@@ -333,28 +332,6 @@ export function createStationEquipment(ctx) {
       pendingFieldRebuild = false;
     }
 
-    function queueFieldRebuild(charges, signature) {
-      pendingFieldSnapshot = {
-        charges: charges.map((charge) => ({ ...charge })),
-        signature,
-      };
-      if (fieldRebuildTimer) return;
-      const run = () => {
-        fieldRebuildTimer = 0;
-        const snapshot = pendingFieldSnapshot;
-        pendingFieldSnapshot = null;
-        if (!snapshot || !root.visible) return;
-        rebuildFieldLines(snapshot.charges);
-        lastFieldSignature = snapshot.signature;
-        pendingFieldRebuild = false;
-      };
-      if (typeof window?.requestIdleCallback === 'function') {
-        fieldRebuildTimer = window.requestIdleCallback(run, { timeout: 180 });
-      } else {
-        fieldRebuildTimer = window.setTimeout(run, 24);
-      }
-    }
-
     root.userData.update = (data, dt = 0) => {
       if (!data) return;
       const radius = Number(data.radius || 2.4);
@@ -402,11 +379,12 @@ export function createStationEquipment(ctx) {
         if (chargeHeld) {
           pendingFieldRebuild = true;
         } else {
-          pendingFieldRebuild = true;
-          queueFieldRebuild(charges, fieldSignature);
+          rebuildFieldLines(charges);
+          lastFieldSignature = fieldSignature;
         }
       } else if (pendingFieldRebuild && !chargeHeld) {
-        queueFieldRebuild(charges, fieldSignature);
+        rebuildFieldLines(charges);
+        lastFieldSignature = fieldSignature;
       }
       surfaceGroup.visible = data.showSurface !== false;
       fieldGroup.visible = data.showLines !== false;
@@ -423,6 +401,18 @@ export function createStationEquipment(ctx) {
     root.userData.prewarm = (webglRenderer, activeCamera, targetScene) => {
       const wasVisible = root.visible;
       root.visible = true;
+      // First Gauss open rebuilds field lines + flux particles; do it under the loader.
+      root.userData.update({
+        radius: 2.4,
+        charges: [{ id: 1, q: 1, x: 0, y: 0, z: 0 }],
+        selectedId: 1,
+        showSurface: true,
+        showLines: true,
+        showFlux: true,
+        qEnclosed: 1,
+        dragArmed: false,
+        dragging: false,
+      }, 0.016);
       webglRenderer.compile(root, activeCamera, targetScene);
       root.visible = wasVisible;
     };
@@ -1625,6 +1615,7 @@ export function createStationEquipment(ctx) {
       return root;
     }
     const faradayGroup = createFaradayEquipment();
+    const inducedEGroup = createInducedElectricFieldEquipment();
 
     // Physical recognition targets, matching the Faraday identify workflow.
     function addHallRecognitionTarget(host, role, size, outlinePos = [0, 0, 0]) {
@@ -1710,37 +1701,51 @@ export function createStationEquipment(ctx) {
     const hallDemoGroup = createHallDemoEquipment({ tabletop: true });
     const gaussGroup = createGaussEquipment();
     const electricFieldGroup = createElectricFieldEquipment();
-    g.add(hallGroup, hallDemoGroup, gaussGroup, electricFieldGroup, faradayGroup);
+    g.add(hallGroup, hallDemoGroup, gaussGroup, electricFieldGroup, faradayGroup, inducedEGroup);
 
     g.userData.hallGroup = hallGroup;
     g.userData.hallDemoGroup = hallDemoGroup;
     g.userData.gaussGroup = gaussGroup;
     g.userData.electricFieldGroup = electricFieldGroup;
     g.userData.faradayGroup = faradayGroup;
+    g.userData.inducedEGroup = inducedEGroup;
 
+    /** Skip full mesh raycast rebind when mode is unchanged (experiment re-entry). */
+    let electroActiveMode = null;
+    const noopRaycast = () => {};
+    const meshRaycastFn = THREE.Mesh.prototype.raycast;
+    function gateGroupRaycasts(group, enabled) {
+      const raycast = enabled ? meshRaycastFn : noopRaycast;
+      group.traverse((child) => {
+        if (child.isMesh) child.raycast = raycast;
+      });
+    }
     g.userData.setMode = (mode) => {
+      if (electroActiveMode === mode) return;
+      const prev = electroActiveMode;
+      electroActiveMode = mode;
       hallGroup.visible = mode === 'hall';
       hallDemoGroup.visible = mode === 'hall-demo';
       gaussGroup.visible = mode === 'gauss';
       electricFieldGroup.visible = mode === 'electric-field';
       faradayGroup.visible = mode === 'faraday';
+      inducedEGroup.visible = mode === 'induced-e';
       electricFieldGroup.userData.setInteractive?.(mode === 'electric-field');
-      // Hidden Gauss hit proxies still participate in raycasts; gate them with
-      // the active mode so they cannot steal electric-field charge drags.
-      // (updateGauss re-applies per-slot raycasts while Gauss is live.)
-      gaussGroup.traverse((child) => {
-        if (!child.isMesh) return;
-        child.raycast = mode === 'gauss' ? THREE.Mesh.prototype.raycast : () => {};
-      });
-      faradayGroup.traverse((child) => {
-        if (!child.isMesh) return;
-        child.raycast = mode === 'faraday' ? THREE.Mesh.prototype.raycast : () => {};
-      });
+      inducedEGroup.userData.setInteractive?.(mode === 'induced-e');
+      // Hidden Gauss / Faraday hit proxies still participate in raycasts; gate
+      // only on first bind or when entering/leaving those modes.
+      if (prev == null || mode === 'gauss' || prev === 'gauss') {
+        gateGroupRaycasts(gaussGroup, mode === 'gauss');
+      }
+      if (prev == null || mode === 'faraday' || prev === 'faraday') {
+        gateGroupRaycasts(faradayGroup, mode === 'faraday');
+      }
     };
     g.userData.updateHallDemo = (d, dt) => hallDemoGroup.userData.update?.(d, dt);
     g.userData.updateGauss = (d, dt) => gaussGroup.userData.update?.(d, dt);
     g.userData.updateElectricField = (d, dt) => electricFieldGroup.userData.update?.(d, dt);
     g.userData.updateFaraday = (d, dt) => faradayGroup.userData.update?.(d, dt);
+    g.userData.updateInducedElectric = (d, dt) => inducedEGroup.userData.update?.(d, dt);
 
     g.userData.updateHall = (d) => {
       if (!d) return;
@@ -1802,12 +1807,18 @@ export function createStationEquipment(ctx) {
     g.userData.getHallTerminalTarget = getHallTerminalTarget;
     g.userData.setHallPartState = setHallRecognitionMode;
     g.userData.clearHallIdentifyVisuals = () => {
-      // Restore picking on all recognition hits after the identify step ends.
+      // After identify: keep probe/coil grab volumes, but disable the console-wide
+      // recognition box so it cannot swallow Im/Is/zero knobs and terminals.
       Object.keys(hallRecognitionHits).forEach((role) => {
         const hit = hallRecognitionHits[role];
         if (hit) {
-          hit.raycast = meshRaycast;
-          hit.userData.interactive = true;
+          if (role === 'hall_console') {
+            hit.raycast = () => {};
+            hit.userData.interactive = false;
+          } else {
+            hit.raycast = meshRaycast;
+            hit.userData.interactive = true;
+          }
         }
         setHallRecognitionMode(role, 'off');
       });
@@ -1815,7 +1826,45 @@ export function createStationEquipment(ctx) {
     g.userData.prewarmHall = (webglRenderer, activeCamera, targetScene) => {
       const wasVisible = hallGroup.visible;
       hallGroup.visible = true;
+      // Energized Helmholtz + solenoid materials / field lines compile under the loader.
+      g.userData.updateHall?.({
+        target: 'helmholtz',
+        Im: 0.6,
+        Is: 5,
+        probePos: 0,
+        rightCoilPos: 2.5,
+        turns: 100,
+        direction: 1,
+        wiring: { energized: true, target: 'helmholtz', direction: 1 },
+        wires: [['out_red', 'hh_red'], ['out_black', 'hh_black']],
+        vh: 12,
+      });
+      g.userData.updateHall?.({
+        target: 'solenoid',
+        Im: 0.6,
+        Is: 5,
+        probePos: 0,
+        rightCoilPos: 2.5,
+        turns: 100,
+        direction: 1,
+        wiring: { energized: true, target: 'solenoid', direction: 1 },
+        wires: [['out_red', 'sol_red'], ['out_black', 'sol_black']],
+        vh: 8,
+      });
       webglRenderer.compile(hallGroup, activeCamera, targetScene);
+      // Rest idle visual so the bench is calm when the lab opens.
+      g.userData.updateHall?.({
+        target: 'helmholtz',
+        Im: 0,
+        Is: 0,
+        probePos: 0,
+        rightCoilPos: 2.5,
+        turns: 100,
+        direction: 1,
+        wiring: { energized: false },
+        wires: [],
+        vh: 0,
+      });
       hallGroup.visible = wasVisible;
     };
     g.userData.prewarmHallDemo = (webglRenderer, activeCamera, targetScene) => {
@@ -1829,6 +1878,9 @@ export function createStationEquipment(ctx) {
     };
     g.userData.prewarmFaraday = (webglRenderer, activeCamera, targetScene) => {
       faradayGroup.userData.prewarm?.(webglRenderer, activeCamera, targetScene);
+    };
+    g.userData.prewarmInducedElectric = (webglRenderer, activeCamera, targetScene) => {
+      inducedEGroup.userData.prewarm?.(webglRenderer, activeCamera, targetScene);
     };
 
     // helpers for experiment handlers / rail picking
@@ -1917,6 +1969,7 @@ export function createStationEquipment(ctx) {
     updateGauss: (data, dt) => hallBench.userData.updateGauss?.(data, dt),
     updateElectricField: (data, dt) => hallBench.userData.updateElectricField?.(data, dt),
     updateFaraday: (data, dt) => hallBench.userData.updateFaraday?.(data, dt),
+    updateInducedElectric: (data, dt) => hallBench.userData.updateInducedElectric?.(data, dt),
     startHallWirePreview: (portId) => hallBench.userData.startHallWirePreview?.(portId),
     updateHallWirePreview: (fromPortId, cam, hoverPortId) => hallBench.userData.updateHallWirePreview?.(fromPortId, cam, hoverPortId),
     cancelHallWirePreview: () => hallBench.userData.cancelHallWirePreview?.(),
@@ -1931,6 +1984,7 @@ export function createStationEquipment(ctx) {
     gauss_theorem: () => hallBench.userData.prewarmGauss?.(renderer, camera, scene),
     electric_field: () => hallBench.userData.prewarmElectricField?.(renderer, camera, scene),
     faraday_induction: () => hallBench.userData.prewarmFaraday?.(renderer, camera, scene),
+    induced_electric_field: () => hallBench.userData.prewarmInducedElectric?.(renderer, camera, scene),
   };
 
   return {

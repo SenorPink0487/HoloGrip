@@ -102,6 +102,14 @@ export const FORMULA_CATALOG = {
       symbols: 'ε — 感应电动势　N — 匝数　Φ_B — 磁通量',
     },
     {
+      id: 'induced_e',
+      cat: 'electro',
+      title: '感生电场',
+      formula: '∮ E·dl = −dΦ_B/dt',
+      concept: '变化的磁场激发涡旋感生电场。均匀柱形 B 区内：r≤R 时 E∝r，r>R 时 E∝1/r；方向由楞次定律判定。',
+      symbols: 'E — 感生电场　Φ_B — 磁通量　R — 磁场区半径',
+    },
+    {
       id: 'flux',
       cat: 'electro',
       title: '磁通量',

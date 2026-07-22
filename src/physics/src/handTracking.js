@@ -1,10 +1,5 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-// The physics page is one entry point inside the host application, so its
-// dependencies live in the shared public asset tree rather than beside a
-// standalone node_modules directory.
-const workerWasmLoaderPath = '/assets/mediapipe/wasm/vision_wasm_module_internal.js';
-const workerWasmBinaryPath = '/assets/mediapipe/wasm/vision_wasm_module_internal.wasm';
 import {
   OCCLUSION_HOLD_MS,
   DynamicMotionGateVector3,
@@ -25,6 +20,13 @@ import {
   mapMediaPipeToXR,
   occlusionOpacity,
 } from './handPoseMath.js';
+
+// Shared MediaPipe assets (same as HoloMath: public/assets/mediapipe/).
+// Nested under src/physics/src — do not import via relative node_modules path.
+// Vite BASE_URL ends with / so this resolves to /assets/mediapipe/... in default deploy.
+const MEDIAPIPE_BASE = `${import.meta.env.BASE_URL}assets/mediapipe`;
+const workerWasmLoaderPath = `${MEDIAPIPE_BASE}/wasm/vision_wasm_module_internal.js`;
+const workerWasmBinaryPath = `${MEDIAPIPE_BASE}/wasm/vision_wasm_module_internal.wasm`;
 
 const HAND_COLORS = {
   Left: 0x67e8f9,
@@ -984,7 +986,7 @@ export function createHandTracking({
         type: 'init',
         wasmLoaderPath: workerWasmLoaderPath,
         wasmBinaryPath: workerWasmBinaryPath,
-        modelPath: '/assets/mediapipe/hand_landmarker.task',
+        modelPath: `${MEDIAPIPE_BASE}/hand_landmarker.task`,
         numHands: 2,
       });
     });
@@ -1007,9 +1009,9 @@ export function createHandTracking({
   async function ensureFallbackLandmarker() {
     if (fallbackLandmarker) return;
     const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
-    const vision = await FilesetResolver.forVisionTasks('/assets/mediapipe/wasm');
+    const vision = await FilesetResolver.forVisionTasks(`${MEDIAPIPE_BASE}/wasm`);
     fallbackLandmarker = await HandLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: '/assets/mediapipe/hand_landmarker.task' },
+      baseOptions: { modelAssetPath: `${MEDIAPIPE_BASE}/hand_landmarker.task` },
       runningMode: 'VIDEO',
       numHands: 2,
       minHandDetectionConfidence: 0.55,

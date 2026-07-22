@@ -317,6 +317,19 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
   root.userData.prewarm = (renderer, camera, scene) => {
     const visible = root.visible;
     root.visible = true;
+    // Seed particles + materials so first open only reuses already-built state.
+    root.userData.update?.({
+      I: 1,
+      B: 1,
+      n: 1,
+      d: 0.5,
+      nType: true,
+      paused: true,
+      autoCam: false,
+      showB: true,
+      vh: -1,
+      force: 1,
+    }, 0.016);
     renderer.compile(root, camera, scene);
     root.visible = visible;
   };

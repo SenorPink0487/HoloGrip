@@ -2,11 +2,21 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { diffractionHalfSpan, diffractionIntensity } from '../../experiments/optics.js';
+import {
+  createGeometricOpticsRig,
+  GEO_HOST_SCALE,
+} from '../../guangxue/geometricRig.js';
+import {
+  isGeometricOpticsExp,
+  resolveExperimentConfig,
+  getGeometricExperiment,
+} from '../../guangxue/catalog.js';
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 
-/** Build and expose all optics-station apparatus. */
+/** Optics station: multi-slit diffraction + geometric optics (guangxue) bench. */
 export function createStationEquipment(ctx) {
-  const { THREE, primitives, shared } = ctx;
-  const { rbox, box, cyl, torus } = primitives;
+  const { THREE, primitives, shared, renderer } = ctx;
+  const { rbox, cyl } = primitives;
 
   function makeOpticsBench() {
     const g = new THREE.Group();
@@ -22,10 +32,6 @@ export function createStationEquipment(ctx) {
       }),
       paper: new THREE.MeshStandardMaterial({
         color: 0xf3efe6, metalness: 0.02, roughness: 0.88, emissive: 0x1a1810, emissiveIntensity: 0.04,
-      }),
-      warmGlass: new THREE.MeshPhysicalMaterial({
-        color: 0xffe8aa, metalness: 0, roughness: 0.04, transmission: 0.9,
-        thickness: 0.45, transparent: true, opacity: 0.55, clearcoat: 1,
       }),
     };
 
@@ -67,7 +73,7 @@ export function createStationEquipment(ctx) {
       return { outline, hit };
     }
 
-    // ── Shared optical rail (full bench length ~2.2 m visual) ──
+    // ── Shared optical rail ──
     const rail = rbox(2.2, 0.045, 0.18, lab.matteBlack, 0.01);
     rail.position.y = 0.05;
     g.add(rail);
@@ -79,7 +85,6 @@ export function createStationEquipment(ctx) {
       side.position.set(0, 0.095, z);
       g.add(side);
     }
-    // scale ticks
     for (let i = 0; i <= 22; i++) {
       const tick = rbox(0.006, 0.01, i % 5 === 0 ? 0.07 : 0.04, lab.brass, 0.001);
       tick.position.set(-1.05 + i * 0.1, 0.09, 0);
@@ -93,273 +98,6 @@ export function createStationEquipment(ctx) {
     railHit.userData.interactive = true;
     railHit.userData.role = 'opt_rail';
     g.add(railHit);
-
-    // ── Prism mode group ──
-    const prismGroup = new THREE.Group();
-    prismGroup.name = 'prismSetup';
-
-    // White light source + collimator / sli
-    const source = new THREE.Group();
-    source.position.set(-0.85, 0.22, 0);
-    const sourceBody = rbox(0.22, 0.16, 0.16, lab.matteBlack, 0.015);
-    source.add(sourceBody);
-    const lamp = new THREE.Mesh(
-      new THREE.SphereGeometry(0.04, 16, 12),
-      new THREE.MeshStandardMaterial({
-        color: 0xfff2cc, emissive: 0xffcc66, emissiveIntensity: 0.2, metalness: 0.1, roughness: 0.35,
-      }),
-    );
-    lamp.position.set(-0.02, 0.02, 0);
-    source.add(lamp);
-    const collimator = cyl(0.035, 0.04, 0.1, lab.steel, 16);
-    collimator.rotation.z = Math.PI / 2;
-    collimator.position.x = 0.14;
-    source.add(collimator);
-    const slit = rbox(0.01, 0.08, 0.012, lab.brass, 0.002);
-    slit.position.x = 0.2;
-    source.add(slit);
-    source.userData.interactive = true;
-    source.userData.role = 'opt_source';
-    prismGroup.add(source);
-
-    const sourceLight = new THREE.PointLight(0xffd28a, 0.15, 2.2, 2);
-    sourceLight.position.set(-0.75, 0.28, 0);
-    prismGroup.add(sourceLight);
-
-    // Incident beam (white)
-    const inBeamMat = new THREE.MeshStandardMaterial({
-      color: 0xfff8e7, emissive: 0xffe4a3, emissiveIntensity: 0.4,
-      transparent: true, opacity: 0.0, depthWrite: false,
-    });
-    const inBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.72, 8), inBeamMat);
-    inBeam.rotation.z = Math.PI / 2;
-    inBeam.position.set(-0.35, 0.22, 0);
-    prismGroup.add(inBeam);
-
-    // Prism on rotatable stage
-    const prismStage = new THREE.Group();
-    prismStage.position.set(0.15, 0.1, 0);
-    const stageBase = cyl(0.12, 0.12, 0.03, lab.steel, 28);
-    stageBase.position.y = 0.0;
-    prismStage.add(stageBase);
-    const stageDial = cyl(0.1, 0.1, 0.012, lab.brass, 48);
-    stageDial.position.y = 0.02;
-    prismStage.add(stageDial);
-    // degree marks
-    for (let i = 0; i < 24; i++) {
-      const a = (i / 24) * Math.PI * 2;
-      const mark = rbox(0.008, 0.004, 0.018, lab.matteBlack, 0.001);
-      mark.position.set(Math.cos(a) * 0.088, 0.028, Math.sin(a) * 0.088);
-      mark.rotation.y = -a;
-      prismStage.add(mark);
-    }
-
-    const prismShape = new THREE.Shape();
-    prismShape.moveTo(0, 0.1);
-    prismShape.lineTo(0.09, -0.06);
-    prismShape.lineTo(-0.09, -0.06);
-    prismShape.closePath();
-    const prismMesh = new THREE.Mesh(
-      new THREE.ExtrudeGeometry(prismShape, {
-        depth: 0.12, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.008, bevelSegments: 2,
-      }),
-      new THREE.MeshPhysicalMaterial({
-        color: 0xe8f4ff, metalness: 0, roughness: 0.02, transmission: 0.94,
-        thickness: 1.0, transparent: true, opacity: 0.58, clearcoat: 1, ior: 1.5,
-      }),
-    );
-    prismMesh.position.set(0, 0.1, -0.06);
-    prismMesh.userData.interactive = true;
-    prismMesh.userData.role = 'opt_prism';
-    prismStage.add(prismMesh);
-    prismStage.userData.interactive = true;
-    prismStage.userData.role = 'opt_prism';
-    prismGroup.add(prismStage);
-
-    // Goniometer arm / readou
-    const gonio = new THREE.Group();
-    gonio.position.set(0.15, 0.05, 0.28);
-    const gonioBody = rbox(0.28, 0.08, 0.16, lab.matteBlack, 0.012);
-    gonio.add(gonioBody);
-    const gonioScreen = rbox(0.16, 0.04, 0.02, new THREE.MeshStandardMaterial({
-      color: 0x0a1a12, emissive: 0x22c55e, emissiveIntensity: 0.35, metalness: 0.2, roughness: 0.4,
-    }), 0.004);
-    gonioScreen.position.set(0, 0.02, 0.09);
-    gonio.add(gonioScreen);
-    // canvas readout on gonio
-    const gonioCanvas = document.createElement('canvas');
-    gonioCanvas.width = 256;
-    gonioCanvas.height = 64;
-    const gonioCtx = gonioCanvas.getContext('2d');
-    const gonioTex = new THREE.CanvasTexture(gonioCanvas);
-    gonioTex.colorSpace = THREE.SRGBColorSpace;
-    const gonioReadout = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.15, 0.038),
-      new THREE.MeshBasicMaterial({ map: gonioTex, transparent: true }),
-    );
-    gonioReadout.position.set(0, 0.02, 0.101);
-    gonio.add(gonioReadout);
-    gonio.userData.interactive = true;
-    gonio.userData.role = 'opt_goniometer';
-    prismGroup.add(gonio);
-
-    function paintGonio(deltaDeg, phiDeg) {
-      gonioCtx.fillStyle = '#04140c';
-      gonioCtx.fillRect(0, 0, 256, 64);
-      gonioCtx.fillStyle = '#4ade80';
-      gonioCtx.font = 'bold 22px Consolas, monospace';
-      gonioCtx.fillText(`δ ${deltaDeg.toFixed(2)}°`, 12, 28);
-      gonioCtx.fillStyle = '#86efac';
-      gonioCtx.font = '16px Consolas, monospace';
-      gonioCtx.fillText(`φ ${phiDeg.toFixed(1)}°`, 12, 52);
-      gonioTex.needsUpdate = true;
-    }
-    paintGonio(38.9, 12);
-
-    // Observation screen for spectrum
-    const spectrumScreen = new THREE.Group();
-    spectrumScreen.position.set(0.95, 0.24, 0);
-    const scrPlate = rbox(0.03, 0.32, 0.42, lab.paper, 0.008);
-    spectrumScreen.add(scrPlate);
-    const scrStand = cyl(0.015, 0.02, 0.18, lab.steel, 10);
-    scrStand.position.set(0, -0.16, 0);
-    spectrumScreen.add(scrStand);
-    spectrumScreen.userData.interactive = true;
-    spectrumScreen.userData.role = 'opt_screen';
-    prismGroup.add(spectrumScreen);
-
-    const spectrumGroup = new THREE.Group();
-    const spectrumColors = [0xff0044, 0xff6600, 0xffee00, 0x44dd66, 0x2288ff, 0x7722ff];
-    const spectrumBars = [];
-    spectrumColors.forEach((c, i) => {
-      const barMat = new THREE.MeshStandardMaterial({
-        color: c, emissive: c, emissiveIntensity: 0, metalness: 0.05, roughness: 0.45,
-        transparent: true, opacity: 0.15,
-      });
-      const s = rbox(0.012, 0.24, 0.045, barMat, 0.004);
-      s.position.set(0.02, 0, -0.12 + i * 0.048);
-      spectrumGroup.add(s);
-      spectrumBars.push(barMat);
-    });
-    spectrumScreen.add(spectrumGroup);
-
-    // Dispersed exit beams (fan)
-    const exitBeams = new THREE.Group();
-    const exitMats = [];
-    spectrumColors.forEach((c, i) => {
-      const m = new THREE.MeshStandardMaterial({
-        color: c, emissive: c, emissiveIntensity: 0.3,
-        transparent: true, opacity: 0, depthWrite: false,
-      });
-      const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.007, 0.7, 6), m);
-      beam.rotation.z = Math.PI / 2;
-      const spread = (i - 2.5) * 0.04;
-      beam.position.set(0.55, 0.22, spread);
-      beam.rotation.y = -spread * 0.8;
-      exitBeams.add(beam);
-      exitMats.push(m);
-    });
-    prismGroup.add(exitBeams);
-
-    g.add(prismGroup);
-
-    // ── Lens mode group ──
-    const lensGroup = new THREE.Group();
-    lensGroup.name = 'lensSetup';
-    lensGroup.visible = false;
-
-    // Object screen with illuminated cross
-    const objectMount = new THREE.Group();
-    objectMount.position.set(-0.9, 0.22, 0);
-    const objBase = cyl(0.05, 0.05, 0.02, lab.matteBlack, 12);
-    objBase.position.y = -0.14;
-    objectMount.add(objBase);
-    const objStand = cyl(0.012, 0.016, 0.16, lab.steel, 10);
-    objStand.position.y = -0.06;
-    objectMount.add(objStand);
-    const objPlate = rbox(0.04, 0.2, 0.2, lab.matteBlack, 0.008);
-    objectMount.add(objPlate);
-    // glowing cross pattern
-    const crossH = rbox(0.01, 0.02, 0.12, new THREE.MeshStandardMaterial({
-      color: 0xffe4a0, emissive: 0xffcc55, emissiveIntensity: 1.2, metalness: 0, roughness: 0.3,
-    }), 0.002);
-    const crossV = rbox(0.01, 0.12, 0.02, new THREE.MeshStandardMaterial({
-      color: 0xffe4a0, emissive: 0xffcc55, emissiveIntensity: 1.2, metalness: 0, roughness: 0.3,
-    }), 0.002);
-    crossH.position.x = 0.025;
-    crossV.position.x = 0.025;
-    objectMount.add(crossH);
-    objectMount.add(crossV);
-    const objLamp = new THREE.PointLight(0xffd080, 0.4, 1.5, 2);
-    objLamp.position.set(-0.08, 0.05, 0);
-    objectMount.add(objLamp);
-    objectMount.userData.interactive = true;
-    objectMount.userData.role = 'opt_object';
-    lensGroup.add(objectMount);
-
-    // Convex lens moun
-    const lensMount = new THREE.Group();
-    lensMount.position.set(-0.2, 0.22, 0);
-    const lensBase = cyl(0.055, 0.055, 0.022, lab.matteBlack, 14);
-    lensBase.position.y = -0.14;
-    lensMount.add(lensBase);
-    const lensStand = cyl(0.012, 0.018, 0.16, lab.steel, 10);
-    lensStand.position.y = -0.06;
-    lensMount.add(lensStand);
-    const lensRing = torus(0.075, 0.01, lab.brass, 12, 32);
-    lensRing.rotation.y = Math.PI / 2;
-    lensMount.add(lensRing);
-    const lensGlass = new THREE.Mesh(
-      new THREE.SphereGeometry(0.07, 24, 18),
-      lab.warmGlass,
-    );
-    lensGlass.scale.set(0.22, 1, 1);
-    lensMount.add(lensGlass);
-    lensMount.userData.interactive = true;
-    lensMount.userData.role = 'opt_lens';
-    lensGroup.add(lensMount);
-
-    // Image screen
-    const imageMount = new THREE.Group();
-    imageMount.position.set(0.55, 0.22, 0);
-    const imgBase = cyl(0.05, 0.05, 0.02, lab.matteBlack, 12);
-    imgBase.position.y = -0.14;
-    imageMount.add(imgBase);
-    const imgStand = cyl(0.012, 0.016, 0.16, lab.steel, 10);
-    imgStand.position.y = -0.06;
-    imageMount.add(imgStand);
-    const imgPlate = rbox(0.025, 0.24, 0.24, lab.paper, 0.006);
-    imageMount.add(imgPlate);
-    // image of cross (blurred when out of focus)
-    const imgCrossMat = new THREE.MeshStandardMaterial({
-      color: 0x334155, emissive: 0xfbbf24, emissiveIntensity: 0.15,
-      transparent: true, opacity: 0.85, metalness: 0, roughness: 0.6,
-    });
-    const imgCrossH = rbox(0.008, 0.015, 0.1, imgCrossMat, 0.002);
-    const imgCrossV = rbox(0.008, 0.1, 0.015, imgCrossMat, 0.002);
-    imgCrossH.position.x = -0.015;
-    imgCrossV.position.x = -0.015;
-    imageMount.add(imgCrossH);
-    imageMount.add(imgCrossV);
-    imageMount.userData.interactive = true;
-    imageMount.userData.role = 'opt_image';
-    imageMount.userData.imgCross = [imgCrossH, imgCrossV];
-    imageMount.userData.imgCrossMat = imgCrossMat;
-    lensGroup.add(imageMount);
-
-    // Ray guide lines (object → lens → image)
-    const rayMat = new THREE.MeshStandardMaterial({
-      color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 0.6,
-      transparent: true, opacity: 0.35, depthWrite: false,
-    });
-    const ray1 = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1, 6), rayMat);
-    ray1.rotation.z = Math.PI / 2;
-    lensGroup.add(ray1);
-    const ray2 = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1, 6), rayMat.clone());
-    ray2.rotation.z = Math.PI / 2;
-    lensGroup.add(ray2);
-
-    g.add(lensGroup);
 
     // ── Fraunhofer single/multi-slit mode (ported from danfen source) ──
     const diffractionGroup = new THREE.Group();
@@ -517,6 +255,8 @@ export function createStationEquipment(ctx) {
 
     let diffSignature = '';
     let diffWavePhase = 0;
+    /** Deferred diffraction paint so experiment switch does not stall the click frame. */
+    let deferredDiffraction = null;
     function disposeChildren(group) {
       while (group.children.length) {
         const child = group.children.pop();
@@ -526,9 +266,19 @@ export function createStationEquipment(ctx) {
       }
     }
 
-    function updateDiffraction(d) {
+    function updateDiffraction(d, opts = {}) {
+      if (!d) return;
       const signature = [d.lightOn, d.lambdaNm, d.slitMm, d.pitchMm, d.N, d.distM, d.showBeam, d.showWave].join('|');
-      if (signature === diffSignature) return;
+      // Already painted (typical after boot prewarm / re-entry) — free switch.
+      if (!opts.force && signature === diffSignature) {
+        deferredDiffraction = null;
+        return;
+      }
+      if (opts.defer) {
+        deferredDiffraction = { ...d };
+        return;
+      }
+      deferredDiffraction = null;
       diffSignature = signature;
       const color = spectralColor(Number(d.lambdaNm || 550));
       const lit = !!d.lightOn;
@@ -625,8 +375,20 @@ export function createStationEquipment(ctx) {
       diffScreenTex.needsUpdate = true;
     }
 
+    function flushDeferredDiffraction() {
+      if (!deferredDiffraction) return;
+      const pending = deferredDiffraction;
+      deferredDiffraction = null;
+      updateDiffraction(pending, { force: false });
+    }
+
+    function cancelDeferredDiffraction() {
+      deferredDiffraction = null;
+    }
+
     function animateDiffraction(t, dt) {
       if (!diffractionGroup.visible) return;
+      flushDeferredDiffraction();
       if (diffEmitter.visible) {
         diffEmitter.scale.setScalar(1 + 0.12 * Math.sin(t * 10));
         diffHalo.material.opacity = 0.3 + 0.2 * Math.sin(t * 7);
@@ -642,15 +404,12 @@ export function createStationEquipment(ctx) {
       });
     }
 
-    // Recognition targets
+
+    // Recognition targets (diffraction only)
     const recognition = {
-      opt_source: addRecognitionTarget(source, 'opt_source', [0.28, 0.22, 0.22], [0, 0, 0]),
-      opt_prism: addRecognitionTarget(prismStage, 'opt_prism', [0.28, 0.28, 0.28], [0, 0.12, 0]),
-      opt_screen: addRecognitionTarget(spectrumScreen, 'opt_screen', [0.1, 0.36, 0.46], [0, 0, 0]),
-      opt_goniometer: addRecognitionTarget(gonio, 'opt_goniometer', [0.32, 0.12, 0.2], [0, 0, 0]),
-      opt_object: addRecognitionTarget(objectMount, 'opt_object', [0.14, 0.28, 0.26], [0, 0, 0]),
-      opt_lens: addRecognitionTarget(lensMount, 'opt_lens', [0.12, 0.28, 0.22], [0, 0, 0]),
-      opt_image: addRecognitionTarget(imageMount, 'opt_image', [0.12, 0.32, 0.3], [0, 0, 0]),
+      diff_source: addRecognitionTarget(diffSource, 'diff_source', [0.34, 0.34, 0.24], [0, 0.32, 0]),
+      diff_slit: addRecognitionTarget(diffSlitMount, 'diff_slit', [0.16, 0.4, 0.42], [0, 0.36, 0]),
+      diff_screen: addRecognitionTarget(diffScreen, 'diff_screen', [0.14, 0.55, 0.7], [0, 0.35, 0]),
       opt_rail: addRecognitionTarget(g, 'opt_rail', [2.2, 0.1, 0.24], [0, 0.08, 0]),
     };
     const recognitionRings = Object.fromEntries(
@@ -675,115 +434,25 @@ export function createStationEquipment(ctx) {
       Object.keys(recognitionRings).forEach((role) => setPartState(role, 'off'));
     }
 
-    /** Map cm on optical bench to local X (object at -0.9 ≈ 0 cm, scale 0.018 m/cm) */
-    const CM0 = -0.9;
-    const CM_SCALE = 0.018;
-    function cmToX(cm) {
-      return CM0 + cm * CM_SCALE;
-    }
-
     function setMode(mode) {
-      // idle / diffraction 均展示单缝多缝装置
-      prismGroup.visible = mode === 'prism';
-      lensGroup.visible = mode === 'lens';
-      diffractionGroup.visible = mode === 'diffraction' || mode === 'idle';
-      if (mode === 'idle') {
-        inBeamMat.opacity = 0;
-        exitMats.forEach((m) => { m.opacity = 0; });
-        spectrumBars.forEach((m) => { m.opacity = 0.12; m.emissiveIntensity = 0; });
-        sourceLight.intensity = 0.1;
-      }
+      const m = mode || 'idle';
+      const geo = m === 'geometric' || isGeometricOpticsExp(m);
+      // idle and diffraction both show the multi-slit bench; geometric hides it
+      diffractionGroup.visible = !geo && (m === 'diffraction' || m === 'idle' || !m);
     }
 
-    function updateOptics(d) {
+    function updateOptics(d, opts = {}) {
       if (!d) return;
-      if (d.mode === 'diffraction') {
-        setMode('diffraction');
-        updateDiffraction(d);
+      if (d.mode === 'geometric' || isGeometricOpticsExp(d.expId)) {
+        setMode('geometric');
         return;
       }
-      if (d.mode === 'lens') {
-        setMode('lens');
-        lensMount.position.x = cmToX(Number(d.lensPos || 45));
-        imageMount.position.x = cmToX(Number(d.screenPos || 80));
-        objectMount.position.x = cmToX(Number(d.objectPos || 0));
-
-        // rays: object → lens → screen
-        const ox = objectMount.position.x;
-        const lx = lensMount.position.x;
-        const sx = imageMount.position.x;
-        const y = 0.22;
-        const mid1 = (ox + lx) / 2;
-        const len1 = Math.max(0.05, Math.abs(lx - ox));
-        ray1.position.set(mid1, y, 0);
-        ray1.scale.set(1, len1, 1);
-        const mid2 = (lx + sx) / 2;
-        const len2 = Math.max(0.05, Math.abs(sx - lx));
-        ray2.position.set(mid2, y, 0);
-        ray2.scale.set(1, len2, 1);
-
-        const score = Number(d.focusScore || 0);
-        const mag = Math.max(0.15, Math.min(2.5, Math.abs(Number(d.magnification || 1))));
-        // invert image when real image
-        const flip = d.vImage != null && d.u > d.fTrue ? -1 : 1;
-        imgCrossH.scale.set(1, 1 + (1 - score) * 2.5, mag);
-        imgCrossV.scale.set(1, mag, 1 + (1 - score) * 2.5);
-        imgCrossH.position.y = 0;
-        imgCrossV.position.y = 0;
-        imageMount.scale.y = flip > 0 ? 1 : 1; // keep upright visual, encode invert via color
-        imgCrossMat.emissiveIntensity = 0.08 + score * 1.1;
-        imgCrossMat.opacity = 0.35 + score * 0.6;
-        imgCrossMat.emissive.setHex(score > 0.72 ? 0xfbbf24 : score > 0.4 ? 0x94a3b8 : 0x475569);
-        rayMat.opacity = 0.2 + score * 0.35;
-        if (ray2.material) ray2.material.opacity = rayMat.opacity;
-        objLamp.intensity = 0.35 + score * 0.25;
-        return;
-      }
-
-      // prism mode
-      setMode('prism');
-      const lightOn = !!d.lightOn;
-      const angleDeg = Number(d.prismAngle || 0);
-      prismStage.rotation.y = (angleDeg - 18) * (Math.PI / 180) * 0.6;
-      paintGonio(Number(d.delta || 0), angleDeg);
-
-      sourceLight.intensity = lightOn ? 1.1 : 0.08;
-      lamp.material.emissiveIntensity = lightOn ? 1.6 : 0.15;
-      inBeamMat.opacity = lightOn ? 0.55 : 0;
-      inBeamMat.emissiveIntensity = lightOn ? 0.9 : 0.1;
-
-      const spectrumOn = lightOn && !!d.spectrumVisible;
-      const nearMin = !!d.atMinimum;
-      const spreadGain = 0.7 + Math.min(1.2, Math.abs(angleDeg - 18) * 0.03);
-      // shift spectrum laterally with deviation
-      const zShift = (Number(d.delta || 40) - 40) * 0.004;
-      spectrumGroup.position.z = zShift;
-      spectrumBars.forEach((m, i) => {
-        m.opacity = spectrumOn ? 0.55 + (nearMin ? 0.35 : 0) : 0.08;
-        m.emissiveIntensity = spectrumOn ? (nearMin ? 1.4 : 0.7) : 0.05;
-        // emphasize selected color line
-        const names = ['red', 'red', 'yellow', 'green', 'blue', 'violet'];
-        if (d.colorLine && d.colorLine !== 'white') {
-          const active = names[i] === d.colorLine
-            || (d.colorLine === 'red' && i <= 1)
-            || (d.colorLine === 'violet' && i >= 4);
-          m.opacity = spectrumOn ? (active ? 0.95 : 0.12) : 0.05;
-          m.emissiveIntensity = spectrumOn && active ? 1.6 : 0.1;
-        }
-      });
-      exitMats.forEach((m, i) => {
-        m.opacity = spectrumOn ? 0.35 : 0;
-        m.emissiveIntensity = spectrumOn ? 0.8 : 0;
-        const beam = exitBeams.children[i];
-        if (beam) {
-          const spread = (i - 2.5) * 0.045 * spreadGain + zShift * 0.3;
-          beam.position.set(0.55, 0.22, spread);
-          beam.rotation.y = -spread * 0.9;
-        }
-      });
+      setMode(d.mode === 'idle' ? 'idle' : 'diffraction');
+      if (d.mode === 'idle') return;
+      updateDiffraction(d, opts);
     }
 
-    // Default showcase: single/double-slit diffraction bench
+    // Default showcase
     updateOptics({
       mode: 'diffraction',
       lightOn: true,
@@ -798,17 +467,36 @@ export function createStationEquipment(ctx) {
 
     g.userData.setMode = setMode;
     g.userData.updateOptics = updateOptics;
+    g.userData.updateDiffraction = updateDiffraction;
+    g.userData.flushDeferredDiffraction = flushDeferredDiffraction;
+    g.userData.cancelDeferredDiffraction = cancelDeferredDiffraction;
     g.userData.setPartState = setPartState;
     g.userData.clearIdentifyVisuals = clearIdentifyVisuals;
-    g.userData.prismGroup = prismGroup;
-    g.userData.lensGroup = lensGroup;
     g.userData.diffractionGroup = diffractionGroup;
     g.userData.animateDiffraction = animateDiffraction;
+    g.userData.prewarmDiffraction = (webglRenderer, activeCamera, targetScene) => {
+      const wasDiff = diffractionGroup.visible;
+      setMode('diffraction');
+      // Match multi_slit_diffraction initData / DIFF_PRESETS.double so first open skips repaint.
+      updateDiffraction({
+        mode: 'diffraction',
+        lightOn: true,
+        lambdaNm: 550,
+        slitMm: 0.05,
+        pitchMm: 0.25,
+        N: 2,
+        distM: 1,
+        showBeam: true,
+        showWave: true,
+      }, { force: true });
+      webglRenderer.compile(diffractionGroup, activeCamera, targetScene);
+      setMode('idle');
+      diffractionGroup.visible = wasDiff;
+    };
     g.userData.interactive = true;
     g.userData.role = 'optics';
     return g;
   }
-
 
   const root = new THREE.Group();
   root.name = 'optics-station';
@@ -817,29 +505,207 @@ export function createStationEquipment(ctx) {
   optics.rotation.y = 0;
   root.add(optics);
 
+  // RoomEnvironment for MeshPhysical glass/mirror (source uses PMREM RoomEnvironment).
+  let geoEnvTex = null;
+  try {
+    if (renderer) {
+      const pmrem = new THREE.PMREMGenerator(renderer);
+      const room = new RoomEnvironment();
+      const rt = pmrem.fromScene(room, 0.04);
+      geoEnvTex = rt.texture;
+      room.dispose?.();
+      pmrem.dispose();
+    }
+  } catch { /* optional */ }
+
+  // Geometric optics (guangxue): optical bench + rays only (no source room floor/wall).
+  // Source bench top y≈-1.35; place so scaled top sits on host tabletop y≈0.93.
+  const geoRig = createGeometricOpticsRig({
+    renderer,
+    getEnvironment: () => geoEnvTex,
+  });
+  const geoScale = GEO_HOST_SCALE;
+  geoRig.scale.setScalar(geoScale);
+  geoRig.position.set(4.2, 0.93 + 1.35 * geoScale, -2.8);
+  geoRig.rotation.y = 0;
+  geoRig.visible = false;
+  root.add(geoRig);
+  const geoApi = geoRig.userData.api;
+  geoApi?.applyEnvironment?.(geoEnvTex);
+  // Rebuild rays after parenting so matrixWorld includes host scale.
+  try { geoApi?.updateRays?.(); } catch { /* ignore */ }
+
+  const decorBeakers = [];
   [
     { o: shared.makeBeaker(0.1, 0.03, 0xaaddff), p: [5.5, 0.93, -2.5] },
     { o: shared.makeBeaker(0.09, 0.028, 0xffe8aa), p: [5.7, 0.93, -2.7] },
   ].forEach(({ o, p }) => {
     o.position.set(...p);
     root.add(o);
+    decorBeakers.push(o);
   });
+
+  let activeMode = 'idle';
+
+  /** Visibility-only mode switch — never runs full ray tracing / canvas paint. */
+  function setMode(mode) {
+    const m = mode || 'idle';
+    activeMode = m;
+    const geo = m === 'geometric' || isGeometricOpticsExp(m);
+    geoRig.visible = geo;
+    // Hide host diffraction showcase + decor when geometric island is active
+    optics.visible = !geo;
+    decorBeakers.forEach((b) => { b.visible = !geo; });
+    if (geo) {
+      optics.userData.setMode?.('geometric');
+    } else {
+      optics.userData.setMode?.(m);
+    }
+  }
+
+  function geoParamsFromData(data) {
+    return {
+      shape: data.shape,
+      angle: data.angle,
+      height: data.height,
+      rayCount: data.rayCount,
+      ior: data.ior,
+      dispersion: data.dispersion,
+      dispersionStrength: data.dispersionStrength,
+      rotate: data.rotate,
+      showReflect: data.showReflect,
+      mode: data.opticsMode || (data.mode === 'mirror' || data.mode === 'dielectric' ? data.mode : undefined),
+    };
+  }
+
+  /**
+   * @param {object} data
+   * @param {{ force?: boolean, defer?: boolean, deferRays?: boolean }} [opts]
+   *   defer / deferRays: mesh now, full trace on next animator tick (experiment switch).
+   */
+  function updateGeometric(data, opts = {}) {
+    if (!data || !geoApi) return geoApi?.snapshot?.() || null;
+    const deferRays = !!(opts.defer || opts.deferRays);
+    return geoApi.applyParams(geoParamsFromData(data), {
+      force: !!opts.force,
+      deferRays,
+    });
+  }
+
+  function flushDeferredGeometry() {
+    if (!geoRig.visible || !geoApi) return null;
+    if (!geoApi.raysPending) return geoApi.snapshot?.() || null;
+    return geoApi.flushDeferredRays?.() || null;
+  }
+
+  function cancelDeferred() {
+    // Drop pending geometric ray rebuild + diffraction canvas paint so a
+    // mid-switch exit cannot flush the previous experiment's config later.
+    try {
+      geoApi?.cancelDeferredRays?.();
+    } catch { /* ignore */ }
+    optics.userData.cancelDeferredDiffraction?.();
+  }
 
   optics.userData.interactive = true;
   const equipment = {
-    setMode: (mode) => optics.userData.setMode?.(mode),
-    updateOptics: (data) => optics.userData.updateOptics?.(data),
+    setMode,
+    updateOptics: (data, opts = {}) => {
+      if (data?.mode === 'geometric' || isGeometricOpticsExp(data?.expId)) {
+        setMode('geometric');
+        return updateGeometric(data, opts);
+      }
+      setMode(data?.mode === 'idle' ? 'idle' : 'diffraction');
+      return optics.userData.updateOptics?.(data, opts);
+    },
+    updateGeometric,
+    flushDeferredGeometry,
+    flushDeferredDiffraction: () => optics.userData.flushDeferredDiffraction?.(),
+    cancelDeferred,
+    snapshotGeometric: () => geoApi?.snapshot?.() || null,
     setPartState: (part, mode) => optics.userData.setPartState?.(part, mode),
     clearIdentifyVisuals: () => optics.userData.clearIdentifyVisuals?.(),
     getCamera: () => ctx.camera,
     mouseDrag: { holdLMB: false, movementX: 0 },
+    get activeMode() { return activeMode; },
+    geoRig,
   };
+
+  function defaultGeoData(expId) {
+    const exp = getGeometricExperiment(expId);
+    const cfg = resolveExperimentConfig(expId, exp?.defaultModule) || exp?.config || {};
+    const shape = cfg.shape || 'mirror';
+    const opticsMode = cfg.mode || (shape.startsWith('mirror') ? 'mirror' : 'dielectric');
+    return {
+      shape,
+      angle: cfg.angle ?? 35,
+      height: cfg.height ?? 0,
+      rayCount: cfg.rayCount ?? 1,
+      ior: cfg.ior ?? 1.52,
+      dispersion: !!cfg.dispersion,
+      dispersionStrength: cfg.dispersionStrength ?? 0.6,
+      rotate: cfg.rotate ?? 0,
+      showReflect: cfg.showReflect !== false,
+      opticsMode,
+      mode: opticsMode,
+    };
+  }
+
+  const geoPrewarm = Object.fromEntries(
+    ['reflection', 'refraction', 'dispersion', 'lens'].map((id) => [id, () => {
+      setMode('geometric');
+      // Showcase each optical sample once so transmission shaders compile
+      const shapes = id === 'reflection'
+        ? ['mirror', 'mirror-convex']
+        : id === 'lens'
+          ? ['sphere', 'cylinder']
+          : id === 'dispersion'
+            ? ['prism']
+            : ['prism', 'block'];
+      shapes.forEach((shape) => {
+        geoApi?.applyParams?.({
+          shape,
+          angle: id === 'dispersion' ? 48 : 35,
+          rayCount: id === 'dispersion' ? 9 : 3,
+          dispersion: id === 'dispersion',
+          dispersionStrength: 0.85,
+          mode: shape.startsWith('mirror') ? 'mirror' : 'dielectric',
+          ior: 1.52,
+          force: true,
+        });
+      });
+      // End on this experiment's default config so a matching first open skips the trace.
+      geoApi?.applyParams?.(geoParamsFromData(defaultGeoData(id)), { force: true });
+      try {
+        ctx.renderer?.compile?.(geoRig, ctx.camera, ctx.scene);
+      } catch { /* ignore */ }
+      // Keep lastSignature: hide via visibility only (do not wipe ray cache state).
+      setMode('idle');
+    }]),
+  );
 
   return {
     root,
     equipment,
-    animators: [(t, dt) => optics.userData.animateDiffraction?.(t, dt)],
-    prewarm: {},
-    refs: { optics },
+    animators: [
+      (t, dt) => {
+        if (geoRig.visible) {
+          // Flush deferred full ray builds one frame after setMode (秒切).
+          flushDeferredGeometry();
+          geoApi?.animate?.(t);
+        } else {
+          optics.userData.animateDiffraction?.(t, dt);
+        }
+      },
+    ],
+    prewarm: {
+      multi_slit_diffraction: () => optics.userData.prewarmDiffraction?.(
+        ctx.renderer,
+        ctx.camera,
+        ctx.scene,
+      ),
+      ...geoPrewarm,
+    },
+    refs: { optics, geoRig },
   };
 }

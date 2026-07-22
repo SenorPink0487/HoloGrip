@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HoloRocket · 火箭发射仿真</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;600&family=Noto+Sans+SC:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/rocket/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="canvas" tabindex="0" aria-label="三维视口"></canvas>
+      <div id="speedRim" aria-hidden="true"></div>
+
+      <header class="hud-top">
+        <div class="status">
+          <span class="status-tag">链路正常</span>
+          <span class="dot" id="statusDot"></span>
+          <span id="fps">60 FPS</span>
+        </div>
+      </header>
+
+      <aside class="hud-panel">
+        <!-- 状态总览 -->
+        <div class="panel-telemetry-header" id="missionBadge">
+          <div class="telemetry-top-row">
+            <div class="telemetry-sys-title">
+              <span class="badge-live-dot"></span>
+              <span>飞行状态</span>
+            </div>
+            <span class="badge-status-tag">就绪</span>
+          </div>
+
+          <div class="telemetry-phase-deck">
+            <span class="telemetry-sub-label">当前阶段</span>
+            <div class="telemetry-phase-row">
+              <span class="badge-phase" id="phaseLabel">待机</span>
+            </div>
+            <div class="timeline compact-top-timeline" id="timeline">
+              <div class="tl-track" id="tlTrack"></div>
+            </div>
+          </div>
+
+          <div class="telemetry-readout-card">
+            <span class="badge-meta" id="flightMeta">高度 — · 速度 —</span>
+          </div>
+        </div>
+
+        <!-- 主操作 -->
+        <section class="hud-section">
+          <h2>操作</h2>
+          <div class="btn-row mission-btns">
+            <button type="button" id="btnLaunch" class="primary">发射</button>
+            <button type="button" id="btnAbort">中止</button>
+          </div>
+          <div class="btn-row mission-btns">
+            <button type="button" id="btnPilot" class="pilot">驾驶</button>
+            <button type="button" id="btnDesign" class="design">设计</button>
+          </div>
+          <div id="perfWarn" class="perf-warn" hidden></div>
+          <div class="progress-wrap">
+            <div class="progress-bar"><i id="missionProgress"></i></div>
+            <span id="missionPct">0%</span>
+          </div>
+        </section>
+
+        <!-- 设置 -->
+        <section class="hud-section">
+          <h2>设置</h2>
+          <label class="row check">
+            <span>跟随相机</span>
+            <input type="checkbox" id="followCam" checked />
+          </label>
+          <label class="row">
+            <span>倍速</span>
+            <select id="timeScale">
+              <option value="0.5">0.5×</option>
+              <option value="1" selected>1×</option>
+              <option value="2">2×</option>
+              <option value="4">4×</option>
+            </select>
+          </label>
+          <label class="row check">
+            <span>音效</span>
+            <input type="checkbox" id="soundEnabled" checked />
+          </label>
+          <label class="row">
+            <span>音量</span>
+            <input type="range" id="soundVolume" min="0" max="100" value="75" />
+          </label>
+          <label class="row check">
+            <span>隔热瓦</span>
+            <input type="checkbox" id="showTiles" checked />
+          </label>
+          <label class="row check">
+            <span>自动旋转</span>
+            <input type="checkbox" id="autoRotate" checked />
+          </label>
+          <div class="btn-row single">
+            <button type="button" id="btnResetView">重置视角</button>
+          </div>
+        </section>
+
+        <!-- 天体视角 -->
+        <section class="hud-section">
+          <h2>天体视角</h2>
+          <div class="btn-row cam-grid">
+            <button type="button" data-cam="earth">地球</button>
+            <button type="button" data-cam="moon">月球</button>
+            <button type="button" data-cam="mars">火星</button>
+            <button type="button" data-cam="venus">金星</button>
+            <button type="button" data-cam="mercury">水星</button>
+            <button type="button" data-cam="jupiter">木星</button>
+            <button type="button" data-cam="saturn">土星</button>
+            <button type="button" data-cam="sun">太阳</button>
+            <button type="button" data-cam="system">全日系</button>
+          </div>
+        </section>
+
+        <!-- 规格 -->
+        <section class="hud-section">
+          <h2>规格</h2>
+          <ul class="specs" id="specsList">
+            <li><span>总高</span><b>124 m</b></li>
+            <li><span>直径</span><b>9 m</b></li>
+            <li><span>星舰</span><b>52 m · 6 台猛禽</b></li>
+            <li><span>助推器</span><b>72 m · 33 台猛禽</b></li>
+            <li><span>推进剂</span><b>甲烷 + 液氧</b></li>
+          </ul>
+        </section>
+
+        <p class="hint" id="hintDefault">
+          左键旋转 · 滚轮缩放 · 右键平移<br />
+          首次点击后解锁音效
+        </p>
+        <p class="hint pilot-hint" id="hintPilot" hidden>
+          <b>飞行</b> W/S 前后 · A/D 转向 · Q/E 平移<br />
+          <b>Shift</b> 加力 · <b>C</b> 超高速 · <b>Shift+C</b> 曲速 · X 刹车 · Esc 退出
+        </p>
+      </aside>
+
+      <div class="pilot-hud" id="pilotHud" hidden>
+        <div class="pilot-readouts">
+          <div><span>模式</span><b id="pilotMode">巡航</b></div>
+          <div><span>速度</span><b id="pilotSpeed">0</b></div>
+          <div><span>推力</span><b id="pilotThrust">0%</b></div>
+          <div><span>高度</span><b id="pilotAlt">—</b></div>
+          <div class="pilot-zone"><span>区域</span><b id="pilotZone">深空</b></div>
+        </div>
+        <div class="pilot-keys">
+          W/S 前后 · A/D 转向 · Q/E 平移 · Shift/C 加速 · X 急刹
+        </div>
+      </div>
+
+      <footer class="hud-bottom">
+        <span>SpaceX 公开规格示意模型</span>
+        <span>1 单位 = 1 米</span>
+      </footer>
+
+      <div id="designMode" class="design-mode-root" hidden aria-label="火箭设计"></div>
+      <div id="designToast" class="design-toast" hidden></div>
+    </div>
+    <script type="module" src="/src/rocket/main.js"></script>
+  </body>
+</html>

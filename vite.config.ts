@@ -10,6 +10,8 @@ import { defineConfig, loadEnv } from 'vite';
  *  - profile.html   → 关于我们
  *  - holomath.html  → HoloMath 空间几何画板（React）
  *  - physics.html   → HoloPhysics 三维物理实验室（Three.js）
+ *  - rocket.html    → HoloRocket 火箭发射仿真（Three.js）
+ *  - pool.html      → HoloPool 三维台球室（Three.js + cannon-es）
  */
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
@@ -25,6 +27,8 @@ export default defineConfig(({ mode }) => {
     admin:     path.resolve(__dirname, 'admin.html'),
     holomath:  path.resolve(__dirname, 'holomath.html'),
     physics:   path.resolve(__dirname, 'physics.html'),
+    rocket:    path.resolve(__dirname, 'rocket.html'),
+    pool:      path.resolve(__dirname, 'pool.html'),
   };
   const targetInputs: Record<string, Record<string, string>> = {
     ipad: {

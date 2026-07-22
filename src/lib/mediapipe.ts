@@ -1,15 +1,17 @@
 import { FilesetResolver, HandLandmarker } from "@mediapipe/tasks-vision";
 
+/** Shared with HoloPhysics: single copy under public/assets/mediapipe/ */
+export const MEDIAPIPE_BASE = `${import.meta.env.BASE_URL}assets/mediapipe`;
+export const MEDIAPIPE_WASM_DIR = `${MEDIAPIPE_BASE}/wasm`;
+export const MEDIAPIPE_MODEL_PATH = `${MEDIAPIPE_BASE}/hand_landmarker.task`;
+
 export const initHandLandmarker = async () => {
-  // 使用本地化资源（public/mediapipe/），离线可用
-  // wasm 运行时由 vite 自动从 public 目录拷贝到 dist；模型文件 ~8MB
-  const vision = await FilesetResolver.forVisionTasks(
-    `${import.meta.env.BASE_URL}mediapipe/wasm`
-  );
+  // 全站共用一份模型与 wasm（public/assets/mediapipe/），离线可用
+  const vision = await FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_DIR);
 
   const handLandmarker = await HandLandmarker.createFromOptions(vision, {
     baseOptions: {
-      modelAssetPath: `${import.meta.env.BASE_URL}mediapipe/hand_landmarker.task`,
+      modelAssetPath: MEDIAPIPE_MODEL_PATH,
       delegate: "GPU"
     },
     runningMode: "VIDEO",

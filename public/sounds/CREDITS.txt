@@ -1,0 +1,27 @@
+NASA Public Domain / Media Usage audio samples
+==============================================
+
+All audio files in this folder are downloaded from NASA's Historical Sounds
+collection for educational / visualization use.
+
+Source: https://www.nasa.gov/historical-sounds/
+Media guidelines: https://www.nasa.gov/nasa-brand-center/images-and-media/
+
+Included (filenames → original NASA titles):
+- sts131_launch.mp3      Discovery STS-131: Sound of Launch
+- sts135_countdown.mp3   STS-135: Countdown to Launch
+- sts135_commentary.mp3  STS-135: Launch Commentary
+- sts26_liftoff.mp3      Discovery – STS-26 Liftoff
+- sts41d_liftoff.mp3     Discovery – STS-41D Liftoff
+- apollo11_liftoff.mp3   Apollo 11: We Have a Lift-Off
+- throttle_up.mp3        Discovery – Go at throttle up
+- roger_roll.mp3         Discovery – Roger roll
+- meco.mp3               Discovery – MECO
+- orbit_nice.mp3         Discovery – Nice to be in orbit
+- atlas_v_launch.mp3     Atlas V: Launch
+- sls_testfire.mp3       SLS Test Fire
+- quindar1.mp3 / quindar2.mp3  Quindar tones
+- saturn_radio.mp3       Cassini: Saturn Radio Emissions
+- chorus.mp3             Chorus Radio Waves within Earth's Atmosphere (EMFISIS / Univ. of Iowa)
+
+Not affiliated with NASA or SpaceX. For immersive Starship visualization only.

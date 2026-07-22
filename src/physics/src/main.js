@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
-import { createExperimentManager } from './experiments/index.js';
+import { createExperimentManager, STATION_EXPERIMENTS, STATION_MODULES } from './experiments/index.js';
 import { createMaterials } from './scene/shared/materials.js';
 import { createPrimitives } from './scene/shared/primitives.js';
 import { createSharedProps } from './scene/shared/labProps.js';
@@ -11,8 +11,10 @@ import { createLabLoader } from './loader.js';
 import {
   drawHoloScreen,
   getHoloScreenLayoutSize,
+  isParamSliderAction,
   pickHoloScreen,
   uvFromRayAndMesh,
+  valueFromParamSliderPick,
 } from './holoScreen.js';
 import { drawFormulaBoard, pickFormulaBoard, FORMULA_CATALOG } from './formulaBoard.js';
 import { createHandTracking } from './handTracking.js';
@@ -25,6 +27,8 @@ import {
   updateToast,
   updateTutorial,
 } from './ui/main.jsx';
+import { labFrameScheduler } from './frameBudget.js';
+
 /** Set after equipment is built; used by idle animators & interaction */
 let expManager = null;
 
@@ -252,8 +256,21 @@ const sideBoardMat = new THREE.MeshStandardMaterial({
 });
 const BLACKBOARD_COLORS = ['#f8fafc', '#67e8f9', '#fde047', '#fb7185'];
 const BLACKBOARD_SIZES = [4, 9, 16];
-const blackboardBrush = { color: BLACKBOARD_COLORS[0], size: BLACKBOARD_SIZES[1] };
+const BLACKBOARD_SURFACE = '#20364d';
+/** Shared brush state across both front-wall boards. mode: pen | eraser */
+const blackboardBrush = {
+  color: BLACKBOARD_COLORS[0],
+  size: BLACKBOARD_SIZES[1],
+  mode: 'pen',
+};
 const sideBlackboards = [];
+
+// Toolbar layout (canvas px). Compact so pen / eraser / clear all fit.
+const BB_COLOR_YS = [62, 118, 174, 230];
+const BB_SIZE_YS = [330, 385, 440];
+const BB_ERASER_Y = 548;
+const BB_CLEAR_Y = 620;
+const BB_TOOL_HIT_R = 28;
 
 function addSideBlackboard(x, toolbarSide, w = 3.6, h = 2.2) {
   const g = new THREE.Group();
@@ -272,8 +289,28 @@ function addSideBlackboard(x, toolbarSide, w = 3.6, h = 2.2) {
 
   const toolbarW = 86;
   const toolbarX = toolbarSide === 'left' ? 0 : c.width - toolbarW;
-  ctx.fillStyle = '#20364d';
+  ctx.fillStyle = BLACKBOARD_SURFACE;
   ctx.fillRect(0, 0, c.width, c.height);
+
+  function fillDrawingSurface() {
+    ctx.fillStyle = BLACKBOARD_SURFACE;
+    if (toolbarSide === 'left') {
+      ctx.fillRect(toolbarW, 0, c.width - toolbarW, c.height);
+    } else {
+      ctx.fillRect(0, 0, c.width - toolbarW, c.height);
+    }
+  }
+
+  function roundRectPath(x0, y0, rw, rh, r) {
+    const rr = Math.min(r, rw / 2, rh / 2);
+    ctx.beginPath();
+    ctx.moveTo(x0 + rr, y0);
+    ctx.arcTo(x0 + rw, y0, x0 + rw, y0 + rh, rr);
+    ctx.arcTo(x0 + rw, y0 + rh, x0, y0 + rh, rr);
+    ctx.arcTo(x0, y0 + rh, x0, y0, rr);
+    ctx.arcTo(x0, y0, x0 + rw, y0, rr);
+    ctx.closePath();
+  }
 
   function drawToolbar() {
     ctx.save();
@@ -287,38 +324,80 @@ function addSideBlackboard(x, toolbarSide, w = 3.6, h = 2.2) {
     ctx.lineTo(dividerX, c.height);
     ctx.stroke();
 
+    const cx = toolbarX + toolbarW / 2;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '600 22px sans-serif';
+    ctx.font = '600 20px "Microsoft YaHei", "Segoe UI", sans-serif';
     ctx.fillStyle = '#b9d6ed';
-    ctx.fillText('颜色', toolbarX + toolbarW / 2, 34);
+    ctx.fillText('颜色', cx, 24);
     BLACKBOARD_COLORS.forEach((color, i) => {
-      const cy = 92 + i * 66;
+      const cy = BB_COLOR_YS[i];
       ctx.beginPath();
-      ctx.arc(toolbarX + toolbarW / 2, cy, 18, 0, Math.PI * 2);
+      ctx.arc(cx, cy, 16, 0, Math.PI * 2);
       ctx.fillStyle = color;
       ctx.fill();
-      if (blackboardBrush.color === color) {
+      if (blackboardBrush.mode === 'pen' && blackboardBrush.color === color) {
         ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 5;
+        ctx.lineWidth = 4;
         ctx.stroke();
       }
     });
 
     ctx.fillStyle = '#b9d6ed';
-    ctx.fillText('粗细', toolbarX + toolbarW / 2, 390);
+    ctx.fillText('粗细', cx, 290);
     BLACKBOARD_SIZES.forEach((size, i) => {
-      const cy = 454 + i * 82;
+      const cy = BB_SIZE_YS[i];
       ctx.beginPath();
-      ctx.arc(toolbarX + toolbarW / 2, cy, Math.max(4, size * 0.8), 0, Math.PI * 2);
+      ctx.arc(cx, cy, Math.max(4, size * 0.75), 0, Math.PI * 2);
       ctx.fillStyle = '#e2e8f0';
       ctx.fill();
       if (blackboardBrush.size === size) {
         ctx.strokeStyle = '#38bdf8';
-        ctx.lineWidth = 5;
+        ctx.lineWidth = 4;
         ctx.stroke();
       }
     });
+
+    // ── Tools: eraser toggle + one-tap clear ──
+    ctx.fillStyle = '#b9d6ed';
+    ctx.fillText('工具', cx, 500);
+
+    const toolW = toolbarW - 16;
+    const toolH = 40;
+    const toolX = toolbarX + 8;
+
+    // Eraser
+    const eraserOn = blackboardBrush.mode === 'eraser';
+    roundRectPath(toolX, BB_ERASER_Y - toolH / 2, toolW, toolH, 8);
+    ctx.fillStyle = eraserOn ? 'rgba(56, 189, 248, 0.28)' : 'rgba(15, 23, 42, 0.55)';
+    ctx.fill();
+    ctx.strokeStyle = eraserOn ? '#38bdf8' : '#64748b';
+    ctx.lineWidth = eraserOn ? 2.5 : 1.5;
+    ctx.stroke();
+    // Mini eraser glyph
+    ctx.save();
+    ctx.translate(cx, BB_ERASER_Y - 6);
+    ctx.rotate(-0.35);
+    ctx.fillStyle = eraserOn ? '#e0f2fe' : '#cbd5e1';
+    ctx.fillRect(-12, -5, 20, 11);
+    ctx.fillStyle = eraserOn ? '#38bdf8' : '#94a3b8';
+    ctx.fillRect(-12, 2, 20, 5);
+    ctx.restore();
+    ctx.font = '600 15px "Microsoft YaHei", "Segoe UI", sans-serif';
+    ctx.fillStyle = eraserOn ? '#e0f2fe' : '#cbd5e1';
+    ctx.fillText('橡皮', cx, BB_ERASER_Y + 14);
+
+    // Clear all
+    roundRectPath(toolX, BB_CLEAR_Y - toolH / 2, toolW, toolH, 8);
+    ctx.fillStyle = 'rgba(251, 113, 133, 0.18)';
+    ctx.fill();
+    ctx.strokeStyle = '#fb7185';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+    ctx.font = '600 16px "Microsoft YaHei", "Segoe UI", sans-serif';
+    ctx.fillStyle = '#fecdd3';
+    ctx.fillText('清屏', cx, BB_CLEAR_Y);
+
     ctx.restore();
     tex.needsUpdate = true;
   }
@@ -357,20 +436,33 @@ function addSideBlackboard(x, toolbarSide, w = 3.6, h = 2.2) {
     if (!inToolbar) return { action: 'draw', uv };
 
     for (let i = 0; i < BLACKBOARD_COLORS.length; i += 1) {
-      if (Math.abs(py - (92 + i * 66)) <= 28) {
+      if (Math.abs(py - BB_COLOR_YS[i]) <= BB_TOOL_HIT_R) {
         return { action: 'color', value: BLACKBOARD_COLORS[i] };
       }
     }
     for (let i = 0; i < BLACKBOARD_SIZES.length; i += 1) {
-      if (Math.abs(py - (454 + i * 82)) <= 34) {
+      if (Math.abs(py - BB_SIZE_YS[i]) <= BB_TOOL_HIT_R) {
         return { action: 'size', value: BLACKBOARD_SIZES[i] };
       }
+    }
+    if (Math.abs(py - BB_ERASER_Y) <= BB_TOOL_HIT_R) {
+      return { action: 'eraser' };
+    }
+    if (Math.abs(py - BB_CLEAR_Y) <= BB_TOOL_HIT_R) {
+      return { action: 'clear' };
     }
     return { action: 'toolbar' };
   }
 
   function canvasPoint(uv) {
     return { x: uv.x * c.width, y: (1 - uv.y) * c.height };
+  }
+
+  function clearBoard() {
+    g.userData.stopStroke();
+    fillDrawingSurface();
+    drawToolbar();
+    tex.needsUpdate = true;
   }
 
   g.userData.face = face;
@@ -382,10 +474,22 @@ function addSideBlackboard(x, toolbarSide, w = 3.6, h = 2.2) {
   };
   g.userData.lastDrawPoint = null;
   g.userData.stopStroke = () => { g.userData.lastDrawPoint = null; };
+  g.userData.clearBoard = clearBoard;
   g.userData.applyPick = (selection) => {
-    if (selection?.action === 'color') blackboardBrush.color = selection.value;
-    else if (selection?.action === 'size') blackboardBrush.size = selection.value;
-    else return selection?.action === 'draw';
+    if (selection?.action === 'color') {
+      blackboardBrush.color = selection.value;
+      blackboardBrush.mode = 'pen';
+    } else if (selection?.action === 'size') {
+      blackboardBrush.size = selection.value;
+    } else if (selection?.action === 'eraser') {
+      // Toggle eraser ↔ pen for quick switch while teaching.
+      blackboardBrush.mode = blackboardBrush.mode === 'eraser' ? 'pen' : 'eraser';
+    } else if (selection?.action === 'clear') {
+      clearBoard();
+      return false;
+    } else {
+      return selection?.action === 'draw';
+    }
     sideBlackboards.forEach((item) => item.userData.drawToolbar());
     return false;
   };
@@ -402,9 +506,14 @@ function addSideBlackboard(x, toolbarSide, w = 3.6, h = 2.2) {
     }
     const p = canvasPoint(selection.uv);
     const prev = g.userData.lastDrawPoint || p;
+    const erasing = blackboardBrush.mode === 'eraser';
+    // Eraser is slightly broader than the pen at the same size setting.
+    const lineW = erasing
+      ? Math.max(12, blackboardBrush.size * 2.4)
+      : blackboardBrush.size;
     ctx.save();
-    ctx.strokeStyle = blackboardBrush.color;
-    ctx.lineWidth = blackboardBrush.size;
+    ctx.strokeStyle = erasing ? BLACKBOARD_SURFACE : blackboardBrush.color;
+    ctx.lineWidth = lineW;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -1258,19 +1367,12 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   g.userData.canvasW = c.width;
   g.userData.canvasH = c.height;
   g.userData.setHud = (hud, dataHtml = '') => {
-    const nextDataHtml = dataHtml || '';
-    const unchanged = boundHud === hud && boundDataHtml === nextDataHtml;
     boundHud = hud;
-    boundDataHtml = nextDataHtml;
-    // Inactive selector screens receive the same cleared HUD on every state
-    // update. Avoid invalidating their canvas cache unless the payload really
-    // changed; switching experiments otherwise repaints every screen twice.
-    if (unchanged) {
-      draw(!!g.userData.active, false);
-      return;
-    }
-    lastDrawKey = '';
-    draw(!!g.userData.active, true);
+    boundDataHtml = dataHtml || '';
+    // Draw is invoked only from budget jobs (pushHudToHoloScreens schedules us).
+    // Still paint here so a direct setHud call works, but prefer callers that
+    // already sit on the frame budget.
+    draw(!!g.userData.active, false);
   };
   g.userData.setMaximized = (on) => {
     // Fullscreen is managed globally; only store flag + redraw chrome icon here
@@ -1280,7 +1382,19 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   };
   /** UV pick on hologram screen (like clicking a monitor) */
   g.userData.pick = (uv) => {
-    if (!uv || !g.userData.active) return null;
+    if (!uv) return null;
+    // Idle terminal: whole panel is the power-on target (matches on-screen CTA).
+    if (!g.userData.active) {
+      return {
+        action: 'activate',
+        role: 'holo_activate',
+        stationId,
+        x: 0,
+        y: 0,
+        w: c.width,
+        h: c.height,
+      };
+    }
     return pickHoloScreen(uv.x, uv.y, c.width, c.height, hitRegions, 1);
   };
   const _pickPlane = new THREE.Plane();
@@ -1346,9 +1460,22 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
    * Ensures matrixWorld is current (important after maximize scale / float bob).
    */
   g.userData.pickFromRay = (raycaster) => {
-    if (!g.userData.active) return null;
     const samples = collectScreenSamples(raycaster);
     if (!samples.length) return null;
+    // Idle tabletop terminal: any screen-plane hit powers on the experiment menu.
+    // Previously pickFromRay returned null while inactive, so unlocked desktop
+    // clicks never activated the electro/mechanics/… terminals.
+    if (!g.userData.active) {
+      return {
+        action: 'activate',
+        role: 'holo_activate',
+        stationId,
+        x: 0,
+        y: 0,
+        w: c.width,
+        h: c.height,
+      };
+    }
 
     for (const s of samples) {
       const side = s.face === backFace ? -1 : 1;
@@ -1462,9 +1589,13 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
   botStab.position.set(0, -panelH / 2 - 0.018, 0);
   g.add(botStab);
 
+  // Fixed modest resolution: full dense UI still fits; ~half the fill cost of 1280×1200.
+  // Never reallocate on experiment switch (that was a major hitch).
+  const FIXED_DISPLAY_W = 960;
+  const FIXED_DISPLAY_H = 720;
   let c = document.createElement('canvas');
-  c.width = 1024;
-  c.height = 640;
+  c.width = FIXED_DISPLAY_W;
+  c.height = FIXED_DISPLAY_H;
   let ctx = c.getContext('2d');
   let lastDrawKey = '';
   let hitRegions = [];
@@ -1481,10 +1612,16 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
   const createScreenTexture = () => {
     const texture = new THREE.CanvasTexture(c);
     texture.colorSpace = THREE.SRGBColorSpace;
-    texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+    // Anisotropy is free at rest but costs on every texture upload — keep low.
+    texture.anisotropy = 1;
     return texture;
   };
   let tex = createScreenTexture();
+  // Base plane design size is panelW×panelH mapped from 1280×800 reference.
+  g.userData._fixedScale = {
+    sx: FIXED_DISPLAY_W / 1280,
+    sy: FIXED_DISPLAY_H / 800,
+  };
 
   const screenMat = new THREE.MeshBasicMaterial({
     map: tex,
@@ -1540,33 +1677,9 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
   panelLight.position.set(0, 0, 0.35);
   g.add(panelLight);
 
-  // Hidden until an experiment is selected on the tabletop terminal.
-  g.visible = false;
-  g.userData.present = false;
-
-  const syncScreenLayout = (active) => {
-    const layout = getHoloScreenLayoutSize({
-      active: !!active,
-      hud: active ? boundHud : null,
-      dataHtml: boundDataHtml,
-      surface: SURFACE,
-    });
-    if (layout.width === c.width && layout.height === c.height) return false;
-
-    const nextCanvas = document.createElement('canvas');
-    nextCanvas.width = layout.width;
-    nextCanvas.height = layout.height;
-    c = nextCanvas;
-    ctx = c.getContext('2d');
-    const previousTexture = tex;
-    tex = createScreenTexture();
-    screenMat.map = tex;
-    backMat.map = tex;
-    screenMat.needsUpdate = true;
-    backMat.needsUpdate = true;
-    g.userData.tex = tex;
-    const sx = layout.width / 1280;
-    const sy = layout.height / 800;
+  // Apply fixed canvas aspect to meshes once at build (no switch-time resize).
+  if (g.userData._fixedScale) {
+    const { sx, sy } = g.userData._fixedScale;
     screen.scale.set(sx, sy, 1);
     substrate.scale.set(sx, sy, 1);
     backFace.scale.set(sx, sy, 1);
@@ -1575,14 +1688,48 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
     hit.scale.set(sx, sy, 1);
     topStab.position.set(0, (panelH * sy) / 2 + 0.018, 0);
     botStab.position.set(0, -(panelH * sy) / 2 - 0.018, 0);
-    if (g.userData._baseY !== undefined) {
-      g.position.y = g.userData._baseY + (panelH * (sy - 1)) / 2;
-    }
-
-    g.userData.canvasW = layout.width;
-    g.userData.canvasH = layout.height;
+    g.userData.canvasW = FIXED_DISPLAY_W;
+    g.userData.canvasH = FIXED_DISPLAY_H;
     g.userData.screenWorldSize = { width: panelW * sx, height: panelH * sy };
-    return true;
+  }
+
+  // Hidden until an experiment is selected on the tabletop terminal.
+  g.visible = false;
+  g.userData.present = false;
+
+  /** Layout is fixed for the lifetime of the panel — never realloc on switch. */
+  const syncScreenLayout = () => false;
+
+  /**
+   * Cheap first paint after switch: solid glass + title only.
+   * Full dense controls arrive on a later budget pulse.
+   */
+  const paintShell = (titleText = '加载实验界面…') => {
+    const W = c.width;
+    const H = c.height;
+    ctx.clearRect(0, 0, W, H);
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, 'rgba(255,255,255,0.55)');
+    bg.addColorStop(1, 'rgba(241,245,249,0.48)');
+    ctx.fillStyle = bg;
+    ctx.fillRect(12, 12, W - 24, H - 24);
+    ctx.strokeStyle = 'rgba(14,165,233,0.45)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(12, 12, W - 24, H - 24);
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '600 36px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(titleText || fullTitle).slice(0, 28), W / 2, H * 0.42);
+    ctx.fillStyle = '#0369a1';
+    ctx.font = '500 22px system-ui, sans-serif';
+    ctx.fillText('界面加载中…', W / 2, H * 0.52);
+    hitRegions = [];
+    g.userData.hitRegions = hitRegions;
+    // Shell is a non-interactive placeholder — never treat it as live content.
+    g.userData._contentExpId = null;
+    lastDrawKey = `shell|${titleText}`;
+    tex.needsUpdate = true;
   };
 
   const draw = (active, force = false) => {
@@ -1610,7 +1757,11 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
     g.userData.boundDataHtml = boundDataHtml;
     tex.needsUpdate = true;
   };
-  draw(false);
+  paintShell(fullTitle);
+  g.userData.paintShell = paintShell;
+  g.userData.paintFull = () => {
+    if (boundHud?.running && boundHud?.experiment) draw(true, true);
+  };
 
   // Stay in the interactables list; presence is gated in pick/aim/visible.
   // (Toggling interactive + recollecting the whole scene every HUD push froze the app.)
@@ -1649,6 +1800,7 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
     if (!present) {
       hitRegions = [];
       g.userData.hitRegions = [];
+      g.userData._contentExpId = null;
     }
   }
 
@@ -1664,25 +1816,82 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
   g.userData.canvasW = c.width;
   g.userData.canvasH = c.height;
   g.userData.setPresent = setPresent;
+  /**
+   * GPU + canvas warm without permanently activating the content screen.
+   * Always restores hidden state unless an experiment was already presenting.
+   */
   g.userData.prewarm = (webglRenderer, activeCamera, targetScene) => {
-    const wasVisible = g.visible;
-    const wasPresent = g.userData.present;
-    syncScreenLayout(true);
-    draw(true, true);
-    g.visible = true;
-    webglRenderer.compile(g, activeCamera, targetScene);
-    g.visible = wasVisible;
-    g.userData.present = wasPresent;
+    const wasPresent = !!g.userData.present;
+    const prevHud = boundHud;
+    const prevHtml = boundDataHtml;
+    try {
+      // Paint a representative frame for layout/shader compile under the loader.
+      if (!boundHud) {
+        boundHud = {
+          menuOpen: true,
+          station: STATION_EXPERIMENTS[stationId] || { id: stationId },
+          experiment: STATION_EXPERIMENTS[stationId]?.experiments?.[0] || { id: 'warmup', name: 'warmup', steps: [] },
+          stepIndex: 0,
+          running: true,
+          data: {},
+          _rev: -100,
+          expId: 'warmup',
+        };
+        boundDataHtml = '';
+      }
+      syncScreenLayout(true);
+      draw(true, true);
+      setPresent(true);
+      webglRenderer.compile(g, activeCamera, targetScene);
+    } catch {
+      // best-effort
+    } finally {
+      boundHud = prevHud;
+      boundDataHtml = prevHtml;
+      // Never leave boot warm-up with the content panel visible.
+      if (wasPresent && prevHud) {
+        setPresent(true);
+        draw(true, true);
+      } else {
+        setPresent(false);
+        boundHud = null;
+        boundDataHtml = '';
+        lastDrawKey = '';
+        draw(false, true);
+      }
+    }
   };
-  g.userData.setHud = (hud, dataHtml = '') => {
+  g.userData.setHud = (hud, dataHtml = '', opts = {}) => {
     boundHud = hud;
     boundDataHtml = dataHtml || '';
-    // Content screen is independent: only paints while an experiment is running.
     const running = !!(hud?.running && hud?.experiment);
     setPresent(running);
-    if (running) {
-      // Let draw()'s key cache skip identical frames; force only on first show.
-      draw(true, false);
+    if (!running) {
+      lastDrawKey = '';
+      g.userData._contentExpId = null;
+      return;
+    }
+    const expId = hud.experiment?.id || hud.expId || '';
+    // shell: cheap placeholder; full: dense controls (caller should budget this).
+    if (opts.shell) {
+      // Electro (and others) throttle-push HUD every ~0.1–0.35s. Re-painting the
+      // shell on every push wipes hitRegions and, under the one-job-per-pulse
+      // frame budget, can starve/clobber the full interactive paint — making
+      // the content screen look live but refuse clicks.
+      if (
+        g.userData._contentExpId === expId
+        && Array.isArray(hitRegions)
+        && hitRegions.length > 0
+      ) {
+        return;
+      }
+      paintShell(hud.experiment?.name || fullTitle);
+      return;
+    }
+    draw(true, !!opts.force);
+    // Mark this experiment's dense UI as live so subsequent shell jobs no-op.
+    if (Array.isArray(hitRegions) && hitRegions.length > 0) {
+      g.userData._contentExpId = expId;
     }
   };
   g.userData.setMaximized = (on) => {
@@ -1867,18 +2076,32 @@ function showToast(msg) {
 
 function formatData(stationId, expId, data) {
   if (!data) return '—';
-  if (expId === 'pendulum_g') {
-    return `L = ${data.L?.toFixed(2) ?? '—'} m\nT = ${data.T ? data.T.toFixed(3) + ' s' : '测量中…'}\n<span class="ok">g = ${data.g ? data.g.toFixed(2) + ' m/s²' : '—'}</span>`;
-  }
-  if (expId === 'spring_k') {
-    return `m = ${data.m?.toFixed(2) ?? '—'} kg\nT = ${data.T ? data.T.toFixed(3) + ' s' : '—'}\n<span class="ok">k = ${data.k ? data.k.toFixed(1) + ' N/m' : '—'}</span>`;
-  }
-  if (expId === 'cradle_demo') {
-    return `模式: ${data.mode === 2 ? '抬起 2 球' : data.mode === 1 ? '抬起 1 球' : '待机'}\n按 1 / 2 切换`;
+  if (stationId === 'mechanics' && Array.isArray(data.readouts)) {
+    const lines = data.readouts.slice(0, 6).map((item) => `${item.label}: ${item.value}`);
+    lines.push(`<span class="ok">${data.paused ? '仿真已暂停' : '源仿真运行中'}</span>`);
+    return lines.join('\n');
   }
   if (expId === 'multi_slit_diffraction') {
-    return `${data.N === 1 ? '单缝衍射' : `${data.N} 缝干涉`}　λ=${Number(data.lambdaNm || 0).toFixed(0)} nm\na=${Number(data.slitMm || 0).toFixed(3)} mm　d=${Number(data.pitchMm || 0).toFixed(3)} mm\nL=${Number(data.distM || 0).toFixed(2)} m　Δx≈${Number(data.fringeSpacingMm || 0).toFixed(3)} mm\n<span class="ok">记录 ${Array.isArray(data.records) ? data.records.length : 0} 组　${data.farField ? 'Fraunhofer ✓' : '近场警告'}</span>`;
+    const nRec = Array.isArray(data.records) ? data.records.length : 0;
+    const mode = data.chartOpen ? '核对标注中' : (data.farField ? 'Fraunhofer ✓' : '近场警告');
+    return `${data.N === 1 ? '单缝衍射' : `${data.N} 缝干涉`}　λ=${Number(data.lambdaNm || 0).toFixed(0)} nm\na=${Number(data.slitMm || 0).toFixed(3)} mm　d=${Number(data.pitchMm || 0).toFixed(3)} mm\nL=${Number(data.distM || 0).toFixed(2)} m　Δx≈${Number(data.fringeSpacingMm || 0).toFixed(3)} mm\n<span class="ok">对照 ${nRec} 组　${mode}</span>`;
   }
+  if (data.mode === 'geometric'
+    || expId === 'reflection' || expId === 'refraction'
+    || expId === 'dispersion' || expId === 'lens') {
+    const nRec = Array.isArray(data.records) ? data.records.length : 0;
+    const mod = data.moduleCode ? `${data.moduleCode} ` : '';
+    const mirror = data.opticsMode === 'mirror' || expId === 'reflection';
+    const t1 = data.theta1 != null ? Number(data.theta1).toFixed(1) : '—';
+    const t2 = data.theta2 == null ? (mirror ? '—' : 'TIR') : Number(data.theta2).toFixed(1);
+    if (mirror) {
+      const dth = data.deltaTheta != null ? Number(data.deltaTheta).toFixed(3) : '—';
+      return `${mod}反射　θᵢ=${t1}°　θᵣ=${t2}°\n|Δθ|=${dth}°　转角=${Number(data.rotate || 0).toFixed(0)}°\n<span class="ok">记录 ${nRec} 组　${data.verifyOk ? 'θᵢ≈θᵣ ✓' : '调节中'}</span>`;
+    }
+    const ratio = data.snellRatio != null ? Number(data.snellRatio).toFixed(3) : '—';
+    return `${mod}折射/色散　n=${Number(data.ior || 0).toFixed(3)}　θ₁=${t1}°　θ₂=${t2}°\nsinθ₁/sinθ₂=${ratio}　光束=${Number(data.rayCount || 1)}\n<span class="ok">记录 ${nRec} 组${data.dispersion ? '　色散开' : ''}</span>`;
+  }
+
   if (expId === 'hall_effect') {
     const target = data.target === 'solenoid' ? '长螺线管' : '亥姆霍兹线圈';
     const records = Array.isArray(data.records) ? data.records : [];
@@ -1896,18 +2119,45 @@ function formatData(stationId, expId, data) {
       + `动生 ε = ${motion ? fmt(motion.emf, 4) : '—'} · 感生 ε = ${induction ? fmt(induction.emf, 4) : '—'}\n`
       + `记录: ${Array.isArray(data.records) ? data.records.length : 0} 组`;
   }
+  if (expId === 'induced_electric_field') {
+    const fmt = (value, digits = 3) => Number(value || 0).toFixed(digits);
+    const region = Number(data.probeR || 0) <= Number(data.R || 0) + 1e-6 ? '面内' : '面外';
+    return `B = ${fmt(data.B, 2)} · dB/dt = ${fmt(data.dBdt, 2)}\n`
+      + `R = ${fmt(data.R, 2)} · r = ${fmt(data.probeR, 2)}（${region}）\n`
+      + `|E| = ${fmt(data.magnitudeE, 3)} · ${data.senseLabel || '—'}\n`
+      + `${data.paused ? '振荡已暂停' : 'B = B₀ sin(ωt) 振荡中'}`;
+  }
   if (expId === 'hall_carrier_demo') {
-    return `I = ${Number(data.I || 0).toFixed(2)}　B = ${Number(data.B || 0).toFixed(2)}\nn = ${Number(data.n || 0).toFixed(2)}　d = ${Number(data.d || 0).toFixed(2)}\nVₕ(rel.) = ${Number(data.vh || 0).toFixed(3)}　${data.nType ? 'n 型' : 'p 型'}\n${data.paused ? '动效已暂停' : '载流子运动中'}`;
+    return `I = ${Number(data.I || 0).toFixed(2)}　B = ${Number(data.B || 0).toFixed(2)}\nn = ${Number(data.n || 0).toFixed(2)}　d = ${Number(data.d || 0).toFixed(2)}\nVₕ(rel.) = ${Number(data.vh || 0).toFixed(3)}　${data.nType ? 'n 型' : 'p 型'}\n${data.paused ? '动画已暂停' : '载流子运动中'}`;
   }
   if (expId === 'gauss_theorem') {
     const selected = data.charges?.find((charge) => charge.id === data.selectedId);
     return `Q内 = ${Number(data.qEnclosed || 0).toFixed(2)} e　ΦE = ${Number(data.flux || 0).toFixed(2)} / ε₀\nR = ${Number(data.radius || 0).toFixed(2)}　<Eₙ> = ${Number(data.meanField || 0).toFixed(3)}\n电荷数: ${data.charges?.length || 0}　选中: ${selected ? `${selected.q > 0 ? '+' : ''}${selected.q.toFixed(1)} e` : '无'}`;
   }
   if (expId === 'calorimetry') {
-    return `样品 T = ${data.sampleT?.toFixed(1) ?? '—'} °C\n水温 = ${data.waterT?.toFixed(1) ?? '—'} °C\n终温 = ${data.finalT ? data.finalT.toFixed(1) + ' °C' : '—'}\n<span class="ok">c ≈ ${data.cSample ? data.cSample.toFixed(0) + ' J/(kg·K)' : '—'}</span>`;
+    const teq = data.cupHot && data.cupCold ? (data.mHot * data.tHot + data.mCold * data.tCold) / (data.mHot + data.mCold) : null;
+    const motion = data.pouring ? `倒入${data.pouring === 'hot' ? '热水' : '冷水'} · ${Math.round((data.pourProgress || 0) * 100)}%` : data.mixProgress > 0 && data.mixProgress < 1 ? `混合中 · ${Math.round(data.mixProgress * 100)}%` : '静置';
+    return `热水 ${Number(data.tHot || 0).toFixed(0)} °C / ${Number(data.mHot || 0).toFixed(0)} g\n冷水 ${Number(data.tCold || 0).toFixed(0)} °C / ${Number(data.mCold || 0).toFixed(0)} g\n过程：${motion} · 终温 ${data.tCurrent == null ? '—' : Number(data.tCurrent).toFixed(1) + ' °C'}\n<span class="ok">理论平衡 = ${teq == null ? '—' : teq.toFixed(1) + ' °C'} · 记录 ${data.records?.length || 0} 组</span>`;
   }
-  if (expId === 'conduction') {
-    return `加热: ${data.heaterOn ? '开' : '关'}\n进度: ${((data.progress || 0) * 100).toFixed(0)}%`;
+  if (expId === 'convection') {
+    const deltaT = Math.max(0, Number(data.tPlate || 0) - Number(data.tAir || 0));
+    const L = Math.sqrt(Number(data.area || 0.12));
+    const ra = 1e8 * deltaT * L ** 3;
+    const nu = 0.15 * Math.pow(Math.max(ra, 1), 1 / 3);
+    const h = deltaT < 1 ? 2 : Math.max(3, nu * 0.028 / L);
+    return `热板 ${Number(data.tPlate || 0).toFixed(0)} K · 环境 ${Number(data.tAir || 0).toFixed(0)} K\nRa = ${ra.toFixed(0)} · Nu = ${nu.toFixed(1)}\n<span class="ok">h = ${h.toFixed(1)} W/(m²·K) · 记录 ${data.records?.length || 0} 组</span>`;
+  }
+  if (expId === 'heat-conduction') {
+    return `热端 ${Number(data.tHot || 0).toFixed(0)} K · 冷端 ${Number(data.tCold || 0).toFixed(0)} K\nk = ${Number(data.conductivity || 0).toFixed(2)} · 中点 ${Number(data.temps?.[24] || 0).toFixed(1)} K\n<span class="ok">记录 ${data.records?.length || 0} 组</span>`;
+  }
+  if (expId === 'ideal-gas') {
+    const p = (Number(data.n || 0) * 8.314 * Number(data.temperature || 0) / Math.max(0.01, Number(data.volume || 1)) / 1000) * 12;
+    return `T = ${Number(data.temperature || 0).toFixed(0)} K · V = ${Number(data.volume || 0).toFixed(2)} ×\nP = ${p.toFixed(1)} kPa · n = ${Number(data.n || 0).toFixed(3)} mol\n<span class="ok">碰撞率 ${data.collisionsPerSec || 0} Hz · 记录 ${data.records?.length || 0} 组</span>`;
+  }
+  if (expId === 'thermal-expansion') {
+    const alpha = ({ aluminum: 23.1, copper: 16.5, steel: 12, invar: 1.2 }[data.material] || 23.1) * 1e-6;
+    const dL = alpha * Number(data.length0 || 1) * (Number(data.temperature || 20) - 20);
+    return `材料 ${data.material || 'aluminum'} · T = ${Number(data.temperature || 0).toFixed(0)} °C\nΔL = ${(dL * 1000).toFixed(3)} mm · L = ${((Number(data.length0 || 1) + dL) * 1000).toFixed(2)} mm\n<span class="ok">α = ${(alpha * 1e6).toFixed(1)} ×10⁻⁶/K · 记录 ${data.records?.length || 0} 组</span>`;
   }
   return JSON.stringify(data);
 }
@@ -2061,13 +2311,49 @@ function pickFsAt(clientX, clientY) {
 if (holoFsCanvas) {
   /** @type {{ pointerId: number, lastY: number, moved: boolean, pick: object } | null} */
   let fsTableDrag = null;
-  let fsFaradayDrag = null;
+  /** Unified fullscreen drag for faraday / induced-e / generic param sliders. */
+  let fsSliderDrag = null;
 
-  function fsFaradayValueAt(clientX, pick) {
+  function fsSliderValueAt(clientX, pick) {
     const point = mapFsClickToCanvas(clientX, 0);
     if (!point || !pick) return null;
-    const u = THREE.MathUtils.clamp((point.px - pick.x) / Math.max(1, pick.w), 0, 1);
-    return Number(pick.min ?? -3) + u * (Number(pick.max ?? 3) - Number(pick.min ?? -3));
+    return valueFromParamSliderPick({ ...pick, px: point.px });
+  }
+
+  function fsLiveSliderPick(fallback) {
+    const action = fallback?.action;
+    if (!action) return fallback;
+    const live = (holoFsState.hits || []).find((h) => (
+      h?.action === action
+      && (!fallback?.key || h.key === fallback.key)
+      && (!fallback?.axis || h.axis === fallback.axis)
+      && (!fallback?.setAction || h.setAction === fallback.setAction)
+    ));
+    return live || fallback;
+  }
+
+  function fsDispatchSlider(pick, clientX) {
+    const value = fsSliderValueAt(clientX, pick);
+    if (!Number.isFinite(value)) return false;
+    if (pick.action === 'faraday-b-slider') {
+      expManager?.uiAction?.('faraday-b-set', { value });
+      return true;
+    }
+    if (pick.action === 'induced-e-slider') {
+      expManager?.uiAction?.('induced-e-set', { key: pick.key, value, live: true });
+      return true;
+    }
+    if (pick.action === 'param-slider' && pick.setAction) {
+      expManager?.uiAction?.(pick.setAction, {
+        key: pick.key,
+        value,
+        axis: pick.axis,
+        target: pick.target,
+        live: true,
+      });
+      return true;
+    }
+    return false;
   }
 
   function fsDisplayTarget() {
@@ -2092,23 +2378,24 @@ if (holoFsCanvas) {
     e.preventDefault();
     e.stopPropagation();
     // A completed drag-scroll should not also fire the underlying control.
-    if (fsTableDrag?.moved || fsFaradayDrag?.moved) {
+    if (fsTableDrag?.moved || fsSliderDrag?.moved) {
       fsTableDrag = null;
-      fsFaradayDrag = null;
+      fsSliderDrag = null;
       return;
     }
     const pick = pickFsAt(e.clientX, e.clientY);
     // Table region is scroll-only — clicks are not a discrete action.
     if (pick?.action === 'hall-scroll-table') return;
+    // Continuous sliders are owned by pointerdown/move, not click.
+    if (isParamSliderAction(pick?.action)) return;
     if (pick) handleHoloScreenAction(pick, holoFsState.stationId);
   });
   holoFsCanvas.addEventListener('pointerdown', (e) => {
     if (!holoFsState.open || e.button !== 0) return;
     const pick = pickFsAt(e.clientX, e.clientY);
-    if (pick?.action === 'faraday-b-slider') {
-      fsFaradayDrag = { pointerId: e.pointerId, pick, moved: false };
-      const value = fsFaradayValueAt(e.clientX, pick);
-      if (value != null) expManager?.uiAction?.('faraday-b-set', { value });
+    if (isParamSliderAction(pick?.action)) {
+      fsSliderDrag = { pointerId: e.pointerId, pick, moved: false };
+      fsDispatchSlider(pick, e.clientX);
       try { holoFsCanvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
       e.preventDefault();
       return;
@@ -2124,13 +2411,11 @@ if (holoFsCanvas) {
     e.preventDefault();
   });
   holoFsCanvas.addEventListener('pointermove', (e) => {
-    if (fsFaradayDrag && fsFaradayDrag.pointerId === e.pointerId) {
-      const livePick = (holoFsState.hits || []).find((h) => h?.action === 'faraday-b-slider') || fsFaradayDrag.pick;
-      const value = fsFaradayValueAt(e.clientX, livePick);
-      if (value != null) {
-        fsFaradayDrag.moved = true;
-        fsFaradayDrag.pick = livePick;
-        expManager?.uiAction?.('faraday-b-set', { value });
+    if (fsSliderDrag && fsSliderDrag.pointerId === e.pointerId) {
+      const livePick = fsLiveSliderPick(fsSliderDrag.pick);
+      if (fsDispatchSlider(livePick, e.clientX)) {
+        fsSliderDrag.moved = true;
+        fsSliderDrag.pick = livePick;
       }
       e.preventDefault();
       return;
@@ -2139,6 +2424,8 @@ if (holoFsCanvas) {
       const pick = pickFsAt(e.clientX, e.clientY);
       if (pick?.action === 'hall-scroll-table' || pick?.role === 'scrollable_table') {
         holoFsCanvas.style.cursor = pick.scrollable === false ? 'default' : 'ns-resize';
+      } else if (isParamSliderAction(pick?.action)) {
+        holoFsCanvas.style.cursor = 'ew-resize';
       } else {
         holoFsCanvas.style.cursor = pick ? 'pointer' : 'default';
       }
@@ -2170,18 +2457,21 @@ if (holoFsCanvas) {
       setTimeout(() => { if (fsTableDrag?.pointerId === -1) fsTableDrag = null; }, 0);
     }
   };
-  const endFsFaradayDrag = (e) => {
-    if (!fsFaradayDrag || (e && fsFaradayDrag.pointerId !== e.pointerId)) return;
-    try { holoFsCanvas.releasePointerCapture(fsFaradayDrag.pointerId); } catch { /* ignore */ }
-    expManager?.endManipulation?.({ userData: { role: 'faraday-b-slider' } }, { time: clock.elapsedTime });
-    const moved = fsFaradayDrag.moved;
-    fsFaradayDrag = moved ? { ...fsFaradayDrag, pointerId: -1 } : null;
-    if (moved) setTimeout(() => { if (fsFaradayDrag?.pointerId === -1) fsFaradayDrag = null; }, 0);
+  const endFsSliderDrag = (e) => {
+    if (!fsSliderDrag || (e && fsSliderDrag.pointerId !== e.pointerId)) return;
+    try { holoFsCanvas.releasePointerCapture(fsSliderDrag.pointerId); } catch { /* ignore */ }
+    expManager?.endManipulation?.(
+      { userData: { role: fsSliderDrag.pick?.role || fsSliderDrag.pick?.action || 'param-slider' } },
+      { time: clock.elapsedTime },
+    );
+    const moved = fsSliderDrag.moved;
+    fsSliderDrag = moved ? { ...fsSliderDrag, pointerId: -1 } : null;
+    if (moved) setTimeout(() => { if (fsSliderDrag?.pointerId === -1) fsSliderDrag = null; }, 0);
   };
   holoFsCanvas.addEventListener('pointerup', endFsTableDrag);
   holoFsCanvas.addEventListener('pointercancel', endFsTableDrag);
-  holoFsCanvas.addEventListener('pointerup', endFsFaradayDrag);
-  holoFsCanvas.addEventListener('pointercancel', endFsFaradayDrag);
+  holoFsCanvas.addEventListener('pointerup', endFsSliderDrag);
+  holoFsCanvas.addEventListener('pointercancel', endFsSliderDrag);
   holoFsCanvas.addEventListener('wheel', (e) => {
     if (!holoFsState.open || !expManager) return;
     const atPick = pickFsAt(e.clientX, e.clientY);
@@ -2210,55 +2500,167 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+/**
+ * Holo HUD push — MUST stay cheap.
+ * Never paint multiple large canvases in one call (that was the switch hitch).
+ * Only flip flags here; schedule at most one surface paint per frame budget pulse.
+ */
 function pushHudToHoloScreens(hud) {
   hudRev += 1;
   const payload = hud ? { ...hud, _rev: hudRev, expId: hud.experiment?.id } : null;
-  let dataHtml = '';
-  if (hud?.running && hud.experiment && hud.station) {
-    dataHtml = formatData(hud.station.id, hud.experiment.id, hud.data);
-  }
   lastHudSnapshot = payload;
-  lastHudDataHtml = dataHtml;
+  // dataHtml filled lazily inside the paint job for the active station only.
+  lastHudDataHtml = '';
 
+  const activeId = hud?.menuOpen && hud.station?.id ? hud.station.id : null;
+  const runningHere = !!(
+    activeId
+    && hud?.running
+    && hud.experiment
+  );
+
+  // ── Cheap flag pass (no canvas, no formatData) ──
   Object.entries(holos).forEach(([id, h]) => {
     if (!h?.userData) return;
-    const isActive = !!(hud?.menuOpen && hud.station?.id === id);
+    const isActive = activeId === id;
+    const wasActive = !!h.userData.active;
     h.userData.active = isActive;
-    if (isActive && payload) {
-      h.userData.setHud?.(payload, dataHtml);
-    } else {
-      if (holoFsState.open && holoFsState.stationId === id) closeHoloFullscreen();
-      else h.userData.setMaximized?.(false);
-      h.userData.setHud?.(null, '');
+    if (!isActive && wasActive) {
+      // Leaving this terminal: drop binding only. Do NOT force a full idle redraw
+      // (setMaximized/draw would hitch on switch).
+      h.userData.boundHud = null;
+      h.userData.boundDataHtml = '';
+      h.userData._selectorPaintSig = '';
+      h.userData.maximized = false;
+      if (holoFsState.open && holoFsState.stationId === id) {
+        labFrameScheduler.schedule('hud:close-fs', () => closeHoloFullscreen(), { priority: 110 });
+      }
     }
   });
 
-  // Front content displays are independent: only appear after an experiment is chosen.
   Object.entries(stationDisplays).forEach(([id, d]) => {
     if (!d?.userData) return;
-    const isRunningHere = !!(
-      hud?.menuOpen
-      && hud?.running
-      && hud.station?.id === id
-      && hud.experiment
-    );
-    if (isRunningHere && payload) {
-      d.userData.setHud?.(payload, dataHtml);
-    } else if (d.userData.present || d.userData.active) {
+    const want = runningHere && id === activeId;
+    if (!want && (d.userData.present || d.userData.active)) {
+      // Hide without painting dense experiment chrome.
       d.userData.setMaximized?.(false);
       d.userData.setPresent?.(false);
-      d.userData.setHud?.(null, '');
+      d.userData.boundHud = null;
+      d.userData.boundDataHtml = '';
+    } else if (want && !d.userData.present) {
+      // Show blank panel immediately (visibility only) — content paints next pulses.
+      d.userData.setPresent?.(true);
     }
   });
 
-  // Keep fullscreen overlay in sync with live experiment data
+  if (!activeId || !payload) return;
+
+  // ── Tabletop selector: paint only when menu/exp chrome actually changes ──
+  labFrameScheduler.schedule(`hud:selector:${activeId}`, () => {
+    const h = holos[activeId];
+    const snap = lastHudSnapshot;
+    if (!h?.userData || !snap) return;
+    if (snap.station?.id !== activeId) return;
+    const sig = [
+      snap.running ? 1 : 0,
+      snap.expId || '',
+      snap.stepIndex ?? '',
+      snap.menuOpen ? 1 : 0,
+    ].join('|');
+    if (h.userData._selectorPaintSig === sig) return;
+    h.userData._selectorPaintSig = sig;
+    lastHudDataHtml = '';
+    h.userData.setHud?.(snap, '');
+  }, { priority: 100 });
+
+  // ── Content display: shell once on open/switch, then only full repaints ──
+  // Electromagnetic labs call pushHud on a short throttle; re-queuing shell on
+  // every pulse used to clear hitRegions and block 3D/fullscreen screen clicks.
+  if (runningHere) {
+    const display = stationDisplays[activeId];
+    const expId = hud.experiment?.id || payload.expId || '';
+    const hasLiveContent = !!(
+      display?.userData
+      && display.userData._contentExpId === expId
+      && Array.isArray(display.userData.hitRegions)
+      && display.userData.hitRegions.length > 0
+    );
+    // Boot prewarm paints every experiment UI once. Skip the non-interactive
+    // "加载中" shell for prepared labs so the first switch lands on full controls.
+    const prepared = !!(expId && preparedExperimentIds.has(expId));
+
+    if (!hasLiveContent && !prepared) {
+      labFrameScheduler.schedule(`hud:display-shell:${activeId}`, () => {
+        const d = stationDisplays[activeId];
+        const snap = lastHudSnapshot;
+        if (!d?.userData || !snap?.running || snap.station?.id !== activeId || !snap.experiment) return;
+        d.userData.setPresent?.(true);
+        const sid = snap.experiment?.id || snap.expId || '';
+        // Race-safe: full paint may have landed between schedule and drain.
+        if (
+          d.userData._contentExpId === sid
+          && Array.isArray(d.userData.hitRegions)
+          && d.userData.hitRegions.length > 0
+        ) {
+          return;
+        }
+        d.userData.setHud?.(snap, '', { shell: true });
+      }, { priority: 90 });
+    } else {
+      // Drop any stale shell so it cannot wipe a live / prepared interactive panel.
+      labFrameScheduler.cancel(`hud:display-shell:${activeId}`);
+      if (!hasLiveContent && prepared && display?.userData) {
+        // Show the glass immediately; dense controls arrive on the next full paint.
+        display.userData.setPresent?.(true);
+      }
+    }
+
+    labFrameScheduler.schedule(`hud:display-full:${activeId}`, () => {
+      const d = stationDisplays[activeId];
+      const snap = lastHudSnapshot;
+      if (!d?.userData || !snap?.running || snap.station?.id !== activeId || !snap.experiment) return;
+      const dataHtml = formatData(snap.station.id, snap.experiment.id, snap.data);
+      lastHudDataHtml = dataHtml;
+      d.userData.setHud?.(snap, dataHtml, { force: true });
+    }, { priority: prepared || hasLiveContent ? 85 : 55 });
+  }
+
+  // Fullscreen overlay — never paint inline on switch.
   if (holoFsState.open) {
     if (!hud?.menuOpen || !hud?.running || hud.station?.id !== holoFsState.stationId) {
-      closeHoloFullscreen();
+      labFrameScheduler.schedule('hud:close-fs', () => closeHoloFullscreen(), { priority: 110 });
     } else {
-      paintHoloFs();
+      labFrameScheduler.schedule('hud:fs-paint', () => paintHoloFs(), { priority: 60 });
     }
   }
+}
+
+/** Paint tabletop experiment cards immediately after power-on (no budget wait). */
+function forceSelectorMenuPaint(stationId) {
+  const h = holos[stationId];
+  const st = STATION_EXPERIMENTS[stationId];
+  if (!h?.userData || !st) return;
+  hudRev += 1;
+  const snap = {
+    menuOpen: true,
+    station: st,
+    experiment: null,
+    stepIndex: 0,
+    step: null,
+    running: false,
+    data: {},
+    stations: STATION_EXPERIMENTS,
+    _rev: hudRev,
+    expId: null,
+  };
+  lastHudSnapshot = snap;
+  h.userData.active = true;
+  // Bust the selector signature so a later scheduled paint cannot skip.
+  h.userData._selectorPaintSig = '';
+  try {
+    h.userData.setHud?.(snap, '');
+    h.userData.draw?.(true, true);
+  } catch { /* best-effort */ }
 }
 
 function handleHoloScreenAction(pick, stationId) {
@@ -2277,13 +2679,26 @@ function handleHoloScreenAction(pick, stationId) {
       toggleHoloFullscreen(sid);
       return true;
     }
+    case 'activate': {
+      // Idle tabletop terminal CTA — open the station menu and paint cards now.
+      const sid = stationId || pick.stationId;
+      if (!sid) return false;
+      if (expManager.state?.menuOpen && expManager.state?.stationId === sid) {
+        // Already open: still force a card paint if the idle art is stuck.
+        forceSelectorMenuPaint(sid);
+        return true;
+      }
+      expManager.openStationMenu(sid);
+      forceSelectorMenuPaint(sid);
+      return true;
+    }
     case 'start':
-      if (pick.expId) expManager.startExperiment(pick.expId);
-      if (holoFsState.open) paintHoloFs();
+      // Never paint fullscreen canvas on the click frame — startExperimentSafe
+      // only queues budget jobs; paint arrives on a later pulse.
+      if (pick.expId) startExperimentSafe(pick.expId);
       return true;
     case 'back':
       expManager.exitExperiment();
-      if (holoFsState.open) paintHoloFs();
       return true;
     case 'action':
       expManager.interact({ userData: { role: 'ui_action' } }, t);
@@ -2309,7 +2724,7 @@ function handleHoloScreenAction(pick, stationId) {
 }
 
 function onHudUpdate(hud) {
-  // UI lives on the 3D hologram screen (+ optional fullscreen overlay)
+  // Zustand store update is cheap; all canvas work is scheduled inside pushHudToHoloScreens.
   updateHud(hud);
   pushHudToHoloScreens(hud);
 }
@@ -2320,23 +2735,491 @@ expManager = createExperimentManager({
   onToast: showToast,
 });
 
-// Compile hidden apparatus while the boot loader is still up.
-Object.values(stationScenes.electro.prewarm).forEach((prewarm) => prewarm());
-
+/** Experiments whose GPU geometry + shaders have been fully warmed. */
 const preparedExperimentIds = new Set();
-let prepareIdleHandle = 0;
-function prepareExperiment(expId) {
-  if (!expId || preparedExperimentIds.has(expId)) return;
-  preparedExperimentIds.add(expId);
-  const run = () => {
-    prepareIdleHandle = 0;
-    stationDisplays[expManager?.state?.stationId || '']?.userData?.prewarm?.(renderer, camera, scene);
-    stationScenes[expManager?.state?.stationId || '']?.prewarm?.[expId]?.();
-  };
-  if (typeof window.requestIdleCallback === 'function') {
-    prepareIdleHandle = window.requestIdleCallback(run, { timeout: 900 });
+
+/**
+ * Synchronously prepare a single experiment so the first open never stutters.
+ * Safe to call multiple times; no-ops after the first successful warm.
+ * @param {string} expId
+ * @param {string} [stationId]
+ * @param {{ force?: boolean }} [opts] force re-run prewarm (e.g. after context loss)
+ */
+function prepareExperiment(expId, stationId, opts = {}) {
+  if (!expId) return;
+  if (!opts.force && preparedExperimentIds.has(expId)) return;
+  let sid = stationId || expManager?.state?.stationId || null;
+  if (!sid) {
+    for (const [id, st] of Object.entries(STATION_EXPERIMENTS)) {
+      if (st.experiments?.some((e) => e.id === expId)) {
+        sid = id;
+        break;
+      }
+    }
+  }
+  if (sid) {
+    stationDisplays[sid]?.userData?.prewarm?.(renderer, camera, scene);
+    stationScenes[sid]?.prewarm?.[expId]?.();
   } else {
-    prepareIdleHandle = window.setTimeout(run, 80);
+    // Fallback: try every station prewarm map.
+    Object.values(stationScenes).forEach((st) => st?.prewarm?.[expId]?.());
+  }
+  preparedExperimentIds.add(expId);
+}
+
+/** Force every floating content display back to hidden (no experiment selected). */
+function hideAllContentDisplays() {
+  Object.values(stationDisplays).forEach((d) => {
+    if (!d?.userData) return;
+    d.userData.setMaximized?.(false);
+    d.userData.setHud?.(null, '');
+    d.userData.setPresent?.(false);
+    d.visible = false;
+    d.userData.present = false;
+    d.userData.active = false;
+  });
+}
+
+/**
+ * Warm hologram menus + content screens so first open does not paint/compile mid-interaction.
+ * Must not leave any content display visible after boot.
+ */
+function prewarmHoloSurfaces() {
+  Object.entries(holos).forEach(([id, h]) => {
+    if (!h?.userData) return;
+    const st = STATION_EXPERIMENTS[id];
+    const mockHud = {
+      menuOpen: true,
+      station: st,
+      experiment: null,
+      stepIndex: 0,
+      step: null,
+      running: false,
+      data: {},
+      stations: STATION_EXPERIMENTS,
+      _rev: -1,
+    };
+    const wasActive = h.userData.active;
+    try {
+      h.userData.active = true;
+      h.userData.setHud?.(mockHud, '');
+      h.userData.draw?.(true, true);
+    } finally {
+      h.userData.active = false;
+      h.userData.setHud?.(null, '');
+      h.userData.draw?.(false, true);
+      h.userData.active = wasActive;
+    }
+  });
+
+  // Content screens: prewarm GPU/canvas only — never leave setHud(running) active.
+  Object.values(stationDisplays).forEach((d) => {
+    d?.userData?.prewarm?.(renderer, camera, scene);
+  });
+  hideAllContentDisplays();
+}
+
+/** Map experiment id → station equipment setMode argument. */
+const EXP_MODE_BY_ID = Object.freeze({
+  'free-fall': 'free-fall',
+  'inclined-plane': 'inclined-plane',
+  pendulum: 'pendulum',
+  collision: 'collision',
+  projectile: 'projectile',
+  viscosity: 'viscosity',
+  hall_effect: 'hall',
+  hall_carrier_demo: 'hall-demo',
+  gauss_theorem: 'gauss',
+  electric_field: 'electric-field',
+  faraday_induction: 'faraday',
+  induced_electric_field: 'induced-e',
+  multi_slit_diffraction: 'diffraction',
+  reflection: 'geometric',
+  refraction: 'geometric',
+  dispersion: 'geometric',
+  lens: 'geometric',
+  calorimetry: 'calorimetry',
+  convection: 'convection',
+  'heat-conduction': 'heat-conduction',
+  'ideal-gas': 'ideal-gas',
+  'thermal-expansion': 'thermal-expansion',
+});
+
+/**
+ * When true, the main animate() loop skips WebGL present so the GSAP loader
+ * (spinner / bar / brand) keeps getting animation frames during heavy prewarm.
+ */
+let bootSuspendRender = false;
+
+/** Let the browser paint the loader chrome (double-rAF is intentional). */
+async function yieldToLoader() {
+  await nextFrame();
+  await nextFrame();
+}
+
+/** Cache of experiment initData used only during boot prewarm / soft warm. */
+const warmDataCache = new Map();
+
+/**
+ * Authoritative first-open simulation state (same as startExperiment).
+ * Keeps field-line signatures and dense HUD branches aligned with runtime.
+ */
+function warmInitData(stationId, expId) {
+  const key = `${stationId}:${expId}`;
+  if (warmDataCache.has(key)) return warmDataCache.get(key);
+  let data = {};
+  try {
+    const mod = STATION_MODULES[stationId];
+    if (mod?.createHandlers) {
+      const h = mod.createHandlers({
+        state: { running: false, expId: null, data: {}, stepIndex: 0 },
+        equipment: {},
+        toast() {},
+        pushHud() {},
+        advanceStep() {},
+        setStep() {},
+        currentStep: () => null,
+        currentExp: () => null,
+        currentStation: () => null,
+      });
+      data = h?.initData?.(expId) || {};
+    }
+  } catch {
+    data = {};
+  }
+  if (!data || typeof data !== 'object') data = {};
+  // Mechanics catalog still carries defaults on the experiment card.
+  const exp = STATION_EXPERIMENTS[stationId]?.experiments?.find((e) => e.id === expId);
+  if (exp?.defaults && !data.params) {
+    data = {
+      params: { ...exp.defaults },
+      readouts: Array.isArray(data.readouts) ? data.readouts : [],
+      paused: false,
+      sourceTime: 0,
+      ...data,
+    };
+  }
+  warmDataCache.set(key, data);
+  return data;
+}
+
+/**
+ * Seed live apparatus with the same defaults the first open will use so
+ * expensive field-line / particle allocations are not first paid at click time.
+ */
+function seedWarmApparatus(stationId, expId, eq) {
+  if (!eq) return;
+  const data = warmInitData(stationId, expId);
+  try {
+    if (stationId === 'electro') {
+      if (expId === 'gauss_theorem') eq.updateGauss?.(data, 0);
+      else if (expId === 'electric_field') eq.updateElectricField?.(data, 0);
+      else if (expId === 'faraday_induction') eq.updateFaraday?.(data, 0);
+      else if (expId === 'induced_electric_field') eq.updateInducedElectric?.(data, 0);
+      else if (expId === 'hall_effect') eq.updateHall?.(data);
+      else if (expId === 'hall_carrier_demo') eq.updateHallDemo?.(data, 0);
+      return;
+    }
+    if (stationId === 'thermo') {
+      eq.updateState?.(expId, data, { forceVisual: true });
+      return;
+    }
+  } catch { /* best-effort */ }
+}
+
+/**
+ * Show one apparatus mode under the loader (no full-scene thrash).
+ * Heavy GPU compile/render is done once per station, not once per experiment.
+ */
+async function warmExperimentApparatus(job) {
+  const st = STATION_EXPERIMENTS[job.stationId];
+  const exp = st?.experiments?.find((e) => e.id === job.expId) || { id: job.expId };
+  const setMode = stationScenes[job.stationId]?.equipment?.setMode
+    || equipment[job.stationId]?.setMode;
+  const eq = stationScenes[job.stationId]?.equipment || equipment[job.stationId];
+  const mode = EXP_MODE_BY_ID[job.expId];
+  const defaults = exp.defaults || null;
+  const stationRoot = stationScenes[job.stationId]?.root;
+
+  prepareExperiment(job.expId, job.stationId);
+  await yieldToLoader();
+
+  if (mode && typeof setMode === 'function') {
+    try {
+      if (job.stationId === 'mechanics') {
+        setMode(mode, defaults, { reset: false });
+      } else if (job.stationId === 'thermo') {
+        // Thermo setMode takes experiment id (not a shared mode alias).
+        setMode(job.expId);
+      } else {
+        setMode(mode);
+      }
+    } catch { /* ignore */ }
+  }
+
+  try {
+    if (job.stationId === 'optics' && mode === 'geometric' && typeof eq?.updateGeometric === 'function') {
+      eq.updateGeometric({
+        shape: exp.id === 'reflection' ? 'mirror' : exp.id === 'lens' ? 'sphere' : 'prism',
+        angle: exp.id === 'dispersion' ? 48 : exp.id === 'lens' ? 12 : 35,
+        rayCount: exp.id === 'dispersion' ? 9 : exp.id === 'lens' ? 7 : 1,
+        ior: 1.52,
+        dispersion: exp.id === 'dispersion',
+        dispersionStrength: 0.85,
+        rotate: 0,
+        showReflect: true,
+        opticsMode: exp.id === 'reflection' ? 'mirror' : 'dielectric',
+        mode: exp.id === 'reflection' ? 'mirror' : 'dielectric',
+      }, { force: true });
+    }
+    if (job.stationId === 'optics' && mode === 'diffraction') {
+      eq?.updateOptics?.({
+        mode: 'diffraction',
+        lightOn: true,
+        lambdaNm: 550,
+        slitMm: 0.05,
+        pitchMm: 0.25,
+        N: 2,
+        distM: 1,
+        showBeam: true,
+        showWave: true,
+      }, { force: true });
+      eq?.flushDeferredDiffraction?.();
+    }
+    // Match first-open state so signature caches (field lines, wires, …) hit.
+    seedWarmApparatus(job.stationId, job.expId, eq);
+  } catch { /* ignore */ }
+
+  // Compile this apparatus while it is visible — previously only the last
+  // experiment per station got a full-scene compile after the loop.
+  try {
+    if (stationRoot) {
+      stationRoot.updateWorldMatrix?.(true, true);
+      renderer.compile(stationRoot, camera);
+    } else {
+      renderer.compile(scene, camera);
+    }
+  } catch { /* best-effort */ }
+
+  await yieldToLoader();
+}
+
+/**
+ * Paint every experiment's dense content UI under the loader.
+ * One sample per station left first-switch canvas work (fonts/layout/hit
+ * regions) unpaid — especially painful on electro with 6 dense panels.
+ */
+async function warmStationExperimentHuds(stationId, experiments, onHudTick) {
+  const st = STATION_EXPERIMENTS[stationId];
+  const list = (experiments || []).filter(Boolean);
+  if (!st || !list.length) return;
+  const holo = holos[stationId];
+  const display = stationDisplays[stationId];
+
+  // Menu chrome once.
+  try {
+    if (holo?.userData) {
+      holo.userData.active = true;
+      holo.userData.setHud?.({
+        menuOpen: true,
+        station: st,
+        experiment: null,
+        stepIndex: 0,
+        step: null,
+        running: false,
+        data: {},
+        stations: STATION_EXPERIMENTS,
+        _rev: -2500,
+      }, '');
+      holo.userData.draw?.(true, true);
+    }
+  } catch { /* ignore */ }
+  await yieldToLoader();
+
+  for (let i = 0; i < list.length; i += 1) {
+    const sampleExp = list[i];
+    const mockData = warmInitData(stationId, sampleExp.id);
+    const mockHud = {
+      menuOpen: true,
+      station: st,
+      experiment: sampleExp,
+      stepIndex: 0,
+      step: sampleExp.steps?.[0] || null,
+      running: true,
+      data: mockData,
+      stations: STATION_EXPERIMENTS,
+      _rev: -3000 - i,
+      expId: sampleExp.id,
+    };
+    const dataHtml = formatData(stationId, sampleExp.id, mockData);
+    try {
+      if (holo?.userData) {
+        holo.userData.setHud?.(mockHud, dataHtml);
+        holo.userData.draw?.(true, true);
+      }
+      if (display?.userData) {
+        display.userData.setHud?.(mockHud, dataHtml, { force: true });
+        // First dense paint also compiles content-panel materials/shaders.
+        if (i === 0) {
+          try {
+            display.updateWorldMatrix?.(true, true);
+            renderer.compile(display, camera, scene);
+          } catch { /* ignore */ }
+        }
+      }
+    } catch { /* ignore */ }
+    onHudTick?.(sampleExp);
+    await yieldToLoader();
+  }
+
+  try {
+    if (holo?.userData) {
+      holo.userData.active = false;
+      holo.userData.setHud?.(null, '');
+      holo.userData.draw?.(false, true);
+    }
+    if (display?.userData) {
+      display.userData.setMaximized?.(false);
+      display.userData.setPresent?.(false);
+      display.userData.setHud?.(null, '');
+      display.userData._contentExpId = null;
+      display.userData.hitRegions = [];
+    }
+  } catch { /* ignore */ }
+  await yieldToLoader();
+}
+
+/**
+ * Compile + warm apparatus under the loader cover.
+ * Time-sliced: yield after every heavy step so the loader animation stays fluid.
+ * @param {(ratio: number, status?: string) => void} onProgress
+ */
+async function warmAllLabResources(onProgress) {
+  const jobs = [];
+  Object.entries(STATION_EXPERIMENTS).forEach(([sid, st]) => {
+    (st.experiments || []).forEach((exp) => {
+      jobs.push({
+        stationId: sid,
+        expId: exp.id,
+        label: exp.name || exp.id,
+        exp,
+      });
+    });
+  });
+
+  // Group by station: apparatus per experiment, then every dense content HUD.
+  const byStation = new Map();
+  jobs.forEach((job) => {
+    if (!byStation.has(job.stationId)) byStation.set(job.stationId, []);
+    byStation.get(job.stationId).push(job);
+  });
+
+  // apparatus job + HUD paint per experiment + GPU present per station + boot steps
+  const total = Math.max(1, jobs.length * 2 + byStation.size + 3);
+  let done = 0;
+  const ratioOf = () => 0.88 + (done / total) * 0.08;
+  const tick = (status) => {
+    done += 1;
+    onProgress(ratioOf(), status);
+  };
+
+  bootSuspendRender = true;
+  try {
+    onProgress(0.88, '预编译全息终端…');
+    // Yield between stations inside prewarm so status tweens can run.
+    for (const id of Object.keys(holos)) {
+      const h = holos[id];
+      if (!h?.userData) continue;
+      const st = STATION_EXPERIMENTS[id];
+      const mockHud = {
+        menuOpen: true,
+        station: st,
+        experiment: null,
+        stepIndex: 0,
+        step: null,
+        running: false,
+        data: {},
+        stations: STATION_EXPERIMENTS,
+        _rev: -1,
+      };
+      try {
+        h.userData.active = true;
+        h.userData.setHud?.(mockHud, '');
+        h.userData.draw?.(true, true);
+      } finally {
+        h.userData.active = false;
+        h.userData.setHud?.(null, '');
+        h.userData.draw?.(false, true);
+      }
+      await yieldToLoader();
+    }
+    Object.values(stationDisplays).forEach((d) => {
+      d?.userData?.prewarm?.(renderer, camera, scene);
+    });
+    hideAllContentDisplays();
+    tick('预编译全息终端…');
+    await yieldToLoader();
+
+    onProgress(0.89, '预编译实验室场景…');
+    try {
+      renderer.compile(scene, camera);
+    } catch {
+      // compile is best-effort
+    }
+    try {
+      renderer.render(scene, camera);
+    } catch { /* ignore */ }
+    tick('预编译实验室场景…');
+    await yieldToLoader();
+
+    for (const [stationId, stationJobs] of byStation) {
+      const stationTitle = STATION_EXPERIMENTS[stationId]?.title || stationId;
+      onProgress(ratioOf(), `预热${stationTitle}…`);
+
+      for (const job of stationJobs) {
+        onProgress(ratioOf(), `预热器材：${job.label}`);
+        await warmExperimentApparatus(job);
+        tick(`器材就绪：${job.label}`);
+      }
+
+      // Every experiment content panel (not only the first card on the station).
+      onProgress(ratioOf(), `预热${stationTitle}界面…`);
+      await warmStationExperimentHuds(
+        stationId,
+        stationJobs.map((job) => job.exp),
+        (sampleExp) => tick(`界面就绪：${sampleExp?.name || sampleExp?.id || ''}`),
+      );
+      try {
+        renderer.compile(scene, camera);
+      } catch { /* ignore */ }
+      try {
+        renderer.render(scene, camera);
+      } catch { /* ignore */ }
+      tick(`${stationTitle} GPU 就绪`);
+      await yieldToLoader();
+    }
+
+    // Restore default electro / optics idle presentation.
+    try { equipment.electro?.setMode?.('hall'); } catch { /* ignore */ }
+    try { equipment.optics?.setMode?.('idle'); } catch { /* ignore */ }
+    const mechanicsPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'mechanics'
+      ? (new URLSearchParams(window.location.search).get('exp') || 'free-fall')
+      : null;
+    try { equipment.mechanics?.setMode?.(mechanicsPreview); } catch { /* ignore */ }
+    const thermoPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'thermo'
+      ? (new URLSearchParams(window.location.search).get('exp') || 'calorimetry')
+      : null;
+    try { equipment.thermo?.setMode?.(thermoPreview); } catch { /* ignore */ }
+    hideAllContentDisplays();
+
+    onProgress(0.96, '预热完成…');
+    try {
+      renderer.render(scene, camera);
+    } catch { /* ignore */ }
+    await yieldToLoader();
+    hideAllContentDisplays();
+  } finally {
+    bootSuspendRender = false;
   }
 }
 
@@ -2367,6 +3250,16 @@ if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('prev
   expManager.startExperiment('faraday_induction');
   camera.position.set(-3.2, 1.55, 4.0);
   camera.lookAt(-4.0, 1.14, 2.55);
+  if (new URLSearchParams(window.location.search).get('fullscreen') === '1') {
+    requestAnimationFrame(() => openHoloFullscreen('electro'));
+  }
+}
+
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'induced-e') {
+  expManager.openStationMenu('electro');
+  expManager.startExperiment('induced_electric_field');
+  camera.position.set(-3.4, 1.75, 3.95);
+  camera.lookAt(-4.0, 1.2, 2.55);
   if (new URLSearchParams(window.location.search).get('fullscreen') === '1') {
     requestAnimationFrame(() => openHoloFullscreen('electro'));
   }
@@ -2430,6 +3323,42 @@ if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('prev
   }
 }
 
+// Development-only visual QA shortcut for the migrated mechanics rigs.
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'mechanics') {
+  const previewParams = new URLSearchParams(window.location.search);
+  const mechanicsExp = previewParams.get('exp') || 'free-fall';
+  const showMechanicsPreview = (expId) => {
+    expManager.openStationMenu('mechanics');
+    expManager.startExperiment(expId);
+    camera.position.set(-4.2, expId === 'free-fall' ? 2.15 : 1.75, 0.35);
+    camera.lookAt(-4.2, expId === 'free-fall' ? 1.65 : 1.15, -2.8);
+  };
+  showMechanicsPreview(mechanicsExp);
+  window.__mechanicsQa = Object.freeze({
+    start: showMechanicsPreview,
+    snapshot: (expId) => equipment.mechanics?.snapshot?.(expId || expManager.state.expId),
+    setParam: (key, value) => expManager.uiAction('mechanics-source-set', { key, value }),
+    action: (id) => expManager.uiAction('mechanics-source-action', { id }),
+    fullscreen: () => openHoloFullscreen('mechanics'),
+  });
+  if (previewParams.get('fullscreen') === '1') {
+    requestAnimationFrame(() => openHoloFullscreen('mechanics'));
+  }
+}
+
+// Development-only visual QA shortcut for the migrated thermodynamics rigs.
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'thermo') {
+  const previewParams = new URLSearchParams(window.location.search);
+  const thermoExp = previewParams.get('exp') || 'calorimetry';
+  expManager.openStationMenu('thermo');
+  expManager.startExperiment(thermoExp);
+  camera.position.set(4.2, 1.6, 4.9);
+  camera.lookAt(4.2, 1.28, 2.6);
+  if (previewParams.get('fullscreen') === '1') {
+    requestAnimationFrame(() => openHoloFullscreen('thermo'));
+  }
+}
+
 if (import.meta.env.DEV && ['diffraction', 'diffraction-fullscreen'].includes(new URLSearchParams(window.location.search).get('preview'))) {
   const previewParams = new URLSearchParams(window.location.search);
   expManager.openStationMenu('optics');
@@ -2437,6 +3366,19 @@ if (import.meta.env.DEV && ['diffraction', 'diffraction-fullscreen'].includes(ne
   camera.position.set(4.15, 1.55, -1.15);
   camera.lookAt(4.2, 1.02, -2.8);
   if (previewParams.get('fullscreen') === '1' || previewParams.get('preview') === 'diffraction-fullscreen') {
+    requestAnimationFrame(() => openHoloFullscreen('optics'));
+  }
+}
+
+// Development-only visual QA for geometric optics (guangxue migration).
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'optics-geo') {
+  const previewParams = new URLSearchParams(window.location.search);
+  const geoExp = previewParams.get('exp') || 'reflection';
+  expManager.openStationMenu('optics');
+  expManager.startExperiment(geoExp);
+  camera.position.set(4.15, 1.7, -0.9);
+  camera.lookAt(4.2, 1.05, -2.8);
+  if (previewParams.get('fullscreen') === '1') {
     requestAnimationFrame(() => openHoloFullscreen('optics'));
   }
 }
@@ -2511,13 +3453,31 @@ function unlockedElectroPick(event) {
     -((event.clientY - rect.top) / rect.height) * 2 + 1,
   );
   unlockedElectroRaycaster.setFromCamera(unlockedElectroPointer, camera);
+  // Live content-screen controls beat apparatus on the same ray so aiming a
+  // slider/button never steals a charge/probe sitting behind the glass.
+  const holoControl = getAimedHoloControl(unlockedElectroRaycaster);
+  if (holoControl?.target) {
+    return {
+      target: holoControl.target,
+      raycaster: unlockedElectroRaycaster,
+      holoControl: true,
+    };
+  }
   const hits = unlockedElectroRaycaster.intersectObjects(interactables, true);
   // Charges/probes may sit behind the transparent hologram. The generic
   // resolver intentionally stops at the first nearby screen hit, so choose
   // semantic electromagnetic targets first for source-style dragging.
   // Invisible apparatus from other electro modes still raycasts in Three.js,
   // so only accept targets that belong to a currently visible hierarchy.
-  const preferredRoles = ['electric_charge', 'electric_probe', 'gauss_charge', 'faraday_rod'];
+  // Hall knobs/probe/coils must beat empty content-screen glass the same way
+  // Faraday rod / induced-E probe already do — otherwise only terminals work
+  // (they have a separate nearest-port fallback).
+  const preferredRoles = [
+    'electric_charge', 'electric_probe', 'gauss_charge', 'faraday_rod', 'induced_e_probe',
+    'hall_knob_im', 'hall_knob_is', 'hall_knob_zero',
+    'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
+    'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
+  ];
   for (const role of preferredRoles) {
     const hit = hits.find((entry) => {
       const target = resolveInteractive(entry.object);
@@ -2532,6 +3492,28 @@ canvas.addEventListener('pointerdown', (event) => {
   if (event.button !== 0 || controls.isLocked || holoFsState?.open) return;
   const picked = unlockedElectroPick(event);
   if (!picked) return;
+  // Content-screen UI (sliders/buttons): route through the normal screen path
+  // instead of the apparatus drag bridge.
+  if (picked.holoControl || resolveScreenHost(picked.target)) {
+    gaussPointerDrag = { suppressClick: true };
+    holdLMB = true;
+    resetMouseDragAccum();
+    syncMouseDragState();
+    tryInteract(picked.raycaster, true, {
+      target: picked.target,
+      direct: true,
+      time: clock.elapsedTime,
+    });
+    unlockedElectroDrag = {
+      ...picked,
+      lastX: Number(event.clientX || 0),
+      lastY: Number(event.clientY || 0),
+      screenUi: true,
+    };
+    if (event.pointerId != null) canvas.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+    return;
+  }
   unlockedElectroDrag = {
     ...picked,
     lastX: Number(event.clientX || 0),
@@ -2560,7 +3542,24 @@ window.addEventListener('pointermove', (event) => {
   unlockedElectroDrag.lastX = Number(event.clientX || unlockedElectroDrag.lastX);
   unlockedElectroDrag.lastY = Number(event.clientY || unlockedElectroDrag.lastY);
   accumulateMouseDrag(dx, dy);
-  expManager?.updateManipulation(unlockedElectroDrag.target, { dt: 1 / 60, time: clock.elapsedTime });
+  // Keep the UV ray under the cursor for absolute content-screen slider tracking.
+  if (unlockedElectroDrag.screenUi || unlockedElectroDrag.holoControl) {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width >= 1 && rect.height >= 1) {
+      unlockedElectroPointer.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      unlockedElectroRaycaster.setFromCamera(unlockedElectroPointer, camera);
+    }
+  }
+  expManager?.updateManipulation(unlockedElectroDrag.target, {
+    dt: 1 / 60,
+    time: clock.elapsedTime,
+    totalX: equipment?.electro?.mouseDrag?.movementX || 0,
+    totalY: equipment?.electro?.mouseDrag?.movementY || 0,
+    raycaster: unlockedElectroRaycaster,
+  });
   gaussPointerDrag.suppressClick = true;
 });
 window.addEventListener('pointerup', (event) => {
@@ -2580,6 +3579,26 @@ canvas.addEventListener('mousedown', (event) => {
   if (unlockedElectroDrag || event.button !== 0 || controls.isLocked || holoFsState?.open) return;
   const picked = unlockedElectroPick(event);
   if (!picked) return;
+  if (picked.holoControl || resolveScreenHost(picked.target)) {
+    gaussPointerDrag = { suppressClick: true };
+    holdLMB = true;
+    resetMouseDragAccum();
+    syncMouseDragState();
+    tryInteract(picked.raycaster, true, {
+      target: picked.target,
+      direct: true,
+      time: clock.elapsedTime,
+    });
+    unlockedElectroDrag = {
+      ...picked,
+      lastX: Number(event.clientX || 0),
+      lastY: Number(event.clientY || 0),
+      screenUi: true,
+    };
+    if (event.pointerId != null) canvas.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+    return;
+  }
   unlockedElectroDrag = { ...picked, lastX: Number(event.clientX || 0), lastY: Number(event.clientY || 0) };
   gaussPointerDrag = { suppressClick: true };
   holdLMB = true;
@@ -2598,7 +3617,23 @@ window.addEventListener('mousemove', (event) => {
   unlockedElectroDrag.lastX = Number(event.clientX || unlockedElectroDrag.lastX);
   unlockedElectroDrag.lastY = Number(event.clientY || unlockedElectroDrag.lastY);
   accumulateMouseDrag(dx, dy);
-  expManager?.updateManipulation(unlockedElectroDrag.target, { dt: 1 / 60, time: clock.elapsedTime });
+  if (unlockedElectroDrag.screenUi || unlockedElectroDrag.holoControl) {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width >= 1 && rect.height >= 1) {
+      unlockedElectroPointer.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      );
+      unlockedElectroRaycaster.setFromCamera(unlockedElectroPointer, camera);
+    }
+  }
+  expManager?.updateManipulation(unlockedElectroDrag.target, {
+    dt: 1 / 60,
+    time: clock.elapsedTime,
+    totalX: equipment?.electro?.mouseDrag?.movementX || 0,
+    totalY: equipment?.electro?.mouseDrag?.movementY || 0,
+    raycaster: unlockedElectroRaycaster,
+  });
   gaussPointerDrag.suppressClick = true;
 });
 window.addEventListener('mouseup', (event) => {
@@ -2693,6 +3728,7 @@ function resolveInteractivePreferred(hits) {
     electric_charge: 80,
     electric_probe: 82,
     faraday_rod: 86,
+    induced_e_probe: 88,
     hall_terminal_solenoid: 80,
     hall_terminal_helmholtz: 80,
     hall_terminal_output: 80,
@@ -2747,7 +3783,11 @@ function resolveInteractivePreferred(hits) {
   return best;
 }
 
-/** Live charge / probe under the ray for electric-field & Gauss experiments. */
+/**
+ * Live bench apparatus under the ray for the active electro experiment.
+ * These win over empty content-screen glass so gear stays grabable when the
+ * floating display sits between the camera and the tabletop.
+ */
 function pickLiveElectroCharge(hits) {
   const expId = expManager?.state?.expId;
   const preferredRoles = expId === 'electric_field'
@@ -2756,7 +3796,15 @@ function pickLiveElectroCharge(hits) {
       ? ['gauss_charge']
       : expId === 'faraday_induction'
         ? ['faraday_rod']
-      : null;
+        : expId === 'induced_electric_field'
+          ? ['induced_e_probe']
+          : expId === 'hall_effect'
+            ? [
+              'hall_knob_im', 'hall_knob_is', 'hall_knob_zero',
+              'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
+              'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
+            ]
+            : null;
   if (!preferredRoles || !hits?.length) return null;
   for (const role of preferredRoles) {
     const hit = hits.find((entry) => {
@@ -2803,12 +3851,16 @@ function getAimedHoloControl(rc) {
     ...Object.values(holos).map((h) => ({ screen: h, pri: 1 })),
   ];
   for (const { screen, pri } of candidates) {
-    if (!(screen?.userData?.active || screen?.userData?.present)) continue;
+    const isSelector = screen?.userData?.type === 'holo'
+      || screen?.userData?.role === 'holo_selector';
+    // Idle tabletop selectors must stay aimable so "点击激活" works without
+    // pointer-lock. Content displays still require present/active.
+    if (!(screen?.userData?.active || screen?.userData?.present || isSelector)) continue;
     const aim = screen.userData.screenAimFromRay?.(rc);
     if (!aim) continue;
     if (aim.distance - 0.05 > bestDist) continue;
-    // Only an actual button/card region receives UI priority. Empty screen
-    // space still obeys the frontmost-surface rule and becomes camera look.
+    // Only an actual button/card/activate region receives UI priority. Empty
+    // active-screen space still obeys the frontmost-surface rule.
     const pick = screen.userData.pickFromRay?.(rc);
     if (!pick) continue;
     if (aim.distance + 0.05 < bestDist || (Math.abs(aim.distance - bestDist) <= 0.05 && pri > bestPri)) {
@@ -2830,25 +3882,38 @@ function getFocusTarget(inputRaycaster = raycaster) {
   const hits = inputRaycaster.intersectObjects(interactables, true);
   lastFocusHit = hits[0] || null;
 
-  // Charge drag must beat the floating content screen: the display plane often
-  // sits between the camera and the bench, and would otherwise swallow grabs.
+  // Aiming a real content-screen control (slider/button) always wins over
+  // apparatus on the same ray — otherwise the induced-E probe / Faraday rod
+  // steals the crosshair while the user is clearly aiming the panel UI.
+  const holoControl = getAimedHoloControl(inputRaycaster);
+  if (holoControl?.target) return holoControl.target;
+
+  // Bench apparatus (Hall knobs/probe/coils, Faraday rod, …) still beats empty
+  // content-screen glass so gear remains grabable through the floating panel.
   const liveCharge = pickLiveElectroCharge(hits);
   if (liveCharge) return liveCharge;
-
-  const aimedHolo = getAimedHolo(inputRaycaster);
-  if (aimedHolo) return aimedHolo;
 
   // The Hall sockets are deliberately tiny in the model.  If the mouse ray
   // passes just beside a socket, use the same semantic nearest-port fallback
   // as AR so the port can still be grabbed instead of selecting the console
   // deck behind it.  Keep this scoped to the Hall experiment and to a narrow
   // aim band so ordinary apparatus picking remains frontmost elsewhere.
+  // Run before empty-glass holo so terminals remain usable when the panel
+  // occludes the bench but the aim is still near a socket.
   if (expManager?.state?.expId === 'hall_effect') {
     const terminal = hallBench.userData.getHallTerminalTarget?.(inputRaycaster, { maxDistance: 0.11 });
     if (terminal?.target) {
       lastFocusHit = terminal.hit;
       return terminal.target;
     }
+  }
+
+  // Empty content-screen glass (no button/slider under the ray) must NOT steal
+  // focus — otherwise only terminals (nearest-port) remain usable.
+  const aimedHolo = getAimedHolo(inputRaycaster);
+  if (aimedHolo) {
+    const pick = aimedHolo.userData.pickFromRay?.(inputRaycaster);
+    if (pick) return aimedHolo;
   }
 
   if (!hits.length) return null;
@@ -2861,13 +3926,18 @@ function getHandFocusInfo(inputRaycaster) {
     ? hallBench.userData.getHallTerminalTarget?.(inputRaycaster)
     : null;
   const holoControl = getAimedHoloControl(inputRaycaster);
+  // Live bench gear beats empty content glass (same rule as desktop getFocusTarget).
+  const liveApparatus = pickLiveElectroCharge(
+    inputRaycaster.intersectObjects(interactables, true),
+  );
+  const apparatusPriority = (!holoControl && liveApparatus)
+    ? { target: liveApparatus, hit: { object: liveApparatus, distance: 0 } }
+    : null;
   return resolveFrontmostInteraction(hits, {
     resolveInteractive,
     withinInteractDist,
-    // A live hologram button remains highest priority.  Otherwise a nearby
-    // Hall terminal gets semantic priority when the AR ray is within its
-    // forgiving aim radius, even if the deck is the first visible surface.
-    priorityInteraction: holoControl || terminalFallback,
+    // Real UI controls first; then Hall terminals / live apparatus; never empty glass.
+    priorityInteraction: holoControl || terminalFallback || apparatusPriority,
     // Once the front surface is known to be interactive, match the mouse
     // resolver inside that same shallow apparatus layer so a broad station or
     // console hit box cannot swallow its button/knob/terminal controls.
@@ -2881,20 +3951,102 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
   if (inputRaycaster === raycaster) {
     inputRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
   }
+
+  // ── FAST PATH: hologram UI first — NO full-scene raycast ──
+  // Experiment card clicks used to freeze the lab because every press ran
+  // intersectObjects(interactables) over the whole station before handling UI.
+  const directTarget = directContext?.target || null;
+  const directScreen = resolveScreenHost(directTarget);
+  const aimedHoloControl = directScreen
+    ? { target: directScreen, hit: { object: directScreen, distance: 0 } }
+    : getAimedHoloControl(inputRaycaster);
+  const aimedHoloFast = directScreen
+    || aimedHoloControl?.target
+    || null;
+
+  if (aimedHoloFast) {
+    const aimedHolo = aimedHoloFast;
+    const sid = aimedHolo.userData.stationId;
+    const isDisplay = aimedHolo.userData.type === 'holo_display'
+      || aimedHolo.userData.role === 'holo_display';
+    const isSelector = aimedHolo.userData.type === 'holo'
+      || aimedHolo.userData.role === 'holo_selector';
+    const screenLive = !!(aimedHolo.userData.active || aimedHolo.userData.present);
+    // Always try UV pick first — idle selectors return action:'activate'.
+    const pick = aimedHolo.userData.pickFromRay?.(inputRaycaster)
+      || (directContext?.pick && isParamSliderAction(directContext.pick?.action)
+        ? directContext.pick
+        : null);
+    if (pick) {
+      if (isParamSliderAction(pick.action)) {
+        expManager.beginManipulation(aimedHolo, {
+          ...(directContext || {}),
+          time: directContext?.time ?? t,
+          raycaster: inputRaycaster,
+          pick,
+        });
+        return;
+      }
+      if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table') {
+        if (directContext) {
+          expManager.beginManipulation(aimedHolo, {
+            ...directContext,
+            time: directContext?.time ?? t,
+            raycaster: inputRaycaster,
+            pick,
+          });
+        } else {
+          handleHoloScreenAction(pick, sid);
+        }
+        return;
+      }
+      // activate / start / back / menu cards — before any scene raycast
+      handleHoloScreenAction(pick, sid);
+      return;
+    }
+    if (screenLive) {
+      if (isDisplay && !directScreen && !aimedHoloControl?.target) {
+        // empty content glass → fall through to apparatus
+      } else if (!isDisplay) {
+        showToast('请瞄准桌面终端上的实验卡片');
+        return;
+      } else {
+        showToast('请瞄准内容屏上的控件');
+        return;
+      }
+    } else if (isSelector) {
+      // Fallback if pickFromRay failed to sample UV but the terminal is aimed.
+      handleHoloScreenAction({ action: 'activate', stationId: sid }, sid);
+      return;
+    } else if (!isDisplay) {
+      expManager.interact(aimedHolo, t);
+      return;
+    } else {
+      showToast('请先在桌面终端选择实验');
+      return;
+    }
+  }
+
+  // ── SLOW PATH: full interactables raycast (apparatus only) ──
   const hits = inputRaycaster.intersectObjects(interactables, true);
   lastFocusHit = hits[0] || null;
 
-  // Screen-plane aim wins over closer instrument meshes — except live charges,
-  // which must remain draggable even when the content panel intersects the ray.
-  const directTarget = directContext?.target || null;
-  const directCharge = directTarget && (
-    directTarget.userData?.role === 'electric_charge'
-    || directTarget.userData?.role === 'electric_probe'
-    || directTarget.userData?.role === 'gauss_charge'
-  ) && isHierarchyVisible(directTarget)
+  const liveChargeRoles = new Set([
+    'electric_charge', 'electric_probe', 'gauss_charge', 'faraday_rod', 'induced_e_probe',
+    'hall_knob_im', 'hall_knob_is', 'hall_knob_zero',
+    'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
+    'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
+  ]);
+  const directIsCharge = !!(
+    directTarget
+    && liveChargeRoles.has(directTarget.userData?.role)
+    && isHierarchyVisible(directTarget)
+    && !resolveScreenHost(directTarget)
+  );
+  const directCharge = directIsCharge
     ? directTarget
     : pickLiveElectroCharge(hits);
-  if (directCharge && !resolveScreenHost(directTarget)) {
+  if (directCharge) {
     if (directContext) {
       expManager.beginManipulation(directCharge, {
         ...directContext,
@@ -2904,62 +4056,6 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
     } else {
       expManager.interact(directCharge, t);
     }
-    return;
-  }
-  const directScreen = resolveScreenHost(directTarget);
-  const aimedHolo = directScreen
-    || (!directContext ? getAimedHolo(inputRaycaster) : null);
-  if (aimedHolo) {
-    const sid = aimedHolo.userData.stationId;
-    const isDisplay = aimedHolo.userData.type === 'holo_display'
-      || aimedHolo.userData.role === 'holo_display';
-    const screenLive = !!(aimedHolo.userData.active || aimedHolo.userData.present);
-    if (screenLive) {
-      const pick = aimedHolo.userData.pickFromRay?.(inputRaycaster)
-        || (lastFocusHit?.uv ? aimedHolo.userData.pick?.(lastFocusHit.uv) : null);
-      if (pick) {
-        // Faraday B slider on the content screen: press-and-drag (pointer-lock,
-        // E-hold, or AR pinch). Must not fall through to discrete uiAction —
-        // action id "faraday-b-slider" is not a one-shot button.
-        if (pick.action === 'faraday-b-slider') {
-          expManager.beginManipulation(aimedHolo, {
-            ...(directContext || {}),
-            time: directContext?.time ?? t,
-            raycaster: inputRaycaster,
-            pick,
-          });
-          return;
-        }
-        // Data-table region: arm a press-and-drag scroll (mouse + AR pinch),
-        // matching the fullscreen drag / wheel behaviour.
-        if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table') {
-          if (directContext) {
-            expManager.beginManipulation(aimedHolo, {
-              ...directContext,
-              time: directContext.time ?? t,
-              raycaster: inputRaycaster,
-              pick,
-            });
-          } else {
-            // Discrete click/tap on the table is a no-op; scrolling needs drag/wheel.
-            handleHoloScreenAction(pick, sid);
-          }
-          return;
-        }
-        handleHoloScreenAction(pick, sid);
-        return;
-      }
-      showToast(isDisplay
-        ? '请瞄准内容屏上的控件'
-        : '请瞄准桌面终端上的实验卡片');
-      return;
-    }
-    // Only the tabletop selector opens the station menu.
-    if (!isDisplay) {
-      expManager.interact(aimedHolo, t);
-      return;
-    }
-    showToast('请先在桌面终端选择实验');
     return;
   }
 
@@ -3012,9 +4108,15 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
       }
       return;
     }
-    if (pick.action === 'color' || pick.action === 'size') {
+    if (pick.action === 'color' || pick.action === 'size' || pick.action === 'eraser' || pick.action === 'clear') {
       board.userData.applyPick(pick);
-      showToast(pick.action === 'color' ? '已选择画笔颜色' : '已选择画笔粗细');
+      if (pick.action === 'color') showToast('已选择画笔颜色');
+      else if (pick.action === 'size') showToast('已选择画笔粗细');
+      else if (pick.action === 'eraser') {
+        showToast(blackboardBrush.mode === 'eraser' ? '橡皮模式 · 按住拖动画擦除' : '已切回画笔');
+      } else if (pick.action === 'clear') {
+        showToast('黑板已清屏');
+      }
     } else if (pick.action === 'draw') {
       board.userData.drawFromRay?.(inputRaycaster);
     }
@@ -3040,7 +4142,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
       const pick = screen.userData.pickFromRay?.(inputRaycaster)
         || (lastFocusHit?.uv ? screen.userData.pick?.(lastFocusHit.uv) : null);
       if (pick) {
-        if (pick.action === 'faraday-b-slider') {
+        if (isParamSliderAction(pick.action)) {
           expManager.beginManipulation(screen, {
             ...(directContext || {}),
             time: directContext?.time ?? t,
@@ -3450,12 +4552,34 @@ window.addEventListener('resize', () => {
 
 const clock = new THREE.Clock();
 
+/**
+ * Hard main-thread budget before WebGL present (ms).
+ * Prefer late apparatus over a frozen camera — leftover work drains after render.
+ */
+const PRE_RENDER_BUDGET_MS = 7.5;
+const POST_RENDER_BUDGET_MS = 3.5;
+/** Skip non-essential station animators when the frame is already heavy. */
+let animatorCursor = 0;
+/**
+ * After clicking an experiment card: pure free-look frames (render only).
+ * No drain / no sim / no canvas paint until this timestamp — so the camera
+ * never freezes on the click stack.
+ */
+let interactionQuietUntil = 0;
+
+function beginInteractionQuiet(ms = 130) {
+  const until = performance.now() + ms;
+  if (until > interactionQuietUntil) interactionQuietUntil = until;
+}
+
 function animate() {
   requestAnimationFrame(animate);
+  const frameStart = performance.now();
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
-  const nowMs = performance.now();
+  const nowMs = frameStart;
   const arActive = !!handTracking?.isActive();
+  const elapsed = () => performance.now() - frameStart;
 
   // Camera inference is throttled internally and only runs in user-enabled AR mode.
   handTracking?.update(nowMs);
@@ -3505,8 +4629,19 @@ function animate() {
     camera.position.y = THREE.MathUtils.clamp(camera.position.y, BOUND.minY, BOUND.maxY);
   }
 
-  // experiment simulation
-  if (expManager) {
+  // While apparatus is still loading after a switch, skip sim + heavy animators
+  // so the camera never contends with attach/reset/canvas paint.
+  const apparatusLoading = !!(
+    expManager?.state?.running
+    && expManager.state.data
+    && expManager.state.data._apparatusReady === false
+  );
+  const interactionQuiet = performance.now() < interactionQuietUntil;
+  // Free-look only: after experiment-card click, do not touch sim or budget jobs.
+  const freezeSim = interactionQuiet || apparatusLoading;
+
+  // experiment simulation — must stay responsive, but yield if the frame is late
+  if (expManager && !freezeSim && elapsed() < PRE_RENDER_BUDGET_MS) {
     syncMouseDragState();
     const handInteraction = handTracking?.getPrimaryInteraction();
     const pointerTarget = controls.isLocked ? getFocusTarget() : null;
@@ -3528,7 +4663,8 @@ function animate() {
     expManager.onFocus(focusedTarget);
     const hallRun = expManager.state.running && expManager.state.expId === 'hall_effect';
     const opticsRun = expManager.state.running
-      && expManager.state.expId === 'multi_slit_diffraction';
+      && (expManager.state.expId === 'multi_slit_diffraction'
+        || expManager.state.data?.mode === 'geometric');
     const canInteract = !!(
       focusedTarget
       || handInteraction?.holding
@@ -3543,8 +4679,58 @@ function animate() {
     }
   }
 
-  for (const fn of animators) fn(t);
+  // During boot prewarm the loader owns the main thread budget: skip the full
+  // WebGL present so GSAP / spinner animations stay smooth under the cover.
+  if (bootSuspendRender) {
+    // Still drain tiny deferred jobs so boot prep does not rely on present.
+    labFrameScheduler.drain(2);
+    return;
+  }
+
+  // Station animators (particles, deferred rays, holos). Skip entirely while a
+  // switch is still loading apparatus; otherwise time-slice against the budget.
+  if (!freezeSim && animators.length && elapsed() < PRE_RENDER_BUDGET_MS) {
+    const n = animators.length;
+    const start = animatorCursor % n;
+    for (let i = 0; i < n; i += 1) {
+      if (elapsed() >= PRE_RENDER_BUDGET_MS) {
+        animatorCursor = (start + i) % n;
+        break;
+      }
+      try {
+        animators[(start + i) % n](t);
+      } catch { /* never let one station freeze the lab */ }
+      if (i === n - 1) animatorCursor = 0;
+    }
+  }
+
+  // ── Present first. Smoothness > completeness. ──
   renderer.render(scene, camera);
+
+  // Leftover budget: HUD paints, experiment attach, soft prewarm — never block render.
+  // CRITICAL: during interactionQuiet (just clicked an experiment card) do NOT
+  // drain at all — even a 15ms canvas paint here freezes mouse-look for a frame.
+  if (!interactionQuiet) {
+    const postBudget = apparatusLoading ? 2.0 : POST_RENDER_BUDGET_MS;
+    labFrameScheduler.drain(postBudget);
+  }
+}
+
+function startExperimentSafe(expId) {
+  if (!expId) return;
+  // Click handler must return in <1ms. Enqueue only; start after quiet free-look.
+  // Prepared labs only need a short free-look buffer — long quiet delayed the
+  // already-warmed full HUD paint and felt like a first-switch hitch.
+  const ready = preparedExperimentIds.has(expId);
+  beginInteractionQuiet(ready ? 48 : 140);
+  labFrameScheduler.schedule(`cli:start:${expId}`, () => {
+    if (!preparedExperimentIds.has(expId)) {
+      labFrameScheduler.schedule(`warm:${expId}`, () => {
+        try { prepareExperiment(expId); } catch { /* best-effort */ }
+      }, { priority: 75 });
+    }
+    expManager?.startExperiment(expId);
+  }, { priority: 200 });
 }
 
 mountUi({
@@ -3552,7 +4738,7 @@ mountUi({
     prepareExperiment,
     openStationMenu: (stationId) => expManager?.openStationMenu(stationId),
     closeMenu: () => expManager?.closeMenu(),
-    startExperiment: (expId) => expManager?.startExperiment(expId),
+    startExperiment: (expId) => startExperimentSafe(expId),
     exitExperiment: () => expManager?.exitExperiment(),
     uiAction: (action, payload) => expManager?.uiAction(action, payload),
     recordExperiment: () => expManager?.onKey('KeyF', clock.elapsedTime),
@@ -3563,11 +4749,11 @@ mountUi({
   },
 });
 
-// Start render loop immediately so the first painted frame is real lab content
+// Start render loop immediately so frames under the loader are real lab content
+// (loader fully covers the canvas until finish()).
 animate();
 
-// ── Boot gate: wait for portraits + a few painted frames, then reveal ──
-// Avoid gl.finish / heavy compile — those freeze the main thread and leave a gray void.
+// ── Boot gate: assets + GPU prewarm must complete before the lab is revealed ──
 const bootStarted = performance.now();
 const MIN_BOOT_MS = 700;
 
@@ -3577,10 +4763,10 @@ function nextFrame() {
 
 /** Present a few frames so the first visible image is the lab, not an empty buffer. */
 async function paintReadyFrames() {
-  labLoader.setProgress(0.94, '渲染首帧…');
+  labLoader.setProgress(0.97, '渲染首帧…');
   for (let i = 0; i < 3; i++) {
     renderer.render(scene, camera);
-    labLoader.setProgress(0.94 + (i + 1) * 0.02, '渲染首帧…');
+    labLoader.setProgress(0.97 + (i + 1) * 0.008, '渲染首帧…');
     await nextFrame();
   }
 }
@@ -3592,7 +4778,9 @@ async function bootReveal() {
       Promise.all(portraitLoadPromises),
       new Promise((r) => setTimeout(r, 4000)),
     ]);
-    labLoader.setProgress(0.9, '校准光学系统…');
+    labLoader.setProgress(0.88, '预热实验器材…');
+    // Heavy compile + first geometry builds happen while the loader covers the view.
+    await warmAllLabResources((ratio, status) => labLoader.setProgress(ratio, status));
     await paintReadyFrames();
 
     const wait = Math.max(0, MIN_BOOT_MS - (performance.now() - bootStarted));
@@ -3601,6 +4789,12 @@ async function bootReveal() {
     labLoader.setProgress(1, '系统就绪 · 欢迎进入实验室');
     await labLoader.finish();
   } catch {
+    // Best-effort fallback: still try a quick warm so entry is not bare.
+    try {
+      Object.entries(STATION_EXPERIMENTS).forEach(([sid, st]) => {
+        (st.experiments || []).forEach((exp) => prepareExperiment(exp.id, sid));
+      });
+    } catch { /* ignore */ }
     await paintReadyFrames().catch(() => {});
     await labLoader.finish();
   }

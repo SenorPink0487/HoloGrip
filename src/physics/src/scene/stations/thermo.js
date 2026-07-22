@@ -1,156 +1,260 @@
-/** Build and expose all thermodynamics-station apparatus. */
+/** Host adapter for the original reli-source thermodynamics apparatus. */
+import { CalorimetryExperiment } from '../../reli/experiments/calorimetry.js';
+import { ConvectionExperiment } from '../../reli/experiments/convection.js';
+import { HeatConductionExperiment } from '../../reli/experiments/heatConduction.js';
+import { IdealGasExperiment } from '../../reli/experiments/idealGas.js';
+import { ThermalExpansionExperiment } from '../../reli/experiments/thermalExpansion.js';
+
 export function createStationEquipment(ctx) {
-  const { THREE, materials: mat, primitives, shared } = ctx;
-  const { rbox, box, cyl, sphere } = primitives;
-  const animators = [];
-
-  function makeThermoSetup() {
-    const g = new THREE.Group();
-    const base = rbox(0.7, 0.04, 0.42, mat.whiteGloss, 0.02);
-    base.position.y = 0.02;
-    g.add(base);
-    const baseLed = rbox(0.65, 0.01, 0.38, mat.orangeGlow, 0.005);
-    baseLed.position.y = 0.045;
-    g.add(baseLed);
-
-    // calorimeter
-    const caloOuter = cyl(0.07, 0.07, 0.16, mat.chrome, 24);
-    caloOuter.position.set(-0.18, 0.14, 0.02);
-    g.add(caloOuter);
-    const caloInner = cyl(0.055, 0.055, 0.12, mat.glass, 20);
-    caloInner.position.set(-0.18, 0.14, 0.02);
-    g.add(caloInner);
-    const liquid = cyl(0.05, 0.05, 0.07, new THREE.MeshPhysicalMaterial({
-      color: 0xff6b35, metalness: 0, roughness: 0.2, transparent: true, opacity: 0.75,
-      emissive: 0xff4400, emissiveIntensity: 0.2,
-    }), 16);
-    liquid.position.set(-0.18, 0.11, 0.02);
-    g.add(liquid);
-    const lid = cyl(0.075, 0.075, 0.02, mat.carbon, 20);
-    lid.position.set(-0.18, 0.23, 0.02);
-    g.add(lid);
-    const stir = cyl(0.008, 0.008, 0.12, mat.chrome, 8);
-    stir.position.set(-0.18, 0.28, 0.02);
-    g.add(stir);
-
-    // heat conduction rods (copper / aluminum / iron colors)
-    const rodColors = [
-      { c: 0xb87333, e: 0xff4400 },
-      { c: 0xc0c8d0, e: 0xff8844 },
-      { c: 0x6b7280, e: 0xff6622 },
-    ];
-    rodColors.forEach((rc, i) => {
-      const rod = cyl(0.012, 0.012, 0.28, new THREE.MeshStandardMaterial({
-        color: rc.c, metalness: 0.85, roughnessRoughness: 0.3,
-        emissive: rc.e, emissiveIntensity: 0.15 + i * 0.05,
-      }), 12);
-      rod.rotation.z = Math.PI / 2;
-      rod.position.set(0.12, 0.14, -0.1 + i * 0.1);
-      g.add(rod);
-      // cold / hot ends
-      const cold = sphere(0.02, mat.blueGlow, 10);
-      cold.position.set(-0.02, 0.14, -0.1 + i * 0.1);
-      g.add(cold);
-      const hot = sphere(0.02, mat.orangeGlow, 10);
-      hot.position.set(0.26, 0.14, -0.1 + i * 0.1);
-      g.add(hot);
-    });
-    // heater block on righ
-    const heater = rbox(0.1, 0.08, 0.28, mat.carbon, 0.015);
-    heater.position.set(0.32, 0.1, 0);
-    g.add(heater);
-    const heatPadMat = new THREE.MeshStandardMaterial({
-      color: 0xfdba74, emissive: 0xf97316, emissiveIntensity: 0.7, metalness: 0.2, roughness: 0.35,
-    });
-    const heatPad = rbox(0.08, 0.02, 0.24, heatPadMat, 0.008);
-    heatPad.position.set(0.32, 0.15, 0);
-    g.add(heatPad);
-
-    // digital thermometer panel
-    const panel = rbox(0.16, 0.12, 0.02, mat.carbon, 0.01);
-    panel.position.set(-0.18, 0.32, -0.14);
-    g.add(panel);
-    const screen = rbox(0.13, 0.08, 0.01, new THREE.MeshStandardMaterial({
-      color: 0xffddaa, emissive: 0xff6600, emissiveIntensity: 0.7, metalness: 0.1, roughness: 0.4,
-    }), 0.005);
-    screen.position.set(-0.18, 0.32, -0.125);
-    g.add(screen);
-
-    // molecular motion / gas model — floating spheres in a glass box
-    const boxFrame = rbox(0.18, 0.14, 0.12, mat.glass, 0.01);
-    boxFrame.position.set(0.05, 0.16, 0.12);
-    g.add(boxFrame);
-    const molecules = [];
-    for (let i = 0; i < 8; i++) {
-      const m = sphere(0.012, mat.orangeGlow, 8);
-      m.position.set(
-        0.05 + (Math.random() - 0.5) * 0.1,
-        0.16 + (Math.random() - 0.5) * 0.08,
-        0.12 + (Math.random() - 0.5) * 0.06
-      );
-      g.add(m);
-      molecules.push({ mesh: m, phase: Math.random() * Math.PI * 2, speed: 1.5 + Math.random() });
-    }
-
-    animators.push((t) => {
-      molecules.forEach(({ mesh, phase, speed }) => {
-        mesh.position.x = 0.05 + Math.sin(t * speed + phase) * 0.05;
-        mesh.position.y = 0.16 + Math.cos(t * speed * 1.3 + phase) * 0.04;
-        mesh.position.z = 0.12 + Math.sin(t * speed * 0.8 + phase * 1.5) * 0.03;
-      });
-      heatPadMat.emissiveIntensity = 0.5 + 0.4 * Math.sin(t * 3);
-      liquid.material.emissiveIntensity = 0.15 + 0.1 * Math.sin(t * 2);
-    });
-
-    g.userData.rods = [];
-    g.children.forEach((ch) => {
-      if (ch.isMesh && Math.abs(ch.position.y - 0.14) < 0.001 && Math.abs(ch.rotation.z - Math.PI / 2) < 0.01) {
-        // clone material so heat can be unique per rod
-        ch.material = ch.material.clone();
-        g.userData.rods.push(ch);
-      }
-    });
-    g.userData.heatPadMat = heatPadMat;
-    g.userData.setRodHeat = (progress) => {
-      g.userData.rods.forEach((rod, i) => {
-        const speed = [1.0, 0.72, 0.48][i] || 0.5;
-        const heat = Math.min(1, progress * speed * 1.35);
-        rod.material.emissiveIntensity = 0.12 + heat * 1.3;
-      });
-      if (g.userData.heatPadMat) g.userData.heatPadMat.emissiveIntensity = 0.5 + progress * 0.9;
-    };
-    g.userData.interactive = true;
-    g.userData.role = 'thermo';
-
-    return g;
-  }
-
-
+  const { THREE, renderer, camera } = ctx;
   const root = new THREE.Group();
   root.name = 'thermo-station';
-  const thermo = makeThermoSetup();
-  thermo.position.set(4.2, 0.93, 2.6);
-  root.add(thermo);
+  // Source rigs are bench-sized.  The host station table is smaller, so scale
+  // the complete source model uniformly; no geometry is substituted.
+  // Keep the source bench-top height after uniform scaling (source rigs use
+  // local y≈0.88, while the host tabletop is y≈0.93).
+  root.position.set(4.2, 0.60, 2.6);
+  root.scale.setScalar(0.38);
 
-  [
-    { o: shared.makeBeaker(0.13, 0.04, 0xff6644), p: [5.2, 0.93, 2.35] },
-    { o: shared.makeBeaker(0.12, 0.038, 0x44aaff), p: [5.45, 0.93, 2.55] },
-  ].forEach(({ o, p }) => {
-    o.position.set(...p);
-    root.add(o);
+  const sourceCanvas = document.createElement('canvas');
+  sourceCanvas.width = 8;
+  sourceCanvas.height = 8;
+  sourceCanvas.style.touchAction = 'none';
+  const classes = {
+    calorimetry: CalorimetryExperiment,
+    convection: ConvectionExperiment,
+    'heat-conduction': HeatConductionExperiment,
+    'ideal-gas': IdealGasExperiment,
+    'thermal-expansion': ThermalExpansionExperiment,
+  };
+  const experiments = {};
+  const animators = [];
+  const lastParamSignatures = new Map();
+
+  for (const [id, Klass] of Object.entries(classes)) {
+    const experiment = new Klass(renderer, sourceCanvas);
+    experiment.setup();
+    experiment.controls.enabled = false;
+    experiment.rig.visible = false;
+    experiment.rig.userData.sourceExperimentId = id;
+    // Attach host semantic roles to source pick volumes so the existing
+    // pointer-lock/AR resolver can operate on the original meshes.
+    if (id === 'calorimetry') {
+      experiment.hotBeaker.userData.interactive = true;
+      experiment.hotBeaker.userData.role = 'thermo_hot_beaker';
+      experiment.coldBeaker.userData.interactive = true;
+      experiment.coldBeaker.userData.role = 'thermo_cold_beaker';
+      experiment.rig.userData.interactive = true;
+      experiment.rig.userData.role = 'thermo_calorimeter';
+    } else if (id === 'ideal-gas') {
+      experiment.piston.userData.interactive = true;
+      experiment.piston.userData.role = 'thermo_piston';
+    } else {
+      experiment.rig.userData.interactive = true;
+      experiment.rig.userData.role = `thermo_${id}`;
+    }
+    root.add(experiment.rig);
+    experiments[id] = experiment;
+  }
+
+  function setMode(expId) {
+    Object.entries(experiments).forEach(([id, experiment]) => {
+      experiment.rig.visible = id === expId;
+    });
+  }
+
+  function syncParams(expId, data, opts = {}) {
+    const exp = experiments[expId];
+    if (!exp || !data) return;
+    const next = exp.params;
+    const signatureKeys = expId === 'calorimetry'
+      ? ['tHot', 'tCold', 'mHot', 'mCold']
+      : expId === 'convection'
+        ? ['tPlate', 'tAir', 'area', 'running']
+        : expId === 'heat-conduction'
+          ? ['tHot', 'tCold', 'conductivity', 'running']
+          : expId === 'ideal-gas'
+            ? ['temperature', 'volume']
+            : ['temperature', 'length0', 'material'];
+    const signature = signatureKeys.map((key) => `${key}:${data[key]}`).join('|');
+    const changed = lastParamSignatures.get(expId) !== signature;
+    lastParamSignatures.set(expId, signature);
+    if (expId === 'calorimetry') {
+      Object.assign(next, { tHot: data.tHot, tCold: data.tCold, mHot: data.mHot, mCold: data.mCold });
+      // onParamChange resets mix when cups are full — only when user params change.
+      if (changed) exp.onParamChange();
+      // Let the source's phased approach → tilt/stream → return animation
+      // commit the cup only when its own state machine reaches the end.
+      if (data.cupHot && !exp.cup.hasHot && !exp.pour) exp._commitPour('hot');
+      if (data.cupCold && !exp.cup.hasCold && !exp.pour) exp._commitPour('cold');
+      // Host is single source of truth for mix clock (see updateSource).
+      if (data.mixProgress != null) exp.mixProgress = Number(data.mixProgress);
+      if (data.tCurrent != null) exp.tCurrent = data.tCurrent;
+      // Visual paint is owned by updateSource so we do not double _syncVisuals
+      // every frame (was a major thermo hitch + 2× mix advance path).
+      if (opts.forceVisual) exp._syncVisuals?.();
+    } else if (expId === 'convection') {
+      Object.assign(next, { tPlate: data.tPlate, tAir: data.tAir, area: data.area, running: data.running });
+      // Plate scale only depends on area; other params feed the live particle sim.
+      if (changed) exp.onParamChange('area');
+    } else if (expId === 'heat-conduction') {
+      Object.assign(next, { tHot: data.tHot, tCold: data.tCold, conductivity: data.conductivity, running: data.running });
+      if (changed) {
+        exp.onParamChange('tHot');
+        exp.onParamChange('tCold');
+      }
+      // Host owns the finite-difference field; copy into source for coloring.
+      if (data.temps?.length && exp.temps?.length) {
+        const n = Math.min(data.temps.length, exp.temps.length);
+        for (let i = 0; i < n; i += 1) exp.temps[i] = data.temps[i];
+      }
+    } else if (expId === 'ideal-gas') {
+      const prevT = next.temperature;
+      const prevV = next.volume;
+      Object.assign(next, { temperature: data.temperature, volume: data.volume });
+      if (changed) {
+        // Only rescale velocities / rebuild piston when the quantized value moved.
+        if (prevT !== next.temperature) exp.onParamChange('temperature');
+        if (prevV !== next.volume) exp.onParamChange('volume');
+      }
+    } else if (expId === 'thermal-expansion') {
+      Object.assign(next, { temperature: data.temperature, length0: data.length0, material: data.material });
+      if (changed) {
+        exp.onParamChange('material');
+        exp.onParamChange('length0');
+      }
+    }
+  }
+
+  function updateState(expId, data, opts = {}) {
+    syncParams(expId, data, opts);
+  }
+
+  /**
+   * Advance source visuals. Host manager owns discrete physics for calorimetry
+   * mix + heat-conduction FD; source must not re-integrate those (2× speed bug).
+   */
+  function updateSource(expId, dt) {
+    const exp = experiments[expId];
+    if (!exp) return;
+    const h = Math.min(dt, 0.05);
+    // Keep source clock alive for glow/pulse animations.
+    exp.clock.getDelta();
+
+    if (expId === 'calorimetry') {
+      // Pour animation is source-owned; mix progress is host-owned.
+      if (exp.pour) {
+        exp._updatePour?.(h);
+      } else {
+        // Keep the stirrer alive while the host mix clock runs (source.update
+        // no longer advances mix, so it would never spin otherwise).
+        if (
+          exp.cup?.hasHot
+          && exp.cup?.hasCold
+          && Number(exp.mixProgress || 0) < 0.98
+          && exp.stirrer
+        ) {
+          const dT = Math.abs(Number(exp.params?.tHot || 0) - Number(exp.params?.tCold || 0));
+          const stir = 3.2 + (dT / 60) * 2.5;
+          exp.stirrer.rotation.y += h * stir;
+        }
+        exp._syncVisuals?.();
+      }
+      return;
+    }
+
+    if (expId === 'heat-conduction') {
+      // Skip source FD (host already stepped d.temps and copied into exp.temps).
+      exp._hostFieldOwned = true;
+      exp.update?.(h);
+      return;
+    }
+
+    exp.update?.(h);
+
+    if (expId === 'convection' && exp.smoke?.material?.uniforms) {
+      // Source demo is 1:1; host rig is scaled down. Apply absolute host
+      // scale once per frame (never multiply size buffers — that was O(N)
+      // and fought the particle writer every tick).
+      const spriteScale = 0.45;
+      const heat = THREE.MathUtils.clamp(
+        Math.max(0, (exp.params?.tPlate || 650) - (exp.params?.tAir || 300)) / 520,
+        0,
+        1,
+      );
+      exp.smoke.material.uniforms.uScale.value = (300 + heat * 80) * spriteScale;
+      exp.smoke.material.uniforms.uOpacity.value = (exp.params?.running === false ? 0.12 : 0.55) * 0.80;
+    }
+  }
+
+  animators.push((_t) => {
+    const state = ctx.getExperimentState?.();
+    // Only drive the active experiment while running — never keep a leftover
+    // visible rig integrating after cleanup (setMode null hides all).
+    const activeId = state?.running && experiments[state.expId] ? state.expId : null;
+    if (!activeId) return;
+    updateSource(activeId, state?._dt || 1 / 60);
   });
 
-  thermo.userData.interactive = true;
   const equipment = {
-    setRodHeat: thermo.userData.setRodHeat,
-    setTempDisplay: thermo.userData.setTempDisplay,
+    setMode,
+    updateState,
+    updateSource,
+    pour: (kind) => {
+      const exp = experiments.calorimetry;
+      const beaker = kind === 'hot' ? exp.hotBeaker : exp.coldBeaker;
+      if (exp.cup?.[kind === 'hot' ? 'hasHot' : 'hasCold'] || exp.pour) return false;
+      exp._beginPour(kind, beaker);
+      return true;
+    },
+    getPourState: () => {
+      const p = experiments.calorimetry.pour;
+      return p ? { active: true, phase: p.phase, t: p.t } : { active: false };
+    },
+    reset: (expId) => {
+      lastParamSignatures.delete(expId);
+      const exp = experiments[expId];
+      exp?.reset?.();
+      // Host never uses OrbitControls on the dummy canvas.
+      if (exp?.controls) exp.controls.enabled = false;
+      if (exp) exp._hostFieldOwned = expId === 'heat-conduction';
+    },
+    /** Read live source counters (ideal-gas collisions) after visual tick. */
+    getSourceMetrics: (expId) => {
+      const exp = experiments[expId];
+      if (!exp) return null;
+      if (expId === 'ideal-gas') {
+        return {
+          collisionsPerSec: Number(exp.collisionsPerSec || 0),
+          collisionWindow: Number(exp.collisionWindow || 0),
+        };
+      }
+      return null;
+    },
+    sourceExperiments: experiments,
   };
 
-  return {
-    root,
-    equipment,
-    animators,
-    prewarm: {},
-    refs: { thermo },
-  };
+  // Heat conduction field is always host-driven in this integration.
+  if (experiments['heat-conduction']) {
+    experiments['heat-conduction']._hostFieldOwned = true;
+  }
+
+  // Per-experiment GPU compile so first open does not hitch on shader/material
+  // first-use (boot warmAll previously only compiled the last visible thermo rig).
+  const prewarm = Object.fromEntries(
+    Object.keys(experiments).map((id) => [id, () => {
+      const exp = experiments[id];
+      if (!exp?.rig) return;
+      const wasVisible = exp.rig.visible;
+      exp.rig.visible = true;
+      try {
+        exp.rig.updateWorldMatrix?.(true, true);
+        if (renderer && camera) renderer.compile?.(exp.rig, camera);
+      } catch { /* full scene paint is done by warmAll */ }
+      exp.rig.visible = wasVisible;
+    }]),
+  );
+
+  setMode(null);
+  return { root, equipment, animators, prewarm, refs: experiments };
 }

@@ -1,0 +1,38 @@
+Real billiard / pool sound effects (sample-only audio — no synthesis)
+
+## Primary short impacts (used at runtime)
+
+### public/sounds/real/clips/
+Peak-extracted, peak-normalized mono clips (~0.14–0.19s) cut from free-loops
+multi-hit recordings for variety:
+
+- hit-01..06.wav   — from Pool Game.wav (multi ball contacts)
+- clack-01..03.wav — from Pool Ball Hit
+- break-01..04.wav — from Pool Ball Break
+- cue-01..02.wav   — from Shooting Pool Sound
+- pocket-01..03.wav — from Pool Ball in Pocket
+- hall-01..05.wav  — from Pool Hall Ambiance S
+
+free-loops sources:
+- https://free-loops.com/7305-pool-game-wav.html
+- https://free-loops.com/1344-pool-ball-hit.html
+- https://free-loops.com/1343-pool-ball-break.html
+- https://free-loops.com/4789-shooting-pool-sound.html
+- https://free-loops.com/4787-pool-ball-in-pocket.html
+- https://free-loops.com/1342-pool-hall-ambiance-s.html
+
+### public/sounds/real/detail/ (GfxSounds + Sound Fishing)
+GfxSounds (https://gfxsounds.com/category/pool-snooker-sound-effects/):
+- Billiards-pool-shot.mp3 / -2 / -3
+- Pool-ball-landing-into-the-pocket-close.mp3 / -2
+- Pool-ball-drop-on-pool-table.mp3 / -2
+- Ball-rolls-on-track.mp3
+
+Sound Fishing free pack (https://www.soundfishing.eu/sound/billiards):
+- sf-impact1/2/3.mp3 — billiard balls impact 1–3 (ids 1076–1078)
+- sf-strike.mp3 — strike and balls contact (id 6977)
+- sf-pot.mp3 — billiard pot (id 1079)
+
+### Earlier copies
+- ball-collision-1..4.mp3 (Sound Fishing impacts)
+- cue-shot.mp3, pocket-real.mp3, Pool-ball-drop-on-pool-table.mp3 (GfxSounds)

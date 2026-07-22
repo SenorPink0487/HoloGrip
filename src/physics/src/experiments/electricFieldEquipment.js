@@ -164,8 +164,6 @@ export function createElectricFieldEquipment() {
   let lastResetView = -1;
   let lastSlotMetaSignature = '';
   let pendingDecoration = false;
-  let decorationTimer = 0;
-  let pendingDecorationSnapshot = null;
 
   function clearGroup(group) {
     while (group.children.length) {
@@ -306,35 +304,6 @@ export function createElectricFieldEquipment() {
     pendingDecoration = false;
   }
 
-  // Field lines and vector arrows are intentionally built after the first
-  // responsive frame. They are presentation-only; charge/probe meshes can be
-  // positioned immediately while this larger batch is assembled during idle.
-  function queueDecorationRebuild(charges, data, signature) {
-    pendingDecorationSnapshot = {
-      charges: charges.map((charge) => ({ ...charge })),
-      data: {
-        showLines: data.showLines,
-        showArrows: data.showArrows,
-        showEquipot: data.showEquipot,
-      },
-      signature,
-    };
-    if (decorationTimer) return;
-    const run = () => {
-      decorationTimer = 0;
-      const snapshot = pendingDecorationSnapshot;
-      pendingDecorationSnapshot = null;
-      if (!snapshot || !root.visible) return;
-      rebuildDecorations(snapshot.charges, snapshot.data);
-      lastFieldSignature = snapshot.signature;
-    };
-    if (typeof window?.requestIdleCallback === 'function') {
-      decorationTimer = window.requestIdleCallback(run, { timeout: 180 });
-    } else {
-      decorationTimer = window.setTimeout(run, 24);
-    }
-  }
-
   function syncForceArrow(data, probeData) {
     const showProbe = data.showProbe !== false;
     const forceSignature = `${Number(data.force?.x || 0).toFixed(4)}:${Number(data.force?.y || 0).toFixed(4)}:${Number(data.force?.z || 0).toFixed(4)}:${probeData.x}:${probeData.y}:${probeData.z}:${showProbe}`;
@@ -449,17 +418,16 @@ export function createElectricFieldEquipment() {
       if (dragging) {
         pendingDecoration = true;
       } else {
-        pendingDecoration = true;
-        queueDecorationRebuild(charges, data, chargeSignature);
+        rebuildDecorations(charges, data);
+        lastFieldSignature = chargeSignature;
       }
     } else if (pendingDecoration && !dragging) {
-      queueDecorationRebuild(charges, data, chargeSignature);
+      rebuildDecorations(charges, data);
+      lastFieldSignature = chargeSignature;
     } else {
-      if ((data.showLines !== false && lineGroup.children.length === 0)
-        || (data.showArrows !== false && arrowGroup.children.length === 0)
-        || (data.showEquipot === true && equipotGroup.children.length === 0)) {
-        queueDecorationRebuild(charges, data, chargeSignature);
-      }
+      if (data.showLines !== false && lineGroup.children.length === 0) rebuildLines(charges);
+      if (data.showArrows !== false && arrowGroup.children.length === 0) rebuildArrows(charges);
+      if (data.showEquipot === true && equipotGroup.children.length === 0) rebuildEquipotential(charges);
     }
 
     if (data.autoRotate && dt > 0) root.rotation.y += dt * 0.18;
@@ -472,6 +440,19 @@ export function createElectricFieldEquipment() {
   root.userData.prewarm = (renderer, camera, scene) => {
     const visible = root.visible;
     root.visible = true;
+    // Build field lines / arrows / force before shader compile so first experiment
+    // open does not allocate heavy decorations mid-frame.
+    root.userData.update({
+      charges: [{ id: 1, q: 1, x: 0, y: 0, z: 0 }],
+      selectedId: 1,
+      probe: { x: 2, y: 0.8, z: 0, q0: 1 },
+      force: { x: 0.12, y: 0.02, z: 0 },
+      showLines: true,
+      showArrows: true,
+      showEquipot: true,
+      showProbe: true,
+      dragging: false,
+    }, 0);
     renderer.compile(root, camera, scene);
     root.visible = visible;
   };

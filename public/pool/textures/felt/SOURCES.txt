@@ -1,0 +1,6 @@
+﻿Snooker Pool Table Cloth (Baize, Worsted Billiard, Felt Fabric)
+Source: https://www.texturecan.com/details/527/
+Author: TextureCan (https://www.texturecan.com)
+Maps used: color.jpg, normal.jpg (OpenGL), roughness.jpg, ao.jpg
+Resolution: 2K (normal converted from PNG to JPG for web size)
+License: Free for personal and commercial use per TextureCan terms — verify on site before redistribution.

@@ -1,0 +1,9 @@
+Design UI / VAB part icons
+=========================
+
+These icons were generated for this project (Imagine) in a KSP-inspired
+industrial catalog style. They are NOT assets from Kerbal Space Program
+or Squad / Private Division.
+
+When a specific part image is missing, the UI falls back to CSS/SVG placeholders.
+Category masters may be reused across part variants of the same family.

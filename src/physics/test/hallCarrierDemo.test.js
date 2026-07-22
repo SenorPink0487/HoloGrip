@@ -26,7 +26,7 @@ test('hologram canvas grows to fit dense experiment controls', () => {
     active: true,
     hud: { running: true, experiment: { id: 'hall_carrier_demo' } },
   });
-  assert.deepEqual(hallDemo, { width: 1024, height: 780 });
+  assert.deepEqual(hallDemo, { width: 1024, height: 640 });
 
   const menu = getHoloScreenLayoutSize({
     active: true,
@@ -54,7 +54,7 @@ test('selector surface stays menu-sized while display hosts experiment content',
     hud: runningHud,
     surface: 'display',
   });
-  assert.deepEqual(display, { width: 1280, height: 1320 });
+  assert.deepEqual(display, { width: 1280, height: 920 });
 
   const displayIdle = getHoloScreenLayoutSize({
     active: true,

@@ -1,220 +1,793 @@
 /**
- * 热力学实验台 — 元数据 + 交互 / 仿真
- * 量热法测比热 · 金属热传导
+ * Thermodynamics station migrated from reli-source.
+ *
+ * The source project contains five standalone experiments.  This module keeps
+ * their physical state and equations in the host experiment manager while the
+ * station scene is only responsible for rendering the apparatus.
  */
+
+import { labFrameScheduler } from '../frameBudget.js';
+
+const C_WATER = 4180;
+const R_GAS = 8.314;
+const MATERIALS = Object.freeze({
+  aluminum: { label: '铝', alpha: 23.1e-6 },
+  copper: { label: '铜', alpha: 16.5e-6 },
+  steel: { label: '钢', alpha: 12.0e-6 },
+  invar: { label: '殷钢', alpha: 1.2e-6 },
+});
 
 export const station = {
   id: 'thermo',
   title: '热力学实验台',
-  accent: '#f97316',
+  accent: '#fb923c',
   experiments: [
     {
       id: 'calorimetry',
-      name: '量热法测比热容',
-      goal: '用混合法粗测金属样品比热容',
-      theory: 'c₁m₁ΔT₁ = c₂m₂ΔT₂（忽略热损失时）',
+      name: '混合量热',
+      goal: '拖动热、冷水烧杯到量热杯，观察混合平衡温度',
+      theory: 'Q = mcΔT；Tₑq = (mₕTₕ + m𝚌T𝚌)/(mₕ + m𝚌)',
       steps: [
-        { id: 'heat', text: '加热金属样品（按住加热）', hint: '瞄准加热台按住 E' },
-        { id: 'drop', text: '将样品投入量热器冷水中', hint: '瞄准量热器按 E' },
-        { id: 'equilibrate', text: '等待热平衡，读取终温', hint: '自动平衡中…' },
-        { id: 'compute_c', text: '计算样品比热容 c', hint: '查看计算结果' },
+        { id: 'pour_hot', text: '将热水烧杯倒入量热杯', hint: '瞄准红色烧杯按 E，或点击“倒入热水”' },
+        { id: 'pour_cold', text: '将冷水烧杯倒入量热杯', hint: '再倒入蓝色烧杯，混合后温度自动趋于平衡' },
+        { id: 'equilibrate', text: '等待热平衡并读取终温', hint: '观察量热杯温度和理论平衡温度' },
+        { id: 'record', text: '写入数据并比较多组', hint: '点击「写入数据」保存 m、T 与 Tₑq；改参数后再写一组做对比' },
       ],
     },
     {
-      id: 'conduction',
-      name: '金属热传导对比',
-      goal: '比较不同金属棒的导热快慢',
-      theory: '傅里叶定律：热流密度 j = −κ ∇T',
+      id: 'convection',
+      name: '自然对流',
+      goal: '改变热板温度，观察封闭腔体内的浮力驱动流动',
+      theory: 'Q = hAΔT；Ra = 10⁸ΔTL³；Nu = 0.15Ra^(1/3)',
       steps: [
-        { id: 'heater_on', text: '开启加热端', hint: '按 E 加热' },
-        { id: 'watch', text: '观察三根金属棒的温度色阶传播', hint: '铜 > 铝 > 铁 导热更快' },
-        { id: 'rank', text: '按导热快慢排序并确认', hint: '按 E 完成' },
+        { id: 'set_plate', text: '设置热板与环境温度', hint: '拖动温度滑块，建立温差' },
+        { id: 'observe', text: '观察热羽流和回流', hint: '开启“流动”后，粒子颜色表示温度' },
+        { id: 'record', text: '写入 Ra / h / Q 到数据表', hint: '不同 ΔT 各写一组，对照换热量如何变化' },
+      ],
+    },
+    {
+      id: 'heat-conduction',
+      name: '热传导',
+      goal: '比较导热系数对温度场和热流密度的影响',
+      theory: 'q = −k∇T；稳态一维温度场在两端之间近似线性',
+      steps: [
+        { id: 'set_boundary', text: '设置热端、冷端和导热系数', hint: '拖动三个参数滑块' },
+        { id: 'observe', text: '观察试样管内温度梯度', hint: '开启采集后等待温度场趋于稳定' },
+        { id: 'record', text: '写入 k 与热流密度到数据表', hint: '改变 k 后写入，比较中点温度与 q' },
+      ],
+    },
+    {
+      id: 'ideal-gas',
+      name: '理想气体定律',
+      goal: '移动活塞并调节温度，验证 PV = nRT',
+      theory: 'PV = nRT；分子平均速率与 √T 成正比',
+      steps: [
+        { id: 'set_volume', text: '改变活塞位置（体积）', hint: '拖动体积滑块，观察活塞和压强' },
+        { id: 'set_temperature', text: '改变气体温度', hint: '温度越高，分子运动越快' },
+        { id: 'record', text: '写入 P–T–V 对照点', hint: '各条件写一组，看 P 随 T 升、随 V 降' },
+      ],
+    },
+    {
+      id: 'thermal-expansion',
+      name: '固体热膨胀',
+      goal: '加热金属棒并比较不同材料的线膨胀系数',
+      theory: 'ΔL = αL₀ΔT；L(T) = L₀(1 + αΔT)',
+      steps: [
+        { id: 'set_material', text: '选择试样材料和初始长度', hint: '选择铝、铜、钢或殷钢' },
+        { id: 'heat', text: '升高试样温度', hint: '观察自由端相对零点的位移' },
+        { id: 'record', text: '写入 ΔL 与 α 到数据表', hint: '换材料或温度后写入，比较膨胀量' },
       ],
     },
   ],
 };
 
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, Number(v)));
+
+function initData(expId) {
+  const table = {
+    tableScrollTop: 0,
+    tableScrollAuto: true,
+    records: [],
+    completed: false,
+    recordsPanelOpen: false,
+  };
+  if (expId === 'calorimetry') {
+    return {
+      tHot: 80, tCold: 20, mHot: 200, mCold: 200,
+      cupHot: false, cupCold: false, pouring: null, pourPhase: 'idle', pourProgress: 0,
+      mixProgress: 0, tCurrent: null,
+      ...table,
+    };
+  }
+  if (expId === 'convection') {
+    return { tPlate: 650, tAir: 300, area: 0.12, running: true, elapsed: 0, ...table };
+  }
+  if (expId === 'heat-conduction') {
+    const temps = new Float32Array(48).fill(300);
+    temps[0] = 700;
+    temps[47] = 280;
+    return { tHot: 700, tCold: 280, conductivity: 1.2, running: true, temps, ...table };
+  }
+  if (expId === 'ideal-gas') {
+    return {
+      temperature: 300, volume: 1.0, n: 0.04,
+      collisions: 0, collisionWindow: 0, collisionsPerSec: 0, ...table,
+    };
+  }
+  if (expId === 'thermal-expansion') {
+    return { temperature: 80, length0: 1.0, material: 'aluminum', ...table };
+  }
+  return {};
+}
+
+/**
+ * Numeric metrics for HUD / data table. Prefer this over ad-hoc canvas formulas.
+ * @returns {Record<string, number|string|null|boolean>}
+ */
+export function computeThermoMetrics(expId, d = {}) {
+  if (expId === 'calorimetry') {
+    const mh = d.cupHot ? Number(d.mHot || 0) : 0;
+    const mc = d.cupCold ? Number(d.mCold || 0) : 0;
+    const teq = mh + mc > 0
+      ? (mh * Number(d.tHot || 0) + mc * Number(d.tCold || 0)) / (mh + mc)
+      : null;
+    const tNow = d.tCurrent == null ? null : Number(d.tCurrent);
+    const qHot = teq == null || tNow == null
+      ? null
+      : (mh / 1000) * C_WATER * (Number(d.tHot || 0) - tNow) / 1000;
+    const err = teq == null || tNow == null ? null : Math.abs(tNow - teq);
+    return {
+      mHot: Number(d.mHot || 0),
+      mCold: Number(d.mCold || 0),
+      tHot: Number(d.tHot || 0),
+      tCold: Number(d.tCold || 0),
+      tNow,
+      teq,
+      qHot,
+      err,
+      mixPct: Math.round(Number(d.mixProgress || 0) * 100),
+      poured: !!(d.cupHot && d.cupCold),
+      balanced: !!(d.cupHot && d.cupCold && Number(d.mixProgress || 0) >= 0.96),
+    };
+  }
+  if (expId === 'convection') {
+    const deltaT = Math.max(0, Number(d.tPlate || 0) - Number(d.tAir || 0));
+    const area = Number(d.area || 0.12);
+    const L = Math.sqrt(Math.max(1e-6, area));
+    const ra = 1e8 * deltaT * L ** 3;
+    const nu = 0.15 * Math.pow(Math.max(ra, 1), 1 / 3);
+    const h = deltaT < 1 ? 2 : Math.max(3, (nu * 0.028) / L);
+    const q = h * area * deltaT;
+    return {
+      tPlate: Number(d.tPlate || 0),
+      tAir: Number(d.tAir || 0),
+      area,
+      deltaT,
+      ra,
+      nu,
+      h,
+      q,
+      running: d.running !== false,
+    };
+  }
+  if (expId === 'heat-conduction') {
+    const temps = d.temps;
+    const n = temps?.length || 48;
+    const mid = Number(temps?.[Math.floor(n / 2)] ?? 0);
+    const tHot = Number(d.tHot || 0);
+    const tCold = Number(d.tCold || 0);
+    const k = Number(d.conductivity || 0);
+    const deltaT = tHot - tCold;
+    const heatFlux = k * Math.abs(deltaT) * 85;
+    let err = 0;
+    if (temps?.length) {
+      for (let i = 0; i < temps.length; i += 1) {
+        const linear = tHot + (tCold - tHot) * (i / (temps.length - 1));
+        err += Math.abs(temps[i] - linear);
+      }
+    }
+    const steadyPct = temps?.length
+      ? Math.max(0, 100 - (err / temps.length / Math.max(1, Math.abs(deltaT))) * 100)
+      : 0;
+    return {
+      tHot, tCold, k, mid, deltaT, heatFlux, steadyPct, running: d.running !== false,
+    };
+  }
+  if (expId === 'ideal-gas') {
+    const T = Number(d.temperature || 0);
+    const V = Number(d.volume || 1);
+    const n = Number(d.n || 0.04);
+    // Host demo scale factor (matches existing apparatus readout).
+    const pressure = ((n * R_GAS * T) / Math.max(1e-6, V) / 1000) * 12;
+    const avgSpeed = Math.sqrt(Math.max(0, T) / 300) * 480;
+    const collisions = Number(d.collisionsPerSec || 0);
+    return { T, V, n, pressure, avgSpeed, collisions };
+  }
+  if (expId === 'thermal-expansion') {
+    const mat = MATERIALS[d.material] || MATERIALS.aluminum;
+    const T = Number(d.temperature || 20);
+    const L0 = Number(d.length0 || 1);
+    const deltaL = mat.alpha * L0 * (T - 20);
+    const length = L0 + deltaL;
+    const strain = L0 > 0 ? deltaL / L0 : 0;
+    return {
+      material: d.material || 'aluminum',
+      materialLabel: mat.label,
+      alpha: mat.alpha,
+      T,
+      L0,
+      deltaL,
+      length,
+      strain,
+    };
+  }
+  return {};
+}
+
+/** Column headers + value extractors for the measurement log table. */
+export function thermoRecordColumns(expId) {
+  if (expId === 'calorimetry') {
+    return [
+      { key: 'idx', label: '#', width: 0.06 },
+      { key: 'mh', label: 'mₕ/g', width: 0.12 },
+      { key: 'Th', label: 'Tₕ/°C', width: 0.12 },
+      { key: 'mc', label: 'm𝚌/g', width: 0.12 },
+      { key: 'Tc', label: 'T𝚌/°C', width: 0.12 },
+      { key: 'Teq', label: 'Tₑq', width: 0.14 },
+      { key: 'Tnow', label: 'T测', width: 0.14 },
+      { key: 'dT', label: '|ΔT|', width: 0.14 },
+    ];
+  }
+  if (expId === 'convection') {
+    return [
+      { key: 'idx', label: '#', width: 0.06 },
+      { key: 'Tp', label: 'T板/K', width: 0.12 },
+      { key: 'Ta', label: 'T气/K', width: 0.12 },
+      { key: 'dT', label: 'ΔT', width: 0.1 },
+      { key: 'A', label: 'A/m²', width: 0.12 },
+      { key: 'Ra', label: 'Ra', width: 0.14 },
+      { key: 'h', label: 'h', width: 0.12 },
+      { key: 'Q', label: 'Q/W', width: 0.14 },
+    ];
+  }
+  if (expId === 'heat-conduction') {
+    return [
+      { key: 'idx', label: '#', width: 0.06 },
+      { key: 'Th', label: 'T热/K', width: 0.14 },
+      { key: 'Tc', label: 'T冷/K', width: 0.14 },
+      { key: 'k', label: 'k', width: 0.12 },
+      { key: 'Tmid', label: 'T中', width: 0.14 },
+      { key: 'q', label: 'q', width: 0.16 },
+      { key: 'ss', label: '稳态%', width: 0.14 },
+    ];
+  }
+  if (expId === 'ideal-gas') {
+    return [
+      { key: 'idx', label: '#', width: 0.06 },
+      { key: 'T', label: 'T/K', width: 0.12 },
+      { key: 'V', label: 'V/×', width: 0.12 },
+      { key: 'P', label: 'P/kPa', width: 0.14 },
+      { key: 'n', label: 'n/mol', width: 0.12 },
+      { key: 'v', label: 'v̄', width: 0.14 },
+      { key: 'coll', label: '碰撞/Hz', width: 0.16 },
+    ];
+  }
+  if (expId === 'thermal-expansion') {
+    return [
+      { key: 'idx', label: '#', width: 0.06 },
+      { key: 'mat', label: '材料', width: 0.12 },
+      { key: 'T', label: 'T/°C', width: 0.12 },
+      { key: 'L0', label: 'L₀/mm', width: 0.14 },
+      { key: 'dL', label: 'ΔL/mm', width: 0.16 },
+      { key: 'alpha', label: 'α×10⁶', width: 0.14 },
+      { key: 'eps', label: '应变×10³', width: 0.16 },
+    ];
+  }
+  return [{ key: 'idx', label: '#', width: 1 }];
+}
+
+export function formatThermoRecordCell(expId, row, key, index = 0) {
+  if (key === 'idx') return String(index + 1);
+  const m = row?.metrics || row || {};
+  if (expId === 'calorimetry') {
+    if (key === 'mh') return Number(m.mHot ?? row.mHot ?? 0).toFixed(0);
+    if (key === 'Th') return Number(m.tHot ?? row.tHot ?? 0).toFixed(0);
+    if (key === 'mc') return Number(m.mCold ?? row.mCold ?? 0).toFixed(0);
+    if (key === 'Tc') return Number(m.tCold ?? row.tCold ?? 0).toFixed(0);
+    if (key === 'Teq') return m.teq == null ? '—' : Number(m.teq).toFixed(1);
+    if (key === 'Tnow') return m.tNow == null ? '—' : Number(m.tNow).toFixed(1);
+    if (key === 'dT') return m.err == null ? '—' : Number(m.err).toFixed(2);
+  }
+  if (expId === 'convection') {
+    if (key === 'Tp') return Number(m.tPlate ?? 0).toFixed(0);
+    if (key === 'Ta') return Number(m.tAir ?? 0).toFixed(0);
+    if (key === 'dT') return Number(m.deltaT ?? 0).toFixed(0);
+    if (key === 'A') return Number(m.area ?? 0).toFixed(2);
+    if (key === 'Ra') {
+      const ra = Number(m.ra ?? 0);
+      return ra >= 1e6 ? `${(ra / 1e6).toFixed(2)}e6` : ra.toFixed(0);
+    }
+    if (key === 'h') return Number(m.h ?? 0).toFixed(1);
+    if (key === 'Q') return Number(m.q ?? 0).toFixed(1);
+  }
+  if (expId === 'heat-conduction') {
+    if (key === 'Th') return Number(m.tHot ?? 0).toFixed(0);
+    if (key === 'Tc') return Number(m.tCold ?? 0).toFixed(0);
+    if (key === 'k') return Number(m.k ?? 0).toFixed(2);
+    if (key === 'Tmid') return Number(m.mid ?? 0).toFixed(1);
+    if (key === 'q') return Number(m.heatFlux ?? 0).toFixed(0);
+    if (key === 'ss') return Number(m.steadyPct ?? 0).toFixed(0);
+  }
+  if (expId === 'ideal-gas') {
+    if (key === 'T') return Number(m.T ?? 0).toFixed(0);
+    if (key === 'V') return Number(m.V ?? 0).toFixed(2);
+    if (key === 'P') return Number(m.pressure ?? 0).toFixed(1);
+    if (key === 'n') return Number(m.n ?? 0).toFixed(3);
+    if (key === 'v') return String(Math.round(Number(m.avgSpeed ?? 0)));
+    if (key === 'coll') return String(Math.round(Number(m.collisions ?? 0)));
+  }
+  if (expId === 'thermal-expansion') {
+    if (key === 'mat') return m.materialLabel || m.material || '—';
+    if (key === 'T') return Number(m.T ?? 0).toFixed(0);
+    if (key === 'L0') return (Number(m.L0 ?? 0) * 1000).toFixed(0);
+    if (key === 'dL') return (Number(m.deltaL ?? 0) * 1000).toFixed(3);
+    if (key === 'alpha') return (Number(m.alpha ?? 0) * 1e6).toFixed(1);
+    if (key === 'eps') return (Number(m.strain ?? 0) * 1000).toFixed(3);
+  }
+  return '—';
+}
+
+export function buildThermoRecordRow(expId, d) {
+  const metrics = computeThermoMetrics(expId, d);
+  return {
+    expId,
+    t: Date.now(),
+    metrics,
+    // Keep a few flat fields for older readouts / toasts.
+    ...sourceReadoutsFromMetrics(expId, metrics, d),
+  };
+}
+
+function sourceReadoutsFromMetrics(expId, m, d) {
+  if (expId === 'calorimetry') {
+    return {
+      tNow: m.tNow == null ? '—' : m.tNow.toFixed(1),
+      tEq: m.teq == null ? '—' : m.teq.toFixed(1),
+      qTransfer: m.qHot == null ? '—' : m.qHot.toFixed(2),
+      progress: String(m.mixPct ?? 0),
+      records: d.records?.length || 0,
+    };
+  }
+  if (expId === 'convection') {
+    return {
+      deltaT: m.deltaT.toFixed(0),
+      h: m.h.toFixed(1),
+      q: m.q.toFixed(1),
+      ra: m.ra >= 1e6 ? `${(m.ra / 1e6).toFixed(2)}e6` : m.ra.toFixed(0),
+      nu: m.nu.toFixed(1),
+      records: d.records?.length || 0,
+    };
+  }
+  if (expId === 'heat-conduction') {
+    return {
+      tMid: m.mid.toFixed(1),
+      heatFlux: m.heatFlux.toFixed(0),
+      deltaT: m.deltaT.toFixed(0),
+      progress: m.steadyPct.toFixed(0),
+      records: d.records?.length || 0,
+    };
+  }
+  if (expId === 'ideal-gas') {
+    return {
+      pressure: m.pressure.toFixed(1),
+      n: m.n.toFixed(3),
+      avgSpeed: String(Math.round(m.avgSpeed)),
+      collisions: String(Math.round(m.collisions)),
+      records: d.records?.length || 0,
+    };
+  }
+  if (expId === 'thermal-expansion') {
+    return {
+      deltaL: (m.deltaL * 1000).toFixed(3),
+      length: (m.length * 1000).toFixed(2),
+      alpha: (m.alpha * 1e6).toFixed(1),
+      strain: (m.strain * 1000).toFixed(3),
+      records: d.records?.length || 0,
+    };
+  }
+  return {};
+}
+
+/** Whether the current state is meaningful to log. */
+export function thermoCanRecord(expId, d) {
+  if (expId === 'calorimetry') {
+    return !!(d?.cupHot && d?.cupCold && Number(d?.mixProgress || 0) >= 0.5);
+  }
+  return true;
+}
+
+/** Short caption: what “写入数据表” means for this experiment. */
+export function thermoRecordCaption(expId) {
+  if (expId === 'calorimetry') {
+    return '写入当前 m、T 条件与测得终温 / 理论 Tₑq，用于对照热平衡。';
+  }
+  if (expId === 'convection') {
+    return '写入 ΔT、面积与导出的 Ra、Nu、h、换热量 Q，便于比较温差对流强度。';
+  }
+  if (expId === 'heat-conduction') {
+    return '写入两端温度、k、中点温度与热流密度 q，比较不同 k 的梯度。';
+  }
+  if (expId === 'ideal-gas') {
+    return '写入 T、V、P、平均速率与碰撞率，验证 P 随 T/V 的变化趋势。';
+  }
+  if (expId === 'thermal-expansion') {
+    return '写入材料、温度、ΔL 与 α，比较不同金属的线膨胀。';
+  }
+  return '写入当前参数与计算量到下方对照表。';
+}
+
+export function thermoRecordBlockedReason(expId, d) {
+  if (expId === 'calorimetry') {
+    if (!d?.cupHot || !d?.cupCold) return '请先倒入热水和冷水，待混合后再写入。';
+    if (Number(d?.mixProgress || 0) < 0.5) return '混合尚未过半，请等待温度接近平衡。';
+  }
+  return '';
+}
+
+function sourceReadouts(expId, d) {
+  return sourceReadoutsFromMetrics(expId, computeThermoMetrics(expId, d), d);
+}
+
 export function createHandlers(ctx) {
-  const {
-    state, equipment, toast, pushHud, advanceStep, setStep, currentStep,
-  } = ctx;
+  const { state, equipment, toast, pushHud, advanceStep, setStep, currentStep } = ctx;
+  let liveHudAccumulator = 0;
+  /** Last time we painted the HUD during a continuous slider drag (ms). */
+  let liveSliderHudAt = -Infinity;
+  /** Reused scratch buffer for heat-conduction finite-difference steps. */
+  let heatNextTemps = null;
 
-  function initData(expId) {
-    if (expId === 'calorimetry') {
-      return {
-        heating: false, sampleT: 25, waterT: 22, mixed: false, equilibrating: false,
-        finalT: 0, cSample: 0, mSample: 0.05, mWater: 0.12, cWater: 4180,
-      };
-    }
-    if (expId === 'conduction') {
-      return { heaterOn: false, progress: 0 };
-    }
-    return {};
+  function applyVisualDefaults(expId) {
+    // Visibility only (this function itself runs on the frame budget).
+    // Source reset is a *second* budget job — liquid mesh rebuild must never
+    // run inside the pre-render expManager.update path.
+    equipment.thermo?.setMode?.(expId);
+    state.data._awaitThermoReset = null;
+    labFrameScheduler.schedule(`thermo:reset:${expId}`, () => {
+      if (!state.running || state.expId !== expId || !state.data) return;
+      try {
+        equipment.thermo?.reset?.(expId);
+        equipment.thermo?.updateState?.(expId, state.data, { forceVisual: true });
+      } catch { /* ignore */ }
+    }, { priority: 65 });
   }
 
-  function applyVisualDefaults() {
-    /* no-op */
-  }
-
-  function interact(target, t, step) {
-    const eid = state.expId;
-
-    if (eid === 'calorimetry') {
-      if (step.id === 'heat' || (!state.data.mixed && step.id === 'heat')) {
-        state.data.heating = true;
-        toast('加热中…松手停止（在更新循环中升温）');
-        pushHud();
-        return true;
-      }
-      if (step.id === 'drop' || (state.data.sampleT > 60 && !state.data.mixed)) {
-        state.data.mixed = true;
-        state.data.heating = false;
-        state.data.equilibrating = true;
-        state.data.tMix = t;
-        setStep('drop');
-        advanceStep();
-        toast('样品已投入冷水，热平衡中…');
-        pushHud();
-        return true;
-      }
-      if (step.id === 'compute_c' || state.data.finalT) {
-        state.data.completed = true;
-        toast(`比热容 c ≈ ${state.data.cSample.toFixed(0)} J/(kg·K)`);
-        pushHud();
-        return true;
-      }
+  /**
+   * Quantize continuous slider values so tiny float jitter does not thrash
+   * 3D onParamChange / HUD redraws while the user is still dragging.
+   */
+  function quantizeThermoValue(key, value) {
+    const v = Number(value);
+    if (!Number.isFinite(v)) return value;
+    if (key === 'area' || key === 'volume' || key === 'length0' || key === 'conductivity') {
+      return Math.round(v * 100) / 100;
     }
-
-    if (eid === 'conduction') {
-      if (step.id === 'heater_on') {
-        state.data.heaterOn = true;
-        advanceStep();
-        toast('加热端已开启');
-        pushHud();
-        return true;
-      }
-      if (step.id === 'watch') {
-        if (state.data.progress > 0.6) advanceStep();
-        else toast('请继续观察温度传播…');
-        pushHud();
-        return true;
-      }
-      if (step.id === 'rank') {
-        state.data.completed = true;
-        toast('导热排序：铜 > 铝 > 铁');
-        pushHud();
-        return true;
-      }
-    }
-
-    if (target?.userData?.role === 'ui_action' || target?.userData?.role === 'generic') {
-      if (eid === 'calorimetry') {
-        if (step.id === 'heat') {
-          state.data.heating = true;
-          toast('按住 E 持续加热');
-          pushHud();
-          return true;
-        }
-        if (step.id === 'drop') {
-          state.data.mixed = true;
-          state.data.heating = false;
-          state.data.equilibrating = true;
-          state.data.tMix = t;
-          advanceStep();
-          toast('投入冷水');
-          pushHud();
-          return true;
-        }
-        if (step.id === 'compute_c') {
-          state.data.completed = true;
-          toast(`c ≈ ${state.data.cSample?.toFixed(0)}`);
-          pushHud();
-          return true;
-        }
-      }
-      if (eid === 'conduction') {
-        if (step.id === 'heater_on') {
-          state.data.heaterOn = true;
-          advanceStep();
-          toast('加热开启');
-          pushHud();
-          return true;
-        }
-        if (step.id === 'watch' && state.data.progress > 0.55) {
-          advanceStep();
-          pushHud();
-          return true;
-        }
-        if (step.id === 'rank') {
-          state.data.completed = true;
-          toast('铜 > 铝 > 铁');
-          pushHud();
-          return true;
-        }
-      }
-    }
-
-    return false;
+    // Temperature / mass style controls are displayed with 0 decimals.
+    return Math.round(v);
   }
 
-  function onKey() {
-    return false;
-  }
-
-  function onWheel() {
-    return false;
-  }
-
-  function holdInteract(holding, t, dt) {
-    if (state.expId !== 'calorimetry') return;
-    if (holding && !state.data.mixed && currentStep()?.id === 'heat') {
-      state.data.heating = true;
-      state.data.sampleT = Math.min(95, state.data.sampleT + dt * 18);
-      if (state.data.sampleT >= 80 && currentStep()?.id === 'heat') {
-        advanceStep();
-        toast(`样品温度 ${state.data.sampleT.toFixed(0)}°C，可以投入水中`);
-      }
-      pushHud();
-    } else {
-      state.data.heating = false;
-    }
-  }
-
-  function update(t, dt) {
-    const eid = state.expId;
+  function setValue(key, value, opts = {}) {
     const d = state.data;
+    if (!d || !Object.prototype.hasOwnProperty.call(d, key)) return false;
+    const live = opts.live === true;
+    // Material is discrete; running is boolean — never quantize those.
+    const next = (key === 'material' || key === 'running')
+      ? value
+      : quantizeThermoValue(key, value);
 
-    if (eid === 'calorimetry' && d.equilibrating) {
-      const elapsed = t - (d.tMix || t);
-      const Teq = (d.mSample * 385 * d.sampleT + d.mWater * d.cWater * d.waterT)
-        / (d.mSample * 385 + d.mWater * d.cWater);
-      d.finalT = d.waterT + (Teq - d.waterT) * (1 - Math.exp(-elapsed * 0.8));
-      d.sampleT = d.finalT;
-      if (equipment.thermo?.setTempDisplay) {
-        equipment.thermo.setTempDisplay(d.finalT);
+    if (state.expId === 'convection') {
+      if (key === 'tPlate') d.tPlate = clamp(next, 300, 900);
+      else if (key === 'tAir') d.tAir = clamp(next, 250, 350);
+      else if (key === 'area') d.area = clamp(next, 0.05, 0.25);
+      else if (key === 'running') d.running = !!next;
+      else return false;
+    } else if (state.expId === 'heat-conduction') {
+      if (key === 'tHot') d.tHot = clamp(next, 200, 900);
+      else if (key === 'tCold') d.tCold = clamp(next, 200, 900);
+      else if (key === 'conductivity') d.conductivity = clamp(next, 0.15, 3.5);
+      else if (key === 'running') d.running = !!next;
+      else return false;
+    } else if (state.expId === 'ideal-gas') {
+      if (key === 'temperature') d.temperature = clamp(next, 150, 600);
+      else if (key === 'volume') d.volume = clamp(next, 0.4, 1.25);
+      else return false;
+    } else if (state.expId === 'thermal-expansion') {
+      if (key === 'temperature') d.temperature = clamp(next, 20, 400);
+      else if (key === 'length0') d.length0 = clamp(next, 0.6, 1.4);
+      else if (key === 'material' && MATERIALS[next]) d.material = next;
+      else return false;
+    } else if (state.expId === 'calorimetry') {
+      if (key === 'tHot') d.tHot = clamp(next, 40, 95);
+      else if (key === 'tCold') d.tCold = clamp(next, 5, 40);
+      else if (key === 'mHot') d.mHot = clamp(next, 50, 400);
+      else if (key === 'mCold') d.mCold = clamp(next, 50, 400);
+      else return false;
+    } else {
+      return false;
+    }
+
+    // Skip redundant 3D/HUD work when the quantized value did not change.
+    if (live && d._lastThermoKey === key && d._lastThermoValue === d[key]) {
+      return true;
+    }
+    d._lastThermoKey = key;
+    d._lastThermoValue = d[key];
+
+    equipment.thermo?.updateState?.(state.expId, d, { live });
+
+    if (!live) {
+      liveSliderHudAt = -Infinity;
+      pushHud();
+      return true;
+    }
+
+    // Continuous drag: keep the 3D rig live, but do not repaint the full
+    // hologram canvas on every pointermove (that was the main hitch source).
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (now - liveSliderHudAt >= 90) {
+      liveSliderHudAt = now;
+      pushHud();
+    }
+    return true;
+  }
+
+  function pour(kind) {
+    const d = state.data;
+    const key = kind === 'hot' ? 'cupHot' : 'cupCold';
+    if (d[key]) return false;
+    if (equipment.thermo?.pour && equipment.thermo.pour(kind) === false) return false;
+    d[key] = true;
+    d.tCurrent = d.cupHot ? d.tHot : d.tCold;
+    d.pouring = kind;
+    d.pourPhase = 'approach';
+    d.pourProgress = 0;
+    toast(kind === 'hot' ? '热水已倒入量热杯' : '冷水已倒入量热杯');
+    pushHud();
+    return true;
+  }
+
+  function record() {
+    const d = state.data;
+    const expId = state.expId;
+    if (!thermoCanRecord(expId, d)) {
+      toast(thermoRecordBlockedReason(expId, d) || '当前状态尚不可记录');
+      return false;
+    }
+    const row = buildThermoRecordRow(expId, d);
+    d.records = [...(d.records || []), row].slice(-24);
+    d.tableScrollAuto = true;
+    // Do not auto-open the records panel — user opens it via「数据表」.
+    d.completed = d.records.length >= 1;
+    // Advance to the "record" step when the experiment defines one.
+    const steps = station.experiments.find((e) => e.id === expId)?.steps || [];
+    if (steps.some((s) => s.id === 'record')) setStep('record');
+    const n = d.records.length;
+    const summary = thermoRecordColumns(expId)
+      .filter((c) => c.key !== 'idx')
+      .slice(0, 3)
+      .map((c) => `${c.label}=${formatThermoRecordCell(expId, row, c.key, n - 1)}`)
+      .join(' · ');
+    toast(`已写入第 ${n} 组：${summary}`);
+    pushHud();
+    return true;
+  }
+
+  function clearRecords() {
+    const d = state.data;
+    if (!d) return false;
+    d.records = [];
+    d.completed = false;
+    d.tableScrollTop = 0;
+    d.tableScrollAuto = true;
+    toast('已清空数据表');
+    pushHud();
+    return true;
+  }
+
+  function interact(target, _t, step) {
+    const role = target?.userData?.role;
+    if (state.expId === 'calorimetry') {
+      if (role === 'thermo_hot_beaker' || step.id === 'pour_hot' && (role === 'thermo_calorimeter' || role === 'ui_action')) return pour('hot');
+      if (role === 'thermo_cold_beaker' || step.id === 'pour_cold' && (role === 'thermo_calorimeter' || role === 'ui_action')) return pour('cold');
+    }
+    if (role === 'ui_action' || role === 'generic') {
+      if (step.id === 'record') return record();
+      if (step.id === 'pour_hot') return pour('hot');
+      if (step.id === 'pour_cold') return pour('cold');
+      if (step.id === 'observe' || step.id === 'heat' || step.id === 'set_temperature' || step.id === 'set_volume' || step.id === 'set_boundary' || step.id === 'set_plate' || step.id === 'set_material') {
+        advanceStep();
+        pushHud();
+        return true;
       }
-      if (elapsed > 2.5) {
-        d.equilibrating = false;
-        const Ts0 = 80;
-        const heated = Math.max(Ts0, d.sampleT);
-        d.cSample = (d.cWater * d.mWater * (d.finalT - d.waterT))
-          / (d.mSample * Math.max(1, heated - d.finalT));
-        if (!isFinite(d.cSample) || d.cSample < 100) d.cSample = 385;
-        setStep('compute_c');
-        toast(`终温 ${d.finalT.toFixed(1)}°C，c ≈ ${d.cSample.toFixed(0)} J/(kg·K)`);
+    }
+    return false;
+  }
+
+  function onUiAction(action, payload = {}) {
+    if (!state.running) return false;
+    if (action === 'thermo-set') {
+      return setValue(payload.key, payload.value, { live: payload.live === true });
+    }
+    if (action === 'thermo-toggle') return setValue(payload.key, !state.data[payload.key]);
+    if (action === 'thermo-pour-hot') return pour('hot');
+    if (action === 'thermo-pour-cold') return pour('cold');
+    if (action === 'thermo-record') return record();
+    if (action === 'thermo-clear-records') return clearRecords();
+    if (action === 'thermo-records-panel') {
+      const d = state.data;
+      if (!d) return false;
+      if (payload.open === true) d.recordsPanelOpen = true;
+      else if (payload.open === false) d.recordsPanelOpen = false;
+      else d.recordsPanelOpen = !d.recordsPanelOpen;
+      pushHud();
+      return true;
+    }
+    if (action === 'thermo-reset') {
+      state.data = initData(state.expId);
+      // Reset the source apparatus as well as the controller data.  The
+      // source calorimetry rig owns the actual cup liquid meshes/fill levels;
+      // merely replacing state.data would leave poured water visible.
+      equipment.thermo?.reset?.(state.expId);
+      equipment.thermo?.setMode?.(state.expId);
+      equipment.thermo?.updateState?.(state.expId, state.data);
+      liveHudAccumulator = 0;
+      liveSliderHudAt = -Infinity;
+      heatNextTemps = null;
+      pushHud();
+      return true;
+    }
+    return false;
+  }
+
+  function onKey(code) {
+    if (code === 'KeyR') return onUiAction('thermo-reset');
+    if (code !== 'KeyE') return false;
+    const step = currentStep();
+    return interact({ userData: { role: 'ui_action' } }, 0, step);
+  }
+
+  function beginManipulation(target) {
+    const role = target?.userData?.role;
+    if (role === 'thermo_hot_beaker' || role === 'thermo_cold_beaker') {
+      state.data.dragging = role;
+      return true;
+    }
+    return false;
+  }
+
+  function endManipulation() {
+    const role = state.data?.dragging;
+    state.data.dragging = null;
+    if (role === 'thermo_hot_beaker') return pour('hot');
+    if (role === 'thermo_cold_beaker') return pour('cold');
+    return false;
+  }
+
+  // The host loop calls holdInteract every animation frame while pointer/AR
+  // input is held.  Beakers commit on release, so the hold path only keeps the
+  // armed role alive and deliberately does not change the physical state.
+  function holdInteract(holding) {
+    if (!holding && state.data?.dragging) endManipulation();
+  }
+
+  function update(_t, dt) {
+    const d = state.data;
+    if (!d) return d;
+    state._dt = dt;
+    liveHudAccumulator += dt;
+    const sliding = !!d._uiSlider;
+    let mixCompletedThisFrame = false;
+    if (state.expId === 'calorimetry') {
+      const pourState = equipment.thermo?.getPourState?.();
+      if (d.pouring && pourState?.active) {
+        d.pourPhase = pourState.phase;
+        const phaseDur = { approach: 0.35, pouring: 0.9, return: 0.4 };
+        const phaseStart = pourState.phase === 'approach' ? 0 : pourState.phase === 'pouring' ? 0.35 : 1.25;
+        d.pourProgress = Math.min(1, (phaseStart + Math.min(phaseDur[pourState.phase] || 0.4, pourState.t)) / 1.65);
+      } else if (d.pouring && !pourState?.active) {
+        d.pourProgress = 1;
+        d.pourPhase = 'idle';
+        d.pouring = null;
+        if (d.cupHot && d.cupCold) setStep('equilibrate');
+        else if (d.cupHot) setStep('pour_cold');
+        else setStep('pour_hot');
+      }
+    }
+    // Host-owned mix clock (source no longer advances mixProgress).
+    if (state.expId === 'calorimetry' && d.cupHot && d.cupCold && !d.pouring) {
+      const teq = (d.mHot * d.tHot + d.mCold * d.tCold) / (d.mHot + d.mCold);
+      const tau = Math.max(1.1, Math.min(6.5, 2.8 * (60 / Math.max(8, Math.abs(d.tHot - d.tCold)))));
+      const previousMixProgress = d.mixProgress;
+      d.mixProgress = Math.min(1, d.mixProgress + dt / tau);
+      d.tCurrent = d.tCold + (teq - d.tCold) * (1 - Math.exp(-d.mixProgress * 4));
+      mixCompletedThisFrame = previousMixProgress < 1 && d.mixProgress >= 1;
+      if (d.mixProgress > 0.96 && currentStep()?.id === 'equilibrate') setStep('record');
+    }
+    if (state.expId === 'convection') d.elapsed += Math.min(dt, 0.05);
+    // Host-owned 1D conduction field (source paints + flow particles only).
+    if (state.expId === 'heat-conduction' && d.running) {
+      const cur = d.temps;
+      if (cur && cur.length) {
+        if (!(cur instanceof Float32Array)) {
+          d.temps = Float32Array.from(cur);
+        }
+        const src = d.temps;
+        if (!heatNextTemps || heatNextTemps.length !== src.length) {
+          heatNextTemps = new Float32Array(src.length);
+        }
+        const alpha = d.conductivity * 0.35;
+        // Cap substeps so a hitch cannot explode the rod temperature field.
+        const steps = Math.min(4, Math.max(1, Math.ceil(dt * 60)));
+        const h = Math.min(dt / steps, 0.02);
+        let a = src;
+        let b = heatNextTemps;
+        for (let s = 0; s < steps; s += 1) {
+          b[0] = d.tHot;
+          b[b.length - 1] = d.tCold;
+          for (let i = 1; i < a.length - 1; i += 1) {
+            b[i] = a[i] + alpha * h * (a[i - 1] - 2 * a[i] + a[i + 1]);
+          }
+          const tmp = a;
+          a = b;
+          b = tmp;
+        }
+        d.temps = a;
+        heatNextTemps = b;
+      }
+    }
+    // Ideal-gas particle collisions come from the source sim (not random HUD noise).
+    if (state.expId === 'ideal-gas') {
+      const metrics = equipment.thermo?.getSourceMetrics?.('ideal-gas');
+      if (metrics && Number.isFinite(metrics.collisionsPerSec)) {
+        d.collisionsPerSec = metrics.collisionsPerSec;
+      }
+    }
+    // While a content-screen slider is held, setValue already pushed params;
+    // only re-sync for time-evolving experiments (mix / conduction boundary).
+    if (!sliding || state.expId === 'calorimetry' || state.expId === 'heat-conduction') {
+      equipment.thermo?.updateState?.(state.expId, d, { live: sliding });
+    }
+    const liveCalorimetry = state.expId === 'calorimetry'
+      && (d.pouring || (d.cupHot && d.cupCold && d.mixProgress < 1));
+    if (mixCompletedThisFrame) {
+      // The live-update condition intentionally stops at 1.0; explicitly
+      // publish the terminal frame so the HUD cannot remain visually at 99%.
+      liveHudAccumulator = 0;
+      pushHud();
+    } else if (sliding) {
+      // Final paint is owned by clearUiSlider; keep a low-rate live readout.
+      if (liveHudAccumulator >= 0.1) {
+        liveHudAccumulator = 0;
         pushHud();
       }
+    } else if (liveCalorimetry && liveHudAccumulator >= 0.05) {
+      liveHudAccumulator = 0;
+      pushHud();
     }
-
-    if (eid === 'conduction' && d.heaterOn) {
-      d.progress = Math.min(1, d.progress + dt * 0.15);
-      if (equipment.thermo?.setRodHeat) {
-        equipment.thermo.setRodHeat(d.progress);
-      }
-    }
-
     return d;
   }
 
-  return { initData, applyVisualDefaults, interact, onKey, onWheel, holdInteract, update };
+  function cleanup() {
+    if (state.data) state.data._awaitThermoReset = null;
+    // Park apparatus and hard-reset the active source so a half-poured mix /
+    // mid-flight particle field cannot leak into the next open.
+    const eid = state.expId;
+    try {
+      if (eid) equipment.thermo?.reset?.(eid);
+    } catch { /* ignore */ }
+    equipment.thermo?.setMode?.(null);
+  }
+
+  return { initData, applyVisualDefaults, interact, onUiAction, onKey, beginManipulation, updateManipulation: () => false, endManipulation, holdInteract, update, cleanup, sourceReadouts };
 }
+
+export { MATERIALS, sourceReadouts };

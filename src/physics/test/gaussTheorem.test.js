@@ -79,5 +79,5 @@ test('Gauss content display reserves the dense control layout', () => {
     surface: 'display',
     hud: { running: true, experiment: { id: 'gauss_theorem' } },
   });
-  assert.deepEqual(size, { width: 1280, height: 1350 });
+  assert.deepEqual(size, { width: 1280, height: 1080 });
 });

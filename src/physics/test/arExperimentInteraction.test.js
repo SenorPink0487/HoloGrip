@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createHandlers as createMechanicsHandlers } from '../src/experiments/mechanics.js';
+import { createHandlers as createMechanicsHandlers, station as mechanicsStation } from '../src/experiments/mechanics.js';
 import { createHandlers as createOpticsHandlers } from '../src/experiments/optics.js';
 import { createHandlers as createElectroHandlers } from '../src/experiments/electro.js';
 
@@ -22,34 +22,55 @@ function createContext({ expId, stepId, equipment }) {
   };
 }
 
-test('AR mechanics drag changes pendulum length within its physical rail', () => {
-  let visualLength = 0;
-  const ctx = createContext({
-    expId: 'pendulum_g',
-    stepId: 'set_L',
-    equipment: { mechanics: { setPendulumLength: (value) => { visualLength = value; } } },
-  });
-  const handlers = createMechanicsHandlers(ctx);
-  ctx.state.data = handlers.initData('pendulum_g');
-  const target = { userData: { role: 'pendulum_bob' } };
-  assert.equal(handlers.beginManipulation(target), true);
-  handlers.updateManipulation(target, { totalY: -1000, dragged: true });
-  assert.equal(ctx.state.data.L, 1);
-  assert.equal(visualLength, 1);
-  handlers.endManipulation(target, { dragged: true });
-  assert.equal(ctx.stepId, 'pull');
+test('mechanics station replaces the three legacy experiments with all six source experiments', () => {
+  assert.deepEqual(
+    mechanicsStation.experiments.map((experiment) => experiment.id),
+    ['free-fall', 'inclined-plane', 'pendulum', 'collision', 'projectile', 'viscosity'],
+  );
 });
 
-test('AR spring mass drag snaps to the supported mass set', () => {
-  const ctx = createContext({ expId: 'spring_k', stepId: 'set_m', equipment: { mechanics: {} } });
+test('mechanics hologram parameter updates rebuild from the authoritative source state', () => {
+  let updated = null;
+  const ctx = createContext({
+    expId: 'free-fall',
+    stepId: 'configure',
+    equipment: {
+      mechanics: {
+        setParam: (id, key, value) => {
+          updated = { id, key, value };
+          return { params: { height: value }, readouts: [], paused: false, sourceTime: 0 };
+        },
+      },
+    },
+  });
   const handlers = createMechanicsHandlers(ctx);
-  ctx.state.data = handlers.initData('spring_k');
-  const target = { userData: { role: 'spring_mass' } };
-  handlers.beginManipulation(target);
-  handlers.updateManipulation(target, { totalY: -60, dragged: true });
-  assert.equal(ctx.state.data.m, 0.3);
-  handlers.endManipulation(target, { dragged: true });
-  assert.equal(ctx.stepId, 'oscillate');
+  ctx.state.data = handlers.initData('free-fall');
+  assert.equal(handlers.onUiAction('mechanics-source-set', { key: 'height', value: 6.5 }), true);
+  assert.deepEqual(updated, { id: 'free-fall', key: 'height', value: 6.5 });
+  assert.equal(ctx.state.data.params.height, 6.5);
+});
+
+test('AR viscosity ball preserves grab, continuous drag, and release lifecycle', () => {
+  const calls = [];
+  const ctx = createContext({
+    expId: 'viscosity',
+    stepId: 'ball',
+    equipment: {
+      mechanics: {
+        beginBallDrag: (diameter) => { calls.push(['begin', diameter]); return true; },
+        updateBallDrag: (x, y) => { calls.push(['update', x, y]); return true; },
+        endBallDrag: (cancelled) => { calls.push(['end', cancelled]); return true; },
+        snapshot: () => ({ params: { diameterMm: 3 }, readouts: [], paused: false, sourceTime: 0 }),
+      },
+    },
+  });
+  const handlers = createMechanicsHandlers(ctx);
+  ctx.state.data = handlers.initData('viscosity');
+  const target = { userData: { role: 'mechanics_viscosity_ball', diameterMm: 3 } };
+  assert.equal(handlers.beginManipulation(target), true);
+  assert.equal(handlers.updateManipulation(target, { totalX: 120, totalY: -40, dragged: true }), true);
+  assert.equal(handlers.endManipulation(target, { dragged: true }), true);
+  assert.deepEqual(calls, [['begin', 3], ['update', 120, -40], ['end', false]]);
 });
 
 test('AR optics distinguishes a source tap from a wavelength drag', () => {
@@ -311,6 +332,47 @@ test('content-screen Faraday B slider arms drag and follows absolute pick / rela
   assert.equal(ctx.state.data.sliderDragging, false);
   assert.ok(ctx.state.data.lastInduction, 'releasing the slider records an induction measurement');
   assert.equal(ctx.stepId, 'conclude');
+});
+
+test('Hall probe grab applies continuous camera-drag via updateManipulation', () => {
+  let lastProbe = null;
+  const mouseDrag = { holdLMB: false, movementX: 0, movementY: 0 };
+  const ctx = createContext({
+    expId: 'hall_effect',
+    stepId: 'scan',
+    equipment: {
+      electro: {
+        mouseDrag,
+        updateHall: (data) => { lastProbe = data.probePos; },
+        setHallWiring: () => {},
+      },
+    },
+  });
+  const handlers = createElectroHandlers(ctx);
+  ctx.state.data = handlers.initData('hall_effect');
+  // Skip identify — probe drag is for post-identify steps.
+  ctx.state.data.identified = {
+    hall_helmholtz: true,
+    hall_solenoid: true,
+    hall_probe: true,
+    hall_console: true,
+  };
+  ctx.state.stepIndex = 3;
+  const probe = { userData: { role: 'hall_probe' } };
+  assert.equal(handlers.beginManipulation(probe), true);
+  assert.equal(ctx.state.data.hallDragArmed, true);
+  const start = ctx.state.data.probePos;
+  // holdInteract needs >0.08s accum before dragging starts
+  handlers.updateManipulation(probe, { dt: 0.1, time: 0.1 });
+  mouseDrag.movementX = 80;
+  handlers.updateManipulation(probe, { dt: 0.05, time: 0.15 });
+  assert.ok(
+    ctx.state.data.probePos > start,
+    `expected probePos to rise from ${start}, got ${ctx.state.data.probePos}`,
+  );
+  assert.equal(lastProbe, ctx.state.data.probePos);
+  assert.equal(handlers.endManipulation(probe, { dragged: true }), true);
+  assert.equal(ctx.state.data.hallDragArmed, false);
 });
 
 test('Hall identify requires sequential order and reports correct/wrong picks', () => {

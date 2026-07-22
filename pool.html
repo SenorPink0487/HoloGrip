@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HoloPool · 三维台球</title>
+    <link rel="icon" href="/pool/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/pool/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="game" tabindex="0"></canvas>
+
+      <div id="hud">
+        <div class="hud-top">
+          <div class="hud-dock">
+            <div id="status" class="status-card" data-mode="free">
+              <span id="status-mode" class="status-mode">自由移动</span>
+              <span id="status-detail" class="status-detail">WASD 行走 · 靠近球桌按 E</span>
+            </div>
+
+            <div class="action-rail" id="action-rail">
+              <button
+                type="button"
+                id="help-toggle"
+                class="hud-btn hud-btn-ghost"
+                aria-expanded="false"
+                aria-controls="help-panel"
+              >
+                操作说明
+              </button>
+            </div>
+
+            <div id="help-panel" class="float-panel help-panel hidden" role="region" aria-label="操作说明">
+              <div class="float-panel-head">
+                <span class="float-panel-title">操作说明</span>
+                <button type="button" id="help-close" class="icon-btn" aria-label="关闭操作说明">×</button>
+              </div>
+              <div class="help-body">
+                <div class="help-row"><kbd>WASD</kbd><span>移动</span></div>
+                <div class="help-row"><kbd>左键拖动</kbd><span>转镜头</span></div>
+                <div class="help-row"><kbd>E</kbd><span>就位击球 / 退出瞄准</span></div>
+                <div class="help-row"><kbd>A</kbd><kbd>D</kbd><span>瞄准转向</span></div>
+                <div class="help-row"><kbd>拖杆尾</kbd><span>精细调角</span></div>
+                <div class="help-row"><kbd>W</kbd><kbd>S</kbd><span>站位前后</span></div>
+                <div class="help-row"><kbd>空格</kbd><span>蓄力击球</span></div>
+                <div class="help-row"><kbd>公式推演</kbd><span>俯视落点 + 公式</span></div>
+                <div class="help-row"><kbd>R</kbd><span>重新摆球</span></div>
+                <div class="help-row"><kbd>H</kbd><span>隐藏界面</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="hud-bottom">
+          <div class="power-wrap" id="play-power-wrap" data-level="idle" style="--p: 0; --heat: 0.35">
+            <div class="power-aura" aria-hidden="true"></div>
+            <div class="power-rings" aria-hidden="true">
+              <span class="power-ring"></span>
+              <span class="power-ring"></span>
+              <span class="power-ring"></span>
+            </div>
+            <canvas id="power-particles" class="power-particles" width="420" height="180" aria-hidden="true"></canvas>
+
+            <div class="power-readout">
+              <span class="power-label">力度</span>
+              <span id="power-value" class="power-value">0%</span>
+            </div>
+
+            <div class="power-gauge">
+              <svg class="power-arc" viewBox="0 0 240 120" aria-hidden="true">
+                <defs>
+                  <linearGradient id="power-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#2ee59a" />
+                    <stop offset="45%" stop-color="#f0d24a" />
+                    <stop offset="100%" stop-color="#ff5b4a" />
+                  </linearGradient>
+                  <filter id="power-glow" x="-40%" y="-40%" width="180%" height="180%">
+                    <feGaussianBlur stdDeviation="3.5" result="b" />
+                    <feMerge>
+                      <feMergeNode in="b" />
+                      <feMergeNode in="SourceGraphic" />
+                    </feMerge>
+                  </filter>
+                </defs>
+                <path
+                  class="power-arc-track"
+                  d="M 24 104 A 96 96 0 0 1 216 104"
+                  fill="none"
+                  stroke-width="10"
+                  stroke-linecap="round"
+                />
+                <path
+                  id="power-fill"
+                  class="power-arc-fill"
+                  d="M 24 104 A 96 96 0 0 1 216 104"
+                  fill="none"
+                  stroke="url(#power-grad)"
+                  stroke-width="10"
+                  stroke-linecap="round"
+                  pathLength="100"
+                  stroke-dasharray="0 100"
+                  filter="url(#power-glow)"
+                />
+              </svg>
+              <div class="power-tip" id="power-tip" aria-hidden="true"></div>
+              <div class="power-ticks" aria-hidden="true">
+                <i></i><i></i><i></i><i></i><i></i>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="toast" class="toast hidden"></div>
+    </div>
+    <script type="module" src="/src/pool/main.js"></script>
+  </body>
+</html>

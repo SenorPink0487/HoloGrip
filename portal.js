@@ -287,12 +287,12 @@ const projectDetails = {
         title: '02 / HoloPhysics 未来物理实验室',
         tag: 'PHYSICS // QUANTUM LAB V0.1.0',
         desc:
-            'HoloPhysics 是一座可漫游的三维交互物理实验室，集成力学、光学、电磁学与热力学四个实验台和九项实验。用户可通过键鼠或 MediaPipe AR 手势直接操作仪器、调节参数、记录数据，并在全息终端中查看实验步骤、物理公式与测量结果。',
+            'HoloPhysics 是一座可漫游的三维交互物理实验室，集成力学、几何与波动光学、电磁学（含法拉第/高斯/霍尔/感生电场）与热力学多实验台。用户可通过键鼠或 MediaPipe AR 手势直接操作仪器、调节参数、记录数据，并在全息终端中查看实验步骤、物理公式与测量结果。',
         specs: {
             engine: 'Three.js / MediaPipe Hands',
             perf: 'WebGL + Worker Hand Tracking',
-            algorithm: '9 Interactive Physics Experiments',
-            version: 'v0.1.0',
+            algorithm: 'Multi-station Physics Lab (Mechanics/Optics/EM/Thermo)',
+            version: 'v0.2.0',
         },
         demoColor: 'var(--accent-emerald)',
         visualClass: 'physics-modal-demo',
@@ -306,6 +306,54 @@ const projectDetails = {
                 <div class="orbiting-planet planet-1" style="position: absolute; border-radius: 50%; width: 8px; height: 8px; animation: orbitPhysics1 5s infinite linear; background: var(--accent-emerald); box-shadow: 0 0 8px var(--accent-emerald);"></div>
                 <div class="orbiting-planet planet-2" style="position: absolute; border-radius: 50%; width: 6px; height: 6px; animation: orbitPhysics2 9s infinite linear; background: var(--accent-emerald); box-shadow: 0 0 8px var(--accent-emerald);"></div>
                 <div class="planet-3"></div>
+            </div>
+        `,
+    },
+    rocket: {
+        title: '04 / HoloRocket 火箭发射仿真',
+        tag: 'AEROSPACE // ROCKET LAB V1.0',
+        desc:
+            'HoloRocket 是高精度的三维火箭发射与设计仿真系统。支持 VAB 零件自定义组装与性能评估，自由驾驶漫游发射基地；实时模拟全尺寸点火、羽流粒子与任务时序演进，支持多天体视角与深空探索。',
+        specs: {
+            engine: 'Three.js + Custom Shaders',
+            perf: 'WebGL Bloom / Particle Exhaust',
+            algorithm: 'Launch Sequence + VAB Craft Graph',
+            version: 'v1.0.0',
+        },
+        demoColor: 'var(--accent-orange, #f97316)',
+        visualClass: 'rocket-modal-demo',
+        canLaunch: true,
+        launchUrl: 'rocket.html',
+        demoHtml: `
+            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;position:relative;">
+                <div style="width:18px;height:90px;background:linear-gradient(#eee,#999);border-radius:10px 10px 3px 3px;box-shadow:0 0 24px rgba(249,115,22,0.45);position:relative;">
+                    <div style="position:absolute;top:100%;left:50%;transform:translateX(-50%);width:14px;height:36px;background:radial-gradient(ellipse at top,#ffd060,#ff6a1a,transparent);filter:blur(1px);"></div>
+                </div>
+            </div>
+        `,
+    },
+    pool: {
+        title: '05 / HoloPool 三维台球室',
+        tag: 'SPORTS // BILLIARDS LAB V1.0',
+        desc:
+            'HoloPool 是沉浸式三维物理台球体验室。融合真实刚体动力学与第三人称视角漫游，支持就位击球与蓄力杆法；内置辅助线动态推演与力度落点预测，打造兼具竞技性与教学功能的台球沙盒。',
+        specs: {
+            engine: 'Three.js + cannon-es',
+            perf: 'WebGL + Web Audio API',
+            algorithm: 'Rigid-body Collision + Shot Predictor',
+            version: 'v1.0.0',
+        },
+        demoColor: 'var(--accent-emerald, #10b981)',
+        visualClass: 'pool-modal-demo',
+        canLaunch: true,
+        launchUrl: 'pool.html',
+        demoHtml: `
+            <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;">
+                <div style="width:160px;height:90px;background:radial-gradient(ellipse at 40% 30%,#1f8a4c,#084024);border:8px solid #5c3a1e;border-radius:10px;position:relative;box-shadow:0 12px 28px rgba(0,0,0,0.45);">
+                    <div style="position:absolute;width:10px;height:10px;border-radius:50%;background:#fff;top:55%;left:22%;box-shadow:0 0 6px #fff;"></div>
+                    <div style="position:absolute;width:10px;height:10px;border-radius:50%;background:#e11d48;top:38%;left:58%;"></div>
+                    <div style="position:absolute;width:10px;height:10px;border-radius:50%;background:#111;top:48%;left:66%;"></div>
+                </div>
             </div>
         `,
     },

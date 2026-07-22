@@ -48,6 +48,7 @@ export function createLabLoader() {
   const progress = { value: 0 };
   let peak = 0;
   let finishing = false;
+  let lastStatusText = '';
 
   const applyProgress = () => {
     const v = progress.value;
@@ -123,14 +124,19 @@ export function createLabLoader() {
     if (finishing) return;
     peak = Math.max(peak, Math.min(1, ratio));
     root.setAttribute('aria-valuenow', String(Math.round(peak * 100)));
+    // Short tween so rapid boot ticks do not stack multi-second bar animations.
     gsap.to(progress, {
       value: peak,
-      duration: 0.65,
+      duration: 0.28,
       ease: 'power2.out',
       overwrite: 'auto',
       onUpdate: applyProgress,
     });
-    if (status) setStatus(status);
+    // Status text tween is expensive; only restart when the copy actually changes.
+    if (status && status !== lastStatusText) {
+      lastStatusText = status;
+      setStatus(status);
+    }
   }
 
   /**

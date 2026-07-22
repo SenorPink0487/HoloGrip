@@ -1,3 +1,4 @@
+import { labFrameScheduler } from '../frameBudget.js';
 /**
  * 电磁学实验台 — 霍尔效应测磁
  */
@@ -16,6 +17,18 @@ export const station = {
         { id: 'motion', text: '拖动铜棒，测量动生电动势', hint: '按住铜棒沿导轨移动，松开后查看 Δx、Δt、ε 与电流方向。' },
         { id: 'field', text: '改变磁场，测量感生电动势', hint: '使用全息屏上的 B−、B+ 或反向按钮，观察磁通量变化。' },
         { id: 'conclude', text: '完成法拉第定律验证', hint: '比较 ε = −B L Δx/Δt 与 ε = −A ΔB/Δt 的结果。' },
+      ],
+    },
+    {
+      id: 'induced_electric_field',
+      name: '感生电场',
+      goal: '手动调节 B 与 dB/dt，观察涡旋感生电场：面内 E∝r，面外 E∝1/r，方向由楞次定律判定。',
+      theory: '∮ E·dl = −dΦ_B/dt；r≤R 时 E=(r/2)|dB/dt|，r>R 时 E=(R²/(2r))|dB/dt|',
+      steps: [
+        { id: 'observe', text: '观察圆柱形磁场区与同心涡旋 E 线', hint: '感生电场是闭合涡旋线，不是静电场的起止线。默认手动设定 B 与 dB/dt。' },
+        { id: 'probe', text: '拖动试探电荷，比较面内/面外 E 的大小', hint: '面内 |E| 随 r 增大，面外随 r 减小。' },
+        { id: 'lenz', text: '调节 dB/dt 或反转变化趋势，观察 E 的环绕方向', hint: '拖动 dB/dt 滑块或点「反转 dB/dt」；需要连续交变时可开「自动振荡」。' },
+        { id: 'conclude', text: '完成感生电场规律归纳', hint: '对照全息屏公式与 E–r 曲线后点击完成。' },
       ],
     },
     {
@@ -43,7 +56,7 @@ export const station = {
     },
     {
       id: 'hall_carrier_demo',
-      name: '霍尔效应载流子动效',
+      name: '霍尔效应原理',
       goal: '观察电流、磁场、载流子浓度、样品厚度与载流子类型如何共同改变载流子的三维运动和霍尔电压极性。',
       theory: '演示关系：Vₕ ∝ I·B/(n·d)；n 型与 p 型载流子的霍尔电压极性相反。界面数值为相对演示量。',
       steps: [
@@ -278,6 +291,94 @@ export function faradaySenseLabel(sense) {
   return '无感应电流';
 }
 
+// —— Induced electric field (Maxwell–Faraday / 感生电场) ——
+// Uniform axial B confined to a cylinder of radius R. Changing B produces
+// azimuthal E with |E|∝r inside and |E|∝1/r outside (normalized SI-like units).
+export const INDUCED_E_R_MIN = 0.8;
+export const INDUCED_E_R_MAX = 3.2;
+export const INDUCED_E_PROBE_R_MAX = 4.5;
+export const INDUCED_E_AMP_MAX = 2.5;
+export const INDUCED_E_OMEGA_MAX = 2.5;
+
+/**
+ * |E| at radial distance r for uniform dB/dt inside radius R.
+ * @param {number} r
+ * @param {number} R
+ * @param {number} dBdt signed dB/dt; only magnitude enters |E|
+ */
+export function inducedEMagnitude(r, R, dBdt) {
+  const radius = Math.max(0, Number(r || 0));
+  const region = Math.max(1e-6, Number(R || 0));
+  const rate = Math.abs(Number(dBdt || 0));
+  if (rate < 1e-12 || radius < 1e-9) return 0;
+  if (radius <= region) return 0.5 * radius * rate;
+  return 0.5 * (region * region / radius) * rate;
+}
+
+/**
+ * Lenz sense looking down +y (scene up, independent of B sign):
+ * dB_y/dt > 0 → clockwise E when viewed from +y.
+ * (Do not phrase as “looking along B”: when B is negative that would reverse CW/CCW.)
+ * @returns {'cw'|'ccw'|'none'}
+ */
+export function inducedESense(dBdt) {
+  const rate = Number(dBdt || 0);
+  if (Math.abs(rate) < 1e-8) return 'none';
+  return rate > 0 ? 'cw' : 'ccw';
+}
+
+export function inducedESenseLabel(sense) {
+  if (sense === 'cw') return '顺时针（俯视 +y）';
+  if (sense === 'ccw') return '逆时针（俯视 +y）';
+  return '无感生电场';
+}
+
+/**
+ * Sample E–r curve points for the content-screen plot.
+ * @returns {Array<{ r: number, E: number, inside: boolean }>}
+ */
+export function inducedEProfile(R, dBdt, samples = 48, rMax = INDUCED_E_PROBE_R_MAX) {
+  const region = Math.max(1e-6, Number(R || 0));
+  const maxR = Math.max(region * 1.05, Number(rMax || INDUCED_E_PROBE_R_MAX));
+  const n = Math.max(8, Math.round(Number(samples) || 48));
+  const points = [];
+  for (let i = 0; i <= n; i += 1) {
+    const r = (i / n) * maxR;
+    points.push({
+      r,
+      E: inducedEMagnitude(r, region, dBdt),
+      inside: r <= region + 1e-9,
+    });
+  }
+  return points;
+}
+
+/**
+ * Tangential unit vector in the xz plane (B along +y).
+ * CW looking from +y: ê_θ = (ẑ × r̂) with right-hand? Looking from +y:
+ * CCW (right-hand around +y) = (-z, 0, x)/r ; CW = (z, 0, -x)/r.
+ */
+export function inducedEDirection(x, z, sense) {
+  if (sense === 'none') return { x: 0, y: 0, z: 0 };
+  const r = Math.hypot(Number(x || 0), Number(z || 0));
+  if (r < 1e-9) return { x: 0, y: 0, z: 0 };
+  const sx = Number(x || 0) / r;
+  const sz = Number(z || 0) / r;
+  // CCW around +y: ê = (−sz, 0, sx); CW: opposite
+  if (sense === 'ccw') return { x: -sz, y: 0, z: sx };
+  return { x: sz, y: 0, z: -sx };
+}
+
+export function inducedEVectorAt(point, R, dBdt) {
+  const x = Number(point?.x || 0);
+  const z = Number(point?.z || 0);
+  const r = Math.hypot(x, z);
+  const sense = inducedESense(dBdt);
+  const mag = inducedEMagnitude(r, R, dBdt);
+  const dir = inducedEDirection(x, z, sense);
+  return { x: dir.x * mag, y: 0, z: dir.z * mag, magnitude: mag, sense, r };
+}
+
 const HALL_PART_NAMES = {
   hall_helmholtz: '亥姆霍兹线圈',
   hall_solenoid: '长螺线管',
@@ -477,6 +578,60 @@ export function createHandlers(ctx) {
         _hudThrottle: 0,
       };
     }
+    if (expId === 'induced_electric_field') {
+      const R = 2;
+      // Default: manual control (static B + dB/dt). Auto sine drive is opt-in.
+      const amp = 1.2;
+      const omega = 0.9;
+      const phase = 0;
+      const B = 1.0;
+      const dBdt = 1.1;
+      const probeR = 1.4;
+      const probeAngle = 0.35;
+      const probe = {
+        x: probeR * Math.cos(probeAngle),
+        y: 0,
+        z: probeR * Math.sin(probeAngle),
+        q0: 1,
+      };
+      const field = inducedEVectorAt(probe, R, dBdt);
+      return {
+        R,
+        amp,
+        omega,
+        phase,
+        B,
+        dBdt,
+        auto: false,
+        paused: false,
+        probe,
+        probeR,
+        showB: true,
+        showE: true,
+        showParticles: true,
+        showProbe: true,
+        field,
+        magnitudeE: field.magnitude,
+        force: {
+          x: field.x * probe.q0,
+          y: 0,
+          z: field.z * probe.q0,
+        },
+        sense: field.sense,
+        senseLabel: inducedESenseLabel(field.sense),
+        profile: inducedEProfile(R, dBdt),
+        eAtBoundary: inducedEMagnitude(R, R, dBdt),
+        dragging: false,
+        dragMouseX: 0,
+        dragMouseY: 0,
+        dragStart: null,
+        completed: false,
+        sliderDragging: false,
+        sliderKey: null,
+        _time: 0,
+        _hudThrottle: 0,
+      };
+    }
     return {};
   }
 
@@ -557,6 +712,124 @@ export function createHandlers(ctx) {
     data.flux = faradayFlux(data.B, data.x, data.rodLength, data.xEnd);
     equipment.electro?.updateFaraday?.(data, dt);
     if (refresh) pushHud();
+  }
+
+  function recomputeInducedElectric(data) {
+    if (data.auto) {
+      data.B = Number(data.amp || 0) * Math.sin(Number(data.phase || 0));
+      data.dBdt = Number(data.amp || 0) * Number(data.omega || 0) * Math.cos(Number(data.phase || 0));
+    }
+    const probe = data.probe || { x: 0, y: 0, z: 0, q0: 1 };
+    data.probeR = Math.hypot(Number(probe.x || 0), Number(probe.z || 0));
+    const field = inducedEVectorAt(probe, data.R, data.dBdt);
+    data.field = field;
+    data.magnitudeE = field.magnitude;
+    data.force = {
+      x: field.x * Number(probe.q0 || 0),
+      y: 0,
+      z: field.z * Number(probe.q0 || 0),
+    };
+    data.sense = field.sense;
+    data.senseLabel = inducedESenseLabel(field.sense);
+    data.eAtBoundary = inducedEMagnitude(data.R, data.R, data.dBdt);
+    data.profile = inducedEProfile(data.R, data.dBdt);
+    return data;
+  }
+
+  function syncInducedElectric(data, refresh = true, dt = 0) {
+    recomputeInducedElectric(data);
+    equipment.electro?.updateInducedElectric?.(data, dt);
+    if (refresh) pushHud();
+  }
+
+  function applyInducedProbeDrag(data, dx, dy) {
+    if (!data?.dragStart || !data.probe) return false;
+    // Screen drag maps to tabletop XZ (B is vertical).
+    data.probe.x = clamp(data.dragStart.x + dx * 0.02, -INDUCED_E_PROBE_R_MAX, INDUCED_E_PROBE_R_MAX);
+    data.probe.z = clamp(data.dragStart.z + dy * 0.02, -INDUCED_E_PROBE_R_MAX, INDUCED_E_PROBE_R_MAX);
+    data.probe.y = 0;
+    const r = Math.hypot(data.probe.x, data.probe.z);
+    if (r > INDUCED_E_PROBE_R_MAX) {
+      const s = INDUCED_E_PROBE_R_MAX / r;
+      data.probe.x *= s;
+      data.probe.z *= s;
+    }
+    if (state.stepIndex < 1 && Math.hypot(dx, dy) > 4) setStep('probe');
+    syncInducedElectric(data, false);
+    return true;
+  }
+
+  const INDUCED_DBDT_MAX = INDUCED_E_AMP_MAX * INDUCED_E_OMEGA_MAX;
+  const INDUCED_SLIDER_RANGES = {
+    R: [INDUCED_E_R_MIN, INDUCED_E_R_MAX],
+    amp: [0.2, INDUCED_E_AMP_MAX],
+    omega: [0.15, INDUCED_E_OMEGA_MAX],
+    B: [-INDUCED_E_AMP_MAX, INDUCED_E_AMP_MAX],
+    dBdt: [-INDUCED_DBDT_MAX, INDUCED_DBDT_MAX],
+    probeR: [0.15, INDUCED_E_PROBE_R_MAX],
+    q0: [0.2, 3],
+  };
+
+  function inducedSliderBaseValue(data, key) {
+    if (key === 'probeR') return Number(data.probeR || 0);
+    if (key === 'q0') return Math.abs(Number(data.probe?.q0 || 1));
+    return Number(data[key] || 0);
+  }
+
+  /** Relative content-screen slider drag (pointer-lock / hold path). */
+  function applyInducedSliderRelative(data, totalX) {
+    const key = data.sliderKey;
+    if (!key || !data.sliderDragging) return false;
+    const range = INDUCED_SLIDER_RANGES[key];
+    if (!range) return false;
+    const [min, max] = range;
+    const span = max - min;
+    if (data.sliderDragBase == null || !Number.isFinite(data.sliderDragBase)) {
+      data.sliderDragBase = inducedSliderBaseValue(data, key);
+      data.sliderDragOriginX = 0;
+    }
+    // ~full range over ~360 px of mouse travel — readable without overshoot.
+    const next = clamp(
+      Number(data.sliderDragBase) + Number(totalX || 0) * span * 0.0028,
+      min,
+      max,
+    );
+    onUiAction('induced-e-set', { key, value: next, live: true });
+    return true;
+  }
+
+  function finishInducedSlider(data) {
+    if (!data?.sliderDragging) return false;
+    data.sliderDragging = false;
+    data.sliderKey = null;
+    data.sliderDragBase = null;
+    data.sliderDragOriginX = null;
+    Object.keys(data).forEach((key) => {
+      if (key.startsWith('_sliderBase_')) delete data[key];
+    });
+    syncInducedElectric(data);
+    return true;
+  }
+
+  function updateInducedElectric(data, dt = 0) {
+    const step = Math.max(0, Number(dt || 0));
+    data._time = Number(data._time || 0) + step;
+    if (data.auto && !data.paused) {
+      data.phase = Number(data.phase || 0) + Number(data.omega || 0) * step;
+      // Keep phase bounded for numeric comfort.
+      if (data.phase > Math.PI * 100 || data.phase < -Math.PI * 100) {
+        data.phase = ((data.phase % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+      }
+    }
+    recomputeInducedElectric(data);
+    equipment.electro?.updateInducedElectric?.(data, step);
+    data._hudThrottle = Number(data._hudThrottle || 0) + step;
+    const hudInterval = data.dragging || data.sliderDragging ? 0.1 : 0.22;
+    if (data._hudThrottle > hudInterval) {
+      data._hudThrottle = 0;
+      pushHud();
+    }
+    return data;
   }
 
   function finishFaradayMotion(data) {
@@ -888,36 +1161,179 @@ export function createHandlers(ctx) {
 
 
   function applyVisualDefaults(expId) {
-    if (expId === 'faraday_induction' && equipment.electro) {
+    if (!equipment.electro) return;
+    // Visibility only; heavy field rebuild is a separate frame-budget job.
+    let kind = null;
+    if (expId === 'faraday_induction') {
       equipment.electro.setMode?.('faraday');
-      syncFaraday(state.data, false);
-      return;
-    }
-    if (expId === 'hall_effect' && equipment.electro) {
+      kind = 'faraday';
+    } else if (expId === 'induced_electric_field') {
+      equipment.electro.setMode?.('induced-e');
+      kind = 'induced-e';
+    } else if (expId === 'hall_effect') {
       equipment.electro.setMode?.('hall');
+      kind = 'hall';
+    } else if (expId === 'hall_carrier_demo') {
+      equipment.electro.setMode?.('hall-demo');
+      kind = 'hall-demo';
+    } else if (expId === 'gauss_theorem') {
+      equipment.electro.setMode?.('gauss');
+      kind = 'gauss';
+    } else if (expId === 'electric_field') {
+      equipment.electro.setMode?.('electric-field');
+      kind = 'electric-field';
+    }
+    if (!kind) return;
+    state.data._awaitElectroSync = kind;
+    labFrameScheduler.schedule('electro:sync', () => {
+      if (!state.running || state.expId !== expId) return;
+      if (flushDeferredElectroSync()) pushHud();
+    }, { priority: 60 });
+  }
+
+  function flushDeferredElectroSync() {
+    const kind = state.data?._awaitElectroSync;
+    if (!kind || !state.running) return false;
+    state.data._awaitElectroSync = null;
+    if (kind === 'faraday') syncFaraday(state.data, false);
+    else if (kind === 'induced-e') syncInducedElectric(state.data, false);
+    else if (kind === 'hall') {
       syncHall(state.data, false);
       refreshHallIdentifyVisuals(null);
-      return;
-    }
-    if (expId === 'hall_carrier_demo' && equipment.electro) {
-      equipment.electro.setMode?.('hall-demo');
-      syncHallDemo(state.data, false);
-      return;
-    }
-    if (expId === 'gauss_theorem' && equipment.electro) {
-      equipment.electro.setMode?.('gauss');
-      syncGauss(state.data, false);
-      return;
-    }
-    if (expId === 'electric_field' && equipment.electro) {
-      equipment.electro.setMode?.('electric-field');
-      syncElectricField(state.data, false);
-    }
+    } else if (kind === 'hall-demo') syncHallDemo(state.data, false);
+    else if (kind === 'gauss') syncGauss(state.data, false);
+    else if (kind === 'electric-field') syncElectricField(state.data, false);
+    else return false;
+    return true;
   }
 
 
 
   function onUiAction(action, payload = {}) {
+    if (state.expId === 'induced_electric_field') {
+      const data = state.data;
+      if (action === 'induced-e-adjust') {
+        const key = payload.key;
+        const delta = Number(payload.delta || 0);
+        if (key === 'R') data.R = clamp(data.R + delta, INDUCED_E_R_MIN, INDUCED_E_R_MAX);
+        if (key === 'amp') data.amp = clamp(data.amp + delta, 0.2, INDUCED_E_AMP_MAX);
+        if (key === 'omega') data.omega = clamp(data.omega + delta, 0.15, INDUCED_E_OMEGA_MAX);
+        if (key === 'B' && !data.auto) {
+          data.B = clamp(Number(data.B || 0) + delta, -INDUCED_E_AMP_MAX, INDUCED_E_AMP_MAX);
+        }
+        if (key === 'dBdt' && !data.auto) {
+          data.dBdt = clamp(
+            Number(data.dBdt || 0) + delta,
+            -INDUCED_E_AMP_MAX * INDUCED_E_OMEGA_MAX,
+            INDUCED_E_AMP_MAX * INDUCED_E_OMEGA_MAX,
+          );
+        }
+        if (key === 'probeR') {
+          const nextR = clamp(Number(data.probeR || 0) + delta, 0.15, INDUCED_E_PROBE_R_MAX);
+          const angle = Math.atan2(Number(data.probe?.z || 0), Number(data.probe?.x || 1));
+          data.probe.x = nextR * Math.cos(angle);
+          data.probe.z = nextR * Math.sin(angle);
+          data.probeR = nextR;
+          if (state.stepIndex < 1) setStep('probe');
+        }
+        if (key === 'q0') {
+          const magnitude = clamp(Math.abs(Number(data.probe?.q0 || 1)) + delta, 0.2, 3);
+          data.probe.q0 = Math.sign(data.probe.q0 || 1) * Math.round(magnitude * 10) / 10;
+        }
+        if (state.stepIndex < 2 && (key === 'amp' || key === 'omega' || key === 'B' || key === 'dBdt')) {
+          setStep('lenz');
+        }
+      } else if (action === 'induced-e-set' || action === 'induced-e-slider') {
+        // Absolute value from content-screen sliders (live drag or one-shot set).
+        const key = payload.key;
+        let value = Number(payload.value);
+        if (!Number.isFinite(value) && Number.isFinite(payload.px)) {
+          const trackX = Number.isFinite(payload.trackX) ? Number(payload.trackX) : Number(payload.x || 0);
+          const trackW = Math.max(1, Number.isFinite(payload.trackW) ? Number(payload.trackW) : Number(payload.w || 1));
+          const min = Number(payload.min);
+          const max = Number(payload.max);
+          if (Number.isFinite(min) && Number.isFinite(max)) {
+            const u = clamp((Number(payload.px) - trackX) / trackW, 0, 1);
+            value = min + u * (max - min);
+          }
+        }
+        if (!key || !Number.isFinite(value)) return true;
+        if (key === 'R') data.R = clamp(value, INDUCED_E_R_MIN, INDUCED_E_R_MAX);
+        else if (key === 'amp') {
+          data.amp = clamp(value, 0.2, INDUCED_E_AMP_MAX);
+          if (state.stepIndex < 2) setStep('lenz');
+        } else if (key === 'omega') {
+          data.omega = clamp(value, 0.15, INDUCED_E_OMEGA_MAX);
+          if (state.stepIndex < 2) setStep('lenz');
+        } else if (key === 'probeR') {
+          const nextR = clamp(value, 0.15, INDUCED_E_PROBE_R_MAX);
+          const angle = Math.atan2(Number(data.probe?.z || 0), Number(data.probe?.x || 1));
+          data.probe.x = nextR * Math.cos(angle);
+          data.probe.z = nextR * Math.sin(angle);
+          data.probeR = nextR;
+          if (state.stepIndex < 1) setStep('probe');
+        } else if (key === 'q0') {
+          const magnitude = clamp(Math.abs(value), 0.2, 3);
+          data.probe.q0 = Math.sign(data.probe?.q0 || 1) * magnitude;
+        } else if (key === 'dBdt' && !data.auto) {
+          data.dBdt = clamp(
+            value,
+            -INDUCED_E_AMP_MAX * INDUCED_E_OMEGA_MAX,
+            INDUCED_E_AMP_MAX * INDUCED_E_OMEGA_MAX,
+          );
+          if (state.stepIndex < 2) setStep('lenz');
+        } else if (key === 'B' && !data.auto) {
+          data.B = clamp(value, -INDUCED_E_AMP_MAX, INDUCED_E_AMP_MAX);
+          if (state.stepIndex < 2) setStep('lenz');
+        }
+        data.sliderDragging = action === 'induced-e-slider' || payload.live === true;
+        // Live slider moves: skip full HUD every pointermove (update loop paints).
+        syncInducedElectric(data, !data.sliderDragging);
+        return true;
+      } else if (action === 'induced-e-mode') {
+        const nextAuto = payload.auto !== false;
+        data.auto = nextAuto;
+        if (nextAuto) {
+          // Enter auto: seed phase from current B so the sine starts smoothly.
+          const amp = Math.max(0.2, Number(data.amp || 1));
+          const b = clamp(Number(data.B || 0) / amp, -1, 1);
+          // Prefer phase whose cos matches current dB/dt sign (dB/dt ∝ cos φ).
+          let phase = Math.asin(b);
+          const wantCos = Math.sign(Number(data.dBdt || 0));
+          if (wantCos < 0 && Math.cos(phase) > 0) phase = Math.PI - phase;
+          if (wantCos > 0 && Math.cos(phase) < 0) phase = Math.PI - phase;
+          data.phase = phase;
+          data.paused = false;
+          if (state.stepIndex < 2) setStep('lenz');
+        }
+        // Leaving auto freezes the last B / dB/dt from recomputeInducedElectric.
+      } else if (action === 'induced-e-pause') {
+        // Pause only affects the auto oscillator; keep the toggle for UI consistency.
+        data.paused = !data.paused;
+      } else if (action === 'induced-e-flip') {
+        // Reverse the sense of dB/dt: flip phase by π in auto mode.
+        if (data.auto) data.phase += Math.PI;
+        else data.dBdt = -Number(data.dBdt || 0);
+        if (state.stepIndex < 2) setStep('lenz');
+      } else if (action === 'induced-e-toggle') {
+        const key = {
+          B: 'showB', E: 'showE', particles: 'showParticles', probe: 'showProbe',
+        }[payload.key];
+        if (key) data[key] = !data[key];
+      } else if (action === 'induced-e-probe-sign') {
+        data.probe.q0 = (Number(payload.sign) < 0 ? -1 : 1) * Math.max(0.2, Math.abs(data.probe.q0));
+      } else if (action === 'induced-e-reset') {
+        Object.assign(data, initData('induced_electric_field'));
+      } else if (action === 'induced-e-complete') {
+        data.completed = true;
+        state.stepIndex = Math.max(state.stepIndex, 3);
+        toast('感生电场实验完成：面内 E∝r，面外 E∝1/r');
+      } else {
+        return false;
+      }
+      syncInducedElectric(data);
+      return true;
+    }
     if (state.expId === 'faraday_induction') {
       const data = state.data;
       if (action === 'faraday-b-set') {
@@ -966,6 +1382,28 @@ export function createHandlers(ctx) {
       if (action === 'electric-select') {
         const id = Number(payload.id);
         if (data.charges.some((item) => item.id === id)) data.selectedId = id;
+      } else if (action === 'electric-set') {
+        const key = payload.key;
+        const value = Number(payload.value);
+        if (!Number.isFinite(value)) return true;
+        const onProbe = payload.target === 'probe';
+        if (onProbe && probe) {
+          if (key === 'q0') {
+            probe.q0 = Math.sign(probe.q0 || 1) * clamp(Math.abs(value), 0.2, 3);
+          } else if (['x', 'y', 'z'].includes(key)) {
+            probe[key] = clamp(value, -5, 5);
+          } else if (payload.axis) {
+            probe[payload.axis] = clamp(value, -5, 5);
+          }
+        } else if (key === 'q' && charge) {
+          charge.q = Math.sign(charge.q || 1) * clamp(Math.abs(value), 0.2, 3);
+        } else if (['x', 'y', 'z'].includes(key) && charge) {
+          charge[key] = clamp(value, -4.5, 4.5);
+        } else if (payload.axis && charge) {
+          charge[payload.axis] = clamp(value, -4.5, 4.5);
+        }
+        syncElectricField(data, payload.live !== true);
+        return true;
       } else if (action === 'electric-add') {
         if (data.charges.length >= 12) {
           toast('最多放置 12 个点电荷');
@@ -1033,8 +1471,29 @@ export function createHandlers(ctx) {
       if (action === 'gauss-select') {
         const id = Number(payload.id);
         if (data.charges.some((item) => item.id === id)) data.selectedId = id;
+      } else if (action === 'gauss-set') {
+        const key = payload.key;
+        const value = Number(payload.value);
+        if (!Number.isFinite(value)) return true;
+        if (key === 'radius' || key === 'R') data.radius = clamp(value, 1.2, 4.2);
+        else if (key === 'q' && charge) {
+          charge.q = Math.sign(charge.q || 1) * clamp(Math.abs(value), 0.2, 3);
+        } else if (['x', 'y', 'z'].includes(key) && charge) {
+          charge[key] = clamp(value, -5, 5);
+          if (state.stepIndex < 1) setStep('cross');
+        } else if (payload.axis && charge) {
+          charge[payload.axis] = clamp(value, -5, 5);
+          if (state.stepIndex < 1) setStep('cross');
+        }
+        if (state.stepIndex < 2 && (data.charges.length > 1 || Math.abs(data.radius - 2.4) > 0.05)) setStep('compare');
+        syncGauss(data, payload.live !== true);
+        return true;
       } else if (action === 'gauss-radius') {
-        data.radius = clamp(data.radius + Number(payload.delta || 0), 1.2, 4.2);
+        if (Number.isFinite(Number(payload.value))) {
+          data.radius = clamp(Number(payload.value), 1.2, 4.2);
+        } else {
+          data.radius = clamp(data.radius + Number(payload.delta || 0), 1.2, 4.2);
+        }
       } else if (action === 'gauss-add') {
         if (data.charges.length >= 6) {
           toast('最多放置 6 个点电荷');
@@ -1083,24 +1542,22 @@ export function createHandlers(ctx) {
     }
     if (state.expId === 'hall_carrier_demo') {
       const data = state.data;
-      if (action === 'hall-demo-adjust') {
+      if (action === 'hall-demo-adjust' || action === 'hall-demo-set') {
         const key = payload.key;
-        const delta = Number(payload.delta || 0);
-        if (key === 'I') data.I = clamp(data.I + delta, 0, 2);
-        if (key === 'B') data.B = clamp(data.B + delta, -2, 2);
-        if (key === 'n') data.n = clamp(data.n + delta, 0.3, 2.5);
-        if (key === 'd') data.d = clamp(data.d + delta, 0.1, 1.2);
-        syncHallDemo(data);
-        return true;
-      }
-      if (action === 'hall-demo-set') {
-        const key = payload.key;
-        const value = Number(payload.value);
-        if (key === 'I') data.I = clamp(value, 0, 2);
-        if (key === 'B') data.B = clamp(value, -2, 2);
-        if (key === 'n') data.n = clamp(value, 0.3, 2.5);
-        if (key === 'd') data.d = clamp(value, 0.1, 1.2);
-        syncHallDemo(data);
+        if (action === 'hall-demo-set' && Number.isFinite(Number(payload.value))) {
+          const value = Number(payload.value);
+          if (key === 'I') data.I = clamp(value, 0, 2);
+          if (key === 'B') data.B = clamp(value, -2, 2);
+          if (key === 'n') data.n = clamp(value, 0.3, 2.5);
+          if (key === 'd') data.d = clamp(value, 0.1, 1.2);
+        } else {
+          const delta = Number(payload.delta || 0);
+          if (key === 'I') data.I = clamp(data.I + delta, 0, 2);
+          if (key === 'B') data.B = clamp(data.B + delta, -2, 2);
+          if (key === 'n') data.n = clamp(data.n + delta, 0.3, 2.5);
+          if (key === 'd') data.d = clamp(data.d + delta, 0.1, 1.2);
+        }
+        syncHallDemo(data, payload.live !== true);
         return true;
       }
       if (action === 'hall-demo-type') {
@@ -1153,16 +1610,25 @@ export function createHandlers(ctx) {
       }
       return identifyHallRole(next);
     }
-    if (action === 'hall-adjust') {
+    if (action === 'hall-adjust' || action === 'hall-set') {
       const key = payload.key;
-      const delta = Number(payload.delta || 0);
-      if (key === 'Im') data.Im = clamp(data.Im + delta, 0, 1);
-      if (key === 'Is') data.Is = clamp(data.Is + delta, 0, 10);
-      if (key === 'probePos') data.probePos = clamp(data.probePos + delta, -25, 25);
-      if (key === 'rightCoilPos') data.rightCoilPos = clamp(data.rightCoilPos + delta, -0.5, 13);
-      if (key === 'turns') data.turns = Math.round(clamp(data.turns + delta, 10, 300) / 10) * 10;
+      if (action === 'hall-set' && Number.isFinite(Number(payload.value))) {
+        const value = Number(payload.value);
+        if (key === 'Im') data.Im = clamp(value, 0, 1);
+        if (key === 'Is') data.Is = clamp(value, 0, 10);
+        if (key === 'probePos') data.probePos = clamp(value, -25, 25);
+        if (key === 'rightCoilPos') data.rightCoilPos = clamp(value, -0.5, 13);
+        if (key === 'turns') data.turns = Math.round(clamp(value, 10, 300) / 10) * 10;
+      } else {
+        const delta = Number(payload.delta || 0);
+        if (key === 'Im') data.Im = clamp(data.Im + delta, 0, 1);
+        if (key === 'Is') data.Is = clamp(data.Is + delta, 0, 10);
+        if (key === 'probePos') data.probePos = clamp(data.probePos + delta, -25, 25);
+        if (key === 'rightCoilPos') data.rightCoilPos = clamp(data.rightCoilPos + delta, -0.5, 13);
+        if (key === 'turns') data.turns = Math.round(clamp(data.turns + delta, 10, 300) / 10) * 10;
+      }
       if (state.stepIndex <= 2 && data.Im > 0 && data.Is > 0) setStep('scan');
-      syncHall(data);
+      syncHall(data, payload.live !== true);
       return true;
     }
     if (action === 'hall-direction') {
@@ -1282,6 +1748,24 @@ export function createHandlers(ctx) {
 
 
   function interact(target, _time, step) {
+    if (state.expId === 'induced_electric_field') {
+      const data = state.data;
+      if (target?.userData?.role === 'induced_e_probe') {
+        data.dragging = true;
+        data.dragStart = {
+          x: Number(data.probe?.x || 0),
+          z: Number(data.probe?.z || 0),
+        };
+        data.dragMouseX = Number(equipment.electro?.mouseDrag?.movementX || 0);
+        data.dragMouseY = Number(equipment.electro?.mouseDrag?.movementY || 0);
+        toast('已抓住试探电荷：在水平面拖动改变 r，观察 E∝r / E∝1/r');
+        if (state.stepIndex < 1) setStep('probe');
+        syncInducedElectric(data);
+        return true;
+      }
+      if (target?.userData?.role === 'ui_action') return onUiAction('induced-e-complete');
+      return false;
+    }
     if (state.expId === 'faraday_induction') {
       if (target?.userData?.role === 'faraday_rod') {
         const data = state.data;
@@ -1429,6 +1913,13 @@ export function createHandlers(ctx) {
   }
 
   function onKey(code) {
+    if (state.expId === 'induced_electric_field') {
+      if (code === 'KeyP') return onUiAction('induced-e-pause');
+      if (code === 'KeyR') return onUiAction('induced-e-reset');
+      if (code === 'KeyF') return onUiAction('induced-e-complete');
+      if (code === 'KeyB') return onUiAction('induced-e-flip');
+      return false;
+    }
     if (state.expId === 'faraday_induction') {
       if (code === 'KeyR') return onUiAction('faraday-reset');
       if (code === 'KeyF') return onUiAction('faraday-complete');
@@ -1464,6 +1955,13 @@ export function createHandlers(ctx) {
   }
 
   function onWheel(delta, target, pick) {
+    if (state.expId === 'induced_electric_field') {
+      if (target?.userData?.role === 'induced_e_probe') {
+        const sign = Number(delta) > 0 ? 1 : -1;
+        return onUiAction('induced-e-adjust', { key: 'probeR', delta: sign * 0.12 });
+      }
+      return false;
+    }
     if (state.expId === 'faraday_induction') {
       if (target?.userData?.role === 'faraday_rod') {
         const sign = Number(delta) > 0 ? 1 : -1;
@@ -1518,6 +2016,34 @@ export function createHandlers(ctx) {
   }
 
   function holdInteract(holding, _time, dt, target) {
+    if (state.expId === 'induced_electric_field') {
+      const data = state.data;
+      // Content-screen sliders: continuous path via cumulative mouse deltas.
+      // sliderDragOriginX rebases after absolute UV jumps so relative + absolute
+      // never fight (unlocked desktop updates the ray; pointer-lock uses relative).
+      if (holding && data.sliderDragging && data.sliderKey) {
+        const totalX = Number(equipment.electro?.mouseDrag?.movementX || 0);
+        const origin = Number(data.sliderDragOriginX || 0);
+        applyInducedSliderRelative(data, totalX - origin);
+        return;
+      }
+      if (!holding && data.sliderDragging) {
+        finishInducedSlider(data);
+        return;
+      }
+      if (holding && data.dragging && data.dragStart) {
+        const dx = Number(equipment.electro?.mouseDrag?.movementX || 0) - Number(data.dragMouseX || 0);
+        const dy = Number(equipment.electro?.mouseDrag?.movementY || 0) - Number(data.dragMouseY || 0);
+        applyInducedProbeDrag(data, dx, dy);
+        return;
+      }
+      if (!holding && data.dragging) {
+        data.dragging = false;
+        data.dragStart = null;
+        syncInducedElectric(data);
+      }
+      return;
+    }
     if (state.expId === 'faraday_induction') {
       const data = state.data;
       if (holding && data.sliderDragging && data.sliderStart) {
@@ -1710,6 +2236,27 @@ export function createHandlers(ctx) {
   }
 
   function beginManipulation(target, context = {}) {
+    if (state.expId === 'induced_electric_field') {
+      let pick = context.pick?.action === 'induced-e-slider' ? context.pick : null;
+      if (!pick && context.raycaster && target?.userData?.pickFromRay) {
+        const live = target.userData.pickFromRay(context.raycaster);
+        if (live?.action === 'induced-e-slider') pick = live;
+      }
+      if (pick?.action === 'induced-e-slider') {
+        const data = state.data;
+        data.sliderDragging = true;
+        data.sliderKey = pick.key || null;
+        data.sliderDragBase = inducedSliderBaseValue(data, pick.key);
+        data.sliderDragOriginX = Number(equipment.electro?.mouseDrag?.movementX || 0);
+        // Jump thumb to aim when the pick has an absolute canvas x.
+        onUiAction('induced-e-slider', { ...pick, live: true });
+        // Re-base relative drag after absolute jump so subsequent movementX
+        // deltas stay continuous from the new value.
+        data.sliderDragBase = inducedSliderBaseValue(data, pick.key);
+        return true;
+      }
+      return interact(target, context.time || 0, currentStep());
+    }
     if (state.expId === 'faraday_induction') {
       let pick = context.pick?.action === 'faraday-b-slider' ? context.pick : null;
       // AR / direct ray: resolve slider hit from the content-screen mesh.
@@ -1736,6 +2283,48 @@ export function createHandlers(ctx) {
   }
 
   function updateManipulation(_target, context = {}) {
+    if (state.expId === 'induced_electric_field') {
+      const data = state.data;
+      if (data?.sliderDragging) {
+        // Prefer absolute UV pick when the ray still hits this slider track
+        // (unlocked desktop / AR following the thumb).
+        if (context.raycaster && _target?.userData?.pickFromRay) {
+          const live = _target.userData.pickFromRay(context.raycaster);
+          if (live?.action === 'induced-e-slider'
+            && (!data.sliderKey || live.key === data.sliderKey)
+            && Number.isFinite(live.px)) {
+            onUiAction('induced-e-slider', { ...live, live: true });
+            data.sliderDragBase = inducedSliderBaseValue(data, data.sliderKey);
+            data.sliderDragOriginX = Number(
+              Number.isFinite(context.totalX)
+                ? context.totalX
+                : (equipment.electro?.mouseDrag?.movementX || 0),
+            );
+            return true;
+          }
+        }
+        // Relative fallback (pointer-lock totals or when UV leaves the track).
+        const totalX = Number.isFinite(context.totalX)
+          ? Number(context.totalX)
+          : Number(equipment.electro?.mouseDrag?.movementX || 0);
+        const origin = Number(data.sliderDragOriginX || 0);
+        applyInducedSliderRelative(data, totalX - origin);
+        return true;
+      }
+      if (data?.dragging && data.dragStart && (
+        Number.isFinite(context.totalX)
+        || Number.isFinite(context.totalY)
+        || Number.isFinite(context.dx)
+        || Number.isFinite(context.dy)
+      )) {
+        const dx = Number.isFinite(context.totalX) ? Number(context.totalX) : Number(context.dx || 0);
+        const dy = Number.isFinite(context.totalY) ? Number(context.totalY) : Number(context.dy || 0);
+        applyInducedProbeDrag(data, dx, dy);
+        return true;
+      }
+      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget);
+      return !!data?.dragging || !!data?.sliderDragging;
+    }
     if (state.expId === 'faraday_induction') {
       const data = state.data;
       if (data?.sliderDragging) {
@@ -1812,10 +2401,25 @@ export function createHandlers(ctx) {
       holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget);
       return true;
     }
-    return !!state.data.hallDragArmed;
+    // Camera-drag knobs / probe / coils: apply mouse totals every frame.
+    // (Previously returned true without calling holdInteract, so grabs did nothing.)
+    if (state.data.hallDragArmed) {
+      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget);
+      return true;
+    }
+    return false;
   }
 
   function endManipulation(_target, context = {}) {
+    if (state.expId === 'induced_electric_field') {
+      if (state.data.sliderDragging) {
+        finishInducedSlider(state.data);
+        return true;
+      }
+      if (!state.data.dragging) return false;
+      holdInteract(false, context.time || 0, 0, context.target);
+      return true;
+    }
     if (state.expId === 'faraday_induction') {
       if (state.data.sliderDragging) {
         finishFaradaySlider(state.data);
@@ -1863,6 +2467,12 @@ export function createHandlers(ctx) {
   }
 
   function update(_time, dt) {
+    // Deferred electro sync is scheduled on the frame budget (not here) so
+    // field-line rebuilds never hitch the pre-render path.
+    if (state.expId === 'induced_electric_field' && state.data) {
+      updateInducedElectric(state.data, dt);
+      return state.data;
+    }
     if (state.expId === 'faraday_induction' && state.data) {
       updateFaraday(state.data, dt);
       return state.data;
@@ -1905,6 +2515,7 @@ export function createHandlers(ctx) {
   }
 
   function cleanup(_expId) {
+    if (state.data) state.data._awaitElectroSync = null;
     equipment.electro?.clearHallIdentifyVisuals?.();
     equipment.electro?.cancelHallWirePreview?.();
     equipment.electro?.setMode?.('hall');

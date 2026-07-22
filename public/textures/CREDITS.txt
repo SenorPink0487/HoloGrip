@@ -1,0 +1,64 @@
+Planet & sky textures
+=====================
+
+Sun photosphere
+---------------
+Source: Solar System Scope — https://www.solarsystemscope.com/textures/
+Files:
+  - sun_2k.jpg  (2K equirectangular)
+  - sun_4k.jpg  (high-res equirectangular; from SSS 8k_sun pack)
+
+Based on NASA elevation / imagery data. Colors adjusted by Solar System Scope.
+License: Creative Commons Attribution 4.0 International (CC BY 4.0)
+  https://creativecommons.org/licenses/by/4.0/
+
+Earth (primary stack under public/textures/)
+--------------------------------------------
+  earth_day_hi.jpg     — Solar System Scope style day map (clear continents)
+                         2k source upscaled to 4K; CC BY 4.0
+                         https://www.solarsystemscope.com/textures/
+  earth_day.jpg        — same clear day map (fallback)
+  earth_day_4k.jpg     — SSS 2k day map original
+  earth_night_hi.jpg   — NASA Black Marble 2016 city lights (4K)
+                         https://visibleearth.nasa.gov/images/144898
+  earth_bump_hi.jpg    — NASA GEBCO elevation downsample (4K)
+                         https://visibleearth.nasa.gov/images/73934
+  earth_water_hi.jpg   — ocean / specular mask (turban/webgl-earth water_4k)
+  earth_clouds_8k.jpg  — Solar System Scope 8K real cloud map (PRIMARY)
+                         CC BY 4.0 · https://www.solarsystemscope.com/textures/
+                         Wikimedia: Solarsystemscope_texture_8k_earth_clouds.jpg
+  nasa_clouds_2k.jpg   — NASA Blue Marble combined clouds (2001, public domain)
+                         https://visibleearth.nasa.gov/images/57747
+                         cloud_combined_2048.jpg
+  earth_atmos_2048.jpg — three.js classic Earth day map (deep oceans / polar ice)
+                         examples/textures/planets/earth_atmos_2048.jpg
+  earth_clouds_hi.jpg  — 4K fair-weather clouds (turban/webgl-earth)
+  earth_clouds_4k.jpg  — Solar System Scope 2k clouds (CC BY 4.0)
+  earth_normal.jpg     — three.js r172 examples/textures/planets
+  earth_spec.jpg       — three.js r172 examples/textures/planets
+  earth_lights.png     — three.js r172 examples/textures/planets
+  earth_clouds.jpg     — threex.planets earthcloudmap
+
+Note: Planetary "atmosphere glow" (blue limb) is not a UV texture — it is
+rendered with a Fresnel / Rayleigh limb shader (src/scene/earthShaders.js).
+Real satellite data for atmosphere is the cloud opacity map above.
+
+NASA Visible Earth imagery is public domain (US government work).
+Solar System Scope textures: Creative Commons Attribution 4.0.
+
+webgl-earth textures: https://github.com/turban/webgl-earth
+  (imagery derived from NASA public-domain Blue Marble / elevation data)
+
+Other planets (local copies)
+----------------------------
+  moon.jpg             — three.js r172 examples/textures/planets
+  mars.jpg, jupiter.jpg, venus.jpg, mercury.jpg, saturn.jpg
+                       — threex.planets maps (NASA-derived educational maps)
+
+Milky Way cubemap (public/textures/milkyway/)
+--------------------------------------------
+  dark-s_px/nx/py/ny/pz/nz.jpg — three.js r172 examples/textures/cube/MilkyWay/
+
+three.js examples textures are typically available under the MIT license of the
+three.js project; original imagery often derives from NASA public-domain data.
+Check upstream repos for the most precise attribution when redistributing.

@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parent.parent
 SKIP_DIRS = {
     "node_modules", "target", "dist", ".git", ".kiro", ".codex",
     ".agents", ".vscode", "gen", "__pycache__", "vendor",
-    "mediapipe",  # public/mediapipe/wasm/* 是 MediaPipe 官方 wasm 产物，不是项目源码
+    "mediapipe",  # public/assets/mediapipe/* 是 MediaPipe 官方 wasm/模型，不是项目源码
 }
 
 # 把扩展名分成两类
