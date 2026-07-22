@@ -98,6 +98,15 @@ export function createExperimentManager({
     return state.stationId ? handlers[state.stationId] : null;
   }
 
+  function setSelectorActive(stationId, on) {
+    Object.values(equipment.holos || {}).forEach((h) => {
+      if (!h?.userData) return;
+      const active = on && h.userData.stationId === stationId;
+      h.userData.active = active;
+      if (typeof h.userData.draw === 'function') h.userData.draw(active);
+    });
+  }
+
   function openStationMenu(stationId) {
     state.stationId = stationId;
     state.menuOpen = true;
@@ -105,22 +114,20 @@ export function createExperimentManager({
     state.expId = null;
     state.stepIndex = 0;
     state.data = {};
-    Object.values(equipment.holos || {}).forEach((h) => {
-      if (!h?.userData) return;
-      const on = h.userData.stationId === stationId;
-      h.userData.active = on;
-      if (typeof h.userData.draw === 'function') h.userData.draw(on);
+    setSelectorActive(stationId, true);
+    // Content display stays hidden until an experiment card is chosen.
+    Object.values(equipment.displays || {}).forEach((d) => {
+      d?.userData?.setPresent?.(false);
     });
-    toast(`已打开 ${STATION_EXPERIMENTS[stationId]?.title || ''} 实验菜单`);
+    toast(`已打开 ${STATION_EXPERIMENTS[stationId]?.title || ''} · 请选择实验`);
     pushHud();
   }
 
   function closeMenu() {
     state.menuOpen = false;
-    Object.values(equipment.holos || {}).forEach((h) => {
-      if (!h?.userData) return;
-      h.userData.active = false;
-      if (typeof h.userData.draw === 'function') h.userData.draw(false);
+    setSelectorActive(null, false);
+    Object.values(equipment.displays || {}).forEach((d) => {
+      d?.userData?.setPresent?.(false);
     });
     pushHud();
   }
@@ -138,19 +145,33 @@ export function createExperimentManager({
     state.menuOpen = true;
     state.data = h?.initData(expId) || {};
     h?.applyVisualDefaults?.(expId);
-    toast(`开始实验：${exp.name} — 在全息屏查看步骤，瞄准仪器操作`);
+    toast(`开始实验：${exp.name} — 前方大屏已出现，桌面终端可切换实验`);
     pushHud();
   }
 
   function interact(target, t) {
-    // Hologram terminal: open station UI (screen content is drawn on the holo itself)
-    if (target?.userData?.type === 'holo') {
+    // Tabletop hologram terminal: power on the station + front content display.
+    if (
+      target?.userData?.type === 'holo'
+      || target?.userData?.role === 'holo_selector'
+    ) {
       const sid = target.userData.stationId;
       // Already showing this station's screen — leave open for UV button picks in main.js
       if (state.menuOpen && state.stationId === sid) {
         return true;
       }
       openStationMenu(sid);
+      return true;
+    }
+
+    // Content display itself does not open the station; tabletop selector does.
+    if (
+      target?.userData?.type === 'holo_display'
+      || target?.userData?.role === 'holo_display'
+    ) {
+      const sid = target.userData.stationId;
+      if (state.menuOpen && state.stationId === sid) return true;
+      toast('请先瞄准桌面全息终端激活内容屏');
       return true;
     }
 
@@ -189,9 +210,9 @@ export function createExperimentManager({
     return activeHandlers()?.onKey(code, t) || false;
   }
 
-  function onWheel(delta, target) {
+  function onWheel(delta, target, pick) {
     if (!state.running) return false;
-    return activeHandlers()?.onWheel(delta, target) || false;
+    return activeHandlers()?.onWheel(delta, target, pick) || false;
   }
 
   function uiAction(action, payload) {

@@ -1,15 +1,11 @@
 import * as THREE from 'three';
 import { PointerLockControls } from 'three/addons/controls/PointerLockControls.js';
 import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
-import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
-import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
-import { Line2 } from 'three/addons/lines/Line2.js';
-import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
-import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { createExperimentManager } from './experiments/index.js';
-import { diffractionHalfSpan, diffractionIntensity } from './experiments/optics.js';
-import { createHallDemoEquipment } from './experiments/hallDemoEquipment.js';
+import { createMaterials } from './scene/shared/materials.js';
+import { createPrimitives } from './scene/shared/primitives.js';
+import { createSharedProps } from './scene/shared/labProps.js';
+import { STATION_SCENE_MODULES } from './scene/stations/registry.js';
 import { getAppInfo, isTauri } from './tauri.js';
 import { createLabLoader } from './loader.js';
 import {
@@ -22,6 +18,13 @@ import { drawFormulaBoard, pickFormulaBoard, FORMULA_CATALOG } from './formulaBo
 import { createHandTracking } from './handTracking.js';
 import { createArInteractionController } from './arInteraction.js';
 import { resolveFrontmostInteraction } from './raycastInteraction.js';
+import {
+  mountUi,
+  updateArStatus,
+  updateHud,
+  updateToast,
+  updateTutorial,
+} from './ui/main.jsx';
 /** Set after equipment is built; used by idle animators & interaction */
 let expManager = null;
 
@@ -65,14 +68,24 @@ const controls = new PointerLockControls(camera, document.body);
 canvas.addEventListener('click', () => {
   if (document.body.classList.contains('is-loading')) return;
   if (holoFsState?.open) return; // fullscreen UI owns the mouse
-  if (handTracking?.isActive()) return;
+  // A charge can be dragged directly from the unlocked view.  Do not let the
+  // click that follows that drag unexpectedly engage pointer-lock navigation.
+  if (gaussPointerDrag?.suppressClick) {
+    gaussPointerDrag.suppressClick = false;
+    return;
+  }
   if (!controls.isLocked) controls.lock();
 });
 controls.addEventListener('lock', () => {
   document.body.classList.add('locked');
+  // Pointer-lock mouse input is an explicit desktop interaction mode.  Pause
+  // AR gesture callbacks while it is active so a visible hand cannot compete
+  // with the mouse for the same experiment target.
+  arInteractionController?.setEnabled(false);
 });
 controls.addEventListener('unlock', () => {
   document.body.classList.remove('locked');
+  if (handTracking?.isActive()) arInteractionController?.setEnabled(true);
 });
 
 const move = { forward: false, back: false, left: false, right: false, up: false, down: false };
@@ -108,74 +121,9 @@ document.addEventListener('keyup', (e) => {
 // ═══════════════════════════════════════════════
 //  Materials — bright sci-fi palette
 // ═══════════════════════════════════════════════
-const mat = {
-  wall: new THREE.MeshStandardMaterial({ color: 0xf4f9ff, roughness: 0.15, roughness: 0.55 }),
-  wallPanel: new THREE.MeshStandardMaterial({ color: 0xe8f2fc, metalness: 0.35, roughnessRoughness: 0.4 }),
-  floor: new THREE.MeshStandardMaterial({ color: 0xeef6ff, metalness: 0.55, roughnessRoughness: 0.18 }),
-  floorAccent: new THREE.MeshStandardMaterial({ color: 0xc8e4ff, metalness: 0.6, roughnessRoughness: 0.22 }),
-  ceiling: new THREE.MeshStandardMaterial({ color: 0xf8fbff, metalness: 0.2, roughness: 0.5 }),
-  white: new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.25, roughnessRoughness: 0.35 }),
-  whiteGloss: new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0.1, roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.08 }),
-  chrome: new THREE.MeshStandardMaterial({ color: 0xe8eef5, metalness: 1, roughnessRoughness: 0.12 }),
-  silver: new THREE.MeshStandardMaterial({ color: 0xb8c4d4, metalness: 0.92, roughnessRoughness: 0.22 }),
-  darkGlass: new THREE.MeshPhysicalMaterial({
-    color: 0xa8c8e8, metalness: 0.1, roughness: 0.05, transmission: 0.85,
-    thickness: 0.5, transparent: true, opacity: 0.35, side: THREE.DoubleSide,
-  }),
-  glass: new THREE.MeshPhysicalMaterial({
-    color: 0xd0ecff, metalness: 0, roughness: 0.02, transmission: 0.92,
-    thickness: 0.35, transparent: true, opacity: 0.45, side: THREE.DoubleSide,
-    clearcoat: 1, clearcoatRoughness: 0.05,
-  }),
-  cyan: new THREE.MeshStandardMaterial({ color: 0x22d3ee, metalness: 0.4, roughnessRoughness: 0.3, emissive: 0x0e7490, emissiveIntensity: 0.35 }),
-  cyanGlow: new THREE.MeshStandardMaterial({ color: 0x67e8f9, emissive: 0x22d3ee, emissiveIntensity: 1.2, metalness: 0.2, roughness: 0.3 }),
-  blueGlow: new THREE.MeshStandardMaterial({ color: 0x60a5fa, emissive: 0x2563eb, emissiveIntensity: 0.9, metalness: 0.3, roughnessRoughness: 0.35 }),
-  pinkGlow: new THREE.MeshStandardMaterial({ color: 0xf9a8d4, emissive: 0xec4899, emissiveIntensity: 0.7, metalness: 0.2, roughness: 0.35 }),
-  greenGlow: new THREE.MeshStandardMaterial({ color: 0x6ee7b7, emissive: 0x10b981, emissiveIntensity: 0.8, metalness: 0.2, roughness: 0.35 }),
-  orangeGlow: new THREE.MeshStandardMaterial({ color: 0xfdba74, emissive: 0xf97316, emissiveIntensity: 0.7, metalness: 0.2, roughness: 0.35 }),
-  violetGlow: new THREE.MeshStandardMaterial({ color: 0xc4b5fd, emissive: 0x8b5cf6, emissiveIntensity: 0.75, metalness: 0.2, roughness: 0.35 }),
-  carbon: new THREE.MeshStandardMaterial({ color: 0x1e293b, metalness: 0.7, roughnessRoughness: 0.45 }),
-  softBlue: new THREE.MeshStandardMaterial({ color: 0xbae6fd, metalness: 0.3, roughnessRoughness: 0.4 }),
-  hologram: new THREE.MeshStandardMaterial({
-    color: 0x67e8f9, emissive: 0x22d3ee, emissiveIntensity: 0.6,
-    transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false,
-  }),
-};
-
-function rbox(w, h, d, material, radius = 0.03, segments = 3) {
-  const m = new THREE.Mesh(new RoundedBoxGeometry(w, h, d, segments, radius), material);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
-}
-
-function box(w, h, d, material) {
-  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
-}
-
-function cyl(rTop, rBot, h, material, segs = 32) {
-  const m = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, segs), material);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
-}
-
-function sphere(r, material, segs = 32) {
-  const m = new THREE.Mesh(new THREE.SphereGeometry(r, segs, segs), material);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  return m;
-}
-
-function torus(r, tube, material, rs = 12, ts = 32) {
-  const m = new THREE.Mesh(new THREE.TorusGeometry(r, tube, rs, ts), material);
-  m.castShadow = true;
-  return m;
-}
-
+const mat = createMaterials();
+const primitives = createPrimitives();
+const { rbox, box, cyl, sphere, torus } = primitives;
 // ═══════════════════════════════════════════════
 //  Lighting — bright airy
 // ═══════════════════════════════════════════════
@@ -383,15 +331,18 @@ function addSideBlackboard(x, toolbarSide, w = 3.6, h = 2.2) {
   face.position.z = 0.041;
   g.add(face);
 
-  const tag = (o) => {
+  // Only the root group is interactive. Child meshes (face/board) stay as pure
+  // geometry so resolveInteractive walks up to this host, where pick/draw APIs live.
+  // (Tagging children as interactive caused the mesh to be selected without APIs.)
+  const markMeta = (o) => {
     o.userData.type = 'side_blackboard';
     o.userData.role = 'side_blackboard';
-    o.userData.interactive = true;
     o.userData.maxInteractDist = FRONT_WALL_DISPLAY_MAX_DIST;
   };
-  tag(g);
-  tag(face);
-  tag(board);
+  markMeta(g);
+  markMeta(face);
+  markMeta(board);
+  g.userData.interactive = true;
 
   function faceHitFromRay(rc) {
     face.updateMatrixWorld(true);
@@ -504,17 +455,6 @@ function makeTechTable(w, d, h = 0.88) {
       g.add(foot);
     }
   }
-  // cross brace with LED
-  const brace = rbox(w - 0.25, 0.02, 0.02, mat.silver, 0.005);
-  brace.position.y = 0.35;
-  g.add(brace);
-  const led = rbox(w * 0.4, 0.012, 0.012, mat.cyanGlow, 0.003);
-  led.position.y = 0.35;
-  g.add(led);
-  // under-shelf
-  const shelf = rbox(w * 0.85, 0.025, d * 0.75, mat.wallPanel, 0.02);
-  shelf.position.y = 0.28;
-  g.add(shelf);
   return g;
 }
 
@@ -614,2420 +554,49 @@ function makeStool() {
 // ═══════════════════════════════════════════════
 const animators = [];
 
-// —— Holographic Newton's Cradle ——
-function makeNewtonsCradle() {
-  const g = new THREE.Group();
-  const base = rbox(0.75, 0.05, 0.32, mat.whiteGloss, 0.025);
-  base.position.y = 0.025;
-  g.add(base);
-  const baseLed = rbox(0.7, 0.01, 0.28, mat.cyanGlow, 0.005);
-  baseLed.position.y = 0.055;
-  g.add(baseLed);
+// —— Experiment category stations ——
 
-  const frameW = 0.58, frameH = 0.48;
-  // arched frame bars
-  for (const z of [-0.11, 0.11]) {
-    for (const x of [-frameW / 2, frameW / 2]) {
-      const post = cyl(0.012, 0.012, frameH, mat.chrome, 10);
-      post.position.set(x, frameH / 2 + 0.06, z);
-      g.add(post);
-    }
-    const bar = cyl(0.01, 0.01, frameW, mat.chrome, 10);
-    bar.rotation.z = Math.PI / 2;
-    bar.position.set(0, frameH + 0.06, z);
-    g.add(bar);
-  }
-
-  const n = 5, r = 0.042, stringLen = 0.34;
-  const balls = [];
-  for (let i = 0; i < n; i++) {
-    const pivot = new THREE.Group();
-    pivot.position.set((i - (n - 1) / 2) * r * 2, frameH + 0.06, 0);
-
-    const sGeo = new THREE.BufferGeometry().setFromPoints([
-      new THREE.Vector3(0, 0, -0.11),
-      new THREE.Vector3(0, -stringLen, 0),
-      new THREE.Vector3(0, 0, 0.11),
-    ]);
-    pivot.add(new THREE.Line(sGeo, new THREE.LineBasicMaterial({ color: 0x88d4ff, transparent: true, opacity: 0.7 })));
-
-    const ball = sphere(r, mat.chrome, 28);
-    ball.position.y = -stringLen;
-    ball.userData.interactive = true;
-    ball.userData.role = 'cradle';
-    pivot.add(ball);
-    const aura = sphere(r * 1.15, new THREE.MeshStandardMaterial({
-      color: 0x67e8f9, emissive: 0x22d3ee, emissiveIntensity: 0.4,
-      transparent: true, opacity: 0.2, depthWrite: false,
-    }), 16);
-    aura.position.y = -stringLen;
-    pivot.add(aura);
-    g.add(pivot);
-    balls.push(pivot);
-  }
-
-  g.userData.cradleBalls = balls;
-  g.userData.interactive = true;
-  g.userData.role = 'cradle';
-
-  animators.push((t) => {
-    if (expManager?.state.running && expManager.state.expId === 'cradle_demo') return;
-    const period = 1.35;
-    const phase = (t % period) / period;
-    const angle = Math.sin(phase * Math.PI * 2) * 0.55;
-    balls[0].rotation.z = Math.max(0, angle);
-    balls[n - 1].rotation.z = Math.min(0, -angle);
-    if (phase >= 0.5) {
-      balls[0].rotation.z = Math.min(0, angle);
-      balls[n - 1].rotation.z = Math.max(0, -angle);
-    }
-  });
-  return g;
-}
-
-// —— Quantum Pendulum ——
-function makePendulum() {
-  const g = new THREE.Group();
-  const base = rbox(0.4, 0.04, 0.28, mat.whiteGloss, 0.02);
-  base.position.y = 0.02;
-  g.add(base);
-  const baseRing = torus(0.14, 0.012, mat.blueGlow, 8, 28);
-  baseRing.rotation.x = Math.PI / 2;
-  baseRing.position.y = 0.05;
-  g.add(baseRing);
-
-  const pole = cyl(0.018, 0.022, 1.0, mat.chrome, 12);
-  pole.position.set(0, 0.55, -0.08);
-  g.add(pole);
-  const arm = rbox(0.5, 0.025, 0.025, mat.silver, 0.008);
-  arm.position.set(0, 1.02, 0);
-  g.add(arm);
-
-  // holographic protractor
-  const arcPts = [];
-  for (let a = -55; a <= 55; a += 1.5) {
-    const rad = THREE.MathUtils.degToRad(a);
-    arcPts.push(new THREE.Vector3(Math.sin(rad) * 0.4, 1.0 - Math.cos(rad) * 0.4, 0.04));
-  }
-  g.add(new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints(arcPts),
-    new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.8 })
-  ));
-
-  const pivot = new THREE.Group();
-  pivot.position.set(0, 1.0, 0);
-  pivot.add(new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -0.72, 0)]),
-    new THREE.LineBasicMaterial({ color: 0x7dd3fc })
-  ));
-  const bob = sphere(0.075, mat.blueGlow, 24);
-  bob.position.y = -0.72;
-  bob.userData.interactive = true;
-  bob.userData.role = 'pendulum_bob';
-  pivot.add(bob);
-  const bobRing = torus(0.09, 0.008, mat.cyanGlow, 8, 20);
-  bobRing.position.y = -0.72;
-  pivot.add(bobRing);
-  g.add(pivot);
-
-  g.userData.pendulumPivot = pivot;
-  g.userData.bob = bob;
-  g.userData.interactive = true;
-  g.userData.role = 'pendulum';
-  g.userData.stringLen = 0.72;
-
-  animators.push((t) => {
-    if (expManager?.state.running && expManager.state.expId === 'pendulum_g') return;
-    pivot.rotation.z = Math.sin(t * 1.75) * 0.48;
-  });
-  return g;
-}
-
-// —— Magnetic spring oscillator ——
-function makeSpringMass() {
-  const g = new THREE.Group();
-  const base = rbox(0.38, 0.04, 0.38, mat.whiteGloss, 0.02);
-  base.position.y = 0.02;
-  g.add(base);
-
-  // four corner posts forming open cube
-  for (const sx of [-1, 1]) {
-    for (const sz of [-1, 1]) {
-      const post = cyl(0.012, 0.012, 0.78, mat.chrome, 10);
-      post.position.set(sx * 0.14, 0.42, sz * 0.14);
-      g.add(post);
-    }
-  }
-  const top = rbox(0.32, 0.03, 0.32, mat.silver, 0.015);
-  top.position.y = 0.8;
-  g.add(top);
-  const topLed = rbox(0.28, 0.01, 0.28, mat.greenGlow, 0.005);
-  topLed.position.y = 0.78;
-  g.add(topLed);
-
-  const springGroup = new THREE.Group();
-  springGroup.position.set(0, 0.78, 0);
-  const springPts = [];
-  for (let i = 0; i <= 100; i++) {
-    const t = i / 100;
-    const ang = t * 12 * Math.PI * 2;
-    springPts.push(new THREE.Vector3(Math.cos(ang) * 0.055, -t * 0.38, Math.sin(ang) * 0.055));
-  }
-  springGroup.add(new THREE.Line(
-    new THREE.BufferGeometry().setFromPoints(springPts),
-    new THREE.LineBasicMaterial({ color: 0x34d399 })
-  ));
-
-  const mass = rbox(0.14, 0.1, 0.14, mat.greenGlow, 0.02);
-  mass.position.y = -0.45;
-  mass.userData.interactive = true;
-  mass.userData.role = 'spring_mass';
-  springGroup.add(mass);
-  const floatRing = torus(0.1, 0.01, mat.cyanGlow, 8, 24);
-  floatRing.rotation.x = Math.PI / 2;
-  floatRing.position.y = -0.55;
-  springGroup.add(floatRing);
-  g.add(springGroup);
-
-  g.userData.springGroup = springGroup;
-  g.userData.springMass = mass;
-  g.userData.interactive = true;
-  g.userData.role = 'spring';
-
-  animators.push((t) => {
-    if (expManager?.state.running && expManager.state.expId === 'spring_k') return;
-    const stretch = 0.1 * Math.sin(t * 3.0);
-    springGroup.scale.y = 1 + stretch * 1.8;
-    mass.position.y = -0.45 - stretch;
-    floatRing.position.y = -0.55 - stretch * 0.5;
-    floatRing.rotation.z = t * 2;
-  });
-  return g;
-}
-
-// —— Laser Optics Bench ——
-function makeOpticsBench() {
-  const g = new THREE.Group();
-  const lab = {
-    brass: new THREE.MeshStandardMaterial({
-      color: 0xc9a227, metalness: 0.92, roughness: 0.32, emissive: 0x3d3008, emissiveIntensity: 0.08,
-    }),
-    steel: new THREE.MeshStandardMaterial({
-      color: 0x8b939e, metalness: 0.88, roughness: 0.3, emissive: 0x101418, emissiveIntensity: 0.05,
-    }),
-    matteBlack: new THREE.MeshStandardMaterial({
-      color: 0x1a1d22, metalness: 0.2, roughness: 0.75, emissive: 0x050505, emissiveIntensity: 0.04,
-    }),
-    paper: new THREE.MeshStandardMaterial({
-      color: 0xf3efe6, metalness: 0.02, roughness: 0.88, emissive: 0x1a1810, emissiveIntensity: 0.04,
-    }),
-    warmGlass: new THREE.MeshPhysicalMaterial({
-      color: 0xffe8aa, metalness: 0, roughness: 0.04, transmission: 0.9,
-      thickness: 0.45, transparent: true, opacity: 0.55, clearcoat: 1,
-    }),
-  };
-
-  function makeSelectOutline(sx, sy, sz) {
-    const box = new THREE.BoxGeometry(sx, sy, sz);
-    const edges = new THREE.EdgesGeometry(box);
-    const geometry = new LineSegmentsGeometry().fromEdgesGeometry(edges);
-    box.dispose();
-    edges.dispose();
-    const lineMat = new LineMaterial({
-      color: 0xfbbf24,
-      transparent: true,
-      opacity: 0,
-      linewidth: 4,
-      worldUnits: false,
-      resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
-      depthTest: true,
-      toneMapped: false,
-    });
-    const outline = new LineSegments2(geometry, lineMat);
-    outline.computeLineDistances();
-    outline.visible = false;
-    outline.userData.isOutline = true;
-    return outline;
-  }
-
-  function addRecognitionTarget(host, role, size, outlinePos = [0, 0, 0]) {
-    const hit = new THREE.Mesh(
-      new THREE.BoxGeometry(...size),
-      new THREE.MeshBasicMaterial({ visible: false }),
-    );
-    hit.position.set(...outlinePos);
-    hit.userData.interactive = true;
-    hit.userData.role = role;
-    host.add(hit);
-    const outline = makeSelectOutline(...size);
-    outline.position.set(...outlinePos);
-    host.add(outline);
-    return { outline, hit };
-  }
-
-  // ── Shared optical rail (full bench length ~2.2 m visual) ──
-  const rail = rbox(2.2, 0.045, 0.18, lab.matteBlack, 0.01);
-  rail.position.y = 0.05;
-  g.add(rail);
-  const railTop = rbox(2.15, 0.012, 0.05, lab.steel, 0.003);
-  railTop.position.y = 0.078;
-  g.add(railTop);
-  for (const z of [-0.095, 0.095]) {
-    const side = rbox(2.2, 0.028, 0.018, lab.steel, 0.004);
-    side.position.set(0, 0.095, z);
-    g.add(side);
-  }
-  // scale ticks
-  for (let i = 0; i <= 22; i++) {
-    const tick = rbox(0.006, 0.01, i % 5 === 0 ? 0.07 : 0.04, lab.brass, 0.001);
-    tick.position.set(-1.05 + i * 0.1, 0.09, 0);
-    g.add(tick);
-  }
-  const railHit = new THREE.Mesh(
-    new THREE.BoxGeometry(2.2, 0.12, 0.22),
-    new THREE.MeshBasicMaterial({ visible: false }),
-  );
-  railHit.position.y = 0.08;
-  railHit.userData.interactive = true;
-  railHit.userData.role = 'opt_rail';
-  g.add(railHit);
-
-  // ── Prism mode group ──
-  const prismGroup = new THREE.Group();
-  prismGroup.name = 'prismSetup';
-
-  // White light source + collimator / slit
-  const source = new THREE.Group();
-  source.position.set(-0.85, 0.22, 0);
-  const sourceBody = rbox(0.22, 0.16, 0.16, lab.matteBlack, 0.015);
-  source.add(sourceBody);
-  const lamp = new THREE.Mesh(
-    new THREE.SphereGeometry(0.04, 16, 12),
-    new THREE.MeshStandardMaterial({
-      color: 0xfff2cc, emissive: 0xffcc66, emissiveIntensity: 0.2, metalness: 0.1, roughness: 0.35,
-    }),
-  );
-  lamp.position.set(-0.02, 0.02, 0);
-  source.add(lamp);
-  const collimator = cyl(0.035, 0.04, 0.1, lab.steel, 16);
-  collimator.rotation.z = Math.PI / 2;
-  collimator.position.x = 0.14;
-  source.add(collimator);
-  const slit = rbox(0.01, 0.08, 0.012, lab.brass, 0.002);
-  slit.position.x = 0.2;
-  source.add(slit);
-  source.userData.interactive = true;
-  source.userData.role = 'opt_source';
-  prismGroup.add(source);
-
-  const sourceLight = new THREE.PointLight(0xffd28a, 0.15, 2.2, 2);
-  sourceLight.position.set(-0.75, 0.28, 0);
-  prismGroup.add(sourceLight);
-
-  // Incident beam (white)
-  const inBeamMat = new THREE.MeshStandardMaterial({
-    color: 0xfff8e7, emissive: 0xffe4a3, emissiveIntensity: 0.4,
-    transparent: true, opacity: 0.0, depthWrite: false,
-  });
-  const inBeam = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.72, 8), inBeamMat);
-  inBeam.rotation.z = Math.PI / 2;
-  inBeam.position.set(-0.35, 0.22, 0);
-  prismGroup.add(inBeam);
-
-  // Prism on rotatable stage
-  const prismStage = new THREE.Group();
-  prismStage.position.set(0.15, 0.1, 0);
-  const stageBase = cyl(0.12, 0.12, 0.03, lab.steel, 28);
-  stageBase.position.y = 0.0;
-  prismStage.add(stageBase);
-  const stageDial = cyl(0.1, 0.1, 0.012, lab.brass, 48);
-  stageDial.position.y = 0.02;
-  prismStage.add(stageDial);
-  // degree marks
-  for (let i = 0; i < 24; i++) {
-    const a = (i / 24) * Math.PI * 2;
-    const mark = rbox(0.008, 0.004, 0.018, lab.matteBlack, 0.001);
-    mark.position.set(Math.cos(a) * 0.088, 0.028, Math.sin(a) * 0.088);
-    mark.rotation.y = -a;
-    prismStage.add(mark);
-  }
-
-  const prismShape = new THREE.Shape();
-  prismShape.moveTo(0, 0.1);
-  prismShape.lineTo(0.09, -0.06);
-  prismShape.lineTo(-0.09, -0.06);
-  prismShape.closePath();
-  const prismMesh = new THREE.Mesh(
-    new THREE.ExtrudeGeometry(prismShape, {
-      depth: 0.12, bevelEnabled: true, bevelThickness: 0.008, bevelSize: 0.008, bevelSegments: 2,
-    }),
-    new THREE.MeshPhysicalMaterial({
-      color: 0xe8f4ff, metalness: 0, roughness: 0.02, transmission: 0.94,
-      thickness: 1.0, transparent: true, opacity: 0.58, clearcoat: 1, ior: 1.5,
-    }),
-  );
-  prismMesh.position.set(0, 0.1, -0.06);
-  prismMesh.userData.interactive = true;
-  prismMesh.userData.role = 'opt_prism';
-  prismStage.add(prismMesh);
-  prismStage.userData.interactive = true;
-  prismStage.userData.role = 'opt_prism';
-  prismGroup.add(prismStage);
-
-  // Goniometer arm / readout
-  const gonio = new THREE.Group();
-  gonio.position.set(0.15, 0.05, 0.28);
-  const gonioBody = rbox(0.28, 0.08, 0.16, lab.matteBlack, 0.012);
-  gonio.add(gonioBody);
-  const gonioScreen = rbox(0.16, 0.04, 0.02, new THREE.MeshStandardMaterial({
-    color: 0x0a1a12, emissive: 0x22c55e, emissiveIntensity: 0.35, metalness: 0.2, roughness: 0.4,
-  }), 0.004);
-  gonioScreen.position.set(0, 0.02, 0.09);
-  gonio.add(gonioScreen);
-  // canvas readout on gonio
-  const gonioCanvas = document.createElement('canvas');
-  gonioCanvas.width = 256;
-  gonioCanvas.height = 64;
-  const gonioCtx = gonioCanvas.getContext('2d');
-  const gonioTex = new THREE.CanvasTexture(gonioCanvas);
-  gonioTex.colorSpace = THREE.SRGBColorSpace;
-  const gonioReadout = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.15, 0.038),
-    new THREE.MeshBasicMaterial({ map: gonioTex, transparent: true }),
-  );
-  gonioReadout.position.set(0, 0.02, 0.101);
-  gonio.add(gonioReadout);
-  gonio.userData.interactive = true;
-  gonio.userData.role = 'opt_goniometer';
-  prismGroup.add(gonio);
-
-  function paintGonio(deltaDeg, phiDeg) {
-    gonioCtx.fillStyle = '#04140c';
-    gonioCtx.fillRect(0, 0, 256, 64);
-    gonioCtx.fillStyle = '#4ade80';
-    gonioCtx.font = 'bold 22px Consolas, monospace';
-    gonioCtx.fillText(`δ ${deltaDeg.toFixed(2)}°`, 12, 28);
-    gonioCtx.fillStyle = '#86efac';
-    gonioCtx.font = '16px Consolas, monospace';
-    gonioCtx.fillText(`φ ${phiDeg.toFixed(1)}°`, 12, 52);
-    gonioTex.needsUpdate = true;
-  }
-  paintGonio(38.9, 12);
-
-  // Observation screen for spectrum
-  const spectrumScreen = new THREE.Group();
-  spectrumScreen.position.set(0.95, 0.24, 0);
-  const scrPlate = rbox(0.03, 0.32, 0.42, lab.paper, 0.008);
-  spectrumScreen.add(scrPlate);
-  const scrStand = cyl(0.015, 0.02, 0.18, lab.steel, 10);
-  scrStand.position.set(0, -0.16, 0);
-  spectrumScreen.add(scrStand);
-  spectrumScreen.userData.interactive = true;
-  spectrumScreen.userData.role = 'opt_screen';
-  prismGroup.add(spectrumScreen);
-
-  const spectrumGroup = new THREE.Group();
-  const spectrumColors = [0xff0044, 0xff6600, 0xffee00, 0x44dd66, 0x2288ff, 0x7722ff];
-  const spectrumBars = [];
-  spectrumColors.forEach((c, i) => {
-    const barMat = new THREE.MeshStandardMaterial({
-      color: c, emissive: c, emissiveIntensity: 0, metalness: 0.05, roughness: 0.45,
-      transparent: true, opacity: 0.15,
-    });
-    const s = rbox(0.012, 0.24, 0.045, barMat, 0.004);
-    s.position.set(0.02, 0, -0.12 + i * 0.048);
-    spectrumGroup.add(s);
-    spectrumBars.push(barMat);
-  });
-  spectrumScreen.add(spectrumGroup);
-
-  // Dispersed exit beams (fan)
-  const exitBeams = new THREE.Group();
-  const exitMats = [];
-  spectrumColors.forEach((c, i) => {
-    const m = new THREE.MeshStandardMaterial({
-      color: c, emissive: c, emissiveIntensity: 0.3,
-      transparent: true, opacity: 0, depthWrite: false,
-    });
-    const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.007, 0.7, 6), m);
-    beam.rotation.z = Math.PI / 2;
-    const spread = (i - 2.5) * 0.04;
-    beam.position.set(0.55, 0.22, spread);
-    beam.rotation.y = -spread * 0.8;
-    exitBeams.add(beam);
-    exitMats.push(m);
-  });
-  prismGroup.add(exitBeams);
-
-  g.add(prismGroup);
-
-  // ── Lens mode group ──
-  const lensGroup = new THREE.Group();
-  lensGroup.name = 'lensSetup';
-  lensGroup.visible = false;
-
-  // Object screen with illuminated cross
-  const objectMount = new THREE.Group();
-  objectMount.position.set(-0.9, 0.22, 0);
-  const objBase = cyl(0.05, 0.05, 0.02, lab.matteBlack, 12);
-  objBase.position.y = -0.14;
-  objectMount.add(objBase);
-  const objStand = cyl(0.012, 0.016, 0.16, lab.steel, 10);
-  objStand.position.y = -0.06;
-  objectMount.add(objStand);
-  const objPlate = rbox(0.04, 0.2, 0.2, lab.matteBlack, 0.008);
-  objectMount.add(objPlate);
-  // glowing cross pattern
-  const crossH = rbox(0.01, 0.02, 0.12, new THREE.MeshStandardMaterial({
-    color: 0xffe4a0, emissive: 0xffcc55, emissiveIntensity: 1.2, metalness: 0, roughness: 0.3,
-  }), 0.002);
-  const crossV = rbox(0.01, 0.12, 0.02, new THREE.MeshStandardMaterial({
-    color: 0xffe4a0, emissive: 0xffcc55, emissiveIntensity: 1.2, metalness: 0, roughness: 0.3,
-  }), 0.002);
-  crossH.position.x = 0.025;
-  crossV.position.x = 0.025;
-  objectMount.add(crossH);
-  objectMount.add(crossV);
-  const objLamp = new THREE.PointLight(0xffd080, 0.4, 1.5, 2);
-  objLamp.position.set(-0.08, 0.05, 0);
-  objectMount.add(objLamp);
-  objectMount.userData.interactive = true;
-  objectMount.userData.role = 'opt_object';
-  lensGroup.add(objectMount);
-
-  // Convex lens mount
-  const lensMount = new THREE.Group();
-  lensMount.position.set(-0.2, 0.22, 0);
-  const lensBase = cyl(0.055, 0.055, 0.022, lab.matteBlack, 14);
-  lensBase.position.y = -0.14;
-  lensMount.add(lensBase);
-  const lensStand = cyl(0.012, 0.018, 0.16, lab.steel, 10);
-  lensStand.position.y = -0.06;
-  lensMount.add(lensStand);
-  const lensRing = torus(0.075, 0.01, lab.brass, 12, 32);
-  lensRing.rotation.y = Math.PI / 2;
-  lensMount.add(lensRing);
-  const lensGlass = new THREE.Mesh(
-    new THREE.SphereGeometry(0.07, 24, 18),
-    lab.warmGlass,
-  );
-  lensGlass.scale.set(0.22, 1, 1);
-  lensMount.add(lensGlass);
-  lensMount.userData.interactive = true;
-  lensMount.userData.role = 'opt_lens';
-  lensGroup.add(lensMount);
-
-  // Image screen
-  const imageMount = new THREE.Group();
-  imageMount.position.set(0.55, 0.22, 0);
-  const imgBase = cyl(0.05, 0.05, 0.02, lab.matteBlack, 12);
-  imgBase.position.y = -0.14;
-  imageMount.add(imgBase);
-  const imgStand = cyl(0.012, 0.016, 0.16, lab.steel, 10);
-  imgStand.position.y = -0.06;
-  imageMount.add(imgStand);
-  const imgPlate = rbox(0.025, 0.24, 0.24, lab.paper, 0.006);
-  imageMount.add(imgPlate);
-  // image of cross (blurred when out of focus)
-  const imgCrossMat = new THREE.MeshStandardMaterial({
-    color: 0x334155, emissive: 0xfbbf24, emissiveIntensity: 0.15,
-    transparent: true, opacity: 0.85, metalness: 0, roughness: 0.6,
-  });
-  const imgCrossH = rbox(0.008, 0.015, 0.1, imgCrossMat, 0.002);
-  const imgCrossV = rbox(0.008, 0.1, 0.015, imgCrossMat, 0.002);
-  imgCrossH.position.x = -0.015;
-  imgCrossV.position.x = -0.015;
-  imageMount.add(imgCrossH);
-  imageMount.add(imgCrossV);
-  imageMount.userData.interactive = true;
-  imageMount.userData.role = 'opt_image';
-  imageMount.userData.imgCross = [imgCrossH, imgCrossV];
-  imageMount.userData.imgCrossMat = imgCrossMat;
-  lensGroup.add(imageMount);
-
-  // Ray guide lines (object → lens → image)
-  const rayMat = new THREE.MeshStandardMaterial({
-    color: 0xfbbf24, emissive: 0xf59e0b, emissiveIntensity: 0.6,
-    transparent: true, opacity: 0.35, depthWrite: false,
-  });
-  const ray1 = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1, 6), rayMat);
-  ray1.rotation.z = Math.PI / 2;
-  lensGroup.add(ray1);
-  const ray2 = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 1, 6), rayMat.clone());
-  ray2.rotation.z = Math.PI / 2;
-  lensGroup.add(ray2);
-
-  g.add(lensGroup);
-
-  // ── Fraunhofer single/multi-slit mode (ported from danfen source) ──
-  const diffractionGroup = new THREE.Group();
-  diffractionGroup.name = 'diffractionSetup';
-  diffractionGroup.visible = false;
-
-  function spectralColor(nm) {
-    let r = 0; let gg = 0; let b = 0;
-    if (nm < 440) { r = -(nm - 440) / 60; b = 1; }
-    else if (nm < 490) { gg = (nm - 440) / 50; b = 1; }
-    else if (nm < 510) { gg = 1; b = -(nm - 510) / 20; }
-    else if (nm < 580) { r = (nm - 510) / 70; gg = 1; }
-    else if (nm < 645) { r = 1; gg = -(nm - 645) / 65; }
-    else r = 1;
-    let f = 1;
-    if (nm < 420) f = 0.3 + 0.7 * (nm - 380) / 40;
-    if (nm > 700) f = 0.3 + 0.7 * (780 - nm) / 80;
-    return new THREE.Color(
-      THREE.MathUtils.clamp(r * f, 0, 1),
-      THREE.MathUtils.clamp(gg * f, 0, 1),
-      THREE.MathUtils.clamp(b * f, 0, 1),
-    );
-  }
-
-  function makeDiffPost(x) {
-    const post = new THREE.Group();
-    post.position.x = x;
-    const base = rbox(0.13, 0.04, 0.15, lab.matteBlack, 0.008);
-    base.position.y = 0.12;
-    post.add(base);
-    const rod = cyl(0.012, 0.015, 0.3, lab.steel, 14);
-    rod.position.y = 0.25;
-    post.add(rod);
-    diffractionGroup.add(post);
-    return post;
-  }
-
-  const diffSource = makeDiffPost(-0.9);
-  const diffLaserBody = cyl(0.04, 0.045, 0.23, lab.matteBlack, 24);
-  diffLaserBody.rotation.z = Math.PI / 2;
-  diffLaserBody.position.set(0, 0.39, 0);
-  diffSource.add(diffLaserBody);
-  const diffLaserNose = cyl(0.018, 0.035, 0.06, lab.steel, 18);
-  diffLaserNose.rotation.z = Math.PI / 2;
-  diffLaserNose.position.set(0.145, 0.39, 0);
-  diffSource.add(diffLaserNose);
-  const diffEmitterMat = new THREE.MeshBasicMaterial({ color: 0x44ff88 });
-  const diffEmitter = new THREE.Mesh(new THREE.SphereGeometry(0.014, 16, 12), diffEmitterMat);
-  diffEmitter.position.set(0.18, 0.39, 0);
-  diffSource.add(diffEmitter);
-  const diffHalo = new THREE.Mesh(
-    new THREE.CircleGeometry(0.042, 32),
-    new THREE.MeshBasicMaterial({
-      color: 0x44ff88,
-      transparent: true,
-      opacity: 0.4,
-      side: THREE.DoubleSide,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    }),
-  );
-  diffHalo.rotation.y = Math.PI / 2;
-  diffHalo.position.set(0.181, 0.39, 0);
-  diffSource.add(diffHalo);
-  diffSource.userData.interactive = true;
-  diffSource.userData.role = 'diff_source';
-  const sourceHit = new THREE.Mesh(
-    new THREE.BoxGeometry(0.34, 0.34, 0.24),
-    new THREE.MeshBasicMaterial({ visible: false }),
-  );
-  sourceHit.position.y = 0.32;
-  sourceHit.userData.interactive = true;
-  sourceHit.userData.role = 'diff_source';
-  diffSource.add(sourceHit);
-
-  const diffSlitMount = makeDiffPost(-0.34);
-  const diffSlitFrame = rbox(0.035, 0.34, 0.36, lab.matteBlack, 0.008);
-  diffSlitFrame.position.y = 0.39;
-  diffSlitMount.add(diffSlitFrame);
-  const diffSlitBars = new THREE.Group();
-  diffSlitBars.position.y = 0.39;
-  diffSlitMount.add(diffSlitBars);
-  const diffSlitGlows = new THREE.Group();
-  diffSlitGlows.position.set(-0.019, 0.39, 0);
-  diffSlitMount.add(diffSlitGlows);
-  diffSlitMount.userData.interactive = true;
-  diffSlitMount.userData.role = 'diff_slit';
-  const slitHit = new THREE.Mesh(
-    new THREE.BoxGeometry(0.16, 0.4, 0.42),
-    new THREE.MeshBasicMaterial({ visible: false }),
-  );
-  slitHit.position.y = 0.36;
-  slitHit.userData.interactive = true;
-  slitHit.userData.role = 'diff_slit';
-  diffSlitMount.add(slitHit);
-
-  const diffScreen = makeDiffPost(0.5);
-  const diffScreenBack = rbox(0.035, 0.48, 0.62, lab.matteBlack, 0.008);
-  diffScreenBack.position.y = 0.39;
-  diffScreen.add(diffScreenBack);
-  const diffScreenCanvas = document.createElement('canvas');
-  diffScreenCanvas.width = 640;
-  diffScreenCanvas.height = 240;
-  const diffScreenCtx = diffScreenCanvas.getContext('2d');
-  const diffScreenTex = new THREE.CanvasTexture(diffScreenCanvas);
-  diffScreenTex.colorSpace = THREE.SRGBColorSpace;
-  const diffScreenFace = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.56, 0.42),
-    new THREE.MeshBasicMaterial({ map: diffScreenTex, side: THREE.DoubleSide, toneMapped: false }),
-  );
-  diffScreenFace.rotation.y = -Math.PI / 2;
-  diffScreenFace.position.set(-0.02, 0.39, 0);
-  diffScreen.add(diffScreenFace);
-  diffScreen.userData.interactive = true;
-  diffScreen.userData.role = 'diff_screen';
-  const screenHit = new THREE.Mesh(
-    new THREE.BoxGeometry(0.14, 0.55, 0.7),
-    new THREE.MeshBasicMaterial({ visible: false }),
-  );
-  screenHit.position.y = 0.35;
-  screenHit.userData.interactive = true;
-  screenHit.userData.role = 'diff_screen';
-  diffScreen.add(screenHit);
-
-  const diffBeamGroup = new THREE.Group();
-  diffractionGroup.add(diffBeamGroup);
-  const diffWaveGroup = new THREE.Group();
-  diffWaveGroup.position.set(diffSlitMount.position.x, 0.392, 0);
-  diffractionGroup.add(diffWaveGroup);
-  const waveArcPositions = [];
-  for (let j = 0; j <= 48; j++) {
-    const angle = -0.95 + (1.9 * j) / 48;
-    waveArcPositions.push(Math.cos(angle), 0, Math.sin(angle));
-  }
-  for (let i = 0; i < 5; i++) {
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute('position', new THREE.Float32BufferAttribute(waveArcPositions, 3));
-    const wave = new THREE.Line(
-      geometry,
-      new THREE.LineBasicMaterial({
-        color: 0x44ff88,
-        transparent: true,
-        opacity: 0.55,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      }),
-    );
-    wave.frustumCulled = false;
-    diffWaveGroup.add(wave);
-  }
-  const diffLaserLight = new THREE.PointLight(0x44ff88, 0.55, 1.8, 2);
-  diffLaserLight.position.set(-0.7, 0.42, 0);
-  diffractionGroup.add(diffLaserLight);
-  g.add(diffractionGroup);
-
-  let diffSignature = '';
-  let diffWavePhase = 0;
-  function disposeChildren(group) {
-    while (group.children.length) {
-      const child = group.children.pop();
-      child.geometry?.dispose();
-      if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
-      else child.material?.dispose();
-    }
-  }
-
-  function updateDiffraction(d) {
-    const signature = [d.lightOn, d.lambdaNm, d.slitMm, d.pitchMm, d.N, d.distM, d.showBeam, d.showWave].join('|');
-    if (signature === diffSignature) return;
-    diffSignature = signature;
-    const color = spectralColor(Number(d.lambdaNm || 550));
-    const lit = !!d.lightOn;
-    diffEmitterMat.color.copy(color);
-    diffEmitter.visible = lit;
-    diffHalo.material.color.copy(color);
-    diffHalo.visible = lit;
-    diffLaserLight.color.copy(color);
-    diffLaserLight.visible = lit;
-    diffWaveGroup.visible = lit && d.showWave !== false;
-    diffWaveGroup.children.forEach((wave) => wave.material.color.copy(color));
-
-    const nSlits = Math.max(1, Math.round(Number(d.N || 2)));
-    const aV = THREE.MathUtils.clamp(Number(d.slitMm || 0.05) * 0.45, 0.006, 0.08);
-    const pitchV = THREE.MathUtils.clamp(Number(d.pitchMm || 0.25) * 0.45, 0.02, 0.12);
-    const centers = Array.from({ length: nSlits }, (_, i) => nSlits === 1 ? 0 : (i - (nSlits - 1) / 2) * pitchV);
-    const plateHalf = Math.max(0.16, ((nSlits - 1) * pitchV + aV) / 2 + 0.035);
-    disposeChildren(diffSlitBars);
-    disposeChildren(diffSlitGlows);
-    const barMat = lab.matteBlack.clone();
-    const segments = [[-plateHalf, centers[0] - aV / 2]];
-    for (let i = 0; i < centers.length - 1; i++) segments.push([centers[i] + aV / 2, centers[i + 1] - aV / 2]);
-    segments.push([centers[centers.length - 1] + aV / 2, plateHalf]);
-    for (const [z0, z1] of segments) {
-      if (z1 - z0 < 0.001) continue;
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.26, z1 - z0), barMat);
-      bar.position.z = (z0 + z1) / 2;
-      diffSlitBars.add(bar);
-    }
-    for (const z of centers) {
-      const glow = new THREE.Mesh(
-        new THREE.PlaneGeometry(Math.max(0.004, aV * 0.85), 0.24),
-        new THREE.MeshBasicMaterial({
-          color, transparent: true, opacity: lit ? 0.85 : 0,
-          side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
-        }),
-      );
-      glow.rotation.y = Math.PI / 2;
-      glow.position.z = z;
-      diffSlitGlows.add(glow);
-    }
-
-    const slitX = diffSlitMount.position.x;
-    const screenX = slitX + 0.34 + ((Number(d.distM || 1) - 0.4) / 1.6) * 0.9;
-    diffScreen.position.x = screenX;
-    disposeChildren(diffBeamGroup);
-    if (lit && d.showBeam !== false) {
-      const inLen = slitX - (-0.72);
-      const inBeam = new THREE.Mesh(
-        new THREE.CylinderGeometry(0.005, 0.008, inLen, 12, 1, true),
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.65, depthWrite: false, blending: THREE.AdditiveBlending }),
-      );
-      inBeam.rotation.z = Math.PI / 2;
-      inBeam.position.set(-0.72 + inLen / 2, 0.39, 0);
-      diffBeamGroup.add(inBeam);
-      const halfVisual = 0.28;
-      const fanGeo = new THREE.BufferGeometry();
-      fanGeo.setAttribute('position', new THREE.Float32BufferAttribute([
-        slitX, 0.39, 0,
-        screenX - 0.025, 0.39, -halfVisual,
-        screenX - 0.025, 0.39, halfVisual,
-      ], 3));
-      fanGeo.setIndex([0, 1, 2]);
-      diffBeamGroup.add(new THREE.Mesh(
-        fanGeo,
-        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.14, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }),
-      ));
-    }
-
-    const W = diffScreenCanvas.width;
-    const H = diffScreenCanvas.height;
-    diffScreenCtx.fillStyle = '#030509';
-    diffScreenCtx.fillRect(0, 0, W, H);
-    if (lit) {
-      const image = diffScreenCtx.createImageData(W, H);
-      const pixels = image.data;
-      const half = diffractionHalfSpan(d);
-      for (let col = 0; col < W; col++) {
-        const x = ((col / (W - 1)) * 2 - 1) * half;
-        const intensity = diffractionIntensity(x, d);
-        const soft = Math.min(1, Math.pow(intensity / (intensity + 0.06), 0.8) * 1.08);
-        for (let row = 0; row < H; row++) {
-          const v = (row / (H - 1)) * 2 - 1;
-          const bright = soft * Math.exp(-v * v * 1.6);
-          const idx = (row * W + col) * 4;
-          pixels[idx] = 4 + Math.round(color.r * 245 * bright);
-          pixels[idx + 1] = 4 + Math.round(color.g * 245 * bright);
-          pixels[idx + 2] = 8 + Math.round(color.b * 245 * bright);
-          pixels[idx + 3] = 255;
-        }
-      }
-      diffScreenCtx.putImageData(image, 0, 0);
-    }
-    diffScreenTex.needsUpdate = true;
-  }
-
-  function animateDiffraction(t, dt) {
-    if (!diffractionGroup.visible) return;
-    if (diffEmitter.visible) {
-      diffEmitter.scale.setScalar(1 + 0.12 * Math.sin(t * 10));
-      diffHalo.material.opacity = 0.3 + 0.2 * Math.sin(t * 7);
-      diffLaserLight.intensity = 0.5 + 0.18 * Math.sin(t * 7);
-    }
-    if (!diffWaveGroup.visible) return;
-    diffWavePhase = (diffWavePhase + dt * 2.5) % 2.2;
-    diffWaveGroup.children.forEach((wave, i) => {
-      const p = (diffWavePhase + i * 0.45) % 2.2;
-      const radius = 0.04 + p * 0.12;
-      wave.scale.set(radius, 1, radius);
-      wave.material.opacity = 0.55 * (1 - p / 2.2);
-    });
-  }
-
-  // Recognition targets
-  const recognition = {
-    opt_source: addRecognitionTarget(source, 'opt_source', [0.28, 0.22, 0.22], [0, 0, 0]),
-    opt_prism: addRecognitionTarget(prismStage, 'opt_prism', [0.28, 0.28, 0.28], [0, 0.12, 0]),
-    opt_screen: addRecognitionTarget(spectrumScreen, 'opt_screen', [0.1, 0.36, 0.46], [0, 0, 0]),
-    opt_goniometer: addRecognitionTarget(gonio, 'opt_goniometer', [0.32, 0.12, 0.2], [0, 0, 0]),
-    opt_object: addRecognitionTarget(objectMount, 'opt_object', [0.14, 0.28, 0.26], [0, 0, 0]),
-    opt_lens: addRecognitionTarget(lensMount, 'opt_lens', [0.12, 0.28, 0.22], [0, 0, 0]),
-    opt_image: addRecognitionTarget(imageMount, 'opt_image', [0.12, 0.32, 0.3], [0, 0, 0]),
-    opt_rail: addRecognitionTarget(g, 'opt_rail', [2.2, 0.1, 0.24], [0, 0.08, 0]),
-  };
-  const recognitionRings = Object.fromEntries(
-    Object.entries(recognition).map(([k, v]) => [k, v.outline]),
-  );
-
-  function setPartState(role, mode) {
-    const ring = recognitionRings[role];
-    if (!ring) return;
-    if (mode === 'off') {
-      ring.visible = false;
-      ring.material.opacity = 0;
-      return;
-    }
-    ring.visible = true;
-    ring.material.color.setHex(mode === 'done' ? 0x4ade80 : 0xfbbf24);
-    ring.material.opacity = mode === 'done' ? 0.95 : 1;
-    ring.scale.setScalar(mode === 'done' ? 1.015 : 1.03);
-  }
-
-  function clearIdentifyVisuals() {
-    Object.keys(recognitionRings).forEach((role) => setPartState(role, 'off'));
-  }
-
-  /** Map cm on optical bench to local X (object at -0.9 ≈ 0 cm, scale 0.018 m/cm) */
-  const CM0 = -0.9;
-  const CM_SCALE = 0.018;
-  function cmToX(cm) {
-    return CM0 + cm * CM_SCALE;
-  }
-
-  function setMode(mode) {
-    // idle / diffraction 均展示单缝多缝装置
-    prismGroup.visible = mode === 'prism';
-    lensGroup.visible = mode === 'lens';
-    diffractionGroup.visible = mode === 'diffraction' || mode === 'idle';
-    if (mode === 'idle') {
-      inBeamMat.opacity = 0;
-      exitMats.forEach((m) => { m.opacity = 0; });
-      spectrumBars.forEach((m) => { m.opacity = 0.12; m.emissiveIntensity = 0; });
-      sourceLight.intensity = 0.1;
-    }
-  }
-
-  function updateOptics(d) {
-    if (!d) return;
-    if (d.mode === 'diffraction') {
-      setMode('diffraction');
-      updateDiffraction(d);
-      return;
-    }
-    if (d.mode === 'lens') {
-      setMode('lens');
-      lensMount.position.x = cmToX(Number(d.lensPos || 45));
-      imageMount.position.x = cmToX(Number(d.screenPos || 80));
-      objectMount.position.x = cmToX(Number(d.objectPos || 0));
-
-      // rays: object → lens → screen
-      const ox = objectMount.position.x;
-      const lx = lensMount.position.x;
-      const sx = imageMount.position.x;
-      const y = 0.22;
-      const mid1 = (ox + lx) / 2;
-      const len1 = Math.max(0.05, Math.abs(lx - ox));
-      ray1.position.set(mid1, y, 0);
-      ray1.scale.set(1, len1, 1);
-      const mid2 = (lx + sx) / 2;
-      const len2 = Math.max(0.05, Math.abs(sx - lx));
-      ray2.position.set(mid2, y, 0);
-      ray2.scale.set(1, len2, 1);
-
-      const score = Number(d.focusScore || 0);
-      const mag = Math.max(0.15, Math.min(2.5, Math.abs(Number(d.magnification || 1))));
-      // invert image when real image
-      const flip = d.vImage != null && d.u > d.fTrue ? -1 : 1;
-      imgCrossH.scale.set(1, 1 + (1 - score) * 2.5, mag);
-      imgCrossV.scale.set(1, mag, 1 + (1 - score) * 2.5);
-      imgCrossH.position.y = 0;
-      imgCrossV.position.y = 0;
-      imageMount.scale.y = flip > 0 ? 1 : 1; // keep upright visual, encode invert via color
-      imgCrossMat.emissiveIntensity = 0.08 + score * 1.1;
-      imgCrossMat.opacity = 0.35 + score * 0.6;
-      imgCrossMat.emissive.setHex(score > 0.72 ? 0xfbbf24 : score > 0.4 ? 0x94a3b8 : 0x475569);
-      rayMat.opacity = 0.2 + score * 0.35;
-      if (ray2.material) ray2.material.opacity = rayMat.opacity;
-      objLamp.intensity = 0.35 + score * 0.25;
-      return;
-    }
-
-    // prism mode
-    setMode('prism');
-    const lightOn = !!d.lightOn;
-    const angleDeg = Number(d.prismAngle || 0);
-    prismStage.rotation.y = (angleDeg - 18) * (Math.PI / 180) * 0.6;
-    paintGonio(Number(d.delta || 0), angleDeg);
-
-    sourceLight.intensity = lightOn ? 1.1 : 0.08;
-    lamp.material.emissiveIntensity = lightOn ? 1.6 : 0.15;
-    inBeamMat.opacity = lightOn ? 0.55 : 0;
-    inBeamMat.emissiveIntensity = lightOn ? 0.9 : 0.1;
-
-    const spectrumOn = lightOn && !!d.spectrumVisible;
-    const nearMin = !!d.atMinimum;
-    const spreadGain = 0.7 + Math.min(1.2, Math.abs(angleDeg - 18) * 0.03);
-    // shift spectrum laterally with deviation
-    const zShift = (Number(d.delta || 40) - 40) * 0.004;
-    spectrumGroup.position.z = zShift;
-    spectrumBars.forEach((m, i) => {
-      m.opacity = spectrumOn ? 0.55 + (nearMin ? 0.35 : 0) : 0.08;
-      m.emissiveIntensity = spectrumOn ? (nearMin ? 1.4 : 0.7) : 0.05;
-      // emphasize selected color line
-      const names = ['red', 'red', 'yellow', 'green', 'blue', 'violet'];
-      if (d.colorLine && d.colorLine !== 'white') {
-        const active = names[i] === d.colorLine
-          || (d.colorLine === 'red' && i <= 1)
-          || (d.colorLine === 'violet' && i >= 4);
-        m.opacity = spectrumOn ? (active ? 0.95 : 0.12) : 0.05;
-        m.emissiveIntensity = spectrumOn && active ? 1.6 : 0.1;
-      }
-    });
-    exitMats.forEach((m, i) => {
-      m.opacity = spectrumOn ? 0.35 : 0;
-      m.emissiveIntensity = spectrumOn ? 0.8 : 0;
-      const beam = exitBeams.children[i];
-      if (beam) {
-        const spread = (i - 2.5) * 0.045 * spreadGain + zShift * 0.3;
-        beam.position.set(0.55, 0.22, spread);
-        beam.rotation.y = -spread * 0.9;
-      }
-    });
-  }
-
-  // Default showcase: single/double-slit diffraction bench
-  updateOptics({
-    mode: 'diffraction',
-    lightOn: true,
-    lambdaNm: 550,
-    slitMm: 0.05,
-    pitchMm: 0.25,
-    N: 2,
-    distM: 1,
-    showBeam: true,
-    showWave: true,
-  });
-
-  g.userData.setMode = setMode;
-  g.userData.updateOptics = updateOptics;
-  g.userData.setPartState = setPartState;
-  g.userData.clearIdentifyVisuals = clearIdentifyVisuals;
-  g.userData.prismGroup = prismGroup;
-  g.userData.lensGroup = lensGroup;
-  g.userData.diffractionGroup = diffractionGroup;
-  g.userData.animateDiffraction = animateDiffraction;
-  g.userData.interactive = true;
-  g.userData.role = 'optics';
-  return g;
-}
-
-// —— Hall-effect magnetic-field bench ——
-function makeHallSetup() {
-  const g = new THREE.Group();
-  // ── Lab materials (matte / metallic, not neon toy glow) ──
-  const lab = {
-    brass: new THREE.MeshStandardMaterial({
-      color: 0xc9a227, metalness: 0.95, roughness: 0.28, emissive: 0x3d3008, emissiveIntensity: 0.1,
-    }),
-    steel: new THREE.MeshStandardMaterial({
-      color: 0x9aa3ad, metalness: 0.9, roughness: 0.28, emissive: 0x111418, emissiveIntensity: 0.05,
-    }),
-    paper: new THREE.MeshStandardMaterial({
-      color: 0xf5f0e6, metalness: 0.02, roughness: 0.85, emissive: 0x222018, emissiveIntensity: 0.04,
-    }),
-    rubberRed: new THREE.MeshStandardMaterial({
-      color: 0x991b1b, metalness: 0.05, roughness: 0.75, emissive: 0x2a0505, emissiveIntensity: 0.08,
-    }),
-    rubberBlack: new THREE.MeshStandardMaterial({
-      color: 0x111111, metalness: 0.08, roughness: 0.72, emissive: 0x050505, emissiveIntensity: 0.06,
-    }),
-  };
-
-  function bindingPost(x, y, z, colorMat, role, portId, wireColor) {
-    const grp = new THREE.Group();
-    grp.position.set(x, y, z);
-    const socket = cyl(0.018, 0.018, 0.008, colorMat, 24);
-    socket.position.y = 0.004;
-    grp.add(socket);
-    const body = cyl(0.007, 0.007, 0.018, lab.brass, 16);
-    body.position.y = 0.015;
-    grp.add(body);
-    const nut = cyl(0.012, 0.012, 0.007, lab.brass, 16);
-    nut.position.y = 0.025;
-    grp.add(nut);
-    const socketHole = cyl(0.005, 0.005, 0.004, lab.rubberBlack, 16);
-    socketHole.position.y = 0.031;
-    grp.add(socketHole);
-
-    const plug = new THREE.Group();
-    const plugPin = cyl(0.0045, 0.0045, 0.018, lab.brass, 14);
-    plugPin.position.y = 0.038;
-    plug.add(plugPin);
-    const plugSleeve = cyl(0.009, 0.011, 0.024, colorMat, 18);
-    plugSleeve.position.y = 0.053;
-    plug.add(plugSleeve);
-    plug.visible = false;
-    grp.add(plug);
-
-    if (role) {
-      grp.userData.interactive = true;
-      grp.userData.role = role;
-      grp.userData.portId = portId;
-      grp.userData.wireColor = wireColor;
-      grp.userData.plug = plug;
-      const hit = new THREE.Mesh(
-        new THREE.BoxGeometry(0.055, 0.07, 0.055),
-        new THREE.MeshBasicMaterial({ visible: false }),
-      );
-      hit.position.y = 0.03;
-      hit.userData.interactive = true;
-      hit.userData.role = role;
-      hit.userData.portId = portId;
-      grp.add(hit);
-    }
-    return grp;
-  }
-
-  // ═══ HCC-2 Hall-effect magnetic-field bench ═══
-  // Faithful compact reconstruction of the original Hall project: the long
-  // solenoid, Helmholtz pair, transparent guide tube, ruler/probe and the
-  // three-readout HCC-2 console remain visible as one complete instrument.
-  const hallGroup = new THREE.Group();
-  hallGroup.visible = true;
-
-  const deckMat = new THREE.MeshStandardMaterial({ color: 0xd6d8da, metalness: 0.16, roughness: 0.48 });
-  const blackMat = new THREE.MeshStandardMaterial({ color: 0x08090b, metalness: 0.28, roughness: 0.55 });
-  const hallCopper = new THREE.MeshStandardMaterial({
-    color: 0xb85b27, metalness: 0.82, roughness: 0.34,
-    emissive: 0x321006, emissiveIntensity: 0.08,
-  });
-  const acrylic = new THREE.MeshPhysicalMaterial({
-    color: 0xe8f7ff, transparent: true, opacity: 0.24, transmission: 0.76,
-    roughness: 0.08, side: THREE.DoubleSide, depthWrite: false,
-  });
-
-  const hallBase = rbox(1.28, 0.08, 0.8, deckMat, 0.014);
-  hallBase.position.y = 0.04;
-  hallGroup.add(hallBase);
-
-  // Long solenoid across the rear, always present just like the source model.
-  // Full turn count N drawn procedurally with fwidth AA (no moiré). Wire
-  // bump normals + roughness/metal variation restore copper depth and sheen.
-  const hallSolenoid = new THREE.Group();
-  hallSolenoid.position.set(0, 0.245, -0.24);
-  const solTube = cyl(0.056, 0.056, 1.04, acrylic, 64);
-  solTube.rotation.z = Math.PI / 2;
-  hallSolenoid.add(solTube);
-
-  const solWindUniforms = {
-    uTurns: { value: 100 },
-  };
-
-  // Soft studio env so copper metalness has something to reflect (no scene env map)
-  function makeSolenoidEnvMap() {
-    const c = document.createElement('canvas');
-    c.width = 512;
-    c.height = 256;
-    const ctx = c.getContext('2d');
-    const sky = ctx.createLinearGradient(0, 0, 0, 256);
-    sky.addColorStop(0, '#e8eef8');
-    sky.addColorStop(0.42, '#8a96a8');
-    sky.addColorStop(0.55, '#3a4250');
-    sky.addColorStop(1, '#1a1412');
-    ctx.fillStyle = sky;
-    ctx.fillRect(0, 0, 512, 256);
-    // Key light
-    ctx.fillStyle = 'rgba(255, 252, 245, 0.55)';
-    ctx.beginPath();
-    ctx.ellipse(160, 70, 70, 36, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Warm fill (lab bounce)
-    ctx.fillStyle = 'rgba(255, 170, 90, 0.4)';
-    ctx.beginPath();
-    ctx.ellipse(360, 190, 100, 50, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // Cool rim
-    ctx.fillStyle = 'rgba(140, 190, 255, 0.22)';
-    ctx.beginPath();
-    ctx.ellipse(420, 60, 50, 28, 0, 0, Math.PI * 2);
-    ctx.fill();
-    const tex = new THREE.CanvasTexture(c);
-    tex.mapping = THREE.EquirectangularReflectionMapping;
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.needsUpdate = true;
-    return tex;
-  }
-  const solEnvMap = makeSolenoidEnvMap();
-
-  const solWindMat = new THREE.MeshStandardMaterial({
-    color: 0xd4894a,
-    metalness: 0.9,
-    roughness: 0.28,
-    emissive: 0x3a1206,
-    emissiveIntensity: 0.1,
-    envMap: solEnvMap,
-    envMapIntensity: 0.95,
-  });
-  solWindMat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTurns = solWindUniforms.uTurns;
-    shader.vertexShader = shader.vertexShader
-      .replace(
-        '#include <common>',
-        `#include <common>
-        varying vec2 vSolUv;
-        varying vec3 vSolAxis;
-        varying vec3 vSolCirc;`,
-      )
-      .replace(
-        '#include <begin_vertex>',
-        `#include <begin_vertex>
-        {
-          float axis = uv.y;
-          float ang = atan(position.z, position.x);
-          vSolUv = vec2(ang * 0.15915494309, axis);
-          vec3 oRadial = normalize(vec3(position.x, 0.0, position.z) + vec3(1e-6, 0.0, 0.0));
-          vec3 oAxis = vec3(0.0, 1.0, 0.0);
-          vec3 oCirc = normalize(cross(oAxis, oRadial));
-          vSolAxis = normalize(normalMatrix * oAxis);
-          vSolCirc = normalize(normalMatrix * oCirc);
-        }`,
-      );
-    shader.fragmentShader = shader.fragmentShader
-      .replace(
-        '#include <common>',
-        `#include <common>
-        uniform float uTurns;
-        varying vec2 vSolUv;
-        varying vec3 vSolAxis;
-        varying vec3 vSolCirc;
-        // Shared wind profile for color / normal / roughness (set in color_fragment)
-        float solDetail;
-        float solRidge;
-        float solSin;
-        float solCos;`,
-      )
-      .replace(
-        '#include <color_fragment>',
-        `#include <color_fragment>
-        {
-          float turns = max(uTurns, 1.0);
-          float phase = vSolUv.y * turns + vSolUv.x;
-          float fw = max(fwidth(phase), 1e-4);
-          float pxPerTurn = 1.0 / fw;
-          // Full N when readable; fade only when undersampled (anti-moiré)
-          solDetail = smoothstep(1.15, 2.9, pxPerTurn);
-          float ang = phase * 6.28318530718;
-          solCos = cos(ang);
-          solSin = sin(ang);
-          // Round enamel-wire cross-section (crest = wire body, trough = groove)
-          solRidge = 0.5 + 0.5 * solCos;
-          float micro = 0.5 + 0.5 * cos(ang * 2.0);
-          float ridge = solRidge * 0.82 + micro * 0.18;
-          float tone = mix(0.52, ridge, solDetail);
-          // Deep contact shadow between turns
-          float ao = mix(1.0, mix(0.42, 1.0, pow(max(solRidge, 0.0), 0.55)), solDetail);
-          vec3 darkC = vec3(0.32, 0.12, 0.04);
-          vec3 midC  = vec3(0.78, 0.44, 0.17);
-          vec3 litC  = vec3(1.0, 0.78, 0.48);
-          vec3 wind = mix(darkC, midC, smoothstep(0.1, 0.48, tone));
-          wind = mix(wind, litC, smoothstep(0.48, 0.9, tone));
-          // Specular copper edge on the wire crown
-          wind = mix(wind, vec3(1.0, 0.88, 0.65), 0.18 * pow(solRidge, 2.0) * solDetail);
-          diffuseColor.rgb = wind * ao;
-        }`,
-      )
-      .replace(
-        '#include <roughnessmap_fragment>',
-        `#include <roughnessmap_fragment>
-        {
-          // Bright metal crowns, softer enamel in the valleys
-          float rPeak = 0.14;
-          float rValley = 0.55;
-          roughnessFactor = mix(0.34, mix(rValley, rPeak, pow(solRidge, 1.35)), solDetail);
-        }`,
-      )
-      .replace(
-        '#include <metalnessmap_fragment>',
-        `#include <metalnessmap_fragment>
-        {
-          metalnessFactor = mix(0.78, mix(0.72, 0.96, solRidge), solDetail);
-        }`,
-      )
-      .replace(
-        '#include <normal_fragment_maps>',
-        `#include <normal_fragment_maps>
-        {
-          // Strong round-wire bump: each turn reads as a tube, not a flat stripe
-          float bump = 1.15 * solDetail;
-          float axialGain = clamp(uTurns * 0.014, 0.55, 1.85);
-          float axial = solSin * bump * axialGain;
-          float circ = solSin * bump * 0.38;
-          float lift = solCos * bump * 0.55;
-          // Slight helical twist on the normal for continuous-wire feel
-          float twist = solCos * bump * 0.12;
-          vec3 T = normalize(vSolAxis);
-          vec3 B = normalize(vSolCirc);
-          vec3 N = normalize(normal);
-          vec3 nW = normalize(
-            N * (1.0 + lift)
-            - T * axial
-            - B * (circ + twist)
-          );
-          normal = normalize(mix(N, nW, solDetail));
-        }`,
-      );
-  };
-  solWindMat.customProgramCacheKey = () => 'hall-solenoid-wind-aa-v5';
-
-  // Corrugated radial profile gives real geometric depth (still one mesh, full N)
-  function makeSolenoidWindGeometry(turns, length = 1.04, radius = 0.063, wireAmp = 0.0032) {
-    const n = Math.round(THREE.MathUtils.clamp(turns, 10, 300));
-    // ≥2 segs per turn so the sine profile is smooth; AA still handled in shader
-    const heightSegs = Math.max(48, n * 2);
-    const radialSegs = 64;
-    const geo = new THREE.CylinderGeometry(radius, radius, length, radialSegs, heightSegs, true);
-    const pos = geo.attributes.position;
-    const nor = geo.attributes.normal;
-    const v = new THREE.Vector3();
-    const rad = new THREE.Vector3();
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i);
-      // Local Y is axis; map to 0..1 then to phase of N turns
-      const t = THREE.MathUtils.clamp(v.y / length + 0.5, 0, 1);
-      const ang = Math.atan2(v.z, v.x);
-      const phase = t * n + ang / (Math.PI * 2);
-      const ridge = Math.cos(phase * Math.PI * 2);
-      const r = Math.hypot(v.x, v.z) || radius;
-      const r2 = radius + wireAmp * ridge;
-      const s = r2 / r;
-      v.x *= s;
-      v.z *= s;
-      pos.setXYZ(i, v.x, v.y, v.z);
-      // Approximate normal for round wire (outward + axial tilt)
-      rad.set(v.x, 0, v.z).normalize();
-      const dPhase = -Math.sin(phase * Math.PI * 2);
-      const nrm = rad
-        .clone()
-        .multiplyScalar(1)
-        .addScaledVector(new THREE.Vector3(0, 1, 0), dPhase * wireAmp * n * 0.35)
-        .normalize();
-      nor.setXYZ(i, nrm.x, nrm.y, nrm.z);
-    }
-    pos.needsUpdate = true;
-    nor.needsUpdate = true;
-    geo.computeVertexNormals();
-    return geo;
-  }
-
-  let solWindBody = new THREE.Mesh(makeSolenoidWindGeometry(100), solWindMat);
-  solWindBody.castShadow = true;
-  solWindBody.receiveShadow = true;
-  solWindBody.rotation.z = Math.PI / 2;
-  hallSolenoid.add(solWindBody);
-
-  let lastHallTurns = -1;
-  function setHallSolenoidTurns(turns) {
-    const count = Math.round(THREE.MathUtils.clamp(Number(turns || 100), 10, 300));
-    if (count === lastHallTurns) return;
-    lastHallTurns = count;
-    // Full N in both shader and corrugated geometry
-    solWindUniforms.uTurns.value = count;
-    const prev = solWindBody.geometry;
-    solWindBody.geometry = makeSolenoidWindGeometry(count);
-    prev.dispose();
-  }
-  setHallSolenoidTurns(100);
-
-  const solenoidSupportMat = new THREE.MeshStandardMaterial({
-    color: 0x20282b,
-    metalness: 0.52,
-    roughness: 0.38,
-  });
-  const solenoidEndMat = new THREE.MeshPhysicalMaterial({
-    color: 0x9bb8bd,
-    transparent: true,
-    opacity: 0.58,
-    transmission: 0.18,
-    metalness: 0.18,
-    roughness: 0.3,
-    side: THREE.DoubleSide,
-  });
-
-  // Symmetrical end assemblies: a closed face and short collar flow into a
-  // rounded cradle, then a slim stem and foot transfer the load to the deck.
-  for (const sx of [-1, 1]) {
-    const endX = sx * 0.52;
-
-    const collar = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.071, 0.071, 0.03, 48, 1, true),
-      solenoidSupportMat,
-    );
-    collar.rotation.z = Math.PI / 2;
-    collar.position.x = endX;
-    hallSolenoid.add(collar);
-
-    const endFace = new THREE.Mesh(new THREE.CircleGeometry(0.058, 48), solenoidEndMat);
-    endFace.rotation.y = sx > 0 ? Math.PI / 2 : -Math.PI / 2;
-    endFace.position.x = sx * 0.536;
-    hallSolenoid.add(endFace);
-
-    const cradle = new THREE.Mesh(
-      new THREE.TorusGeometry(0.063, 0.009, 10, 48),
-      solenoidSupportMat,
-    );
-    cradle.rotation.y = Math.PI / 2;
-    cradle.position.x = endX;
-    hallSolenoid.add(cradle);
-
-    const stem = rbox(0.042, 0.078, 0.07, solenoidSupportMat, 0.012);
-    stem.position.set(endX, -0.112, 0);
-    hallSolenoid.add(stem);
-
-    const foot = rbox(0.1, 0.024, 0.15, solenoidSupportMat, 0.012);
-    foot.position.set(endX, -0.164, 0);
-    hallSolenoid.add(foot);
-  }
-  hallGroup.add(hallSolenoid);
-
-  // Helmholtz coils: thick multi-layer copper windings and clear flanges.
-  const hallHelm = new THREE.Group();
-  hallHelm.position.set(-0.04, 0.28, -0.02);
-  function makeHallCoil() {
-    const cg = new THREE.Group();
-    const widthTurns = 20;
-    const layerTurns = 12;
-    const windings = new THREE.InstancedMesh(
-      new THREE.TorusGeometry(1, 0.014, 6, 48), hallCopper, widthTurns * layerTurns,
-    );
-    const dummy = new THREE.Object3D();
-    let idx = 0;
-    for (let layer = 0; layer < layerTurns; layer++) {
-      const radius = 0.1 + layer * ((0.132 - 0.1) / layerTurns);
-      for (let w = 0; w < widthTurns; w++) {
-        dummy.position.set(-0.02 + w * (0.04 / widthTurns), 0, 0);
-        dummy.rotation.set(0, Math.PI / 2, 0);
-        dummy.scale.setScalar(radius);
-        dummy.updateMatrix();
-        windings.setMatrixAt(idx++, dummy.matrix);
-      }
-    }
-    windings.instanceMatrix.needsUpdate = true;
-    cg.add(windings);
-    for (const sx of [-1, 1]) {
-      const flange = new THREE.Mesh(new THREE.RingGeometry(0.096, 0.152, 64), acrylic);
-      flange.rotation.y = Math.PI / 2;
-      flange.position.x = sx * 0.024;
-      cg.add(flange);
-    }
-    const drum = cyl(0.096, 0.096, 0.048, acrylic, 64);
-    drum.rotation.z = Math.PI / 2;
-    cg.add(drum);
-    const foot = rbox(0.06, 0.16, 0.085, blackMat, 0.004);
-    foot.position.y = -0.19;
-    cg.add(foot);
-    return cg;
-  }
-  const hallLeftCoil = makeHallCoil();
-  hallLeftCoil.position.x = -0.1;
-  const hallRightCoil = makeHallCoil();
-  hallRightCoil.position.x = 0.1;
-  hallHelm.add(hallLeftCoil, hallRightCoil);
-  hallGroup.add(hallHelm);
-
-  // Transparent measuring tube runs through the Helmholtz pair.
-  const guideTube = cyl(0.032, 0.032, 1, acrylic, 32);
-  guideTube.rotation.z = Math.PI / 2;
-  guideTube.position.set(0.04, 0.28, -0.02);
-  hallGroup.add(guideTube);
-
-  // Sliding white ruler and red Hall sensor; probe moves between both objects.
-  const hallProbe = new THREE.Group();
-  hallProbe.position.set(0, 0.28, -0.02);
-  const probeRod = rbox(1, 0.016, 0.032, lab.paper, 0.002);
-  probeRod.position.x = 0.5;
-  hallProbe.add(probeRod);
-  const tickGeometry = new THREE.BoxGeometry(0.0012, 0.0015, 0.012);
-  const ticks = new THREE.InstancedMesh(tickGeometry, blackMat, 241);
-  const tickDummy = new THREE.Object3D();
-  for (let i = 0; i < 241; i++) {
-    const scaleZ = i % 10 === 0 ? 2.4 : i % 5 === 0 ? 1.7 : 1;
-    tickDummy.position.set(i * (0.96 / 240), 0.009, 0);
-    tickDummy.scale.set(1, 1, scaleZ);
-    tickDummy.updateMatrix();
-    ticks.setMatrixAt(i, tickDummy.matrix);
-  }
-  ticks.instanceMatrix.needsUpdate = true;
-  hallProbe.add(ticks);
-  const sensorTip = rbox(0.036, 0.028, 0.035, new THREE.MeshStandardMaterial({
-    color: 0xd71920, emissive: 0x68070a, emissiveIntensity: 0.42,
-  }), 0.003);
-  sensorTip.position.x = -0.02;
-  hallProbe.add(sensorTip);
-  hallGroup.add(hallProbe);
-
-  function makeHallReadout(label, initial) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 320; canvas.height = 140;
-    const cx = canvas.getContext('2d');
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const material = new THREE.MeshStandardMaterial({ map: texture, emissive: 0x5a0000, emissiveIntensity: 0.65, roughness: 0.24 });
-    let lastValue = null;
-    const paint = (value) => {
-      if (value === lastValue) return;
-      lastValue = value;
-      cx.fillStyle = '#090202'; cx.fillRect(0, 0, 320, 140);
-      cx.strokeStyle = '#3f4044'; cx.lineWidth = 8; cx.strokeRect(4, 4, 312, 132);
-      cx.fillStyle = '#ff2028'; cx.font = 'bold 64px Consolas, monospace'; cx.textAlign = 'center';
-      cx.fillText(value, 160, 78);
-      cx.fillStyle = '#72757a'; cx.font = '20px "Microsoft YaHei", sans-serif'; cx.fillText(label, 160, 118);
-      texture.needsUpdate = true;
-    };
-    paint(initial);
-    return { material, paint };
-  }
-
-  const readoutDefs = [
-    makeHallReadout('励磁电流 Im(A)', '0.500'),
-    makeHallReadout('霍尔电流 Is(mA)', '5.00'),
-    makeHallReadout('霍尔电压 VH(mV)', '0.0'),
-  ];
-  const hallKnobs = [];
-  readoutDefs.forEach((readout, i) => {
-    const x = -0.38 + i * 0.38;
-    const bezel = rbox(0.29, 0.018, 0.12, blackMat, 0.005);
-    bezel.position.set(x, 0.095, 0.2);
-    hallGroup.add(bezel);
-    const face = new THREE.Mesh(new THREE.PlaneGeometry(0.27, 0.1), readout.material);
-    face.rotation.x = -Math.PI / 2;
-    face.position.set(x, 0.106, 0.2);
-    hallGroup.add(face);
-    const knob = cyl(0.034, 0.038, 0.022, lab.steel, 22);
-    knob.position.set(x, 0.1, 0.32);
-    const knobRole = i === 0 ? 'hall_knob_im' : i === 1 ? 'hall_knob_is' : 'hall_knob_zero';
-    knob.userData.interactive = true;
-    knob.userData.role = knobRole;
-    const knobHit = new THREE.Mesh(
-      new THREE.BoxGeometry(0.09, 0.08, 0.09),
-      new THREE.MeshBasicMaterial({ visible: false }),
-    );
-    knobHit.userData.interactive = true;
-    knobHit.userData.role = knobRole;
-    knob.add(knobHit);
-    const indicator = rbox(0.008, 0.004, 0.032, lab.paper, 0.001);
-    indicator.position.set(0, 0.014, 0.017);
-    knob.add(indicator);
-    hallGroup.add(knob);
-    hallKnobs.push(knob);
-  });
-
-  // Exactly three terminal pairs. Ports occupy the left column; silk-screen
-  // labels occupy a separate right column so neither the supports nor wires
-  // can cover the text.
-  function makeTerminalLabel(primary, secondary, z, kind) {
-    const canvas = document.createElement('canvas');
-    canvas.width = 720; canvas.height = 180;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = '#30383d';
-    ctx.fillStyle = '#30383d';
-    ctx.lineWidth = 8;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-
-    if (kind !== 'output') {
-      ctx.beginPath();
-      ctx.moveTo(20, 72);
-      ctx.lineTo(64, 72);
-      for (let i = 0; i < 8; i++) {
-        ctx.lineTo(64 + (i + 1) * 18, 72 + (i % 2 === 0 ? -18 : 18));
-      }
-      ctx.lineTo(250, 72);
-      ctx.stroke();
-      ctx.font = 'italic 32px Georgia, serif';
-      ctx.textAlign = 'center';
-      ctx.fillText(kind === 'solenoid' ? 'L' : 'L1 — L2', 135, 42);
-    } else {
-      ctx.beginPath();
-      ctx.moveTo(26, 72);
-      ctx.lineTo(250, 72);
-      ctx.stroke();
-      ctx.font = 'italic 32px Georgia, serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('Im', 138, 42);
-    }
-
-    ctx.textAlign = 'left';
-    ctx.font = 'bold 39px "Microsoft YaHei", sans-serif';
-    ctx.fillText(primary, 286, 76);
-    if (secondary) {
-      ctx.fillStyle = '#5b6469';
-      ctx.font = '28px "Microsoft YaHei", sans-serif';
-      ctx.fillText(secondary, 286, 126);
-    }
-
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    const label = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.25, 0.063),
-      new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false }),
-    );
-    label.rotation.x = -Math.PI / 2;
-    label.position.set(-0.37, 0.0815, z);
-    hallGroup.add(label);
-  }
-
-  makeTerminalLabel('螺线管', '', -0.12, 'solenoid');
-  makeTerminalLabel('亥姆霍兹线圈', '共轴线圈', -0.025, 'helmholtz');
-  makeTerminalLabel('励磁电流输出', '', 0.07, 'output');
-
-  const hallTerminalPorts = new Map();
-  const terminalGroups = [
-    {
-      key: 'solenoid', role: 'hall_terminal_solenoid',
-      sockets: [
-        ['sol_black', -0.6, -0.12, lab.rubberBlack, 0x171717],
-        ['sol_red', -0.535, -0.12, lab.rubberRed, 0xd72d2d],
-      ],
-    },
-    {
-      key: 'helmholtz', role: 'hall_terminal_helmholtz',
-      sockets: [
-        ['hh_black', -0.6, -0.025, lab.rubberBlack, 0x171717],
-        ['hh_red', -0.535, -0.025, lab.rubberRed, 0xd72d2d],
-      ],
-    },
-    {
-      key: 'output', role: 'hall_terminal_output',
-      sockets: [
-        ['out_black', -0.6, 0.07, lab.rubberBlack, 0x171717],
-        ['out_red', -0.535, 0.07, lab.rubberRed, 0xd72d2d],
-      ],
-    },
-  ];
-  terminalGroups.forEach(({ key, role, sockets }) => {
-    sockets.forEach(([portId, x, z, material, wireColor]) => {
-      const post = bindingPost(x, 0.084, z, material, role, portId, wireColor);
-      post.userData.terminalGroup = key;
-      hallGroup.add(post);
-      hallTerminalPorts.set(portId, post);
-    });
-  });
-
-  const hallWireLayer = new THREE.Group();
-  hallGroup.add(hallWireLayer);
-  const hallWirePreviewGeometry = new THREE.BufferGeometry();
-  hallWirePreviewGeometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(32 * 3), 3));
-  const hallWirePreviewMaterial = new THREE.LineBasicMaterial({ color: 0xd72d2d, transparent: true, opacity: 0.9 });
-  const hallWirePreview = new THREE.Line(hallWirePreviewGeometry, hallWirePreviewMaterial);
-  hallWirePreview.visible = false;
-  hallWirePreview.frustumCulled = false;
-  hallGroup.add(hallWirePreview);
-  const hallWireRay = new THREE.Raycaster();
-  const hallWirePlane = new THREE.Plane();
-  const hallWireWorldPoint = new THREE.Vector3();
-  const hallWirePlanePoint = new THREE.Vector3();
-  const hallWirePlaneNormal = new THREE.Vector3();
-  let hallWireSignature = '';
-
-  const terminalAnchor = (portId) => {
-    const post = hallTerminalPorts.get(portId);
-    return post ? post.position.clone().add(new THREE.Vector3(0, 0.07, 0)) : null;
-  };
-
-  const makeCableCurve = (from, to) => {
-    const span = from.distanceTo(to);
-    const lift = THREE.MathUtils.clamp(0.055 + span * 0.22, 0.07, 0.18);
-    const controlA = from.clone().add(new THREE.Vector3(0, lift, 0));
-    const controlB = to.clone().add(new THREE.Vector3(0, lift, 0));
-    return new THREE.CubicBezierCurve3(from, controlA, controlB, to);
-  };
-
-  const setHallWires = (wires = []) => {
-    const signature = JSON.stringify(wires);
-    if (signature === hallWireSignature) return;
-    hallWireSignature = signature;
-    while (hallWireLayer.children.length) {
-      const wire = hallWireLayer.children.pop();
-      wire.geometry?.dispose?.();
-      wire.material?.dispose?.();
-    }
-    hallTerminalPorts.forEach((post) => { post.userData.plug.visible = false; });
-    wires.forEach((pair) => {
-      const [from, to] = Array.isArray(pair) ? pair : [pair?.from, pair?.to];
-      const start = terminalAnchor(from);
-      const end = terminalAnchor(to);
-      if (!start || !end || from === to) return;
-      const sourcePost = hallTerminalPorts.get(from);
-      const cable = new THREE.Mesh(
-        new THREE.TubeGeometry(makeCableCurve(start, end), 36, 0.006, 8, false),
-        new THREE.MeshStandardMaterial({
-          color: sourcePost?.userData.wireColor ?? 0xd72d2d,
-          roughness: 0.68,
-          metalness: 0.02,
-        }),
-      );
-      cable.castShadow = true;
-      hallWireLayer.add(cable);
-      hallTerminalPorts.get(from).userData.plug.visible = true;
-      hallTerminalPorts.get(to).userData.plug.visible = true;
-    });
-  };
-
-  const startHallWirePreview = (portId) => {
-    const post = hallTerminalPorts.get(portId);
-    if (!post) return;
-    hallWirePreviewMaterial.color.setHex(post.userData.wireColor ?? 0xd72d2d);
-    hallWirePreview.visible = true;
-  };
-
-  const updateHallWirePreview = (fromPortId, cam, hoverPortId = null) => {
-    const start = terminalAnchor(fromPortId);
-    if (!start || !cam) return null;
-    let snappedPortId = hoverPortId && hoverPortId !== fromPortId ? hoverPortId : null;
-    let end = snappedPortId ? terminalAnchor(snappedPortId) : null;
-    if (!end) {
-      hallGroup.updateMatrixWorld(true);
-      hallWireRay.setFromCamera(new THREE.Vector2(0, 0), cam);
-      hallWirePlanePoint.set(0, 0.1, 0);
-      hallGroup.localToWorld(hallWirePlanePoint);
-      hallWirePlaneNormal.set(0, 1, 0).transformDirection(hallGroup.matrixWorld);
-      hallWirePlane.setFromNormalAndCoplanarPoint(hallWirePlaneNormal, hallWirePlanePoint);
-      if (hallWireRay.ray.intersectPlane(hallWirePlane, hallWireWorldPoint)) {
-        end = hallWireWorldPoint.clone();
-        hallGroup.worldToLocal(end);
-      }
-    }
-    if (!end) end = start.clone();
-    if (!snappedPortId) {
-      let nearestDistance = 0.072;
-      hallTerminalPorts.forEach((post, portId) => {
-        if (portId === fromPortId) return;
-        const anchor = terminalAnchor(portId);
-        const distance = Math.hypot(anchor.x - end.x, anchor.z - end.z);
-        if (distance < nearestDistance) {
-          nearestDistance = distance;
-          snappedPortId = portId;
-        }
-      });
-      if (snappedPortId) end = terminalAnchor(snappedPortId);
-    }
-    hallTerminalPorts.forEach((post, portId) => {
-      post.scale.setScalar(portId === snappedPortId ? 1.18 : 1);
-    });
-    const curve = makeCableCurve(start, end);
-    const attr = hallWirePreviewGeometry.attributes.position;
-    for (let i = 0; i < 32; i++) {
-      const point = curve.getPoint(i / 31);
-      attr.setXYZ(i, point.x, point.y, point.z);
-    }
-    attr.needsUpdate = true;
-    hallWirePreviewGeometry.computeBoundingSphere();
-    hallWirePreview.visible = true;
-    return snappedPortId;
-  };
-
-  const cancelHallWirePreview = () => {
-    hallWirePreview.visible = false;
-    hallTerminalPorts.forEach((post) => { post.scale.setScalar(1); });
-  };
-  const titleCanvas = document.createElement('canvas');
-  titleCanvas.width = 640; titleCanvas.height = 96;
-  const titleCtx = titleCanvas.getContext('2d');
-  titleCtx.fillStyle = '#d6d8da'; titleCtx.fillRect(0, 0, 640, 96);
-  titleCtx.fillStyle = '#dc2626'; titleCtx.font = 'bold 44px "Microsoft YaHei", sans-serif'; titleCtx.textAlign = 'center';
-  titleCtx.fillText('HCC-2型  霍尔效应测磁仪', 320, 62);
-  const titleTex = new THREE.CanvasTexture(titleCanvas); titleTex.colorSpace = THREE.SRGBColorSpace;
-  const titlePlate = new THREE.Mesh(new THREE.PlaneGeometry(0.48, 0.072), new THREE.MeshStandardMaterial({ map: titleTex }));
-  titlePlate.rotation.x = -Math.PI / 2;
-  titlePlate.position.set(0.18, 0.081, 0.07);
-  hallGroup.add(titlePlate);
-
-  // Magnetic field-line tracing follows the source Experiment3D implementation:
-  // numerically integrate the axial/radial field of circular current loops.
-  // Keep one textbook-style meridian slice instead of duplicating it around
-  // the axis; this makes the field readable without a 3D starburst of lines.
-  const helmholtzFieldLines = new THREE.Group();
-  const solenoidFieldLines = new THREE.Group();
-  helmholtzFieldLines.visible = false;
-  solenoidFieldLines.visible = false;
-  hallGroup.add(helmholtzFieldLines, solenoidFieldLines);
-
-  const hallFieldMaterials = new Set();
-  const hallFieldFlow = { direction: 1, speed: 0 };
-  let hallFieldViewportWidth = window.innerWidth;
-  let hallFieldViewportHeight = window.innerHeight;
-  let helmholtzFieldSignature = '';
-  let solenoidFieldBuilt = false;
-
-  function getLoopField2D(x, radial, centreX, radius) {
-    let bx = 0;
-    let br = 0;
-    const samples = 32;
-    const dTheta = (Math.PI * 2) / samples;
-    for (let i = 0; i < samples; i++) {
-      const cosTheta = Math.cos(i * dTheta);
-      const dx = x - centreX;
-      const distanceSq = dx * dx + radial * radial + radius * radius
-        - 2 * radius * radial * cosTheta;
-      const distancePow = Math.pow(Math.max(distanceSq, 1e-7), 1.5);
-      bx += ((radius * radius - radius * radial * cosTheta) / distancePow) * dTheta;
-      br += ((radius * cosTheta * dx) / distancePow) * dTheta;
-    }
-    return { bx, br };
-  }
-
-  function traceAxisymmetricField(fieldAt, startX, startRadial, bounds, step, maxSteps) {
-    const walk = (sign, includeStart) => {
-      const points = [];
-      let x = startX;
-      let radial = startRadial;
-      for (let i = 0; i < maxSteps; i++) {
-        if (includeStart || i > 0) points.push({ x, radial });
-        const { bx, br } = fieldAt(x, radial);
-        const magnitude = Math.hypot(bx, br);
-        if (!Number.isFinite(magnitude) || magnitude < 1e-8) break;
-        x += sign * (bx / magnitude) * step;
-        radial += sign * (br / magnitude) * step;
-        if (x < bounds.minX || x > bounds.maxX
-          || radial < bounds.minRadial || radial > bounds.maxRadial) break;
-      }
-      return points;
-    };
-    return [
-      ...walk(-1, false).reverse(),
-      ...walk(1, true),
-    ];
-  }
-
-  function clearHallFieldGroup(group) {
-    while (group.children.length) {
-      const line = group.children.pop();
-      if (line.material) hallFieldMaterials.delete(line.material);
-      line.geometry?.dispose?.();
-      line.material?.dispose?.();
-    }
-  }
-
-  function addFlowingFieldLine(group, traced, axisY, axisZ, mirror = false) {
-    if (traced.length < 6) return;
-    const draw = (sign) => {
-      const positions = [];
-      traced.forEach(({ x, radial }) => {
-        const y = axisY + sign * radial;
-        if (y >= 0.08) {
-          positions.push(x, y, axisZ);
-        }
-      });
-      if (positions.length < 6) return;
-      const geometry = new LineGeometry();
-      geometry.setPositions(positions);
-      const material = new LineMaterial({
-        color: 0x0284c7,
-        transparent: true,
-        opacity: 0,
-        linewidth: 3.4,
-        worldUnits: false,
-        dashed: true,
-        dashScale: 1,
-        dashSize: 0.13,
-        gapSize: 0.035,
-        resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
-        depthTest: true,
-        depthWrite: false,
-        toneMapped: false,
-        alphaToCoverage: true,
-      });
-      const line = new Line2(geometry, material);
-      line.computeLineDistances();
-      line.frustumCulled = false;
-      line.renderOrder = 8;
-      line.raycast = () => {};
-      group.add(line);
-      hallFieldMaterials.add(material);
-    };
-    draw(1);
-    if (mirror) draw(-1);
-  }
-
-  function rebuildHelmholtzFieldLines() {
-    const leftCentre = hallHelm.position.x + hallLeftCoil.position.x;
-    const rightCentre = hallHelm.position.x + hallRightCoil.position.x;
-    const signature = `${leftCentre.toFixed(3)}:${rightCentre.toFixed(3)}`;
-    if (signature === helmholtzFieldSignature) return;
-    helmholtzFieldSignature = signature;
-    clearHallFieldGroup(helmholtzFieldLines);
-
-    const radius = 0.116;
-    const fieldAt = (x, radial) => {
-      const left = getLoopField2D(x, radial, leftCentre, radius);
-      const right = getLoopField2D(x, radial, rightCentre, radius);
-      return { bx: left.bx + right.bx, br: left.br + right.br };
-    };
-    const bounds = { minX: -0.38, maxX: 0.34, minRadial: 0, maxRadial: 0.22 };
-    const centreX = (leftCentre + rightCentre) / 2;
-
-    // 1. 从中心出发的大磁场线（4个采样，共7条线，填补中间空白）
-    [0, 0.03, 0.06, 0.09].forEach((radial) => {
-      const traced = traceAxisymmetricField(fieldAt, centreX, radial, bounds, 0.006, 420);
-      addFlowingFieldLine(helmholtzFieldLines, traced, 0.28, -0.02, radial > 0);
-    });
-
-    // 2. 围绕左、右线圈顶部和底部的局部回旋圆（仅1个采样，共4条线）
-    [0.13].forEach((radial) => {
-      const tracedLeft = traceAxisymmetricField(fieldAt, leftCentre, radial, bounds, 0.006, 300);
-      addFlowingFieldLine(helmholtzFieldLines, tracedLeft, 0.28, -0.02, true);
-
-      const tracedRight = traceAxisymmetricField(fieldAt, rightCentre, radial, bounds, 0.006, 300);
-      addFlowingFieldLine(helmholtzFieldLines, tracedRight, 0.28, -0.02, true);
-    });
-  }
-
-  function buildSolenoidFieldLines() {
-    if (solenoidFieldBuilt) return;
-    solenoidFieldBuilt = true;
-    const loopCentres = [];
-    for (let x = -0.5; x <= 0.5001; x += 0.04) loopCentres.push(x);
-    const fieldAt = (x, radial) => {
-      let bx = 0;
-      let br = 0;
-      loopCentres.forEach((centreX) => {
-        const field = getLoopField2D(x, radial, centreX, 0.063);
-        bx += field.bx;
-        br += field.br;
-      });
-      return { bx, br };
-    };
-    // 放宽至左右 -0.66 到 0.66，使两端的发散喇叭口能够充分舒展展开，同时防止超长远场发散
-    const bounds = { minX: -0.66, maxX: 0.66, minRadial: 0, maxRadial: 0.20 };
-    // 采样均在管内（半径0.063以内），保证管内平行细密，管口优雅发散
-    [0, 0.015, 0.03, 0.045, 0.06].forEach((radial) => {
-      const traced = traceAxisymmetricField(fieldAt, 0, radial, bounds, 0.006, 440);
-      addFlowingFieldLine(solenoidFieldLines, traced, 0.245, -0.24, radial > 0);
-    });
-  }
-
-  animators.push((time) => {
-    if (hallFieldViewportWidth !== window.innerWidth
-      || hallFieldViewportHeight !== window.innerHeight) {
-      hallFieldViewportWidth = window.innerWidth;
-      hallFieldViewportHeight = window.innerHeight;
-      hallFieldMaterials.forEach((material) => {
-        material.resolution.set(hallFieldViewportWidth, hallFieldViewportHeight);
-      });
-    }
-    const offset = -time * hallFieldFlow.speed * hallFieldFlow.direction;
-    hallFieldMaterials.forEach((material) => {
-      material.dashOffset = offset;
-    });
-  });
-
-  // Physical recognition targets, matching the Faraday identify workflow.
-  function addHallRecognitionTarget(host, role, size, outlinePos = [0, 0, 0]) {
-    const hit = new THREE.Mesh(
-      new THREE.BoxGeometry(...size),
-      new THREE.MeshBasicMaterial({ visible: false }),
-    );
-    hit.position.set(...outlinePos);
-    hit.userData.interactive = true;
-    hit.userData.role = role;
-    host.add(hit);
-
-    const outline = makeSelectOutline(...size);
-    outline.position.set(...outlinePos);
-    host.add(outline);
-    return { outline, hit };
-  }
-  const hallTargets = {
-    hall_helmholtz: addHallRecognitionTarget(hallHelm, 'hall_helmholtz', [0.56, 0.4, 0.4], [0.04, -0.02, 0]),
-    hall_solenoid: addHallRecognitionTarget(hallSolenoid, 'hall_solenoid', [1.12, 0.3, 0.22], [0, -0.03, 0]),
-    hall_probe: addHallRecognitionTarget(hallProbe, 'hall_probe', [1.04, 0.08, 0.09], [0.48, 0, 0]),
-    hall_console: addHallRecognitionTarget(hallGroup, 'hall_console', [1.25, 0.16, 0.34], [0, 0.08, 0.22]),
-  };
-  const hallRecognitionRings = {
-    hall_helmholtz: hallTargets.hall_helmholtz.outline,
-    hall_solenoid: hallTargets.hall_solenoid.outline,
-    hall_probe: hallTargets.hall_probe.outline,
-    hall_console: hallTargets.hall_console.outline,
-  };
-  const probeHitMesh = hallTargets.hall_probe.hit;
-  function setHallRecognitionMode(role, mode) {
-    const ring = hallRecognitionRings[role];
-    if (!ring) return;
-    if (mode === 'off') {
-      ring.visible = false;
-      ring.material.opacity = 0;
-      return;
-    }
-    ring.visible = true;
-    ring.material.color.setHex(mode === 'done' ? 0x4ade80 : 0x38bdf8);
-    ring.material.opacity = mode === 'done' ? 0.95 : 1;
-    ring.scale.setScalar(mode === 'done' ? 1.015 : 1.03);
-  }
-  // The source carrier animation is a second apparatus state on this same
-  // electro bench. It never owns the renderer, camera, or page navigation.
-  const hallDemoGroup = createHallDemoEquipment({ tabletop: true });
-  g.add(hallGroup, hallDemoGroup);
-
-  g.userData.hallGroup = hallGroup;
-  g.userData.hallDemoGroup = hallDemoGroup;
-
-  g.userData.setMode = (mode) => {
-    hallGroup.visible = mode === 'hall';
-    hallDemoGroup.visible = mode === 'hall-demo';
-  };
-  g.userData.updateHallDemo = (d, dt) => hallDemoGroup.userData.update?.(d, dt);
-
-  g.userData.updateHall = (d) => {
-    if (!d) return;
-    const targetSolenoid = d.target === 'solenoid';
-    if (probeHitMesh) {
-      if (targetSolenoid) {
-        // 长螺线管模式下放大探针拾取盒的 Y 和 Z，方便在管内被鼠标轻松点中
-        probeHitMesh.scale.set(1, 3.8, 2.6);
-      } else {
-        probeHitMesh.scale.set(1, 1, 1);
-      }
-    }
-    // Both devices remain present; only the probe changes measurement axis.
-    hallProbe.position.z = targetSolenoid ? -0.24 : -0.02;
-    hallProbe.position.y = targetSolenoid ? 0.245 : 0.28;
-    // Source model maps the full −25…25 cm range to ±1.0 world units.
-    hallProbe.position.x = THREE.MathUtils.clamp(Number(d.probePos || 0) / 25, -1, 1) * 1.0;
-    hallRightCoil.position.x = -0.02
-      + THREE.MathUtils.clamp((Number(d.rightCoilPos || 2.5) + 0.5) / 13.5, 0, 1) * 0.34;
-    setHallSolenoidTurns(d.turns);
-    const energy = d.wiring?.energized
-      ? THREE.MathUtils.clamp(Number(d.Im || 0), 0, 1)
-      : 0;
-    hallCopper.emissiveIntensity = 0.12 + energy * 0.58;
-    solWindMat.emissiveIntensity = 0.08 + energy * 0.5;
-    const fieldVisible = energy > 0.01;
-    if (fieldVisible) {
-      if (targetSolenoid) buildSolenoidFieldLines();
-      else rebuildHelmholtzFieldLines();
-    }
-    helmholtzFieldLines.visible = fieldVisible && !targetSolenoid;
-    solenoidFieldLines.visible = fieldVisible && targetSolenoid;
-    const turnGain = targetSolenoid
-      ? THREE.MathUtils.clamp(Number(d.turns || 100) / 100, 0.2, 1.8)
-      : 1;
-    const fieldOpacity = Math.min(1, energy * 1.5 * turnGain) * 0.92;
-    const fieldColor = (d.direction || 1) > 0 ? 0x0284c7 : 0xdb2777;
-    hallFieldFlow.direction = (d.direction || 1) > 0 ? 1 : -1;
-    hallFieldFlow.speed = fieldVisible ? 0.16 + energy * 0.28 : 0;
-    hallFieldMaterials.forEach((material) => {
-      material.opacity = fieldOpacity;
-      material.color.setHex(fieldColor);
-    });
-    readoutDefs[0].paint(Number(d.Im || 0).toFixed(3));
-    readoutDefs[1].paint(Number(d.Is || 0).toFixed(2));
-    readoutDefs[2].paint(Number(d.vh || 0).toFixed(1));
-    hallKnobs[0].rotation.y = -Math.PI * 0.75 + Number(d.Im || 0) * Math.PI * 1.5;
-    hallKnobs[1].rotation.y = -Math.PI * 0.75 + (Number(d.Is || 0) / 10) * Math.PI * 1.5;
-    setHallWires(d.wires || []);
-  };
-  g.userData.startHallWirePreview = startHallWirePreview;
-  g.userData.updateHallWirePreview = updateHallWirePreview;
-  g.userData.cancelHallWirePreview = cancelHallWirePreview;
-  g.userData.setHallPartState = setHallRecognitionMode;
-  g.userData.clearHallIdentifyVisuals = () => {
-    Object.keys(hallRecognitionRings).forEach((role) => setHallRecognitionMode(role, 'off'));
-  };
-  g.userData.prewarmHall = (webglRenderer, activeCamera, targetScene) => {
-    const wasVisible = hallGroup.visible;
-    hallGroup.visible = true;
-    webglRenderer.compile(hallGroup, activeCamera, targetScene);
-    hallGroup.visible = wasVisible;
-  };
-  g.userData.prewarmHallDemo = (webglRenderer, activeCamera, targetScene) => {
-    hallDemoGroup.userData.prewarm?.(webglRenderer, activeCamera, targetScene);
-  };
-
-  // helpers for experiment handlers / rail picking
-  const _ray = new THREE.Raycaster();
-  const _railOrigin = new THREE.Vector3();
-  const _railDir = new THREE.Vector3();
-  const _railEnd = new THREE.Vector3();
-  const _camOrigin = new THREE.Vector3();
-  const _camDir = new THREE.Vector3();
-  const _w = new THREE.Vector3();
-  const _u = new THREE.Vector3();
-  const _v = new THREE.Vector3();
-  /**
-   * Identify selection ring only (outline around equipment — no full-body glow).
-   * mode: 'off' | 'hover' | 'done'
-   */
-  function makeSelectOutline(sx, sy, sz) {
-    const box = new THREE.BoxGeometry(sx, sy, sz);
-    const edges = new THREE.EdgesGeometry(box);
-    const geometry = new LineSegmentsGeometry().fromEdgesGeometry(edges);
-    box.dispose();
-    edges.dispose();
-    const mat = new LineMaterial({
-      color: 0x22d3ee,
-      transparent: true,
-      opacity: 0,
-      linewidth: 4,
-      worldUnits: false,
-      resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
-      depthTest: true,
-      toneMapped: false,
-    });
-    const outline = new LineSegments2(geometry, mat);
-    outline.computeLineDistances();
-    outline.visible = false;
-    outline.userData.isSelectRing = true;
-    outline.raycast = () => {}; // never block picks
-    return outline;
-  }
-
-  g.userData.interactive = true;
-  g.userData.role = 'electro';
-  g.userData.getHallProbePos = (cam, target = 'helmholtz') => {
-    if (!cam) return null;
-    const y = target === 'solenoid' ? 0.245 : 0.28;
-    const z = target === 'solenoid' ? -0.24 : -0.02;
-    _railOrigin.set(-0.27, y, z);
-    _railEnd.set(0.27, y, z);
-    hallGroup.localToWorld(_railOrigin);
-    hallGroup.localToWorld(_railEnd);
-    _railDir.subVectors(_railEnd, _railOrigin);
-    _ray.setFromCamera(new THREE.Vector2(0, 0), cam);
-    _camOrigin.copy(_ray.ray.origin);
-    _camDir.copy(_ray.ray.direction).normalize();
-    _u.copy(_railDir);
-    _v.copy(_camDir);
-    _w.subVectors(_railOrigin, _camOrigin);
-    const a = _u.dot(_u);
-    const b = _u.dot(_v);
-    const c = _v.dot(_v);
-    const d0 = _u.dot(_w);
-    const e0 = _v.dot(_w);
-    const denom = a * c - b * b;
-    let s = Math.abs(denom) < 1e-10 ? -d0 / a : (b * e0 - c * d0) / denom;
-    s = THREE.MathUtils.clamp(s, 0, 1);
-    return -25 + s * 50;
-  };
-
-  return g;
-}
-
-// —— Precision analysis station (balance + display) ——
-function makeBalance() {
-  const g = new THREE.Group();
-  const base = rbox(0.5, 0.05, 0.35, mat.whiteGloss, 0.025);
-  base.position.y = 0.025;
-  g.add(base);
-
-  // digital display panel
-  const display = rbox(0.28, 0.16, 0.02, mat.carbon, 0.01);
-  display.position.set(0, 0.35, -0.12);
-  g.add(display);
-  const screen = rbox(0.24, 0.12, 0.01, new THREE.MeshStandardMaterial({
-    color: 0x67e8f9, emissive: 0x0891b2, emissiveIntensity: 0.8, metalness: 0.2, roughness: 0.3,
-  }), 0.005);
-  screen.position.set(0, 0.35, -0.105);
-  g.add(screen);
-
-  const column = cyl(0.02, 0.03, 0.28, mat.chrome, 12);
-  column.position.y = 0.18;
-  g.add(column);
-
-  const beamPivot = new THREE.Group();
-  beamPivot.position.y = 0.34;
-  const beam = rbox(0.55, 0.02, 0.03, mat.silver, 0.008);
-  beamPivot.add(beam);
-
-  for (const sx of [-1, 1]) {
-    const chain = new THREE.Group();
-    chain.position.set(sx * 0.24, 0, 0);
-    const pan = cyl(0.09, 0.08, 0.012, mat.chrome, 20);
-    pan.position.y = -0.14;
-    chain.add(pan);
-    const panRing = torus(0.09, 0.006, mat.violetGlow, 6, 20);
-    panRing.rotation.x = Math.PI / 2;
-    panRing.position.y = -0.13;
-    chain.add(panRing);
-    chain.add(new THREE.Line(
-      new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, -0.14, 0)]),
-      new THREE.LineBasicMaterial({ color: 0xa78bfa })
-    ));
-    beamPivot.add(chain);
-  }
-  g.add(beamPivot);
-
-  // weight set in cradle
-  [0.035, 0.03, 0.025, 0.02].forEach((r, i) => {
-    const w = cyl(r, r, 0.028, mat.chrome, 14);
-    w.position.set(0.15 + i * 0.01, 0.07, 0.12);
-    g.add(w);
-  });
-
-  animators.push((t) => {
-    beamPivot.rotation.z = Math.sin(t * 0.65) * 0.05;
-  });
-  return g;
-}
-
-// —— Holographic data terminal ——
-function makeHoloTerminal() {
-  const g = new THREE.Group();
-  const base = rbox(0.5, 0.04, 0.35, mat.carbon, 0.02);
-  base.position.y = 0.02;
-  g.add(base);
-  // floating holo screens
-  const screens = [];
-  for (let i = 0; i < 3; i++) {
-    const s = rbox(0.28 - i * 0.04, 0.2 - i * 0.03, 0.008, mat.hologram, 0.005);
-    s.position.set(0, 0.25 + i * 0.08, -0.05 + i * 0.04);
-    s.rotation.x = -0.15 - i * 0.05;
-    g.add(s);
-    screens.push(s);
-  }
-  // projector beam
-  const cone = new THREE.Mesh(
-    new THREE.ConeGeometry(0.12, 0.25, 16, 1, true),
-    new THREE.MeshStandardMaterial({
-      color: 0x67e8f9, emissive: 0x22d3ee, emissiveIntensity: 0.5,
-      transparent: true, opacity: 0.15, side: THREE.DoubleSide, depthWrite: false,
-    })
-  );
-  cone.position.set(0, 0.15, 0);
-  cone.rotation.x = Math.PI;
-  g.add(cone);
-
-  animators.push((t) => {
-    screens.forEach((s, i) => {
-      s.position.y = 0.25 + i * 0.08 + Math.sin(t * 2 + i) * 0.015;
-      s.material.opacity = 0.4 + 0.2 * Math.sin(t * 3 + i);
-    });
-  });
-  return g;
-}
-
-// —— Beakers with tech stands ——
-function makeBeaker(h = 0.15, r = 0.045, liquid = 0x38bdf8) {
-  const g = new THREE.Group();
-  const wall = new THREE.Mesh(
-    new THREE.CylinderGeometry(r, r * 0.95, h, 28, 1, true),
-    mat.glass
-  );
-  wall.position.y = h / 2;
-  g.add(wall);
-  const rim = torus(r, 0.006, mat.chrome, 8, 24);
-  rim.rotation.x = Math.PI / 2;
-  rim.position.y = h;
-  g.add(rim);
-  const bottom = cyl(r * 0.95, r * 0.95, 0.008, mat.glass, 24);
-  bottom.position.y = 0.004;
-  g.add(bottom);
-  if (liquid != null) {
-    const liq = cyl(r * 0.88, r * 0.88, h * 0.5, new THREE.MeshPhysicalMaterial({
-      color: liquid, metalness: 0, roughness: 0.15, transparent: true, opacity: 0.7,
-      transmission: 0.35, emissive: liquid, emissiveIntensity: 0.15,
-    }), 20);
-    liq.position.y = h * 0.28;
-    g.add(liq);
-  }
-  return g;
-}
-
-// —— Thermodynamics station ——
-function makeThermoSetup() {
-  const g = new THREE.Group();
-  const base = rbox(0.7, 0.04, 0.42, mat.whiteGloss, 0.02);
-  base.position.y = 0.02;
-  g.add(base);
-  const baseLed = rbox(0.65, 0.01, 0.38, mat.orangeGlow, 0.005);
-  baseLed.position.y = 0.045;
-  g.add(baseLed);
-
-  // calorimeter
-  const caloOuter = cyl(0.07, 0.07, 0.16, mat.chrome, 24);
-  caloOuter.position.set(-0.18, 0.14, 0.02);
-  g.add(caloOuter);
-  const caloInner = cyl(0.055, 0.055, 0.12, mat.glass, 20);
-  caloInner.position.set(-0.18, 0.14, 0.02);
-  g.add(caloInner);
-  const liquid = cyl(0.05, 0.05, 0.07, new THREE.MeshPhysicalMaterial({
-    color: 0xff6b35, metalness: 0, roughness: 0.2, transparent: true, opacity: 0.75,
-    emissive: 0xff4400, emissiveIntensity: 0.2,
-  }), 16);
-  liquid.position.set(-0.18, 0.11, 0.02);
-  g.add(liquid);
-  const lid = cyl(0.075, 0.075, 0.02, mat.carbon, 20);
-  lid.position.set(-0.18, 0.23, 0.02);
-  g.add(lid);
-  const stir = cyl(0.008, 0.008, 0.12, mat.chrome, 8);
-  stir.position.set(-0.18, 0.28, 0.02);
-  g.add(stir);
-
-  // heat conduction rods (copper / aluminum / iron colors)
-  const rodColors = [
-    { c: 0xb87333, e: 0xff4400 },
-    { c: 0xc0c8d0, e: 0xff8844 },
-    { c: 0x6b7280, e: 0xff6622 },
-  ];
-  rodColors.forEach((rc, i) => {
-    const rod = cyl(0.012, 0.012, 0.28, new THREE.MeshStandardMaterial({
-      color: rc.c, metalness: 0.85, roughnessRoughness: 0.3,
-      emissive: rc.e, emissiveIntensity: 0.15 + i * 0.05,
-    }), 12);
-    rod.rotation.z = Math.PI / 2;
-    rod.position.set(0.12, 0.14, -0.1 + i * 0.1);
-    g.add(rod);
-    // cold / hot ends
-    const cold = sphere(0.02, mat.blueGlow, 10);
-    cold.position.set(-0.02, 0.14, -0.1 + i * 0.1);
-    g.add(cold);
-    const hot = sphere(0.02, mat.orangeGlow, 10);
-    hot.position.set(0.26, 0.14, -0.1 + i * 0.1);
-    g.add(hot);
-  });
-  // heater block on right
-  const heater = rbox(0.1, 0.08, 0.28, mat.carbon, 0.015);
-  heater.position.set(0.32, 0.1, 0);
-  g.add(heater);
-  const heatPadMat = new THREE.MeshStandardMaterial({
-    color: 0xfdba74, emissive: 0xf97316, emissiveIntensity: 0.7, metalness: 0.2, roughness: 0.35,
-  });
-  const heatPad = rbox(0.08, 0.02, 0.24, heatPadMat, 0.008);
-  heatPad.position.set(0.32, 0.15, 0);
-  g.add(heatPad);
-
-  // digital thermometer panel
-  const panel = rbox(0.16, 0.12, 0.02, mat.carbon, 0.01);
-  panel.position.set(-0.18, 0.32, -0.14);
-  g.add(panel);
-  const screen = rbox(0.13, 0.08, 0.01, new THREE.MeshStandardMaterial({
-    color: 0xffddaa, emissive: 0xff6600, emissiveIntensity: 0.7, metalness: 0.1, roughness: 0.4,
-  }), 0.005);
-  screen.position.set(-0.18, 0.32, -0.125);
-  g.add(screen);
-
-  // molecular motion / gas model — floating spheres in a glass box
-  const boxFrame = rbox(0.18, 0.14, 0.12, mat.glass, 0.01);
-  boxFrame.position.set(0.05, 0.16, 0.12);
-  g.add(boxFrame);
-  const molecules = [];
-  for (let i = 0; i < 8; i++) {
-    const m = sphere(0.012, mat.orangeGlow, 8);
-    m.position.set(
-      0.05 + (Math.random() - 0.5) * 0.1,
-      0.16 + (Math.random() - 0.5) * 0.08,
-      0.12 + (Math.random() - 0.5) * 0.06
-    );
-    g.add(m);
-    molecules.push({ mesh: m, phase: Math.random() * Math.PI * 2, speed: 1.5 + Math.random() });
-  }
-
-  animators.push((t) => {
-    molecules.forEach(({ mesh, phase, speed }) => {
-      mesh.position.x = 0.05 + Math.sin(t * speed + phase) * 0.05;
-      mesh.position.y = 0.16 + Math.cos(t * speed * 1.3 + phase) * 0.04;
-      mesh.position.z = 0.12 + Math.sin(t * speed * 0.8 + phase * 1.5) * 0.03;
-    });
-    heatPadMat.emissiveIntensity = 0.5 + 0.4 * Math.sin(t * 3);
-    liquid.material.emissiveIntensity = 0.15 + 0.1 * Math.sin(t * 2);
-  });
-
-  g.userData.rods = [];
-  g.children.forEach((ch) => {
-    if (ch.isMesh && Math.abs(ch.position.y - 0.14) < 0.001 && Math.abs(ch.rotation.z - Math.PI / 2) < 0.01) {
-      // clone material so heat can be unique per rod
-      ch.material = ch.material.clone();
-      g.userData.rods.push(ch);
-    }
-  });
-  g.userData.heatPadMat = heatPadMat;
-  g.userData.setRodHeat = (progress) => {
-    g.userData.rods.forEach((rod, i) => {
-      const speed = [1.0, 0.72, 0.48][i] || 0.5;
-      const heat = Math.min(1, progress * speed * 1.35);
-      rod.material.emissiveIntensity = 0.12 + heat * 1.3;
-    });
-    if (g.userData.heatPadMat) g.userData.heatPadMat.emissiveIntensity = 0.5 + progress * 0.9;
-  };
-  g.userData.interactive = true;
-  g.userData.role = 'thermo';
-
-  return g;
-}
-
-// ═══════════════════════════════════════════════
 //  Place equipment by station theme
-// ═══════════════════════════════════════════════
-labLoader.setProgress(0.52, '部署实验仪器…');
-// Table Y surfaces: side tables ~0.93, center island ~1.0
 const TABLE_Y = 0.93;
 const ISLAND_Y = 1.0;
 
-// —— 力学 (back-left: -4.2, -2.8) ——
-const cradle = makeNewtonsCradle();
-cradle.position.set(-3.6, TABLE_Y, -2.8);
-scene.add(cradle);
+const sharedProps = createSharedProps({ THREE, materials: mat, primitives });
 
-const pendulum = makePendulum();
-pendulum.position.set(-4.5, TABLE_Y, -2.75);
-scene.add(pendulum);
+const stationContext = {
+  THREE,
+  scene,
+  camera,
+  renderer,
+  materials: mat,
+  primitives,
+  shared: sharedProps,
+  registerAnimator: (animateStation) => animators.push(animateStation),
+  getExperimentState: () => expManager?.state ?? null,
+  constants: { TABLE_Y, ISLAND_Y },
+};
+const stationScenes = {};
+for (const [stationId, createStation] of Object.entries(STATION_SCENE_MODULES)) {
+  const station = createStation(stationContext);
+  stationScenes[stationId] = station;
+  scene.add(station.root);
+  station.animators.forEach(stationContext.registerAnimator);
+}
 
-const spring = makeSpringMass();
-spring.position.set(-5.3, TABLE_Y, -2.8);
-scene.add(spring);
+const hallBench = stationScenes.electro.refs.hallBench;
 
-const balance = makeBalance();
-balance.position.set(-2.9, TABLE_Y, -2.65);
-scene.add(balance);
-
-// —— 光学 (back-right: 4.2, -2.8) ——
-const optics = makeOpticsBench();
-optics.position.set(4.2, TABLE_Y, -2.8);
-// Keep the optical axis parallel to the bench.  Even a small yaw here rotates
-// the rail, laser, slit and screen as one unit and makes the setup look bent.
-optics.rotation.y = 0;
-scene.add(optics);
-
-// prism / lens accessory beakers as optical liquids
-[
-  { o: makeBeaker(0.1, 0.03, 0xaaddff), p: [5.5, TABLE_Y, -2.5] },
-  { o: makeBeaker(0.09, 0.028, 0xffe8aa), p: [5.7, TABLE_Y, -2.7] },
-].forEach(({ o, p }) => {
-  o.position.set(...p);
-  scene.add(o);
-});
-
-// —— 电磁学 (front-left: -4.2, 2.6) ——
-const hallBench = makeHallSetup();
-hallBench.position.set(-4.0, TABLE_Y, 2.55);
-scene.add(hallBench);
-
-const multi = rbox(0.18, 0.05, 0.26, mat.carbon, 0.015);
-multi.position.set(-5.1, TABLE_Y + 0.03, 2.7);
-scene.add(multi);
-const multiScreen = rbox(0.14, 0.01, 0.1, mat.greenGlow, 0.005);
-multiScreen.position.set(-5.1, TABLE_Y + 0.06, 2.65);
-scene.add(multiScreen);
-
-// small coil / wire spool
-const spool = cyl(0.05, 0.05, 0.06, mat.copper, 16);
-spool.position.set(-3.3, TABLE_Y + 0.04, 2.85);
-scene.add(spool);
-const spoolCore = cyl(0.02, 0.02, 0.08, mat.carbon, 10);
-spoolCore.position.set(-3.3, TABLE_Y + 0.05, 2.85);
-scene.add(spoolCore);
-
-// —— 热力学 (front-right: 4.2, 2.6) ——
-const thermo = makeThermoSetup();
-thermo.position.set(4.2, TABLE_Y, 2.6);
-scene.add(thermo);
-
-[
-  { o: makeBeaker(0.13, 0.04, 0xff6644), p: [5.2, TABLE_Y, 2.35] },
-  { o: makeBeaker(0.12, 0.038, 0x44aaff), p: [5.45, TABLE_Y, 2.55] },
-].forEach(({ o, p }) => {
-  o.position.set(...p);
-  scene.add(o);
-});
-
-// —— 中央岛：全息终端（不改动定位逻辑） ——
-const holo = makeHoloTerminal();
+// Center island remains shared lab equipment.
+const holo = sharedProps.makeHoloTerminal();
 holo.position.set(0, ISLAND_Y, 0.3);
 scene.add(holo);
 
 [
-  { o: makeBeaker(0.14, 0.042, 0xa78bfa), p: [0.7, ISLAND_Y, 0.2] },
-  { o: makeBeaker(0.11, 0.032, 0xfbbf24), p: [1.0, ISLAND_Y, 0.5] },
+  { o: sharedProps.makeBeaker(0.14, 0.042, 0xa78bfa), p: [0.7, ISLAND_Y, 0.2] },
+  { o: sharedProps.makeBeaker(0.11, 0.032, 0xfbbf24), p: [1.0, ISLAND_Y, 0.5] },
 ].forEach(({ o, p }) => {
   o.position.set(...p);
   scene.add(o);
 });
+sharedProps.animators.forEach(stationContext.registerAnimator);
 
 // ═══════════════════════════════════════════════
 //  Interactive wall display — formula & concept board
@@ -3464,8 +1033,9 @@ const _holoParentEuler = new THREE.Euler();
 
 function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   const g = new THREE.Group();
-  const panelW = 0.82;
-  const panelH = 0.54;
+  // Larger tabletop terminal so experiment cards are easy to aim at.
+  const panelW = 0.98;
+  const panelH = 0.68;
   const fullTitle = STATION_LABEL[stationId] || title;
   const enTitle = STATION_EN[stationId] || 'STATION';
 
@@ -3597,11 +1167,15 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   hit.position.set(0, FLOAT_Y_NORMAL, 0);
   g.add(hit);
 
+  // Tabletop terminal is selector-only: activate + choose experiment.
+  const HOLO_SURFACE = 'selector';
+
   const syncScreenLayout = (active) => {
     const layout = getHoloScreenLayoutSize({
       active: !!active,
       hud: active ? boundHud : null,
       dataHtml: boundDataHtml,
+      surface: HOLO_SURFACE,
     });
     if (layout.width === c.width && layout.height === c.height) return false;
 
@@ -3634,7 +1208,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
     const layoutChanged = syncScreenLayout(active);
     const rev = boundHud?._rev ?? 0;
     const maxed = g.userData.maximized ? 1 : 0;
-    const key = `${active ? 1 : 0}|${maxed}|${rev}|${boundHud?.expId || ''}|${boundHud?.stepIndex ?? ''}|${c.width}x${c.height}|${boundDataHtml.slice(0, 48)}`;
+    const key = `${active ? 1 : 0}|${maxed}|${rev}|${boundHud?.expId || ''}|${boundHud?.stepIndex ?? ''}|${boundHud?.running ? 1 : 0}|${c.width}x${c.height}|${boundDataHtml.slice(0, 48)}`;
     if (!force && !layoutChanged && key === lastDrawKey) return;
     lastDrawKey = key;
 
@@ -3648,6 +1222,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
       hud: active ? boundHud : null,
       dataHtml: boundDataHtml,
       maximized: !!g.userData.maximized,
+      surface: HOLO_SURFACE,
     });
     hitRegions = result.hits || [];
     g.userData.hitRegions = hitRegions;
@@ -3660,6 +1235,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
 
   const tag = (o) => {
     o.userData.type = 'holo';
+    o.userData.role = 'holo_selector';
     o.userData.stationId = stationId;
     o.userData.interactive = true;
   };
@@ -3682,8 +1258,17 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   g.userData.canvasW = c.width;
   g.userData.canvasH = c.height;
   g.userData.setHud = (hud, dataHtml = '') => {
+    const nextDataHtml = dataHtml || '';
+    const unchanged = boundHud === hud && boundDataHtml === nextDataHtml;
     boundHud = hud;
-    boundDataHtml = dataHtml || '';
+    boundDataHtml = nextDataHtml;
+    // Inactive selector screens receive the same cleared HUD on every state
+    // update. Avoid invalidating their canvas cache unless the payload really
+    // changed; switching experiments otherwise repaints every screen twice.
+    if (unchanged) {
+      draw(!!g.userData.active, false);
+      return;
+    }
     lastDrawKey = '';
     draw(!!g.userData.active, true);
   };
@@ -3831,6 +1416,379 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   return g;
 }
 
+/**
+ * Large floating content display in front of each experiment table.
+ * Shows experiment steps/controls; activated by the tabletop selector terminal.
+ */
+function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
+  const g = new THREE.Group();
+  // Content panel sized for dense HUD layouts (not a wall-filling blank canvas).
+  const panelW = 2.55;
+  const panelH = 1.55;
+  const fullTitle = STATION_LABEL[stationId] || title;
+  const enTitle = STATION_EN[stationId] || 'STATION';
+  const SURFACE = 'display';
+
+  // Ultra-Thin Titanium Micro-Bezel (Stark Industries Zero-Bezel Minimalist Glass)
+  const rimMat = new THREE.MeshStandardMaterial({
+    color: 0xd8dee9,
+    metalness: 0.65,
+    roughness: 0.22,
+  });
+  const rim = rbox(panelW + 0.014, panelH + 0.014, 0.01, rimMat, 0.004);
+  rim.position.z = -0.005;
+  g.add(rim);
+
+  // Optical Edge Glow Wire (Subtle Luminous Halo around Rim)
+  const haloMat = new THREE.MeshBasicMaterial({
+    color: accentNum,
+    transparent: true,
+    opacity: 0.55,
+  });
+  const halo = rbox(panelW + 0.02, panelH + 0.02, 0.003, haloMat, 0.004);
+  halo.position.z = -0.006;
+  g.add(halo);
+
+  // Floating Micro-Stabilizer Lines (Futuristic Optical Suspension Bars)
+  const stabMat = new THREE.MeshBasicMaterial({
+    color: accentNum,
+    transparent: true,
+    opacity: 0.45,
+  });
+  const topStab = new THREE.Mesh(new THREE.BoxGeometry(panelW * 0.35, 0.003, 0.003), stabMat);
+  topStab.position.set(0, panelH / 2 + 0.018, 0);
+  g.add(topStab);
+  const botStab = new THREE.Mesh(new THREE.BoxGeometry(panelW * 0.35, 0.003, 0.003), stabMat);
+  botStab.position.set(0, -panelH / 2 - 0.018, 0);
+  g.add(botStab);
+
+  let c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 640;
+  let ctx = c.getContext('2d');
+  let lastDrawKey = '';
+  let hitRegions = [];
+  let boundHud = null;
+  let boundDataHtml = '';
+
+  g.userData.maximized = false;
+  g.userData._baseY = 0;
+  g.userData.accentHex = accentHex;
+  g.userData.fullTitle = fullTitle;
+  g.userData.enTitle = enTitle;
+  g.userData.surface = SURFACE;
+
+  const createScreenTexture = () => {
+    const texture = new THREE.CanvasTexture(c);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.anisotropy = Math.min(4, renderer.capabilities.getMaxAnisotropy());
+    return texture;
+  };
+  let tex = createScreenTexture();
+
+  const screenMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    opacity: 0.85,
+    side: THREE.FrontSide,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), screenMat);
+  screen.position.z = 0.01;
+  g.add(screen);
+
+  // 3D Crystal Glass Substrate (Provides realistic physical thickness and glass reflections)
+  const substrateMat = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    metalness: 0.08,
+    roughness: 0.06,
+    transmission: 0.94,
+    thickness: 0.12,
+    transparent: true,
+    opacity: 0.32,
+    clearcoat: 1.0,
+    clearcoatRoughness: 0.04,
+    ior: 1.54,
+    reflectivity: 0.9,
+  });
+  const substrate = rbox(panelW, panelH, 0.006, substrateMat, 0.004);
+  substrate.position.z = 0.003;
+  g.add(substrate);
+
+  // Soft rear face so the panel stays readable if viewed from a slight angle
+  const backMat = new THREE.MeshBasicMaterial({
+    map: tex,
+    transparent: true,
+    opacity: 0.22,
+    side: THREE.FrontSide,
+    depthWrite: false,
+    toneMapped: false,
+  });
+  const backFace = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), backMat);
+  backFace.rotation.y = Math.PI;
+  backFace.position.z = -0.03;
+  g.add(backFace);
+
+  const hit = new THREE.Mesh(
+    new THREE.BoxGeometry(panelW + 0.12, panelH + 0.12, 0.18),
+    new THREE.MeshBasicMaterial({ visible: false }),
+  );
+  g.add(hit);
+
+  const panelLight = new THREE.PointLight(0xf8fafc, 0.45, 4.5, 2);
+  panelLight.position.set(0, 0, 0.35);
+  g.add(panelLight);
+
+  // Hidden until an experiment is selected on the tabletop terminal.
+  g.visible = false;
+  g.userData.present = false;
+
+  const syncScreenLayout = (active) => {
+    const layout = getHoloScreenLayoutSize({
+      active: !!active,
+      hud: active ? boundHud : null,
+      dataHtml: boundDataHtml,
+      surface: SURFACE,
+    });
+    if (layout.width === c.width && layout.height === c.height) return false;
+
+    const nextCanvas = document.createElement('canvas');
+    nextCanvas.width = layout.width;
+    nextCanvas.height = layout.height;
+    c = nextCanvas;
+    ctx = c.getContext('2d');
+    const previousTexture = tex;
+    tex = createScreenTexture();
+    screenMat.map = tex;
+    backMat.map = tex;
+    screenMat.needsUpdate = true;
+    backMat.needsUpdate = true;
+    g.userData.tex = tex;
+    const sx = layout.width / 1280;
+    const sy = layout.height / 800;
+    screen.scale.set(sx, sy, 1);
+    substrate.scale.set(sx, sy, 1);
+    backFace.scale.set(sx, sy, 1);
+    rim.scale.set(sx, sy, 1);
+    halo.scale.set(sx, sy, 1);
+    hit.scale.set(sx, sy, 1);
+    topStab.position.set(0, (panelH * sy) / 2 + 0.018, 0);
+    botStab.position.set(0, -(panelH * sy) / 2 - 0.018, 0);
+    if (g.userData._baseY !== undefined) {
+      g.position.y = g.userData._baseY + (panelH * (sy - 1)) / 2;
+    }
+
+    g.userData.canvasW = layout.width;
+    g.userData.canvasH = layout.height;
+    g.userData.screenWorldSize = { width: panelW * sx, height: panelH * sy };
+    return true;
+  };
+
+  const draw = (active, force = false) => {
+    const layoutChanged = syncScreenLayout(active);
+    const rev = boundHud?._rev ?? 0;
+    const maxed = g.userData.maximized ? 1 : 0;
+    const key = `${active ? 1 : 0}|${maxed}|${rev}|${boundHud?.expId || ''}|${boundHud?.stepIndex ?? ''}|${boundHud?.running ? 1 : 0}|${c.width}x${c.height}|${boundDataHtml.slice(0, 48)}`;
+    if (!force && !layoutChanged && key === lastDrawKey) return;
+    lastDrawKey = key;
+
+    const result = drawHoloScreen(ctx, c.width, c.height, {
+      accentHex,
+      fullTitle,
+      enTitle,
+      active: !!active,
+      hud: active ? boundHud : null,
+      dataHtml: boundDataHtml,
+      maximized: !!g.userData.maximized,
+      surface: SURFACE,
+      theme: 'light',
+    });
+    hitRegions = result.hits || [];
+    g.userData.hitRegions = hitRegions;
+    g.userData.boundHud = boundHud;
+    g.userData.boundDataHtml = boundDataHtml;
+    tex.needsUpdate = true;
+  };
+  draw(false);
+
+  // Stay in the interactables list; presence is gated in pick/aim/visible.
+  // (Toggling interactive + recollecting the whole scene every HUD push froze the app.)
+  const tag = (o) => {
+    o.userData.type = 'holo_display';
+    o.userData.role = 'holo_display';
+    o.userData.stationId = stationId;
+    o.userData.interactive = true;
+  };
+  tag(g);
+  tag(hit);
+  tag(screen);
+  tag(backFace);
+  tag(rim);
+  tag(halo);
+  tag(topStab);
+  tag(botStab);
+  tag(substrate);
+
+  function setPresent(on) {
+    const present = !!on;
+    // Critical: HUD updates every frame while experiments run — only flip visibility
+    // when presence actually changes. Never recollect the scene here.
+    if (g.userData.present === present && g.visible === present) {
+      g.userData.active = present;
+      return;
+    }
+    g.userData.present = present;
+    g.userData.active = present;
+    g.visible = present;
+    // Disable raycasts on hidden panels so they cannot block equipment.
+    [hit, screen, backFace, rim, halo, topStab, botStab].forEach((mesh) => {
+      mesh.raycast = present ? THREE.Mesh.prototype.raycast : () => {};
+    });
+    panelLight.intensity = present ? 0.55 : 0;
+    if (!present) {
+      hitRegions = [];
+      g.userData.hitRegions = [];
+    }
+  }
+
+  // Start with raycasts disabled (hidden).
+  [hit, screen, backFace, rim, halo, topStab, botStab].forEach((mesh) => {
+    mesh.raycast = () => {};
+  });
+
+  g.userData.draw = draw;
+  g.userData.tex = tex;
+  g.userData.screenFaces = [screen, backFace];
+  g.userData.screenRoot = g;
+  g.userData.canvasW = c.width;
+  g.userData.canvasH = c.height;
+  g.userData.setPresent = setPresent;
+  g.userData.prewarm = (webglRenderer, activeCamera, targetScene) => {
+    const wasVisible = g.visible;
+    const wasPresent = g.userData.present;
+    syncScreenLayout(true);
+    draw(true, true);
+    g.visible = true;
+    webglRenderer.compile(g, activeCamera, targetScene);
+    g.visible = wasVisible;
+    g.userData.present = wasPresent;
+  };
+  g.userData.setHud = (hud, dataHtml = '') => {
+    boundHud = hud;
+    boundDataHtml = dataHtml || '';
+    // Content screen is independent: only paints while an experiment is running.
+    const running = !!(hud?.running && hud?.experiment);
+    setPresent(running);
+    if (running) {
+      // Let draw()'s key cache skip identical frames; force only on first show.
+      draw(true, false);
+    }
+  };
+  g.userData.setMaximized = (on) => {
+    g.userData.maximized = !!on;
+    lastDrawKey = '';
+    if (g.userData.present) draw(true, true);
+  };
+  g.userData.pick = (uv) => {
+    if (!uv || !g.userData.present) return null;
+    return pickHoloScreen(uv.x, uv.y, c.width, c.height, hitRegions, 1);
+  };
+
+  const _pickPlane = new THREE.Plane();
+  const _pickHit = new THREE.Vector3();
+  const _pickLocal = new THREE.Vector3();
+  const _pickN = new THREE.Vector3();
+
+  function uvOnFacePlane(raycaster, face) {
+    face.updateMatrixWorld(true);
+    _pickN.set(0, 0, 1).transformDirection(face.matrixWorld).normalize();
+    face.getWorldPosition(_holoWorldPos);
+    _pickPlane.setFromNormalAndCoplanarPoint(_pickN, _holoWorldPos);
+    const ray = raycaster.ray;
+    if (!ray.intersectPlane(_pickPlane, _pickHit)) return null;
+    _pickLocal.subVectors(_pickHit, ray.origin);
+    if (_pickLocal.dot(ray.direction) < 1e-4) return null;
+    _pickLocal.copy(_pickHit);
+    face.worldToLocal(_pickLocal);
+    const u = (_pickLocal.x / panelW) + 0.5;
+    const v = (_pickLocal.y / panelH) + 0.5;
+    if (u < -0.08 || u > 1.08 || v < -0.08 || v > 1.08) return null;
+    return {
+      u: THREE.MathUtils.clamp(u, 0, 1),
+      v: THREE.MathUtils.clamp(v, 0, 1),
+      distance: ray.origin.distanceTo(_pickHit),
+    };
+  }
+
+  function collectScreenSamples(raycaster) {
+    g.updateMatrixWorld(true);
+    screen.updateMatrixWorld(true);
+    backFace.updateMatrixWorld(true);
+    const samples = [];
+    for (const face of [screen, backFace]) {
+      const uvInfo = uvFromRayAndMesh(raycaster, face) || uvOnFacePlane(raycaster, face);
+      if (!uvInfo) continue;
+      samples.push({ face, ...uvInfo });
+    }
+    samples.sort((a, b) => a.distance - b.distance);
+    return samples;
+  }
+
+  g.userData.screenAimFromRay = (raycaster) => {
+    // Only claim aim while this content panel is present (experiment selected).
+    if (!g.userData.present || !g.visible) return null;
+    const samples = collectScreenSamples(raycaster);
+    return samples[0] || null;
+  };
+
+  g.userData.pickFromRay = (raycaster) => {
+    if (!g.userData.present || !g.visible) return null;
+    const samples = collectScreenSamples(raycaster);
+    if (!samples.length) return null;
+    for (const s of samples) {
+      const side = s.face === backFace ? -1 : 1;
+      const pick = pickHoloScreen(s.u, s.v, c.width, c.height, hitRegions, side);
+      if (pick) return pick;
+    }
+    const s0 = samples[0];
+    return pickHoloScreen(s0.u, s0.v, c.width, c.height, hitRegions, s0.face === backFace ? -1 : 1);
+  };
+
+  // Gentle float + soft face toward the player (only while present)
+  animators.push((t) => {
+    if (!g.userData.present || !g.visible) {
+      panelLight.intensity = 0;
+      return;
+    }
+    const phase = t + stationId.length * 1.1 + 2.1;
+    g.position.y = g.userData._baseY + Math.sin(phase * 1.1) * 0.03;
+
+    g.getWorldPosition(_holoWorldPos);
+    _holoCamDir.subVectors(camera.position, _holoWorldPos);
+    _holoCamDir.y = 0;
+    if (_holoCamDir.lengthSq() > 1e-6) {
+      _holoCamDir.normalize();
+      const targetYaw = Math.atan2(_holoCamDir.x, _holoCamDir.z);
+      let dy = targetYaw - g.rotation.y;
+      while (dy > Math.PI) dy -= Math.PI * 2;
+      while (dy < -Math.PI) dy += Math.PI * 2;
+      g.rotation.y += dy * 0.08;
+    }
+
+    const pulse = 0.95 + 0.03 * Math.sin(t * 2.1);
+    screenMat.opacity = THREE.MathUtils.clamp(pulse, 0.92, 0.99);
+    backMat.opacity = 0.22;
+    panelLight.intensity = 0.38 + 0.08 * Math.sin(t * 2.4);
+    haloMat.opacity = 0.45 + 0.15 * Math.sin(t * 2.5);
+    stabMat.opacity = 0.30 + 0.15 * Math.sin(t * 3.0);
+
+    draw(true);
+  });
+
+  return g;
+}
+
 // Wall-side table edges; hologram free-yaws toward the player from either side
 // tables: mechanics/optics w=3.4 @ x=±4.2,z=-2.8 | electro/thermo w=2.8 @ x=±4.2,z=2.6
 const holoConfigs = [
@@ -3839,7 +1797,17 @@ const holoConfigs = [
   { id: 'optics', title: '光学', accent: '#fbbf24', accentNum: 0xfbbf24, pos: [5.72, 0.93, -2.8], rotY: Math.PI / 2 },
   { id: 'thermo', title: '热力学', accent: '#fb923c', accentNum: 0xfb923c, pos: [5.42, 0.93, 2.6], rotY: Math.PI / 2 },
 ];
+// Front-of-table floating content screens: table "front" faces the chalkboard wall (-Z).
+// Offset farther from each bench so the panel clears equipment / hands more cleanly.
+// Content displays sit slightly above table height so the bench stays visible.
+const displayConfigs = [
+  { id: 'mechanics', title: '力学', accent: '#38bdf8', accentNum: 0x38bdf8, pos: [-4.2, 2.15, -4.05], rotY: 0 },
+  { id: 'optics', title: '光学', accent: '#fbbf24', accentNum: 0xfbbf24, pos: [4.2, 2.15, -4.05], rotY: 0 },
+  { id: 'electro', title: '电磁学', accent: '#f472b6', accentNum: 0xf472b6, pos: [-4.2, 2.15, 1.45], rotY: 0 },
+  { id: 'thermo', title: '热力学', accent: '#fb923c', accentNum: 0xfb923c, pos: [4.2, 2.15, 1.45], rotY: 0 },
+];
 const holos = {};
+const stationDisplays = {};
 holoConfigs.forEach(({ id, title, accent, accentNum, pos, rotY }) => {
   const h = makeHoloPanel(id, title, accent, accentNum);
   h.position.set(...pos);
@@ -3847,60 +1815,30 @@ holoConfigs.forEach(({ id, title, accent, accentNum, pos, rotY }) => {
   scene.add(h);
   holos[id] = h;
 });
+displayConfigs.forEach(({ id, title, accent, accentNum, pos, rotY }) => {
+  const d = makeStationDisplay(id, title, accent, accentNum);
+  d.position.set(...pos);
+  d.rotation.y = rotY;
+  d.userData._baseY = pos[1];
+  const panelH = 1.55;
+  const sy = (d.userData.canvasH || 800) / 800;
+  d.position.y = pos[1] + (panelH * (1 - sy)) / 2;
+  scene.add(d);
+  stationDisplays[id] = d;
+  if (holos[id]) holos[id].userData.display = d;
+});
 
 // Build equipment refs for experiment manager
 const equipment = {
   holos,
-  mechanics: {
-    cradleBalls: cradle.userData.cradleBalls,
-    pendulumPivot: pendulum.userData.pendulumPivot,
-    springGroup: spring.userData.springGroup,
-    springMass: spring.userData.springMass,
-    setPendulumLength: (L) => {
-      const pivot = pendulum.userData.pendulumPivot;
-      const bob = pendulum.userData.bob;
-      if (!pivot || !bob) return;
-      // scale string visually by bob y
-      const len = Math.min(0.9, Math.max(0.4, L));
-      bob.position.y = -len;
-      pendulum.userData.stringLen = len;
-    },
-  },
-  optics: {
-    setMode: (mode) => optics.userData.setMode?.(mode),
-    updateOptics: (data) => optics.userData.updateOptics?.(data),
-    setPartState: (part, mode) => optics.userData.setPartState?.(part, mode),
-    clearIdentifyVisuals: () => optics.userData.clearIdentifyVisuals?.(),
-    getCamera: () => camera,
-    mouseDrag: { holdLMB: false, movementX: 0 },
-  },
-  electro: {
-    getHallProbePos: (cam, target) => hallBench.userData.getHallProbePos?.(cam, target) ?? null,
-    setMode: (mode) => hallBench.userData.setMode?.(mode),
-    updateHall: (data) => hallBench.userData.updateHall?.(data),
-    updateHallDemo: (data, dt) => hallBench.userData.updateHallDemo?.(data, dt),
-    startHallWirePreview: (portId) => hallBench.userData.startHallWirePreview?.(portId),
-    updateHallWirePreview: (fromPortId, cam, hoverPortId) => hallBench.userData.updateHallWirePreview?.(fromPortId, cam, hoverPortId),
-    cancelHallWirePreview: () => hallBench.userData.cancelHallWirePreview?.(),
-    setHallPartState: (part, mode) => hallBench.userData.setHallPartState?.(part, mode),
-    clearHallIdentifyVisuals: () => hallBench.userData.clearHallIdentifyVisuals?.(),
-    getCamera: () => camera,
-    /** Shared pointer-drag state for Hall controls. */
-    mouseDrag: { holdLMB: false, movementX: 0 },
-  },
-  thermo: {
-    setRodHeat: thermo.userData.setRodHeat,
-    setTempDisplay: thermo.userData.setTempDisplay,
-  },
+  displays: stationDisplays,
+  mechanics: stationScenes.mechanics.equipment,
+  optics: stationScenes.optics.equipment,
+  electro: stationScenes.electro.equipment,
+  thermo: stationScenes.thermo.equipment,
 };
 
-// Tag station roots interactive
-cradle.userData.interactive = true;
-pendulum.userData.interactive = true;
-spring.userData.interactive = true;
-optics.userData.interactive = true;
-hallBench.userData.interactive = true;
-thermo.userData.interactive = true;
+
 
 // DOM HUD for experiments
 const expPanel = document.getElementById('exp-panel');
@@ -3920,7 +1858,11 @@ function showToast(msg) {
   toastEl.textContent = msg;
   toastEl.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toastEl.classList.remove('show'), 2400);
+  updateToast(msg);
+  toastTimer = setTimeout(() => {
+    toastEl.classList.remove('show');
+    updateToast(null);
+  }, 2400);
 }
 
 function formatData(stationId, expId, data) {
@@ -3945,8 +1887,21 @@ function formatData(stationId, expId, data) {
       : data.wiring?.status === 'invalid' ? '接线无效/未闭合' : 'Im 输出未接线';
     return `对象: ${target}\n接线: ${wiringText}\nVH = ${Number(data.vh || 0).toFixed(2)} mV　X = ${Number(data.probePos || 0).toFixed(1)} cm\nIm = ${Number(data.Im || 0).toFixed(2)} A　Is = ${Number(data.Is || 0).toFixed(1)} mA\n记录: ${records.length} 组`;
   }
+  if (expId === 'faraday_induction') {
+    const motion = data.lastMotion;
+    const induction = data.lastInduction;
+    const fmt = (value, digits = 3) => Number(value || 0).toFixed(digits);
+    return `B = ${fmt(data.B, 2)} T · A = ${fmt(data.area)} m² · Φ = ${fmt(data.flux)} Wb\n`
+      + `铜棒 x = ${fmt(data.x)} · 楞次方向: ${data.currentSense || '无'}\n`
+      + `动生 ε = ${motion ? fmt(motion.emf, 4) : '—'} · 感生 ε = ${induction ? fmt(induction.emf, 4) : '—'}\n`
+      + `记录: ${Array.isArray(data.records) ? data.records.length : 0} 组`;
+  }
   if (expId === 'hall_carrier_demo') {
     return `I = ${Number(data.I || 0).toFixed(2)}　B = ${Number(data.B || 0).toFixed(2)}\nn = ${Number(data.n || 0).toFixed(2)}　d = ${Number(data.d || 0).toFixed(2)}\nVₕ(rel.) = ${Number(data.vh || 0).toFixed(3)}　${data.nType ? 'n 型' : 'p 型'}\n${data.paused ? '动效已暂停' : '载流子运动中'}`;
+  }
+  if (expId === 'gauss_theorem') {
+    const selected = data.charges?.find((charge) => charge.id === data.selectedId);
+    return `Q内 = ${Number(data.qEnclosed || 0).toFixed(2)} e　ΦE = ${Number(data.flux || 0).toFixed(2)} / ε₀\nR = ${Number(data.radius || 0).toFixed(2)}　<Eₙ> = ${Number(data.meanField || 0).toFixed(3)}\n电荷数: ${data.charges?.length || 0}　选中: ${selected ? `${selected.q > 0 ? '+' : ''}${selected.q.toFixed(1)} e` : '无'}`;
   }
   if (expId === 'calorimetry') {
     return `样品 T = ${data.sampleT?.toFixed(1) ?? '—'} °C\n水温 = ${data.waterT?.toFixed(1) ?? '—'} °C\n终温 = ${data.finalT ? data.finalT.toFixed(1) + ' °C' : '—'}\n<span class="ok">c ≈ ${data.cSample ? data.cSample.toFixed(0) + ' J/(kg·K)' : '—'}</span>`;
@@ -4002,14 +1957,19 @@ function paintHoloFs() {
   const ud = holo.userData;
   const W = holoFsCanvas.width;
   const H = holoFsCanvas.height;
+  // Fullscreen mirrors the front content display (experiment UI).
+  const display = stationDisplays[sid];
+  const source = display?.userData || ud;
   const result = drawHoloScreen(holoFsCtx, W, H, {
-    accentHex: ud.accentHex || '#38bdf8',
-    fullTitle: ud.fullTitle || '实验台',
-    enTitle: ud.enTitle || 'STATION',
+    accentHex: source.accentHex || ud.accentHex || '#38bdf8',
+    fullTitle: source.fullTitle || ud.fullTitle || '实验台',
+    enTitle: source.enTitle || ud.enTitle || 'STATION',
     active: true,
     hud: lastHudSnapshot,
     dataHtml: lastHudDataHtml,
     maximized: true,
+    surface: 'display',
+    theme: 'light',
   });
   holoFsState.hits = result.hits || [];
 }
@@ -4024,10 +1984,12 @@ function openHoloFullscreen(stationId) {
   // Free the mouse so user can click the fullscreen UI like a normal screen
   if (controls.isLocked) controls.unlock();
   const holo = holos[stationId];
+  const display = stationDisplays[stationId];
   holo?.userData?.setMaximized?.(true);
+  display?.userData?.setMaximized?.(true);
   resizeHoloFsCanvas();
   paintHoloFs();
-  showToast('已全屏显示全息终端 · Esc 退出全屏');
+  showToast('已全屏显示实验内容屏 · Esc 退出全屏');
 }
 
 function closeHoloFullscreen(opts = {}) {
@@ -4039,8 +2001,9 @@ function closeHoloFullscreen(opts = {}) {
   holoFsEl.classList.remove('open');
   holoFsEl.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('holo-fs-open');
-  if (sid && holos[sid] && !keepMaximizedFlag) {
-    holos[sid].userData?.setMaximized?.(false);
+  if (sid && !keepMaximizedFlag) {
+    holos[sid]?.userData?.setMaximized?.(false);
+    stationDisplays[sid]?.userData?.setMaximized?.(false);
   }
   holoFsState.stationId = null;
 }
@@ -4096,16 +2059,141 @@ function pickFsAt(clientX, clientY) {
 }
 
 if (holoFsCanvas) {
+  /** @type {{ pointerId: number, lastY: number, moved: boolean, pick: object } | null} */
+  let fsTableDrag = null;
+  let fsFaradayDrag = null;
+
+  function fsFaradayValueAt(clientX, pick) {
+    const point = mapFsClickToCanvas(clientX, 0);
+    if (!point || !pick) return null;
+    const u = THREE.MathUtils.clamp((point.px - pick.x) / Math.max(1, pick.w), 0, 1);
+    return Number(pick.min ?? -3) + u * (Number(pick.max ?? 3) - Number(pick.min ?? -3));
+  }
+
+  function fsDisplayTarget() {
+    return {
+      userData: {
+        type: 'holo_display',
+        role: 'holo_display',
+        stationId: holoFsState.stationId,
+        hitRegions: holoFsState.hits || [],
+      },
+    };
+  }
+
+  function fsScrollPick(atPick = null) {
+    if (atPick?.action === 'hall-scroll-table' || atPick?.role === 'scrollable_table') return atPick;
+    return (holoFsState.hits || []).find(
+      (h) => h?.action === 'hall-scroll-table' || h?.role === 'scrollable_table',
+    ) || atPick || null;
+  }
+
   holoFsCanvas.addEventListener('click', (e) => {
     e.preventDefault();
     e.stopPropagation();
+    // A completed drag-scroll should not also fire the underlying control.
+    if (fsTableDrag?.moved || fsFaradayDrag?.moved) {
+      fsTableDrag = null;
+      fsFaradayDrag = null;
+      return;
+    }
     const pick = pickFsAt(e.clientX, e.clientY);
+    // Table region is scroll-only — clicks are not a discrete action.
+    if (pick?.action === 'hall-scroll-table') return;
     if (pick) handleHoloScreenAction(pick, holoFsState.stationId);
   });
-  holoFsCanvas.addEventListener('mousemove', (e) => {
+  holoFsCanvas.addEventListener('pointerdown', (e) => {
+    if (!holoFsState.open || e.button !== 0) return;
     const pick = pickFsAt(e.clientX, e.clientY);
-    holoFsCanvas.style.cursor = pick ? 'pointer' : 'default';
+    if (pick?.action === 'faraday-b-slider') {
+      fsFaradayDrag = { pointerId: e.pointerId, pick, moved: false };
+      const value = fsFaradayValueAt(e.clientX, pick);
+      if (value != null) expManager?.uiAction?.('faraday-b-set', { value });
+      try { holoFsCanvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+      e.preventDefault();
+      return;
+    }
+    if (pick?.action !== 'hall-scroll-table' && pick?.role !== 'scrollable_table') return;
+    fsTableDrag = {
+      pointerId: e.pointerId,
+      lastY: e.clientY,
+      moved: false,
+      pick: fsScrollPick(pick),
+    };
+    try { holoFsCanvas.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+    e.preventDefault();
   });
+  holoFsCanvas.addEventListener('pointermove', (e) => {
+    if (fsFaradayDrag && fsFaradayDrag.pointerId === e.pointerId) {
+      const livePick = (holoFsState.hits || []).find((h) => h?.action === 'faraday-b-slider') || fsFaradayDrag.pick;
+      const value = fsFaradayValueAt(e.clientX, livePick);
+      if (value != null) {
+        fsFaradayDrag.moved = true;
+        fsFaradayDrag.pick = livePick;
+        expManager?.uiAction?.('faraday-b-set', { value });
+      }
+      e.preventDefault();
+      return;
+    }
+    if (!fsTableDrag || fsTableDrag.pointerId !== e.pointerId) {
+      const pick = pickFsAt(e.clientX, e.clientY);
+      if (pick?.action === 'hall-scroll-table' || pick?.role === 'scrollable_table') {
+        holoFsCanvas.style.cursor = pick.scrollable === false ? 'default' : 'ns-resize';
+      } else {
+        holoFsCanvas.style.cursor = pick ? 'pointer' : 'default';
+      }
+      return;
+    }
+    const dy = e.clientY - fsTableDrag.lastY;
+    fsTableDrag.lastY = e.clientY;
+    if (Math.abs(dy) < 0.5) return;
+    fsTableDrag.moved = true;
+    // Refresh metrics after prior frames may have repainted the table.
+    const livePick = fsScrollPick(fsTableDrag.pick);
+    fsTableDrag.pick = livePick || fsTableDrag.pick;
+    // Finger/content follows: drag up reveals later rows (same as wheel down).
+    const ok = expManager?.uiAction?.('hall-scroll-table', {
+      deltaPx: -dy,
+      rowH: fsTableDrag.pick?.rowH,
+      maxRows: fsTableDrag.pick?.maxRows,
+      maxStart: fsTableDrag.pick?.maxStart,
+    });
+    if (ok) e.preventDefault();
+  });
+  const endFsTableDrag = (e) => {
+    if (!fsTableDrag || (e && fsTableDrag.pointerId !== e.pointerId)) return;
+    try { holoFsCanvas.releasePointerCapture(fsTableDrag.pointerId); } catch { /* ignore */ }
+    // Keep moved flag briefly so the trailing click is suppressed.
+    const moved = fsTableDrag.moved;
+    fsTableDrag = moved ? { ...fsTableDrag, pointerId: -1 } : null;
+    if (moved) {
+      setTimeout(() => { if (fsTableDrag?.pointerId === -1) fsTableDrag = null; }, 0);
+    }
+  };
+  const endFsFaradayDrag = (e) => {
+    if (!fsFaradayDrag || (e && fsFaradayDrag.pointerId !== e.pointerId)) return;
+    try { holoFsCanvas.releasePointerCapture(fsFaradayDrag.pointerId); } catch { /* ignore */ }
+    expManager?.endManipulation?.({ userData: { role: 'faraday-b-slider' } }, { time: clock.elapsedTime });
+    const moved = fsFaradayDrag.moved;
+    fsFaradayDrag = moved ? { ...fsFaradayDrag, pointerId: -1 } : null;
+    if (moved) setTimeout(() => { if (fsFaradayDrag?.pointerId === -1) fsFaradayDrag = null; }, 0);
+  };
+  holoFsCanvas.addEventListener('pointerup', endFsTableDrag);
+  holoFsCanvas.addEventListener('pointercancel', endFsTableDrag);
+  holoFsCanvas.addEventListener('pointerup', endFsFaradayDrag);
+  holoFsCanvas.addEventListener('pointercancel', endFsFaradayDrag);
+  holoFsCanvas.addEventListener('wheel', (e) => {
+    if (!holoFsState.open || !expManager) return;
+    const atPick = pickFsAt(e.clientX, e.clientY);
+    const pick = fsScrollPick(atPick);
+    // Match 3D behavior: wheel anywhere on the fullscreen content panel can
+    // drive the data table when the record view is active (not only when the
+    // cursor is pixel-perfect over the table rect).
+    if (expManager.onWheel(e.deltaY, fsDisplayTarget(), pick)) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+  }, { passive: false });
 }
 
 window.addEventListener('resize', () => {
@@ -4142,13 +2230,30 @@ function pushHudToHoloScreens(hud) {
       if (holoFsState.open && holoFsState.stationId === id) closeHoloFullscreen();
       else h.userData.setMaximized?.(false);
       h.userData.setHud?.(null, '');
-      h.userData.draw?.(false, true);
+    }
+  });
+
+  // Front content displays are independent: only appear after an experiment is chosen.
+  Object.entries(stationDisplays).forEach(([id, d]) => {
+    if (!d?.userData) return;
+    const isRunningHere = !!(
+      hud?.menuOpen
+      && hud?.running
+      && hud.station?.id === id
+      && hud.experiment
+    );
+    if (isRunningHere && payload) {
+      d.userData.setHud?.(payload, dataHtml);
+    } else if (d.userData.present || d.userData.active) {
+      d.userData.setMaximized?.(false);
+      d.userData.setPresent?.(false);
+      d.userData.setHud?.(null, '');
     }
   });
 
   // Keep fullscreen overlay in sync with live experiment data
   if (holoFsState.open) {
-    if (!hud?.menuOpen || hud.station?.id !== holoFsState.stationId) {
+    if (!hud?.menuOpen || !hud?.running || hud.station?.id !== holoFsState.stationId) {
       closeHoloFullscreen();
     } else {
       paintHoloFs();
@@ -4159,12 +2264,11 @@ function pushHudToHoloScreens(hud) {
 function handleHoloScreenAction(pick, stationId) {
   if (!pick?.action || !expManager) return false;
   const t = clock.elapsedTime;
-  const holo = stationId ? holos[stationId] : null;
   switch (pick.action) {
     case 'close':
       closeHoloFullscreen();
       expManager.closeMenu();
-      showToast('已关闭全息菜单');
+      showToast('已关闭实验终端');
       return true;
     case 'maximize': {
       // Maximize = fill the entire browser window (not 3D scale)
@@ -4189,6 +2293,9 @@ function handleHoloScreenAction(pick, stationId) {
       expManager.onKey('KeyF', t);
       if (holoFsState.open) paintHoloFs();
       return true;
+    case 'hall-scroll-table':
+      // Data-table scrolling is owned by wheel / drag handlers, not clicks.
+      return true;
     default: {
       // Forward experiment UI actions (hall-*, optics-diff-*, …) without a hard-coded list
       if (typeof pick.action === 'string' && /^[a-z]+-/.test(pick.action)) {
@@ -4203,7 +2310,7 @@ function handleHoloScreenAction(pick, stationId) {
 
 function onHudUpdate(hud) {
   // UI lives on the 3D hologram screen (+ optional fullscreen overlay)
-  expPanel.classList.remove('open');
+  updateHud(hud);
   pushHudToHoloScreens(hud);
 }
 
@@ -4213,10 +2320,57 @@ expManager = createExperimentManager({
   onToast: showToast,
 });
 
-// Compile only the hidden Hall apparatus while the boot loader is still up,
-// so opening the experiment does not pay the first-use shader cost.
-hallBench.userData.prewarmHall?.(renderer, camera, scene);
-hallBench.userData.prewarmHallDemo?.(renderer, camera, scene);
+// Compile hidden apparatus while the boot loader is still up.
+Object.values(stationScenes.electro.prewarm).forEach((prewarm) => prewarm());
+
+const preparedExperimentIds = new Set();
+let prepareIdleHandle = 0;
+function prepareExperiment(expId) {
+  if (!expId || preparedExperimentIds.has(expId)) return;
+  preparedExperimentIds.add(expId);
+  const run = () => {
+    prepareIdleHandle = 0;
+    stationDisplays[expManager?.state?.stationId || '']?.userData?.prewarm?.(renderer, camera, scene);
+    stationScenes[expManager?.state?.stationId || '']?.prewarm?.[expId]?.();
+  };
+  if (typeof window.requestIdleCallback === 'function') {
+    prepareIdleHandle = window.requestIdleCallback(run, { timeout: 900 });
+  } else {
+    prepareIdleHandle = window.setTimeout(run, 80);
+  }
+}
+
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'gauss') {
+  const previewParams = new URLSearchParams(window.location.search);
+  expManager.openStationMenu('electro');
+  expManager.startExperiment('gauss_theorem');
+  camera.position.set(-4.0, 1.52, 3.55);
+  camera.lookAt(-4.0, 1.18, 2.55);
+  if (previewParams.get('fullscreen') === '1') {
+    requestAnimationFrame(() => openHoloFullscreen('electro'));
+  }
+}
+
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'electric-field') {
+  expManager.openStationMenu('electro');
+  expManager.startExperiment('electric_field');
+  camera.position.set(-4.0, 1.45, 3.65);
+  camera.lookAt(-4.0, 1.12, 2.55);
+  if (new URLSearchParams(window.location.search).get('fullscreen') === '1') {
+    requestAnimationFrame(() => openHoloFullscreen('electro'));
+  }
+}
+
+// Development-only visual QA shortcut for the migrated Faraday apparatus.
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'faraday') {
+  expManager.openStationMenu('electro');
+  expManager.startExperiment('faraday_induction');
+  camera.position.set(-3.2, 1.55, 4.0);
+  camera.lookAt(-4.0, 1.14, 2.55);
+  if (new URLSearchParams(window.location.search).get('fullscreen') === '1') {
+    requestAnimationFrame(() => openHoloFullscreen('electro'));
+  }
+}
 
 // Development-only visual QA shortcut for the reconstructed source model.
 if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'hall') {
@@ -4307,6 +2461,10 @@ document.getElementById('exp-record')?.addEventListener('click', (e) => {
 
 // Raycasting interaction
 const raycaster = new THREE.Raycaster();
+// Used for wheel picking while the pointer is unlocked. PointerLockControls
+// keeps the normal ray at the crosshair, but a regular cursor needs its own
+// ray based on the wheel event's client coordinates.
+const wheelRaycaster = new THREE.Raycaster();
 const interactables = [];
 const raycastSurfaces = [];
 function collectInteractables() {
@@ -4323,8 +2481,133 @@ let focusedTarget = null;
 let lastFocusHit = null;
 let holdE = false;
 let holdLMB = false;
+// Direct desktop dragging is available before pointer-lock is engaged.  The
+// standalone Gauss demo behaves this way, so keep a small pointer gesture
+// bridge in the host lab instead of requiring a separate "look" click first.
+let gaussPointerDrag = null;
 let handTracking = null;
 let arInteractionController = null;
+
+// Unlocked desktop drag bridge for the source-style charge/probe interaction.
+// Pointer-lock and AR continue to use the normal accumulated movement path.
+const unlockedElectroRaycaster = new THREE.Raycaster();
+const unlockedElectroPointer = new THREE.Vector2();
+let unlockedElectroDrag = null;
+let lastElectroPointerEventTime = 0;
+function isHierarchyVisible(object) {
+  let current = object;
+  while (current) {
+    if (current.visible === false) return false;
+    current = current.parent;
+  }
+  return true;
+}
+
+function unlockedElectroPick(event) {
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width < 1 || rect.height < 1) return null;
+  unlockedElectroPointer.set(
+    ((event.clientX - rect.left) / rect.width) * 2 - 1,
+    -((event.clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  unlockedElectroRaycaster.setFromCamera(unlockedElectroPointer, camera);
+  const hits = unlockedElectroRaycaster.intersectObjects(interactables, true);
+  // Charges/probes may sit behind the transparent hologram. The generic
+  // resolver intentionally stops at the first nearby screen hit, so choose
+  // semantic electromagnetic targets first for source-style dragging.
+  // Invisible apparatus from other electro modes still raycasts in Three.js,
+  // so only accept targets that belong to a currently visible hierarchy.
+  const preferredRoles = ['electric_charge', 'electric_probe', 'gauss_charge', 'faraday_rod'];
+  for (const role of preferredRoles) {
+    const hit = hits.find((entry) => {
+      const target = resolveInteractive(entry.object);
+      return target?.userData?.role === role && isHierarchyVisible(target);
+    });
+    const target = hit ? resolveInteractive(hit.object) : null;
+    if (target) return { target, raycaster: unlockedElectroRaycaster };
+  }
+  return null;
+}
+canvas.addEventListener('pointerdown', (event) => {
+  if (event.button !== 0 || controls.isLocked || holoFsState?.open) return;
+  const picked = unlockedElectroPick(event);
+  if (!picked) return;
+  unlockedElectroDrag = {
+    ...picked,
+    lastX: Number(event.clientX || 0),
+    lastY: Number(event.clientY || 0),
+  };
+  // A successful apparatus pick owns this gesture even when the pointer
+  // happens to release without movement; never fall through to pointer-lock.
+  gaussPointerDrag = { suppressClick: true };
+  holdLMB = true;
+  resetMouseDragAccum();
+  syncMouseDragState();
+  expManager?.beginManipulation(picked.target, { direct: true, time: clock.elapsedTime });
+  // Keep the gesture routed to the canvas after the initial hit. Without an
+  // explicit capture, moving off the tiny charge hit volume can stop emitting
+  // pointermove events in unlocked desktop mode.
+  if (event.pointerId != null) canvas.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+});
+window.addEventListener('pointermove', (event) => {
+  if (!unlockedElectroDrag) return;
+  lastElectroPointerEventTime = performance.now();
+  const fallbackDx = Number(event.clientX || 0) - unlockedElectroDrag.lastX;
+  const fallbackDy = Number(event.clientY || 0) - unlockedElectroDrag.lastY;
+  const dx = Number.isFinite(event.movementX) && event.movementX !== 0 ? event.movementX : fallbackDx;
+  const dy = Number.isFinite(event.movementY) && event.movementY !== 0 ? event.movementY : fallbackDy;
+  unlockedElectroDrag.lastX = Number(event.clientX || unlockedElectroDrag.lastX);
+  unlockedElectroDrag.lastY = Number(event.clientY || unlockedElectroDrag.lastY);
+  accumulateMouseDrag(dx, dy);
+  expManager?.updateManipulation(unlockedElectroDrag.target, { dt: 1 / 60, time: clock.elapsedTime });
+  gaussPointerDrag.suppressClick = true;
+});
+window.addEventListener('pointerup', (event) => {
+  if (event.button !== 0 || !unlockedElectroDrag) return;
+  expManager?.endManipulation(unlockedElectroDrag.target, { time: clock.elapsedTime });
+  if (event.pointerId != null) canvas.releasePointerCapture?.(event.pointerId);
+  unlockedElectroDrag = null;
+  holdLMB = false;
+  syncMouseDragState();
+});
+
+// Some desktop automation shells (and older embedded WebViews) expose the
+// legacy mouse stream without forwarding pointermove. Mirror the same bridge
+// for that path; ignore synthetic mouse events that immediately follow a
+// native pointer event so movement is not applied twice.
+canvas.addEventListener('mousedown', (event) => {
+  if (unlockedElectroDrag || event.button !== 0 || controls.isLocked || holoFsState?.open) return;
+  const picked = unlockedElectroPick(event);
+  if (!picked) return;
+  unlockedElectroDrag = { ...picked, lastX: Number(event.clientX || 0), lastY: Number(event.clientY || 0) };
+  gaussPointerDrag = { suppressClick: true };
+  holdLMB = true;
+  resetMouseDragAccum();
+  syncMouseDragState();
+  expManager?.beginManipulation(picked.target, { direct: true, time: clock.elapsedTime });
+  if (event.pointerId != null) canvas.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+});
+window.addEventListener('mousemove', (event) => {
+  if (!unlockedElectroDrag || performance.now() - lastElectroPointerEventTime < 8) return;
+  const fallbackDx = Number(event.clientX || 0) - unlockedElectroDrag.lastX;
+  const fallbackDy = Number(event.clientY || 0) - unlockedElectroDrag.lastY;
+  const dx = Number.isFinite(event.movementX) && event.movementX !== 0 ? event.movementX : fallbackDx;
+  const dy = Number.isFinite(event.movementY) && event.movementY !== 0 ? event.movementY : fallbackDy;
+  unlockedElectroDrag.lastX = Number(event.clientX || unlockedElectroDrag.lastX);
+  unlockedElectroDrag.lastY = Number(event.clientY || unlockedElectroDrag.lastY);
+  accumulateMouseDrag(dx, dy);
+  expManager?.updateManipulation(unlockedElectroDrag.target, { dt: 1 / 60, time: clock.elapsedTime });
+  gaussPointerDrag.suppressClick = true;
+});
+window.addEventListener('mouseup', (event) => {
+  if (!unlockedElectroDrag || event.button !== 0) return;
+  expManager?.endManipulation(unlockedElectroDrag.target, { time: clock.elapsedTime });
+  unlockedElectroDrag = null;
+  holdLMB = false;
+  syncMouseDragState();
+});
 
 function getFocusHit() {
   raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
@@ -4337,6 +2620,44 @@ function resolveInteractive(obj) {
   let o = obj;
   while (o && !o.userData?.interactive && o.parent) o = o.parent;
   return o?.userData?.interactive ? o : null;
+}
+
+/** Climb to the side-blackboard host that owns pick/draw APIs. */
+function resolveSideBlackboardHost(obj) {
+  let o = obj;
+  while (o) {
+    if (
+      (o.userData?.type === 'side_blackboard' || o.userData?.role === 'side_blackboard')
+      && typeof o.userData.drawFromRay === 'function'
+    ) {
+      return o;
+    }
+    o = o.parent;
+  }
+  return null;
+}
+
+/** Climb to tabletop holo / content-display host that owns pickFromRay. */
+function resolveScreenHost(obj) {
+  let o = obj;
+  while (o) {
+    const t = o.userData?.type;
+    const r = o.userData?.role;
+    if (
+      (t === 'holo' || t === 'holo_display' || r === 'holo_selector' || r === 'holo_display')
+      && typeof o.userData.pickFromRay === 'function'
+    ) {
+      return o;
+    }
+    o = o.parent;
+  }
+  // Fallback via station maps if only a child mesh was selected.
+  const sid = obj?.userData?.stationId;
+  if (!sid) return null;
+  if (obj?.userData?.type === 'holo_display' || obj?.userData?.role === 'holo_display') {
+    return stationDisplays[sid] || null;
+  }
+  return holos[sid] || null;
 }
 
 /** Respect optional per-object maxInteractDist (front boards / formula screen). */
@@ -4359,13 +2680,19 @@ function resolveInteractivePreferred(hits) {
     diff_source: 65,
     diff_slit: 65,
     diff_screen: 65,
-    hall_helmholtz: 55,
-    hall_solenoid: 55,
-    hall_probe: 60,
+    // Base equal priority; sequential identify boosts the required next part below.
+    hall_helmholtz: 50,
+    hall_solenoid: 50,
+    hall_probe: 50,
     hall_console: 50,
     hall_knob_im: 70,
     hall_knob_is: 70,
     hall_knob_zero: 70,
+    gauss_charge: 78,
+    gauss_surface: 42,
+    electric_charge: 80,
+    electric_probe: 82,
+    faraday_rod: 86,
     hall_terminal_solenoid: 80,
     hall_terminal_helmholtz: 80,
     hall_terminal_output: 80,
@@ -4373,30 +2700,43 @@ function resolveInteractivePreferred(hits) {
     side_blackboard: 46,
     electro: 5,
     holo: 40,
+    holo_selector: 40,
+    holo_display: 48,
   };
   // Slightly wider band so wall-side holos can compete when gear is close.
   // (Screen-plane aim is handled separately in getAimedHolo — that is the
   // primary fix for "instruments block the hologram".)
   // Prefer first hit that is actually interactable (skip distant formula board etc.)
+  // and currently visible (hidden electro modes leave raycast-enabled meshes).
   let nearBase = null;
   for (const hit of hits) {
     const o = resolveInteractive(hit.object);
     if (!o) continue;
+    if (!isHierarchyVisible(o)) continue;
     if (!withinInteractDist(o, hit.distance)) continue;
     nearBase = hit.distance;
     break;
   }
   if (nearBase == null) return null;
   const near = nearBase + 0.35;
+  // During Hall sequential identify, prefer the required next apparatus so a
+  // closer ruler/console in the same view cannot permanently shadow it.
+  const identifyNext = (
+    expManager?.state?.expId === 'hall_effect'
+    && expManager.currentStep?.()?.id === 'identify'
+    && expManager.state?.data?.identifyNext
+  ) || null;
   let best = null;
   let bestScore = -Infinity;
   for (const hit of hits) {
     if (hit.distance > near) break;
     const o = resolveInteractive(hit.object);
     if (!o) continue;
+    if (!isHierarchyVisible(o)) continue;
     if (!withinInteractDist(o, hit.distance)) continue;
     const role = o.userData.role || (o.userData.type === 'holo' ? 'holo' : '');
-    const pri = ROLE_PRI[role] ?? 10;
+    let pri = ROLE_PRI[role] ?? 10;
+    if (identifyNext && role === identifyNext) pri += 45;
     // closer + higher role priority
     const score = pri * 10 - hit.distance;
     if (score > bestScore) {
@@ -4407,20 +2747,48 @@ function resolveInteractivePreferred(hits) {
   return best;
 }
 
+/** Live charge / probe under the ray for electric-field & Gauss experiments. */
+function pickLiveElectroCharge(hits) {
+  const expId = expManager?.state?.expId;
+  const preferredRoles = expId === 'electric_field'
+    ? ['electric_charge', 'electric_probe']
+    : expId === 'gauss_theorem'
+      ? ['gauss_charge']
+      : expId === 'faraday_induction'
+        ? ['faraday_rod']
+      : null;
+  if (!preferredRoles || !hits?.length) return null;
+  for (const role of preferredRoles) {
+    const hit = hits.find((entry) => {
+      const target = resolveInteractive(entry.object);
+      return target?.userData?.role === role && isHierarchyVisible(target);
+    });
+    if (hit) return resolveInteractive(hit.object);
+  }
+  return null;
+}
+
 /**
- * Prefer the floating hologram when the crosshair lands on its screen plane.
+ * Prefer floating screens when the crosshair lands on a screen plane.
  * Mesh raycasts often hit table instruments first (they sit closer than the
  * wall-edge projectors), which previously made the holo unusable up close.
+ * Content displays are preferred over tabletop selectors when both are aimed.
  */
 function getAimedHolo(rc) {
   let best = null;
   let bestDist = Infinity;
-  for (const holo of Object.values(holos)) {
-    const aim = holo?.userData?.screenAimFromRay?.(rc);
+  let bestPri = -Infinity;
+  const candidates = [
+    ...Object.values(stationDisplays).map((d) => ({ screen: d, pri: 2 })),
+    ...Object.values(holos).map((h) => ({ screen: h, pri: 1 })),
+  ];
+  for (const { screen, pri } of candidates) {
+    const aim = screen?.userData?.screenAimFromRay?.(rc);
     if (!aim) continue;
-    if (aim.distance < bestDist) {
+    if (aim.distance + 0.05 < bestDist || (Math.abs(aim.distance - bestDist) <= 0.05 && pri > bestPri)) {
       bestDist = aim.distance;
-      best = holo;
+      bestPri = pri;
+      best = screen;
     }
   }
   return best;
@@ -4429,19 +2797,28 @@ function getAimedHolo(rc) {
 function getAimedHoloControl(rc) {
   let best = null;
   let bestDist = Infinity;
-  for (const holo of Object.values(holos)) {
-    if (!holo?.userData?.active) continue;
-    const aim = holo.userData.screenAimFromRay?.(rc);
-    if (!aim || aim.distance >= bestDist) continue;
+  let bestPri = -Infinity;
+  const candidates = [
+    ...Object.values(stationDisplays).map((d) => ({ screen: d, pri: 2 })),
+    ...Object.values(holos).map((h) => ({ screen: h, pri: 1 })),
+  ];
+  for (const { screen, pri } of candidates) {
+    if (!(screen?.userData?.active || screen?.userData?.present)) continue;
+    const aim = screen.userData.screenAimFromRay?.(rc);
+    if (!aim) continue;
+    if (aim.distance - 0.05 > bestDist) continue;
     // Only an actual button/card region receives UI priority. Empty screen
     // space still obeys the frontmost-surface rule and becomes camera look.
-    const pick = holo.userData.pickFromRay?.(rc);
+    const pick = screen.userData.pickFromRay?.(rc);
     if (!pick) continue;
-    bestDist = aim.distance;
-    best = {
-      target: holo,
-      hit: { object: holo, distance: aim.distance },
-    };
+    if (aim.distance + 0.05 < bestDist || (Math.abs(aim.distance - bestDist) <= 0.05 && pri > bestPri)) {
+      bestDist = aim.distance;
+      bestPri = pri;
+      best = {
+        target: screen,
+        hit: { object: screen, distance: aim.distance },
+      };
+    }
   }
   return best;
 }
@@ -4453,8 +2830,26 @@ function getFocusTarget(inputRaycaster = raycaster) {
   const hits = inputRaycaster.intersectObjects(interactables, true);
   lastFocusHit = hits[0] || null;
 
+  // Charge drag must beat the floating content screen: the display plane often
+  // sits between the camera and the bench, and would otherwise swallow grabs.
+  const liveCharge = pickLiveElectroCharge(hits);
+  if (liveCharge) return liveCharge;
+
   const aimedHolo = getAimedHolo(inputRaycaster);
   if (aimedHolo) return aimedHolo;
+
+  // The Hall sockets are deliberately tiny in the model.  If the mouse ray
+  // passes just beside a socket, use the same semantic nearest-port fallback
+  // as AR so the port can still be grabbed instead of selecting the console
+  // deck behind it.  Keep this scoped to the Hall experiment and to a narrow
+  // aim band so ordinary apparatus picking remains frontmost elsewhere.
+  if (expManager?.state?.expId === 'hall_effect') {
+    const terminal = hallBench.userData.getHallTerminalTarget?.(inputRaycaster, { maxDistance: 0.11 });
+    if (terminal?.target) {
+      lastFocusHit = terminal.hit;
+      return terminal.target;
+    }
+  }
 
   if (!hits.length) return null;
   return resolveInteractivePreferred(hits);
@@ -4462,10 +2857,17 @@ function getFocusTarget(inputRaycaster = raycaster) {
 
 function getHandFocusInfo(inputRaycaster) {
   const hits = inputRaycaster.intersectObjects(raycastSurfaces, false);
+  const terminalFallback = expManager?.state?.expId === 'hall_effect'
+    ? hallBench.userData.getHallTerminalTarget?.(inputRaycaster)
+    : null;
+  const holoControl = getAimedHoloControl(inputRaycaster);
   return resolveFrontmostInteraction(hits, {
     resolveInteractive,
     withinInteractDist,
-    priorityInteraction: getAimedHoloControl(inputRaycaster),
+    // A live hologram button remains highest priority.  Otherwise a nearby
+    // Hall terminal gets semantic priority when the AR ray is within its
+    // forgiving aim radius, even if the deck is the first visible surface.
+    priorityInteraction: holoControl || terminalFallback,
     // Once the front surface is known to be interactive, match the mouse
     // resolver inside that same shallow apparatus layer so a broad station or
     // console hit box cannot swallow its button/knob/terminal controls.
@@ -4482,28 +2884,93 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
   const hits = inputRaycaster.intersectObjects(interactables, true);
   lastFocusHit = hits[0] || null;
 
-  // Screen-plane aim wins over closer instrument meshes
+  // Screen-plane aim wins over closer instrument meshes — except live charges,
+  // which must remain draggable even when the content panel intersects the ray.
   const directTarget = directContext?.target || null;
-  const aimedHolo = directTarget?.userData?.type === 'holo'
+  const directCharge = directTarget && (
+    directTarget.userData?.role === 'electric_charge'
+    || directTarget.userData?.role === 'electric_probe'
+    || directTarget.userData?.role === 'gauss_charge'
+  ) && isHierarchyVisible(directTarget)
     ? directTarget
-    : (!directContext ? getAimedHolo(inputRaycaster) : null);
+    : pickLiveElectroCharge(hits);
+  if (directCharge && !resolveScreenHost(directTarget)) {
+    if (directContext) {
+      expManager.beginManipulation(directCharge, {
+        ...directContext,
+        time: directContext.time ?? t,
+        raycaster: inputRaycaster,
+      });
+    } else {
+      expManager.interact(directCharge, t);
+    }
+    return;
+  }
+  const directScreen = resolveScreenHost(directTarget);
+  const aimedHolo = directScreen
+    || (!directContext ? getAimedHolo(inputRaycaster) : null);
   if (aimedHolo) {
     const sid = aimedHolo.userData.stationId;
-    if (aimedHolo.userData.active) {
+    const isDisplay = aimedHolo.userData.type === 'holo_display'
+      || aimedHolo.userData.role === 'holo_display';
+    const screenLive = !!(aimedHolo.userData.active || aimedHolo.userData.present);
+    if (screenLive) {
       const pick = aimedHolo.userData.pickFromRay?.(inputRaycaster)
         || (lastFocusHit?.uv ? aimedHolo.userData.pick?.(lastFocusHit.uv) : null);
       if (pick) {
+        // Faraday B slider on the content screen: press-and-drag (pointer-lock,
+        // E-hold, or AR pinch). Must not fall through to discrete uiAction —
+        // action id "faraday-b-slider" is not a one-shot button.
+        if (pick.action === 'faraday-b-slider') {
+          expManager.beginManipulation(aimedHolo, {
+            ...(directContext || {}),
+            time: directContext?.time ?? t,
+            raycaster: inputRaycaster,
+            pick,
+          });
+          return;
+        }
+        // Data-table region: arm a press-and-drag scroll (mouse + AR pinch),
+        // matching the fullscreen drag / wheel behaviour.
+        if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table') {
+          if (directContext) {
+            expManager.beginManipulation(aimedHolo, {
+              ...directContext,
+              time: directContext.time ?? t,
+              raycaster: inputRaycaster,
+              pick,
+            });
+          } else {
+            // Discrete click/tap on the table is a no-op; scrolling needs drag/wheel.
+            handleHoloScreenAction(pick, sid);
+          }
+          return;
+        }
         handleHoloScreenAction(pick, sid);
         return;
       }
-      showToast('请瞄准全息屏上的按钮或实验卡片');
+      showToast(isDisplay
+        ? '请瞄准内容屏上的控件'
+        : '请瞄准桌面终端上的实验卡片');
       return;
     }
-    expManager.interact(aimedHolo, t);
+    // Only the tabletop selector opens the station menu.
+    if (!isDisplay) {
+      expManager.interact(aimedHolo, t);
+      return;
+    }
+    showToast('请先在桌面终端选择实验');
     return;
   }
 
-  const target = directTarget || resolveInteractivePreferred(hits);
+  // Prefer a nearby Hall terminal for desktop mouse grabs even when the ray
+  // intersects the console/deck first.  The fallback is intentionally only
+  // used for a live Hall experiment and remains narrow enough to distinguish
+  // the adjacent red/black sockets.
+  const terminalFallback = !directContext && expManager?.state?.expId === 'hall_effect'
+    ? hallBench.userData.getHallTerminalTarget?.(inputRaycaster, { maxDistance: 0.11 })
+    : null;
+  const target = directTarget || terminalFallback?.target || resolveInteractivePreferred(hits);
 
   // Front wall formula board (only within ~1/3 lab depth)
   if (target?.userData?.type === 'formula_board' || target?.userData?.role === 'formula_board') {
@@ -4529,47 +2996,83 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
 
   // Front-wall chalkboards share the same near-third range to avoid far mis-taps.
   if (target?.userData?.type === 'side_blackboard' || target?.userData?.role === 'side_blackboard') {
+    const board = resolveSideBlackboardHost(target) || target;
     const boardHit = hits.find((h) => {
       const o = resolveInteractive(h.object);
       return o && (o.userData.type === 'side_blackboard' || o.userData.role === 'side_blackboard');
     });
-    if (boardHit && !withinInteractDist(target, boardHit.distance)) {
+    if (boardHit && !withinInteractDist(board, boardHit.distance)) {
       frontWallTooFarToast();
       return;
     }
-    const pick = target.userData.pickFromRay?.(inputRaycaster);
+    const pick = board.userData.pickFromRay?.(inputRaycaster);
     if (!pick) {
-      if (boardHit && withinInteractDist(target, boardHit.distance)) {
+      if (boardHit && withinInteractDist(board, boardHit.distance)) {
         showToast('瞄准黑板工具栏或书写区后按 E');
       }
       return;
     }
     if (pick.action === 'color' || pick.action === 'size') {
-      target.userData.applyPick(pick);
+      board.userData.applyPick(pick);
       showToast(pick.action === 'color' ? '已选择画笔颜色' : '已选择画笔粗细');
     } else if (pick.action === 'draw') {
-      target.userData.drawFromRay?.(inputRaycaster);
+      board.userData.drawFromRay?.(inputRaycaster);
     }
     return;
   }
 
-  // Hologram mesh/hitbox (pedestal, thick volume) when not on the screen plane
-  if (target?.userData?.type === 'holo') {
-    const sid = target.userData.stationId;
-    const holo = holos[sid];
-    if (holo?.userData?.active) {
+  // Hologram mesh/hitbox (pedestal / content frame) when not on the screen plane
+  if (
+    target?.userData?.type === 'holo'
+    || target?.userData?.type === 'holo_display'
+    || target?.userData?.role === 'holo_selector'
+    || target?.userData?.role === 'holo_display'
+  ) {
+    const screen = resolveScreenHost(target) || target;
+    const sid = screen.userData.stationId;
+    const isDisplay = screen.userData.type === 'holo_display'
+      || screen.userData.role === 'holo_display';
+    // Hidden content screens must not swallow clicks / block the lab.
+    if (isDisplay && !(screen.userData.present && screen.visible)) {
+      // fall through to equipment / other targets
+    } else if (screen?.userData?.active || screen?.userData?.present) {
       // Prefer dedicated plane raycast (hit box has no reliable UV)
-      const pick = holo.userData.pickFromRay?.(inputRaycaster)
-        || (lastFocusHit?.uv ? holo.userData.pick?.(lastFocusHit.uv) : null);
+      const pick = screen.userData.pickFromRay?.(inputRaycaster)
+        || (lastFocusHit?.uv ? screen.userData.pick?.(lastFocusHit.uv) : null);
       if (pick) {
+        if (pick.action === 'faraday-b-slider') {
+          expManager.beginManipulation(screen, {
+            ...(directContext || {}),
+            time: directContext?.time ?? t,
+            raycaster: inputRaycaster,
+            pick,
+          });
+          return;
+        }
+        if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table') {
+          if (directContext) {
+            expManager.beginManipulation(screen, {
+              ...directContext,
+              time: directContext.time ?? t,
+              raycaster: inputRaycaster,
+              pick,
+            });
+          } else {
+            handleHoloScreenAction(pick, sid);
+          }
+          return;
+        }
         handleHoloScreenAction(pick, sid);
         return;
       }
-      showToast('请瞄准全息屏上的按钮或实验卡片');
+      showToast(isDisplay
+        ? '请瞄准内容屏上的控件'
+        : '请瞄准桌面终端上的实验卡片');
+      return;
+    } else if (!isDisplay) {
+      expManager.interact(screen, t);
       return;
     }
-    expManager.interact(target, t);
-    return;
   }
 
   if (target) {
@@ -4594,12 +3097,18 @@ function syncMouseDragState() {
 }
 
 function resetMouseDragAccum() {
-  if (equipment?.electro?.mouseDrag) equipment.electro.mouseDrag.movementX = 0;
+  if (equipment?.electro?.mouseDrag) {
+    equipment.electro.mouseDrag.movementX = 0;
+    equipment.electro.mouseDrag.movementY = 0;
+  }
   if (equipment?.optics?.mouseDrag) equipment.optics.mouseDrag.movementX = 0;
 }
 
-function accumulateMouseDrag(dx) {
-  if (equipment?.electro?.mouseDrag) equipment.electro.mouseDrag.movementX += dx;
+function accumulateMouseDrag(dx, dy = 0) {
+  if (equipment?.electro?.mouseDrag) {
+    equipment.electro.mouseDrag.movementX += dx;
+    equipment.electro.mouseDrag.movementY += dy;
+  }
   if (equipment?.optics?.mouseDrag) equipment.optics.mouseDrag.movementX += dx;
 }
 
@@ -4630,6 +3139,7 @@ function updateArPhase(snapshot) {
   ['navigating', 'looking', 'manipulating', 'tracking-lost'].forEach((phase) => {
     document.body.classList.toggle(`ar-${phase}`, snapshot?.phase === phase);
   });
+  updateArStatus({ phase: snapshot?.phase || 'off', status: arInteractionLabel });
   renderArStatus();
 }
 
@@ -4642,9 +3152,11 @@ function showArTutorial() {
   } catch { /* storage is optional */ }
   if (alreadyShown) return;
   arTutorialEl.classList.add('is-visible');
+  updateTutorial(true);
   window.clearTimeout(arTutorialTimer);
   arTutorialTimer = window.setTimeout(() => {
     arTutorialEl.classList.remove('is-visible');
+    updateTutorial(false);
   }, 7000);
 }
 
@@ -4663,6 +3175,17 @@ function updateHandTrackingStatus({
 }) {
   handTrackingPhase = phase;
   handTrackingDetail = detail || (phase === 'off' ? 'AR 模式已关闭 · H' : '准备');
+  updateArStatus({
+    active: phase === 'running',
+    phase,
+    detail: handTrackingDetail,
+    status: phase === 'running' ? (arInteractionLabel || '准备') : handTrackingDetail,
+    activeHand,
+    trackingFps,
+    inferenceMs,
+    pipelineMs,
+    degraded,
+  });
   document.body.classList.toggle('hand-tracking-loading', phase === 'loading' || phase === 'permission');
   document.body.classList.toggle('hand-tracking-active', phase === 'running');
   document.body.classList.toggle('hand-tracking-error', phase === 'error');
@@ -4722,13 +3245,18 @@ arInteractionController = createArInteractionController({
     });
   },
   updateManipulation: (event) => {
-    accumulateMouseDrag(THREE.MathUtils.clamp(Number(event.dx || 0), -60, 60));
+    // Forward both axes so table scroll (Y) and probe/knob drags (X) work in AR.
+    accumulateMouseDrag(
+      THREE.MathUtils.clamp(Number(event.dx || 0), -60, 60),
+      THREE.MathUtils.clamp(Number(event.dy || 0), -60, 60),
+    );
     expManager?.updateManipulation(event.target, {
       ...event,
       time: clock.elapsedTime,
     });
-    if (event.target?.userData?.role === 'side_blackboard') {
-      event.target.userData.drawFromRay?.(event.raycaster);
+    const board = resolveSideBlackboardHost(event.target);
+    if (board) {
+      board.userData.drawFromRay?.(event.raycaster);
     }
   },
   endManipulation: (event) => {
@@ -4768,9 +3296,13 @@ async function toggleHandTracking() {
   if (handTracking.isStarting()) return;
   if (controls.isLocked) controls.unlock();
   const active = await handTracking.toggle();
-  arInteractionController.setEnabled(active);
+  // Do not let AR callbacks compete with pointer-lock mouse interaction.
+  arInteractionController.setEnabled(active && !controls.isLocked);
   if (active) showArTutorial();
-  else arTutorialEl?.classList.remove('is-visible');
+  else {
+    arTutorialEl?.classList.remove('is-visible');
+    updateTutorial(false);
+  }
 }
 
 handToggleEl?.addEventListener('mousedown', (event) => event.stopPropagation());
@@ -4835,7 +3367,7 @@ document.addEventListener('mousedown', (e) => {
 });
 document.addEventListener('mousemove', (e) => {
   if (!controls.isLocked || !holdLMB) return;
-  accumulateMouseDrag(Number(e.movementX || 0));
+  accumulateMouseDrag(Number(e.movementX || 0), Number(e.movementY || 0));
 });
 document.addEventListener('mouseup', (e) => {
   if (e.button === 0) {
@@ -4852,9 +3384,47 @@ controls.addEventListener('unlock', () => {
   syncMouseDragState();
 });
 document.addEventListener('wheel', (e) => {
-  if (!controls.isLocked || !expManager) return;
-  const target = getFocusTarget();
-  if (expManager.onWheel(e.deltaY, target)) e.preventDefault();
+  if (!expManager || holoFsState?.open) return;
+
+  let target = null;
+  let pickRay = raycaster;
+  if (controls.isLocked) {
+    // Pointer-lock input uses the crosshair at the center of the viewport.
+    target = getFocusTarget(raycaster);
+  } else {
+    // When the cursor is free, only the WebGL canvas should be treated as a
+    // 3D interaction surface. Build a ray through the actual cursor position
+    // so moving the cursor over a content screen selects that screen.
+    if (e.target !== canvas && !canvas.contains?.(e.target)) return;
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return;
+    const ndc = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    wheelRaycaster.setFromCamera(ndc, camera);
+    pickRay = wheelRaycaster;
+    target = getFocusTarget(wheelRaycaster);
+  }
+
+  // Resolve the aimed content screen once more before dispatching the wheel.
+  // This intentionally outranks nearby apparatus hitboxes: when the crosshair
+  // is on the data table, the wheel belongs to that table, not to a coil or
+  // console behind the panel.
+  const aimedScreen = getAimedHolo(pickRay);
+  if (aimedScreen) target = aimedScreen;
+  const pick = target?.userData?.pickFromRay ? target.userData.pickFromRay(pickRay) : null;
+  // Prefer the scrollable-table hit metadata even when the ray currently rests
+  // on a nearby button, so maxRows/maxStart match the painted viewport.
+  let wheelPick = pick;
+  if (pick?.action !== 'hall-scroll-table' && pick?.role !== 'scrollable_table') {
+    const regions = target?.userData?.hitRegions;
+    const scrollHit = Array.isArray(regions)
+      ? regions.find((h) => h?.action === 'hall-scroll-table' || h?.role === 'scrollable_table')
+      : null;
+    if (scrollHit) wheelPick = scrollHit;
+  }
+  if (expManager.onWheel(e.deltaY, target, wheelPick)) e.preventDefault();
 }, { passive: false });
 
 // prevent exp panel clicks from locking issues
@@ -4940,15 +3510,18 @@ function animate() {
     syncMouseDragState();
     const handInteraction = handTracking?.getPrimaryInteraction();
     const pointerTarget = controls.isLocked ? getFocusTarget() : null;
-    focusedTarget = handInteraction?.target || pointerTarget;
-    const holdTarget = handInteraction?.holding && handInteraction.target?.userData?.portId
-      ? (handInteraction.hoverTarget || handInteraction.target)
-      : focusedTarget;
-    expManager.holdInteract(holdE || holdLMB || !!handInteraction?.holding, t, dt, holdTarget);
+    // Once pointer lock is active, the mouse owns the central ray.  AR hands
+    // remain rendered, but their hover/hold state must not shadow mouse gear
+    // controls or keep a stale terminal drag alive.
+    const mouseMode = controls.isLocked;
+    focusedTarget = mouseMode ? pointerTarget : (handInteraction?.target || pointerTarget);
+    const handHolding = !mouseMode && !!handInteraction?.holding;
+    expManager.holdInteract(holdE || holdLMB || handHolding, t, dt, focusedTarget);
     expManager.update(t, dt);
-    if (holdLMB && focusedTarget?.userData?.role === 'side_blackboard') {
+    const focusedBoard = resolveSideBlackboardHost(focusedTarget);
+    if (holdLMB && focusedBoard) {
       raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
-      focusedTarget.userData.drawFromRay?.(raycaster);
+      focusedBoard.userData.drawFromRay?.(raycaster);
     } else {
       sideBlackboards.forEach((board) => board.userData.stopStroke?.());
     }
@@ -4960,17 +3533,35 @@ function animate() {
       focusedTarget
       || handInteraction?.holding
       || (hallRun && expManager.state.data?.hallDragging)
+      || (hallRun && expManager.state.data?.tableScrollDrag?.armed)
       || (opticsRun && expManager.state.data?.dragging)
       || (hallRun && expManager.currentStep?.()?.id === 'identify')
     );
-    if (canInteract) crosshair.classList.add('can-interact');
-    else crosshair.classList.remove('can-interact');
+    if (crosshair) {
+      if (canInteract) crosshair.classList.add('can-interact');
+      else crosshair.classList.remove('can-interact');
+    }
   }
 
-  optics.userData.animateDiffraction?.(t, dt);
   for (const fn of animators) fn(t);
   renderer.render(scene, camera);
 }
+
+mountUi({
+  bridge: {
+    prepareExperiment,
+    openStationMenu: (stationId) => expManager?.openStationMenu(stationId),
+    closeMenu: () => expManager?.closeMenu(),
+    startExperiment: (expId) => expManager?.startExperiment(expId),
+    exitExperiment: () => expManager?.exitExperiment(),
+    uiAction: (action, payload) => expManager?.uiAction(action, payload),
+    recordExperiment: () => expManager?.onKey('KeyF', clock.elapsedTime),
+    triggerExperimentAction: () => expManager?.interact({ userData: { role: 'ui_action' } }, clock.elapsedTime),
+    toggleHandTracking,
+    openFullscreen: (stationId) => openHoloFullscreen(stationId),
+    closeFullscreen: () => closeHoloFullscreen(),
+  },
+});
 
 // Start render loop immediately so the first painted frame is real lab content
 animate();

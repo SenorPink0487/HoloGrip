@@ -1,7 +1,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-const workerWasmLoaderPath = '/mediapipe/wasm/vision_wasm_module_internal.js';
-const workerWasmBinaryPath = '/mediapipe/wasm/vision_wasm_module_internal.wasm';
+// The physics page is one entry point inside the host application, so its
+// dependencies live in the shared public asset tree rather than beside a
+// standalone node_modules directory.
+const workerWasmLoaderPath = '/assets/mediapipe/wasm/vision_wasm_module_internal.js';
+const workerWasmBinaryPath = '/assets/mediapipe/wasm/vision_wasm_module_internal.wasm';
 import {
   OCCLUSION_HOLD_MS,
   DynamicMotionGateVector3,
@@ -981,7 +984,7 @@ export function createHandTracking({
         type: 'init',
         wasmLoaderPath: workerWasmLoaderPath,
         wasmBinaryPath: workerWasmBinaryPath,
-        modelPath: '/mediapipe/hand_landmarker.task',
+        modelPath: '/assets/mediapipe/hand_landmarker.task',
         numHands: 2,
       });
     });
@@ -1004,9 +1007,9 @@ export function createHandTracking({
   async function ensureFallbackLandmarker() {
     if (fallbackLandmarker) return;
     const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
-    const vision = await FilesetResolver.forVisionTasks('/mediapipe/wasm');
+    const vision = await FilesetResolver.forVisionTasks('/assets/mediapipe/wasm');
     fallbackLandmarker = await HandLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: '/mediapipe/hand_landmarker.task' },
+      baseOptions: { modelAssetPath: '/assets/mediapipe/hand_landmarker.task' },
       runningMode: 'VIDEO',
       numHands: 2,
       minHandDetectionConfidence: 0.55,

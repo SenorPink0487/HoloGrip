@@ -261,9 +261,24 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
       vx += ax * dt + (Math.sin(phases[i] * 1.3 + i) + Math.random() - 0.5) * thermalStep;
       vy += ay * dt + (Math.cos(phases[i] * 1.7 + i) + Math.random() - 0.5) * thermalStep;
       vz += az * dt + (Math.sin(phases[i] * 2.1 + i) + Math.random() - 0.5) * thermalStep * 0.8;
-      if (Math.abs(y + vy * dt) > halfW) { vy *= -0.38; y = Math.sign(y) * halfW; }
-      if (Math.abs(z + vz * dt) > halfH) { vz *= -0.38; z = Math.sign(z) * halfH; }
       x += vx * dt; y += vy * dt; z += vz * dt;
+      // Hall / thickness faces are sample surfaces, not rubber walls.
+      // Absorb the outward normal velocity so carriers pile and slide instead
+      // of visibly bouncing off the bottom edge (especially under strong B).
+      if (y > halfW) {
+        y = halfW;
+        if (vy > 0) vy = 0;
+      } else if (y < -halfW) {
+        y = -halfW;
+        if (vy < 0) vy = 0;
+      }
+      if (z > halfH) {
+        z = halfH;
+        if (vz > 0) vz = 0;
+      } else if (z < -halfH) {
+        z = -halfH;
+        if (vz < 0) vz = 0;
+      }
       let wrapped = false;
       if (flowDirection < 0 && x < -SAMPLE.L / 2 - 0.1) { x = SAMPLE.L / 2 + 0.1; wrapped = true; }
       if (flowDirection > 0 && x > SAMPLE.L / 2 + 0.1) { x = -SAMPLE.L / 2 - 0.1; wrapped = true; }

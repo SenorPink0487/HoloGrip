@@ -37,6 +37,7 @@
     </div>
   </div>
 
+  <div id="legacy-ui" hidden aria-hidden="true">
   <div id="help-controls" aria-live="polite">
     <button type="button" id="help-toggle" title="查看交互操作与控制逻辑指南 (？)">
       <span class="help-toggle-icon" aria-hidden="true">
@@ -276,7 +277,6 @@
     <span class="vr-corner vr-corner-bl"></span>
   </div>
 
-  <div id="crosshair"></div>
   <div id="toast"></div>
 
   <div id="exp-panel">
@@ -298,6 +298,11 @@
       </div>
     </div>
   </div>
+  </div>
+
+  <!-- Crosshair must stay outside #legacy-ui (hidden) so pointer-lock aim is visible. -->
+  <div id="crosshair" aria-hidden="true"></div>
+  <div id="ui-root"></div>
 
   <!-- Fullscreen hologram UI (maximize) -->
   <div id="holo-fs" class="holo-fs" aria-hidden="true">
