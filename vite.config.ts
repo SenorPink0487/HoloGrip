@@ -1,7 +1,33 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
+import fs from 'fs';
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
+
+/**
+ * Multi-page entry HTML files (e.g. pool.html) can collide with a same-named
+ * public/ directory (e.g. public/pool/ assets). After Vite copies public → dist,
+ * dist/pool/ is a folder without index.html, so nginx returns 403 for /pool/.
+ *
+ * Copy each colliding entry HTML into that folder as index.html so both
+ * /pool.html and /pool/ serve the app, while /pool/sounds/... still works.
+ */
+function htmlIndexForPublicDirs(names: string[]): Plugin {
+  return {
+    name: 'html-index-for-public-dirs',
+    apply: 'build',
+    closeBundle() {
+      const outDir = path.resolve(__dirname, 'dist');
+      for (const name of names) {
+        const htmlFile = path.join(outDir, `${name}.html`);
+        const dir = path.join(outDir, name);
+        if (!fs.existsSync(htmlFile) || !fs.existsSync(dir)) continue;
+        if (!fs.statSync(dir).isDirectory()) continue;
+        fs.copyFileSync(htmlFile, path.join(dir, 'index.html'));
+      }
+    },
+  };
+}
 
 /**
  * 多入口配置：
@@ -38,7 +64,7 @@ export default defineConfig(({ mode }) => {
   };
 
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [react(), tailwindcss(), htmlIndexForPublicDirs(['pool'])],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'import.meta.env.HOLO_TARGET': JSON.stringify(target),

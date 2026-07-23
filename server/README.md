@@ -283,12 +283,20 @@ server {
     location = / {
         try_files /index.html =404;
     }
-    location = /app {
-        try_files /app.html =404;
-    }
-    location = /app.html {
-        try_files /app.html =404;
-    }
+
+    # 多页入口（无尾斜杠 → 对应 *.html）
+    # 注意：public/pool/ 资源目录与 pool 入口同名时，/pool/ 依赖 dist/pool/index.html
+    # （vite 构建插件会自动从 pool.html 复制），不要删掉该 index。
+    location = /physics { try_files /physics.html =404; }
+    location = /rocket  { try_files /rocket.html =404; }
+    location = /pool    { try_files /pool.html =404; }
+    location = /holomath { try_files /holomath.html =404; }
+    location = /portfolio { try_files /portfolio.html =404; }
+    location = /profile { try_files /profile.html =404; }
+    location = /about { try_files /about.html =404; }
+    location = /login { try_files /login.html =404; }
+    location = /dashboard { try_files /dashboard.html =404; }
+    location = /admin { try_files /admin.html =404; }
 
     location /assets/ {
         expires 30d;
@@ -322,8 +330,9 @@ server {
         client_max_body_size 20m;
     }
 
+    # $uri/ 会命中 public 拷贝出的目录（如 /pool/）；目录内需有 index.html
     location / {
-        try_files $uri $uri/ /index.html;
+        try_files $uri $uri/ $uri.html /index.html;
     }
 
     access_log /www/wwwlogs/你的域名.log;
