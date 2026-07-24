@@ -232,7 +232,11 @@ export function ARExperience({ stageRef }: ARExperienceProps) {
         updateHands(leftNode, rightNode);
 
         const arState = useARStore.getState();
-        const rightHandCanClick = !arState.isPenActive && !arState.isLineDrawingActive;
+        const rightHandCanClick =
+          !arState.isPenActive &&
+          !arState.isLineDrawingActive &&
+          !arState.isXYZDrawingActive &&
+          !arState.isSectionPlaneActive;
         const triggerSyntheticClick = (x: number, y: number) => {
           const stage = stageRef.current;
           const rect = stage?.getBoundingClientRect();

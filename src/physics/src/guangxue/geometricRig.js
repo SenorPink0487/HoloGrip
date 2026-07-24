@@ -459,7 +459,52 @@ export function createGeometricOpticsRig(opts = {}) {
     };
   }
 
-  function updateRays() {
+  /** Progressive ray build state (one beam per coop slice when possible). */
+  let rayBuild = null;
+
+  function consumeTraceResult(build, result, markDispersed = false) {
+    const invRoot = build.invRoot;
+    if (!build.firstHitPoint && result.segments?.length) {
+      const inc = result.segments.find((s) => s.kind === 'incident');
+      if (inc && result.firstIncidentAngle != null) {
+        build.firstHitPoint = inc.end.clone();
+        const refl = result.segments.find((s) => s.kind === 'reflected');
+        if (refl) {
+          const I = new THREE.Vector3().subVectors(inc.end, inc.start).normalize();
+          const R = new THREE.Vector3().subVectors(refl.end, refl.start).normalize();
+          build.firstHitNormal = new THREE.Vector3().subVectors(R, I).normalize();
+          if (build.firstHitNormal.lengthSq() < 1e-6) build.firstHitNormal = null;
+        }
+      }
+    }
+
+    result.segments.forEach((segWorld) => {
+      const local = toLocalSeg(segWorld, invRoot);
+      if (markDispersed && segWorld.kind === 'refracted') local.kind = 'dispersed';
+      const clipped = clipSegmentToScreen(local);
+      if (clipped.start.distanceTo(clipped.end) < 1e-4) return;
+      rayGroup.add(makeRayLine(clipped));
+      if (params.mode === 'mirror' || clipped.kind !== 'reflected') {
+        const beam = makeBeamMesh(
+          clipped,
+          params.mode === 'mirror' ? 0.022 : 0.018,
+        );
+        if (beam) rayGroup.add(beam);
+      }
+    });
+
+    if (params.mode !== 'mirror') {
+      const localSegs = result.segments.map((s) => toLocalSeg(s, invRoot));
+      projectHitsOnScreen(localSegs);
+    }
+    if (build.reportIncident === null && result.firstIncidentAngle !== null) {
+      build.reportIncident = result.firstIncidentAngle;
+      build.reportRefract = result.firstRefractAngle;
+      build.reportReflect = result.firstReflectAngle;
+    }
+  }
+
+  function beginRayBuild() {
     clearGroup(rayGroup);
     clearGroup(spotGroup);
     clearGroup(normalGroup);
@@ -467,16 +512,12 @@ export function createGeometricOpticsRig(opts = {}) {
     glassMat.ior = params.ior;
     opticGroup.rotation.y = (params.rotate * Math.PI) / 180;
 
-    // Ensure full world matrices include host placement + uniform scale.
     root.updateWorldMatrix(true, true);
     opticMesh.updateWorldMatrix(true, true);
 
     const invRoot = new THREE.Matrix4().copy(root.matrixWorld).invert();
     const originLocal = getBeamOriginLocal();
     const dirLocal = getBeamDirectionLocal();
-
-    // Trace in WORLD space (matrixWorld has host scale)
-    const worldOrigin = originLocal.clone().applyMatrix4(root.matrixWorld);
     const worldDir = dirLocal.clone().transformDirection(root.matrixWorld).normalize();
 
     sourceGlow.position.set(POS.source + 0.55, -0.55 + params.height, 0);
@@ -484,101 +525,38 @@ export function createGeometricOpticsRig(opts = {}) {
     rayBox.position.y = params.height * 0.15;
 
     const showReflect = params.mode === 'mirror' ? true : params.showReflect;
-    let reportIncident = null;
-    let reportRefract = null;
-    let reportReflect = null;
-    let firstHitPoint = null;
-    let firstHitNormal = null;
-
     const useDispersion = params.dispersion && params.rayCount > 1 && params.mode !== 'mirror';
-    const traceOpts = { showReflect, mode: params.mode };
+    const wavelengths = useDispersion ? spectrumWavelengths(params.rayCount) : null;
+    const count = useDispersion
+      ? wavelengths.length
+      : Math.max(1, params.rayCount);
 
-    function consumeResult(result, markDispersed = false) {
-      // Capture first surface hit for normal glyph (from first incident segment end)
-      if (!firstHitPoint && result.segments?.length) {
-        const inc = result.segments.find((s) => s.kind === 'incident');
-        if (inc && result.firstIncidentAngle != null) {
-          firstHitPoint = inc.end.clone();
-          // Recover normal from incident vs surface: re-intersect once
-          const hit = result.segments[0];
-          if (hit) {
-            // Approximate: from opticsCore the next segment starts at hit with offset
-            // Use mesh intersect at incident end slightly back along path
-            const back = new THREE.Vector3().subVectors(inc.start, inc.end).normalize();
-            const probe = inc.end.clone().addScaledVector(back, 1e-3);
-            // Use reflect of incident direction if we have reflected segment
-            const refl = result.segments.find((s) => s.kind === 'reflected');
-            if (refl) {
-              const I = new THREE.Vector3().subVectors(inc.end, inc.start).normalize();
-              const R = new THREE.Vector3().subVectors(refl.end, refl.start).normalize();
-              // N ~ normalize(R - I) for reflection law (mirror / dielectric surface)
-              firstHitNormal = new THREE.Vector3().subVectors(R, I).normalize();
-              if (firstHitNormal.lengthSq() < 1e-6) firstHitNormal = null;
-            }
-            void probe;
-          }
-        }
-      }
+    rayBuild = {
+      i: 0,
+      count,
+      useDispersion,
+      wavelengths,
+      invRoot,
+      originLocal,
+      dirLocal,
+      worldDir,
+      traceOpts: { showReflect, mode: params.mode },
+      reportIncident: null,
+      reportRefract: null,
+      reportReflect: null,
+      firstHitPoint: null,
+      firstHitNormal: null,
+    };
+    raysPending = true;
+  }
 
-      result.segments.forEach((segWorld) => {
-        const local = toLocalSeg(segWorld, invRoot);
-        if (markDispersed && segWorld.kind === 'refracted') local.kind = 'dispersed';
-        const clipped = clipSegmentToScreen(local);
-        if (clipped.start.distanceTo(clipped.end) < 1e-4) return;
-        rayGroup.add(makeRayLine(clipped));
-        if (params.mode === 'mirror' || clipped.kind !== 'reflected') {
-          const beam = makeBeamMesh(
-            clipped,
-            params.mode === 'mirror' ? 0.022 : 0.018,
-          );
-          if (beam) rayGroup.add(beam);
-        }
-      });
-
-      if (params.mode !== 'mirror') {
-        const localSegs = result.segments.map((s) => toLocalSeg(s, invRoot));
-        projectHitsOnScreen(localSegs);
-      }
-      if (reportIncident === null && result.firstIncidentAngle !== null) {
-        reportIncident = result.firstIncidentAngle;
-        reportRefract = result.firstRefractAngle;
-        reportReflect = result.firstReflectAngle;
-      }
+  function finalizeRayBuild(build) {
+    if (build.firstHitPoint && build.firstHitNormal) {
+      drawNormalAtFirstHit(build.firstHitPoint, build.firstHitNormal, build.invRoot);
     }
-
-    if (useDispersion) {
-      const wavelengths = spectrumWavelengths(params.rayCount);
-      wavelengths.forEach((nm, i) => {
-        const t = wavelengths.length === 1 ? 0.5 : i / (wavelengths.length - 1);
-        const offset = (t - 0.5) * 0.08;
-        // Offset along world up of the rig (local Y)
-        const oLocal = originLocal.clone().add(new THREE.Vector3(0, offset, 0));
-        const oWorld = oLocal.applyMatrix4(root.matrixWorld);
-        const n = cauchyIOR(params.ior, nm, params.dispersionStrength);
-        const color = wavelengthToRGB(nm);
-        const result = traceRay(oWorld, worldDir, opticMesh, n, color, traceOpts);
-        consumeResult(result, true);
-      });
-    } else {
-      const count = Math.max(1, params.rayCount);
-      for (let i = 0; i < count; i++) {
-        const t = count === 1 ? 0.5 : i / (count - 1);
-        const offset = (t - 0.5) * (params.mode === 'mirror' ? 0.28 : 0.35);
-        const perpLocal = new THREE.Vector3(-dirLocal.y, dirLocal.x, 0).normalize();
-        const oLocal = originLocal.clone().addScaledVector(perpLocal, offset);
-        const oWorld = oLocal.applyMatrix4(root.matrixWorld);
-        const color = params.mode === 'mirror'
-          ? new THREE.Color(0x5eb0ff).lerp(new THREE.Color(0xffc878), t)
-          : new THREE.Color(0xff9a45).lerp(new THREE.Color(0xffd070), t);
-        const result = traceRay(oWorld, worldDir, opticMesh, params.ior, color, traceOpts);
-        consumeResult(result, false);
-      }
-    }
-
-    if (firstHitPoint && firstHitNormal) {
-      drawNormalAtFirstHit(firstHitPoint, firstHitNormal, invRoot);
-    }
-
+    let reportIncident = build.reportIncident;
+    let reportRefract = build.reportRefract;
+    let reportReflect = build.reportReflect;
     if (reportIncident === null) {
       reportIncident = params.angle;
       if (params.mode === 'mirror') {
@@ -588,10 +566,66 @@ export function createGeometricOpticsRig(opts = {}) {
         reportRefract = Math.abs(s) <= 1 ? (Math.asin(s) * 180) / Math.PI : null;
       }
     }
-
     lastIncident = reportIncident;
     lastRefract = reportRefract;
     lastReflect = reportReflect;
+    rayBuild = null;
+    raysPending = false;
+  }
+
+  /**
+   * Trace a single pending beam. Returns true if more beams remain.
+   * Used by frame-budget coop so camera frames can interleave.
+   */
+  function stepRayBuild() {
+    if (!rayBuild) {
+      if (!raysPending) return false;
+      beginRayBuild();
+    }
+    const build = rayBuild;
+    if (!build || build.i >= build.count) {
+      if (build) finalizeRayBuild(build);
+      return false;
+    }
+
+    const i = build.i;
+    build.i += 1;
+
+    if (build.useDispersion) {
+      const nm = build.wavelengths[i];
+      const t = build.count === 1 ? 0.5 : i / (build.count - 1);
+      const offset = (t - 0.5) * 0.08;
+      const oLocal = build.originLocal.clone().add(new THREE.Vector3(0, offset, 0));
+      const oWorld = oLocal.applyMatrix4(root.matrixWorld);
+      const n = cauchyIOR(params.ior, nm, params.dispersionStrength);
+      const color = wavelengthToRGB(nm);
+      const result = traceRay(oWorld, build.worldDir, opticMesh, n, color, build.traceOpts);
+      consumeTraceResult(build, result, true);
+    } else {
+      const t = build.count === 1 ? 0.5 : i / (build.count - 1);
+      const offset = (t - 0.5) * (params.mode === 'mirror' ? 0.28 : 0.35);
+      const perpLocal = new THREE.Vector3(-build.dirLocal.y, build.dirLocal.x, 0).normalize();
+      const oLocal = build.originLocal.clone().addScaledVector(perpLocal, offset);
+      const oWorld = oLocal.applyMatrix4(root.matrixWorld);
+      const color = params.mode === 'mirror'
+        ? new THREE.Color(0x5eb0ff).lerp(new THREE.Color(0xffc878), t)
+        : new THREE.Color(0xff9a45).lerp(new THREE.Color(0xffd070), t);
+      const result = traceRay(oWorld, build.worldDir, opticMesh, params.ior, color, build.traceOpts);
+      consumeTraceResult(build, result, false);
+    }
+
+    if (build.i >= build.count) {
+      finalizeRayBuild(build);
+      return false;
+    }
+    return true;
+  }
+
+  function updateRays() {
+    beginRayBuild();
+    while (stepRayBuild()) {
+      /* sync full rebuild for live drag / non-switch path */
+    }
   }
 
   /**
@@ -658,23 +692,30 @@ export function createGeometricOpticsRig(opts = {}) {
     return snapshot();
   }
 
-  /** Flush a deferred ray rebuild (call from the station animator). */
+  /**
+   * Flush a deferred ray rebuild.
+   * Prefer stepRayBuild via scheduleCoop for switch path; this sync API
+   * still builds all rays (live drag / tests).
+   */
   function flushDeferredRays() {
-    if (!raysPending) return snapshot();
-    raysPending = false;
+    if (!raysPending && !rayBuild) return snapshot();
     const signature = [
       params.shape, params.angle, params.height, params.rayCount, params.ior,
       params.dispersion, params.dispersionStrength, params.rotate, params.showReflect, params.mode,
     ].join('|');
     lastSignature = signature;
     if (!edgeLines) rebuildEdges();
-    updateRays();
+    if (!rayBuild) beginRayBuild();
+    while (stepRayBuild()) {
+      /* complete remaining beams */
+    }
     return snapshot();
   }
 
   /** Drop a deferred rebuild without tracing (experiment exit / mode leave). */
   function cancelDeferredRays() {
     raysPending = false;
+    rayBuild = null;
     lastSignature = '';
     clearRays();
   }
@@ -728,13 +769,14 @@ export function createGeometricOpticsRig(opts = {}) {
     snapshot,
     updateRays,
     flushDeferredRays,
+    stepRayBuild,
     cancelDeferredRays,
     clearRays,
     setShape,
     animate,
     applyEnvironment,
     get params() { return { ...params }; },
-    get raysPending() { return raysPending; },
+    get raysPending() { return raysPending || !!rayBuild; },
     get opticMesh() { return opticMesh; },
     get rayBox() { return rayBox; },
   };

@@ -134,12 +134,19 @@ export function createExperimentManager({
     return state.stationId ? handlers[state.stationId] : null;
   }
 
-  function setSelectorActive(stationId, on) {
+  /**
+   * @param {string|null} stationId
+   * @param {boolean} on
+   * @param {{ paint?: boolean }} [opts] paint=false for close path (no sync canvas hitch)
+   */
+  function setSelectorActive(stationId, on, opts = {}) {
+    const paint = opts.paint !== false;
     Object.values(equipment.holos || {}).forEach((h) => {
       if (!h?.userData) return;
       const active = on && h.userData.stationId === stationId;
       h.userData.active = active;
-      if (typeof h.userData.draw === 'function') h.userData.draw(active);
+      // Closing used to call draw() on every station hologram — multi-canvas hitch.
+      if (paint && typeof h.userData.draw === 'function') h.userData.draw(active);
     });
   }
 
@@ -150,7 +157,7 @@ export function createExperimentManager({
     state.expId = null;
     state.stepIndex = 0;
     state.data = {};
-    setSelectorActive(stationId, true);
+    setSelectorActive(stationId, true, { paint: true });
     // Content display stays hidden until an experiment card is chosen.
     Object.values(equipment.displays || {}).forEach((d) => {
       d?.userData?.setPresent?.(false);
@@ -160,12 +167,23 @@ export function createExperimentManager({
   }
 
   function closeMenu() {
+    // Visibility/flags only on the call stack — no canvas, no apparatus work.
     state.menuOpen = false;
-    setSelectorActive(null, false);
+    setSelectorActive(null, false, { paint: false });
     Object.values(equipment.displays || {}).forEach((d) => {
+      if (d?.userData) {
+        d.userData.maximized = false;
+        d.userData.boundHud = null;
+        d.userData.boundDataHtml = '';
+        d.userData._contentExpId = null;
+      }
       d?.userData?.setPresent?.(false);
     });
-    pushHud();
+    scheduler.cancel('exp:switch');
+    scheduler.cancel('exp:visuals');
+    scheduler.cancel('exp:visuals-hud');
+    // HUD paint next pulse (not on the click frame).
+    scheduler.schedule('exp:close-hud', () => pushHud(), { priority: 40 });
   }
 
   function startExperiment(expId) {
@@ -177,40 +195,58 @@ export function createExperimentManager({
     const prevExpId = state.running ? state.expId : null;
     const prevHandlers = prevExpId ? handlers[st.id] : null;
 
-    // Bookkeeping only — this may still run on a post-render budget pulse, not
-    // the browser click stack (main.startExperimentSafe defers us).
+    // Bookkeeping only — keep this microtask tiny so the click frame can paint.
     state.expId = expId;
     state.stepIndex = 0;
     state.running = true;
     state.menuOpen = true;
     state.data = h?.initData(expId) || {};
     state.data._apparatusReady = false;
-    // Defer toast/HUD one more schedule tick so this pulse stays tiny.
-    scheduler.schedule('exp:toast', () => {
-      toast(`开始实验：${exp.name}`);
-    }, { priority: 150 });
-    pushHud();
 
+    // Abort any in-flight switch chain from a previous card click.
+    scheduler.cancel('exp:switch');
     scheduler.cancel('exp:cleanup');
     scheduler.cancel('exp:visuals');
     scheduler.cancel('exp:visuals-hud');
+    scheduler.cancel('exp:toast');
 
+    // Multi-frame switch: one step → rest frame (camera) → next step.
+    // Never stack cleanup + setMode + dense HUD on consecutive busy frames.
+    const steps = [];
+    steps.push(() => {
+      if (!state.running || state.expId !== expId) return;
+      toast(`开始实验：${exp.name}`);
+      // Shell / warm-cache paint only — dense layout is a later chain step.
+      pushHud();
+    });
     if (prevExpId && prevHandlers?.cleanup) {
       const cleanupId = prevExpId;
-      scheduler.schedule('exp:cleanup', () => {
+      steps.push(() => {
         try { prevHandlers.cleanup?.(cleanupId); } catch { /* ignore */ }
-      }, { priority: 80 });
+      });
     }
-
-    scheduler.schedule('exp:visuals', () => {
+    steps.push(() => {
       if (!state.running || state.expId !== expId) return;
       try { h?.applyVisualDefaults?.(expId); } catch { /* keep HUD up */ }
       if (state.data) state.data._apparatusReady = true;
-      scheduler.schedule('exp:visuals-hud', () => {
-        if (!state.running || state.expId !== expId) return;
-        pushHud();
-      }, { priority: 90 });
-    }, { priority: 70 });
+    });
+    steps.push(() => {
+      if (!state.running || state.expId !== expId) return;
+      // Second HUD pass after apparatus is visible (readouts / live hits).
+      pushHud();
+    });
+
+    if (typeof scheduler.scheduleChain === 'function') {
+      scheduler.scheduleChain('exp:switch', steps, { priority: 70, restFrames: 1 });
+    } else {
+      // Fallback if a test injects a minimal scheduler.
+      steps.forEach((fn, i) => {
+        scheduler.schedule(`exp:switch:${i}`, fn, { priority: 70 - i });
+      });
+    }
+    // Soft-switch: main loop skips animators/focus while the chain drains.
+    scheduler.beginSoftSwitch?.(28);
+    scheduler.rest?.(2);
   }
 
   function interact(target, t) {
@@ -457,16 +493,129 @@ export function createExperimentManager({
     state.stepIndex = 0;
     state.data = {};
     state.menuOpen = true;
-    toast('已退出当前实验');
-    pushHud();
-    // Cleanup off the click frame — hide via setMode is cheap when scheduled.
+    // No toast/pushHud on the click stack — schedule so camera keeps frames.
+    scheduler.cancel('exp:switch');
     scheduler.cancel('exp:cleanup');
     scheduler.cancel('exp:visuals');
     scheduler.cancel('exp:visuals-hud');
+    scheduler.cancel('exp:toast');
+    scheduler.cancel('exp:close-hud');
+    scheduler.beginSoftSwitch?.(10);
+    scheduler.rest?.(1);
+    if (typeof scheduler.scheduleChain === 'function') {
+      const steps = [];
+      if (h?.cleanup && eid) {
+        steps.push(() => {
+          try { h.cleanup?.(eid); } catch { /* ignore */ }
+        });
+      }
+      steps.push(() => {
+        toast('已退出当前实验');
+        pushHud();
+      });
+      scheduler.scheduleChain('exp:exit', steps, { priority: 45, restFrames: 1 });
+    } else {
+      if (h?.cleanup && eid) {
+        scheduler.schedule('exp:cleanup', () => {
+          try { h.cleanup?.(eid); } catch { /* ignore */ }
+        }, { priority: 45 });
+      }
+      scheduler.schedule('exp:close-hud', () => {
+        toast('已退出当前实验');
+        pushHud();
+      }, { priority: 40 });
+    }
+  }
+
+  /**
+   * Close terminal / big screen (× button).
+   * Click frame: stop sim + hide UI/apparatus visibility only.
+   * Heavy freeze/cleanup/HUD: later pulses with camera rests.
+   */
+  function closeStationUi() {
+    const sid = state.stationId;
+    const eid = state.running ? state.expId : null;
+    const h = eid && sid ? handlers[sid] : null;
+
+    // 1) Stop simulation bookkeeping immediately (update() becomes no-op).
+    state.running = false;
+    state.expId = null;
+    state.stepIndex = 0;
+    state.data = {};
+    state.menuOpen = false;
+
+    // 2) Hide content panels — visibility only, no canvas paint.
+    setSelectorActive(null, false, { paint: false });
+    Object.values(equipment.displays || {}).forEach((d) => {
+      if (!d?.userData) return;
+      d.userData.maximized = false;
+      d.userData.boundHud = null;
+      d.userData.boundDataHtml = '';
+      d.userData._contentExpId = null;
+      // Cheap hide: flip flags/visibility without raycast rebinding thrash.
+      d.userData.present = false;
+      d.userData.active = false;
+      d.visible = false;
+      if (typeof d.userData.setPresent === 'function') {
+        // Prefer full setPresent when cheap path already flipped; only if needed.
+        try { d.userData.setPresent(false); } catch { /* ignore */ }
+      }
+    });
+    Object.values(equipment.holos || {}).forEach((holo) => {
+      if (holo?.userData) {
+        holo.userData.maximized = false;
+        holo.userData.active = false;
+      }
+    });
+
+    // 3) Instantly hide dense apparatus so the *next* WebGL frame is cheap.
+    //    (Previously cleanup ran 2+ frames later and left optics geo on-screen.)
+    try {
+      if (sid === 'optics') {
+        if (typeof equipment.optics?.hideAll === 'function') equipment.optics.hideAll();
+        else equipment.optics?.setMode?.('off');
+      } else if (sid === 'thermo') {
+        equipment.thermo?.setMode?.(null);
+      } else if (sid === 'electro') {
+        equipment.electro?.setMode?.(null);
+      } else if (sid === 'mechanics') {
+        equipment.mechanics?.setMode?.(null, null, { reset: false, snapshot: false });
+      }
+    } catch { /* best-effort visibility hide */ }
+
+    // 4) Cancel in-flight work; keep camera-first soft window.
+    scheduler.cancel('exp:switch');
+    scheduler.cancel('exp:exit');
+    scheduler.cancel('exp:shutdown');
+    scheduler.cancel('exp:cleanup');
+    scheduler.cancel('exp:visuals');
+    scheduler.cancel('exp:visuals-hud');
+    scheduler.cancel('exp:toast');
+    scheduler.cancel('exp:close-hud');
+    scheduler.cancel('optics:open-geo');
+    scheduler.cancel('optics:open-diff');
+    scheduler.cancel('optics:rays');
+    scheduler.cancel('optics:fringe');
+    scheduler.beginSoftSwitch?.(18);
+    scheduler.rest?.(2);
+
+    // 5) Residual cleanup + toast on later pulses (freeze is already chunked).
+    const steps = [];
     if (h?.cleanup && eid) {
-      scheduler.schedule('exp:cleanup', () => {
+      steps.push(() => {
         try { h.cleanup?.(eid); } catch { /* ignore */ }
-      }, { priority: 80 });
+      });
+    }
+    steps.push(() => {
+      toast('已关闭实验终端');
+      pushHud();
+    });
+    if (typeof scheduler.scheduleChain === 'function') {
+      scheduler.scheduleChain('exp:shutdown', steps, { priority: 28, restFrames: 2 });
+    } else {
+      steps.forEach((fn, i) => {
+        scheduler.schedule(`exp:shutdown:${i}`, fn, { priority: 28 - i });
+      });
     }
   }
 
@@ -474,6 +623,7 @@ export function createExperimentManager({
     state,
     openStationMenu,
     closeMenu,
+    closeStationUi,
     startExperiment,
     exitExperiment,
     interact,

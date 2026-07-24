@@ -1185,10 +1185,14 @@ export function createHandlers(ctx) {
     }
     if (!kind) return;
     state.data._awaitElectroSync = kind;
+    // After setMode (visibility) leave a camera frame, then field rebuild.
+    labFrameScheduler.rest?.(1);
     labFrameScheduler.schedule('electro:sync', () => {
       if (!state.running || state.expId !== expId) return;
       if (flushDeferredElectroSync()) pushHud();
-    }, { priority: 60 });
+      // Field rebuild is often heavy — next frame is locomotion-only.
+      labFrameScheduler.rest?.(1);
+    }, { priority: 40 });
   }
 
   function flushDeferredElectroSync() {

@@ -2078,14 +2078,17 @@ function diffractionColor(nm, alpha = 1) {
  */
 /**
  * Geometric optics content screen — large type + tight packing.
- * Fills contentH end-to-end (no empty glass between tools and footer).
+ * Bottom-up band reservation: footer / tools never collide with sliders.
  */
 function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
   const { hits, innerX, innerW, contentTop, contentH, experiment, hud, accentHex, theme, surface } = cfg;
   _uiTheme = theme || 'dark';
   const d = hud?.data || {};
   const P = screenPalette(_uiTheme, accentHex, surface === 'display');
-  const scale = holoUiScale(surface || 'full');
+  // Display canvas is 960×720; full holoUiScale(1.78) made chrome overflow and stack.
+  // Cap geometric-optics display scale so bands always fit in contentH.
+  const rawScale = holoUiScale(surface || 'full');
+  const scale = surface === 'display' ? Math.min(rawScale, 1.28) : rawScale;
   const x = innerX;
   const w = innerW;
   const reflection = d.opticsMode === 'mirror' || isReflectionExp(experiment.id);
@@ -2094,61 +2097,126 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
   const panelOpen = d.recordsPanelOpen === true;
   const modules = getModulesForExperiment(experiment.id);
   const hasModules = !!(modules && modules.length);
+  const chipGap = Math.max(4, Math.round(5 * scale));
 
-  // —— Band budget (prefer large glyphs; reclaim slack into sliders) ——
-  const preferTheory = Math.round(28 * scale);
-  const preferStat = Math.round(78 * scale);
-  const preferChip = Math.round(46 * scale);
-  const preferTool = Math.round(48 * scale);
-  const preferBtn = Math.round(54 * scale);
-  const preferGap = Math.round(5 * scale);
-  const preferHint = Math.round(22 * scale);
+  // —— Bottom-up reserved bands (never let sliders invade these) ——
+  let btnH = Math.round(48 * scale);
+  let hintH = Math.round(20 * scale);
+  let toolH = Math.round(42 * scale);
+  let gap = Math.round(5 * scale);
+  let theoryH = Math.round(26 * scale);
+  let statH = Math.round(70 * scale);
+  let chipH = Math.round(42 * scale);
+
+  // Tools: toggles + data table only — record lives in footer (avoid duplicate).
+  const tools = [];
+  if (!reflection) {
+    tools.push({
+      label: d.dispersion ? '色散开' : '色散关',
+      action: 'optics-geo-toggle',
+      meta: { key: 'dispersion' },
+      active: !!d.dispersion,
+    });
+    tools.push({
+      label: d.showReflect !== false ? '反射线' : '反射关',
+      action: 'optics-geo-toggle',
+      meta: { key: 'showReflect' },
+      active: d.showReflect !== false,
+    });
+  }
+  tools.push({
+    label: panelOpen ? '关闭表' : `数据表(${records.length})`,
+    action: 'optics-geo-records-panel',
+    meta: {},
+    active: panelOpen,
+  });
+  const showTools = tools.length > 0;
+
+  // Params list (may drop height on tight layouts)
+  const params = [
+    { key: 'angle', label: '入射角 θ', value: Number(d.angle || 0), unit: '°', min: 0, max: 75, digits: 1 },
+    { key: 'rotate', label: '台面转角', value: Number(d.rotate || 0), unit: '°', min: -90, max: 90, digits: 0 },
+    { key: 'rayCount', label: '光束数', value: Number(d.rayCount || 1), unit: '', min: 1, max: 12, digits: 0 },
+  ];
+  if (!reflection) {
+    params.push(
+      { key: 'ior', label: '折射率 n', value: Number(d.ior || 1.52), unit: '', min: 1.0, max: 2.6, digits: 2 },
+    );
+  }
+  if (d.dispersion || experiment.id === 'dispersion') {
+    params.push(
+      { key: 'dispersionStrength', label: '色散系数', value: Number(d.dispersionStrength || 0.6), unit: '', min: 0, max: 1.5, digits: 2 },
+    );
+  }
+  let showHeight = true;
+
   const chipRows = 1 // shapes
     + (hasModules ? 1 : 0)
     + (!reflection ? 1 : 0); // medium presets
-  const fixedChrome = preferTheory + preferStat + preferChip * chipRows
-    + preferTool + preferBtn + preferHint + preferGap * (4 + chipRows);
 
-  let theoryH = preferTheory;
-  let statH = preferStat;
-  let chipH = preferChip;
-  let toolH = preferTool;
-  let btnH = preferBtn;
-  let gap = preferGap;
-  let hintH = preferHint;
-  let sliderBlock = contentH - fixedChrome;
-  const minSlider = Math.round(160 * scale);
-  if (sliderBlock < minSlider) {
-    let left = minSlider - sliderBlock;
-    const shrink = (cur, min) => {
-      const take = Math.min(left, Math.max(0, cur - min));
-      left -= take;
-      return cur - take;
-    };
-    btnH = shrink(btnH, Math.round(44 * scale));
-    toolH = shrink(toolH, Math.round(40 * scale));
-    chipH = shrink(chipH, Math.round(40 * scale));
-    statH = shrink(statH, Math.round(64 * scale));
-    theoryH = shrink(theoryH, Math.round(22 * scale));
-    hintH = shrink(hintH, Math.round(16 * scale));
-    gap = shrink(gap, Math.round(3 * scale));
-    sliderBlock = contentH - (theoryH + statH + chipH * chipRows + toolH + btnH + hintH + gap * (4 + chipRows));
+  const minTheory = Math.round(18 * scale);
+  const minStat = Math.round(52 * scale);
+  const minChip = Math.round(32 * scale);
+  const minTool = Math.round(32 * scale);
+  const minBtn = Math.round(40 * scale);
+  const minHint = Math.round(14 * scale);
+  const minGap = 3;
+  const minRowH = Math.round(36 * scale);
+
+  function chromeHeight(includeHeight) {
+    const nParams = params.length + (includeHeight ? 1 : 0);
+    const cols = nParams >= 3 ? 2 : 1;
+    const rows = Math.ceil(nParams / cols);
+    const sliderNeed = rows * minRowH;
+    const toolNeed = showTools ? toolH + gap : 0;
+    return theoryH + gap + statH + gap
+      + chipRows * (chipH + gap)
+      + sliderNeed + gap
+      + toolNeed
+      + hintH + gap
+      + btnH;
   }
-  sliderBlock = Math.max(Math.round(120 * scale), sliderBlock);
 
-  const btnY = contentTop + contentH - btnH;
-  const chipGap = Math.max(4, Math.round(5 * scale));
+  // Shrink chrome until everything fits in contentH (never force overflow).
+  let guard = 0;
+  while (chromeHeight(showHeight) > contentH && guard < 40) {
+    guard += 1;
+    if (showHeight && chromeHeight(false) <= contentH) {
+      showHeight = false;
+      continue;
+    }
+    if (gap > minGap) { gap = Math.max(minGap, gap - 1); continue; }
+    if (hintH > minHint) { hintH = Math.max(minHint, hintH - 2); continue; }
+    if (toolH > minTool) { toolH = Math.max(minTool, toolH - 2); continue; }
+    if (chipH > minChip) { chipH = Math.max(minChip, chipH - 2); continue; }
+    if (btnH > minBtn) { btnH = Math.max(minBtn, btnH - 2); continue; }
+    if (statH > minStat) { statH = Math.max(minStat, statH - 3); continue; }
+    if (theoryH > minTheory) { theoryH = Math.max(minTheory, theoryH - 2); continue; }
+    break;
+  }
+  if (showHeight) {
+    params.push(
+      { key: 'height', label: '光束高度', value: Number(d.height || 0), unit: '', min: -0.6, max: 0.6, digits: 2 },
+    );
+  }
+
+  // Fixed bottom stack positions
+  const bottom = contentTop + contentH;
+  const btnY = bottom - btnH;
+  const hintY = btnY - gap - hintH;
+  const toolY = showTools ? (hintY - gap - toolH) : hintY;
+  const midBottom = (showTools ? toolY : hintY) - gap; // sliders must end at or above this
 
   // Theory / formula
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   ctx.fillStyle = accentHex;
-  const tTheory = Math.max(18, Math.round(theoryH * 0.78));
+  const tTheory = Math.max(16, Math.round(theoryH * 0.78));
   ctx.font = `bold ${tTheory}px Consolas, "Microsoft YaHei", monospace`;
   const theory = String(experiment.theory || '');
   ctx.fillText(theory.length > 44 ? `${theory.slice(0, 42)}…` : theory, x + 2, contentTop + Math.round(2 * scale));
 
-  // Metrics strip — type fills band
+  // Metrics strip
   let readout;
   if (reflection) {
     const dTh = d.deltaTheta;
@@ -2167,9 +2235,9 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
     ];
   }
 
-  const statY = contentTop + theoryH;
-  const tStatLabel = Math.max(16, Math.round(statH * 0.26));
-  const tStatValue = Math.max(22, Math.round(statH * 0.42));
+  const statY = contentTop + theoryH + Math.round(2 * scale);
+  const tStatLabel = Math.max(14, Math.round(statH * 0.26));
+  const tStatValue = Math.max(20, Math.round(statH * 0.42));
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
   ctx.lineWidth = 1.4;
@@ -2191,7 +2259,7 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
 
   let cy = statY + statH + gap;
 
-  // Module chips 1.1–1.4 / 2.1–2.4 — short label so font can stay large
+  // Module chips 1.1–1.4 / 2.1–2.4
   if (hasModules) {
     const nMod = modules.length;
     const modW = (w - chipGap * (nMod - 1)) / nMod;
@@ -2250,38 +2318,24 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
     cy += chipH + gap;
   }
 
-  // Params — 2 columns when ≥3 items so rows stay tall / type large
-  const params = [
-    { key: 'angle', label: '入射角 θ', value: Number(d.angle || 0), unit: '°', min: 0, max: 75, digits: 1 },
-    { key: 'rotate', label: '台面转角', value: Number(d.rotate || 0), unit: '°', min: -90, max: 90, digits: 0 },
-    { key: 'rayCount', label: '光束数', value: Number(d.rayCount || 1), unit: '', min: 1, max: 12, digits: 0 },
-  ];
-  if (!reflection) {
-    params.push(
-      { key: 'ior', label: '折射率 n', value: Number(d.ior || 1.52), unit: '', min: 1.0, max: 2.6, digits: 2 },
-    );
-  }
-  if (d.dispersion || experiment.id === 'dispersion') {
-    params.push(
-      { key: 'dispersionStrength', label: '色散系数', value: Number(d.dispersionStrength || 0.6), unit: '', min: 0, max: 1.5, digits: 2 },
-    );
-  }
-  params.push(
-    { key: 'height', label: '光束高度', value: Number(d.height || 0), unit: '', min: -0.6, max: 0.6, digits: 2 },
-  );
-
+  // Params — fit entirely above midBottom (tools/hint/footer reserved)
   const cols = params.length >= 3 ? 2 : 1;
   const colGap = Math.round(8 * scale);
   const colW = cols === 2 ? (w - colGap) / 2 : w;
-  const rows = Math.ceil(params.length / cols);
-  const rowH = Math.max(Math.round(44 * scale), Math.floor(sliderBlock / rows));
-  const sliderH = Math.max(Math.round(40 * scale), rowH - Math.round(2 * scale));
+  const rows = Math.max(1, Math.ceil(params.length / cols));
+  const sliderAvail = Math.max(minRowH, midBottom - cy);
+  const rowH = Math.max(minRowH, Math.floor(sliderAvail / rows));
+  // If still overflowing, clip row height further rather than stacking into tools.
+  const fitRowH = Math.min(rowH, Math.floor(Math.max(minRowH, midBottom - cy) / rows));
+  const sliderH = Math.max(Math.round(32 * scale), fitRowH - Math.round(2 * scale));
   params.forEach((p, i) => {
     const col = i % cols;
     const row = Math.floor(i / cols);
+    const sy = cy + row * fitRowH;
+    if (sy + sliderH > midBottom + 0.5) return; // hard stop: no paint into reserved band
     drawParamSlider(ctx, hits, {
       x: x + col * (colW + colGap),
-      y: cy + row * rowH,
+      y: sy,
       w: colW,
       h: sliderH,
       label: p.label,
@@ -2293,44 +2347,15 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
       setAction: 'optics-geo-set',
       key: p.key,
       accentHex,
-      compact: false,
-      largeType: true,
+      compact: fitRowH < Math.round(42 * scale),
+      largeType: fitRowH >= Math.round(44 * scale),
       hideRange: true,
     });
   });
-  cy += rows * rowH + gap;
 
-  // Tools row
-  const tools = [];
-  if (!reflection) {
-    tools.push({
-      label: d.dispersion ? '色散开' : '色散关',
-      action: 'optics-geo-toggle',
-      meta: { key: 'dispersion' },
-      active: !!d.dispersion,
-    });
-    tools.push({
-      label: d.showReflect !== false ? '反射线' : '反射关',
-      action: 'optics-geo-toggle',
-      meta: { key: 'showReflect' },
-      active: d.showReflect !== false,
-    });
-  }
-  tools.push({
-    label: records.length ? `记录 #${records.length + 1}` : '记录本组',
-    action: 'optics-geo-record',
-    meta: {},
-    active: false,
-  });
-  tools.push({
-    label: panelOpen ? '关闭表' : `数据表(${records.length})`,
-    action: 'optics-geo-records-panel',
-    meta: {},
-    active: panelOpen,
-  });
-  if (tools.length) {
+  // Tools row (reserved Y — never Math.min into footer)
+  if (showTools) {
     const toolW = (w - chipGap * (tools.length - 1)) / tools.length;
-    const toolY = Math.min(cy, btnY - hintH - gap - toolH);
     tools.forEach((t, i) => {
       drawOptButton(
         ctx, hits,
@@ -2338,15 +2363,14 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
         t.label, t.action, t.meta, accentHex, t.active,
       );
     });
-    cy = toolY + toolH + gap;
   }
 
-  // Hint line (compact, larger than before)
-  const hintY = Math.min(cy, btnY - hintH);
-  const tHint = Math.max(15, Math.round(hintH * 0.85));
+  // Hint line (reserved band)
+  const tHint = Math.max(13, Math.round(hintH * 0.85));
   ctx.fillStyle = P.muted;
   ctx.font = `bold ${tHint}px "Microsoft YaHei", sans-serif`;
   ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
   const activeMod = hasModules
     ? (modules.find((m) => m.id === d.moduleId) || modules[0])
     : null;
@@ -2354,9 +2378,9 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
   const hint = !reflection && d.criticalDeg != null
     ? `${modTag}θc≈${fmt(d.criticalDeg, 1)}° · ${SHAPE_LABELS[d.shape] || d.shape || '—'} · ${Number(d.rayCount || 1)} 束`
     : `${modTag}${SHAPE_LABELS[d.shape] || d.shape || '—'} · ${Number(d.rayCount || 1)} 束光`;
-  ctx.fillText(hint.length > 48 ? `${hint.slice(0, 46)}…` : hint, x + 2, hintY + Math.round(2 * scale));
+  ctx.fillText(hint.length > 48 ? `${hint.slice(0, 46)}…` : hint, x + 2, hintY + Math.round(1 * scale));
 
-  // Footer actions
+  // Footer actions (fixed bottom)
   const footerGap = Math.round(6 * scale);
   const footerW = (w - footerGap * 2) / 3;
   drawPremiumHoloButton(

@@ -52,6 +52,15 @@ export interface AuxiliaryLine {
   showLength: boolean;    // 是否显示长度标注
 }
 
+/**
+ * 剖切面：按顺序拾取若干点后，用半透明面把它们连成多边形截面
+ */
+export interface SectionPlane {
+  id: string;
+  points: Point3D[];  // 按拾取顺序排列的多边形顶点（局部坐标）
+  color: string;
+}
+
 export interface PageData {
   id: string;
   whiteboardDataUrl: string | null;
@@ -111,6 +120,7 @@ interface ARState {
   
   isLineDrawingActive: boolean;
   isXYZDrawingActive: boolean;
+  isSectionPlaneActive: boolean;   // 剖切面：多点拾取后成面
   showAllLengths: boolean;         // 全局开关：显示所有线段长度
 
   presetDimensions: Record<MathShape, Record<string, number>>;
@@ -118,6 +128,10 @@ interface ARState {
   modelLines: AuxiliaryLine[];
   activeLineStart: Point3D | null;
   snappedPointInfo: string | null;
+
+  // 剖切面：草稿点 + 已完成的截面
+  sectionDraftPoints: Point3D[];
+  sectionPlanes: SectionPlane[];
 
   // 写在模型表面的笔迹（局部坐标系，跟随模型变换）
   surfaceStrokes: SurfaceStroke[];
@@ -160,6 +174,7 @@ interface ARState {
   
   setLineDrawingActive: (a: boolean) => void;
   setXYZDrawingActive: (a: boolean) => void;
+  setSectionPlaneActive: (a: boolean) => void;
   toggleShowAllLengths: () => void;
   updatePresetDimension: (shape: MathShape, key: string, value: number) => void;
 
@@ -171,6 +186,13 @@ interface ARState {
   toggleLineLength: (index: number) => void;
   toggleLineAuxiliary: (index: number) => void;
   setSnappedPointInfo: (info: string | null) => void;
+
+  addSectionDraftPoint: (p: Point3D) => void;
+  undoSectionDraftPoint: () => void;
+  clearSectionDraft: () => void;
+  completeSectionPlane: (color?: string) => boolean;
+  removeSectionPlane: (id: string) => void;
+  clearSectionPlanes: () => void;
 
   // 模型表面笔迹
   beginSurfaceStroke: (color: string, thickness: number) => string;
@@ -224,6 +246,7 @@ export const useARStore = create<ARState>((set) => ({
   
   isLineDrawingActive: false,
   isXYZDrawingActive: false,
+  isSectionPlaneActive: false,
   showAllLengths: false,
 
   presetDimensions: {
@@ -237,6 +260,9 @@ export const useARStore = create<ARState>((set) => ({
   modelLines: [],
   activeLineStart: null,
   snappedPointInfo: null,
+
+  sectionDraftPoints: [],
+  sectionPlanes: [],
 
   surfaceStrokes: [],
   isWritingOnSurface: false,
@@ -290,8 +316,8 @@ export const useARStore = create<ARState>((set) => ({
 
     return { leftHand: nextLeftHand, rightHand: nextRightHand };
   }),
-  setActiveModel: (m) => set({ activeModel: m, activeCustomModelId: null, modelScale: 2.5, modelLines: [] as AuxiliaryLine[], activeLineStart: null, surfaceStrokes: [] }),
-  setActiveCustomModel: (id) => set({ activeCustomModelId: id, activeModel: null, modelScale: 2.5, modelLines: [] as AuxiliaryLine[], activeLineStart: null, surfaceStrokes: [] }),
+  setActiveModel: (m) => set({ activeModel: m, activeCustomModelId: null, modelScale: 2.5, modelLines: [] as AuxiliaryLine[], activeLineStart: null, surfaceStrokes: [], sectionDraftPoints: [], sectionPlanes: [] }),
+  setActiveCustomModel: (id) => set({ activeCustomModelId: id, activeModel: null, modelScale: 2.5, modelLines: [] as AuxiliaryLine[], activeLineStart: null, surfaceStrokes: [], sectionDraftPoints: [], sectionPlanes: [] }),
   addCustomModel: (model) => set((state) => ({
     customModels: [...state.customModels, model],
     activeCustomModelId: model.id,
@@ -300,6 +326,8 @@ export const useARStore = create<ARState>((set) => ({
     modelLines: [] as AuxiliaryLine[],
     activeLineStart: null,
     surfaceStrokes: [],
+    sectionDraftPoints: [],
+    sectionPlanes: [],
   })),
   removeCustomModel: (id) => set((state) => ({
     customModels: state.customModels.filter(m => m.id !== id),
@@ -312,28 +340,69 @@ export const useARStore = create<ARState>((set) => ({
   setActiveTab: (t) => set({ activeTab: t }),
   setModelPanelOpen: (o) => set({ isModelPanelOpen: o }),
   setPenPanelOpen: (o) => set({ isPenPanelOpen: o }),
-  // 画笔与连线互斥：启用画笔时自动关闭连线模式，避免捏合手势同时触发两种行为
+  // 画笔与连线/剖切互斥：启用画笔时自动关闭其它 3D 绘制模式，避免捏合手势同时触发多种行为
   setPenActive: (a) => set(() => a
-    ? { isPenActive: true, isLineDrawingActive: false, isXYZDrawingActive: false, isEraser: false }
+    ? {
+        isPenActive: true,
+        isLineDrawingActive: false,
+        isXYZDrawingActive: false,
+        isSectionPlaneActive: false,
+        isEraser: false,
+        sectionDraftPoints: [] as Point3D[],
+      }
     : { isPenActive: false }
   ),
   setPenColor: (c) => set({ penColor: c, isEraser: false }),
   setPenThickness: (t) => set({ penThickness: t }),
   setIsEraser: (e) => set(() => e
-    ? { isEraser: true, isPenActive: false, isLineDrawingActive: false, isXYZDrawingActive: false }
+    ? {
+        isEraser: true,
+        isPenActive: false,
+        isLineDrawingActive: false,
+        isXYZDrawingActive: false,
+        isSectionPlaneActive: false,
+        sectionDraftPoints: [] as Point3D[],
+      }
     : { isEraser: false }
   ),
   clearCanvas: () => set((state) => ({ triggerClearCanvas: state.triggerClearCanvas + 1 })),
   setInteractMode: (m) => set({ interactMode: m }),
 
-  // 启用连线时同步关闭画笔与XYZ轴连线行为；面板保持打开，用户仍可在面板内切换工具
+  // 启用连线时同步关闭画笔 / XYZ / 剖切；面板保持打开，用户仍可在面板内切换工具
   setLineDrawingActive: (a) => set(() => a
-    ? { isLineDrawingActive: true, isPenActive: false, isXYZDrawingActive: false }
-    : { isLineDrawingActive: false }
+    ? {
+        isLineDrawingActive: true,
+        isPenActive: false,
+        isXYZDrawingActive: false,
+        isSectionPlaneActive: false,
+        isEraser: false,
+        activeLineStart: null,
+        sectionDraftPoints: [] as Point3D[],
+      }
+    : { isLineDrawingActive: false, activeLineStart: null }
   ),
   setXYZDrawingActive: (a) => set(() => a
-    ? { isXYZDrawingActive: true, isLineDrawingActive: false, isPenActive: false, isEraser: false }
-    : { isXYZDrawingActive: false }
+    ? {
+        isXYZDrawingActive: true,
+        isLineDrawingActive: false,
+        isPenActive: false,
+        isSectionPlaneActive: false,
+        isEraser: false,
+        activeLineStart: null,
+        sectionDraftPoints: [] as Point3D[],
+      }
+    : { isXYZDrawingActive: false, activeLineStart: null }
+  ),
+  setSectionPlaneActive: (a) => set(() => a
+    ? {
+        isSectionPlaneActive: true,
+        isPenActive: false,
+        isLineDrawingActive: false,
+        isXYZDrawingActive: false,
+        isEraser: false,
+        activeLineStart: null,
+      }
+    : { isSectionPlaneActive: false, sectionDraftPoints: [] as Point3D[] }
   ),
   toggleShowAllLengths: () => set((state) => ({ showAllLengths: !state.showAllLengths })),
   
@@ -371,6 +440,49 @@ export const useARStore = create<ARState>((set) => ({
     modelLines: state.modelLines.map((l, i) => i === index ? { ...l, isAuxiliary: !l.isAuxiliary } : l),
   })),
   setSnappedPointInfo: (info) => set({ snappedPointInfo: info }),
+
+  addSectionDraftPoint: (p) => set((state) => {
+    const draft = state.sectionDraftPoints;
+    if (draft.length > 0) {
+      const last = draft[draft.length - 1];
+      const dx = p.x - last.x;
+      const dy = p.y - last.y;
+      const dz = p.z - last.z;
+      // 忽略与上一点几乎重合的重复拾取
+      if (dx * dx + dy * dy + dz * dz < 1e-6) return state;
+    }
+    return { sectionDraftPoints: [...draft, p] };
+  }),
+  undoSectionDraftPoint: () => set((state) => ({
+    sectionDraftPoints: state.sectionDraftPoints.slice(0, -1),
+  })),
+  clearSectionDraft: () => set({ sectionDraftPoints: [] }),
+  completeSectionPlane: (color) => {
+    let ok = false;
+    set((state) => {
+      if (state.sectionDraftPoints.length < 3) return state;
+      ok = true;
+      const plane: SectionPlane = {
+        id: `sp_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+        points: [...state.sectionDraftPoints],
+        // 剖切面固定黄色（color 参数忽略，保留签名兼容）
+        color: '#facc15',
+      };
+      // 成功生成一面后自动退出剖切模式，避免继续误取点
+      return {
+        sectionPlanes: [...state.sectionPlanes, plane],
+        sectionDraftPoints: [] as Point3D[],
+        isSectionPlaneActive: false,
+        snappedPointInfo: null,
+      };
+    });
+    return ok;
+  },
+  removeSectionPlane: (id) => set((state) => ({
+    sectionPlanes: state.sectionPlanes.filter((p) => p.id !== id),
+  })),
+  /** 仅清空已生成的剖切面，不影响草稿点 */
+  clearSectionPlanes: () => set({ sectionPlanes: [] }),
 
   beginSurfaceStroke: (color, thickness) => {
     const id = `s_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;

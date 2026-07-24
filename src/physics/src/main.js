@@ -35,6 +35,48 @@ let expManager = null;
 const labLoader = createLabLoader();
 labLoader.setProgress(0.04, '初始化渲染核心…');
 
+/** One animation frame (for paint + GSAP). */
+function nextFrame() {
+  return new Promise((resolve) => requestAnimationFrame(resolve));
+}
+
+/**
+ * Return control to the browser so the loader can paint and chrome stays
+ * responsive (tabs / back / address bar). setTimeout creates a macrotask;
+ * rAF then aligns with the next paint.
+ * @param {number} [minIdleMs]
+ */
+function yieldToBrowser(minIdleMs = 0) {
+  return new Promise((resolve) => {
+    const wait = Math.max(0, Number(minIdleMs) || 0);
+    setTimeout(() => {
+      requestAnimationFrame(() => resolve());
+    }, wait);
+  });
+}
+
+/**
+ * Run a heavy sync chunk, then force a browser idle slice proportional to cost.
+ * @template T
+ * @param {() => T} fn
+ * @param {{ minIdleMs?: number }} [opts]
+ * @returns {Promise<T>}
+ */
+async function runHeavyChunk(fn, opts = {}) {
+  const minIdleMs = opts.minIdleMs ?? 8;
+  const t0 = performance.now();
+  let result;
+  try {
+    result = fn();
+  } finally {
+    const elapsed = performance.now() - t0;
+    // Longer rest after expensive chunks so input events can drain.
+    const rest = elapsed > 48 ? 32 : elapsed > 20 ? 16 : elapsed > 8 ? 10 : minIdleMs;
+    await yieldToBrowser(rest);
+  }
+  return result;
+}
+
 // Desktop shell detection (no-op on pure web / Vite preview)
 if (isTauri()) {
   getAppInfo().then((info) => {
@@ -46,11 +88,19 @@ if (isTauri()) {
 //  Renderer — bright cinematic look
 // ═══════════════════════════════════════════════
 const canvas = document.getElementById('c');
-const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+const renderer = new THREE.WebGLRenderer({
+  canvas,
+  antialias: true,
+  alpha: false,
+  powerPreference: 'high-performance',
+});
+// Cap DPR: full 2× on 4K/HiDPI multiplies fill-rate and was a major host hitch
+// after dense source rigs (mechanics/thermo/optics) were migrated into one room.
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+// Soft PCF is roughly 2–4× the shadow-map cost of basic PCF on large rooms.
+renderer.shadowMap.type = THREE.PCFShadowMap;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.35;
@@ -683,12 +733,25 @@ const stationContext = {
   getExperimentState: () => expManager?.state ?? null,
   constants: { TABLE_Y, ISLAND_Y },
 };
+// Build stations one-by-one with main-thread yields so the loader (and browser
+// chrome) stay interactive. Electro/optics geometry is large enough that a
+// single sync loop freezes tab UI for seconds.
+const STATION_BOOT = Object.freeze({
+  mechanics: { ratio: 0.40, status: '装配力学实验台…' },
+  optics: { ratio: 0.48, status: '装配光学实验台…' },
+  electro: { ratio: 0.56, status: '装配电磁学实验台…' },
+  thermo: { ratio: 0.64, status: '装配热力学实验台…' },
+});
 const stationScenes = {};
 for (const [stationId, createStation] of Object.entries(STATION_SCENE_MODULES)) {
-  const station = createStation(stationContext);
+  const boot = STATION_BOOT[stationId] || { ratio: 0.5, status: `装配${stationId}…` };
+  labLoader.setProgress(boot.ratio, boot.status);
+  await yieldToBrowser(0);
+  const station = await runHeavyChunk(() => createStation(stationContext), { minIdleMs: 16 });
   stationScenes[stationId] = station;
   scene.add(station.root);
   station.animators.forEach(stationContext.registerAnimator);
+  await yieldToBrowser(8);
 }
 
 const hallBench = stationScenes.electro.refs.hallBench;
@@ -1375,10 +1438,11 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
     draw(!!g.userData.active, false);
   };
   g.userData.setMaximized = (on) => {
-    // Fullscreen is managed globally; only store flag + redraw chrome icon here
+    // Fullscreen is managed globally. Never force a dense redraw here —
+    // closing the big screen used to hitch by repainting the whole HUD twice.
+    if (g.userData.maximized === !!on) return;
     g.userData.maximized = !!on;
     lastDrawKey = '';
-    draw(!!g.userData.active, true);
   };
   /** UV pick on hologram screen (like clicking a monitor) */
   g.userData.pick = (uv) => {
@@ -1601,6 +1665,8 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
   let hitRegions = [];
   let boundHud = null;
   let boundDataHtml = '';
+  /** Boot-time pixel + hit cache so first open skips dense canvas layout. */
+  const warmCacheByExp = new Map();
 
   g.userData.maximized = false;
   g.userData._baseY = 0;
@@ -1792,16 +1858,23 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
     g.userData.present = present;
     g.userData.active = present;
     g.visible = present;
-    // Disable raycasts on hidden panels so they cannot block equipment.
-    [hit, screen, backFace, rim, halo, topStab, botStab].forEach((mesh) => {
-      mesh.raycast = present ? THREE.Mesh.prototype.raycast : () => {};
-    });
     panelLight.intensity = present ? 0.55 : 0;
     if (!present) {
       hitRegions = [];
       g.userData.hitRegions = [];
       g.userData._contentExpId = null;
+      // Hide path: skip raycast rebinding on the close click (was a small hitch
+      // ×4 stations). Disabled meshes stay non-interactive while invisible;
+      // re-enable when shown again.
+      [hit, screen, backFace, rim, halo, topStab, botStab].forEach((mesh) => {
+        mesh.raycast = () => {};
+      });
+      return;
     }
+    // Show path: restore raycasts.
+    [hit, screen, backFace, rim, halo, topStab, botStab].forEach((mesh) => {
+      mesh.raycast = THREE.Mesh.prototype.raycast;
+    });
   }
 
   // Start with raycasts disabled (hidden).
@@ -1861,6 +1934,59 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
       }
     }
   };
+  /**
+   * Snapshot the current dense paint for first-open restore (boot prewarm).
+   * @param {string} expId
+   */
+  g.userData.captureWarm = (expId) => {
+    if (!expId || !hitRegions.length) return false;
+    try {
+      const snap = document.createElement('canvas');
+      snap.width = c.width;
+      snap.height = c.height;
+      snap.getContext('2d').drawImage(c, 0, 0);
+      // Hit regions are plain rects + action meta (no functions).
+      const hits = hitRegions.map((h) => ({ ...h }));
+      warmCacheByExp.set(String(expId), {
+        canvas: snap,
+        hits,
+        w: c.width,
+        h: c.height,
+        dataSig: boundDataHtml.slice(0, 96),
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  /**
+   * Instant first-open: blit boot snapshot + restore hit regions.
+   * @param {string} expId
+   * @returns {boolean}
+   */
+  g.userData.applyWarm = (expId) => {
+    const entry = warmCacheByExp.get(String(expId || ''));
+    if (!entry || entry.w !== c.width || entry.h !== c.height) return false;
+    if (!entry.hits?.length) return false;
+    try {
+      ctx.clearRect(0, 0, c.width, c.height);
+      ctx.drawImage(entry.canvas, 0, 0);
+      hitRegions = entry.hits.map((h) => ({ ...h }));
+      g.userData.hitRegions = hitRegions;
+      g.userData._contentExpId = String(expId);
+      // Absorb the startExperiment + post-visuals pushHud double-fire without
+      // re-running dense canvas layout (that was the "first switch freezes" hitch).
+      g.userData._skipFullBudget = 2;
+      g.userData._skipFullExpId = String(expId);
+      lastDrawKey = `warm|${expId}|${entry.dataSig}`;
+      tex.needsUpdate = true;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
   g.userData.setHud = (hud, dataHtml = '', opts = {}) => {
     boundHud = hud;
     boundDataHtml = dataHtml || '';
@@ -1872,6 +1998,17 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
       return;
     }
     const expId = hud.experiment?.id || hud.expId || '';
+    // Prefer boot snapshot on first open — free for the camera frame.
+    if (opts.preferWarm && expId) {
+      if (
+        g.userData._contentExpId === expId
+        && Array.isArray(hitRegions)
+        && hitRegions.length > 0
+      ) {
+        return;
+      }
+      if (g.userData.applyWarm?.(expId)) return;
+    }
     // shell: cheap placeholder; full: dense controls (caller should budget this).
     if (opts.shell) {
       // Electro (and others) throttle-push HUD every ~0.1–0.35s. Re-painting the
@@ -1888,6 +2025,15 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
       paintShell(hud.experiment?.name || fullTitle);
       return;
     }
+    // Skip redundant full layout when warm cache (or prior paint) already live.
+    if (
+      opts.skipIfLive
+      && g.userData._contentExpId === expId
+      && Array.isArray(hitRegions)
+      && hitRegions.length > 0
+    ) {
+      return;
+    }
     draw(true, !!opts.force);
     // Mark this experiment's dense UI as live so subsequent shell jobs no-op.
     if (Array.isArray(hitRegions) && hitRegions.length > 0) {
@@ -1895,9 +2041,11 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
     }
   };
   g.userData.setMaximized = (on) => {
+    // Flag only — next budget paint refreshes the maximize chrome icon.
+    // Sync draw(true,true) on close was a major post-fullscreen hitch.
+    if (g.userData.maximized === !!on) return;
     g.userData.maximized = !!on;
     lastDrawKey = '';
-    if (g.userData.present) draw(true, true);
   };
   g.userData.pick = (uv) => {
     if (!uv || !g.userData.present) return null;
@@ -2246,16 +2394,35 @@ function closeHoloFullscreen(opts = {}) {
   const { keepMaximizedFlag = false } = opts;
   if (!holoFsEl) return;
   const sid = holoFsState.stationId;
+  // DOM + flags only — never shrink GPU canvas or paint on the click frame
+  // (canvas resize was a post-close hitch on some GPUs).
   holoFsState.open = false;
   holoFsState.hits = [];
   holoFsEl.classList.remove('open');
   holoFsEl.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('holo-fs-open');
-  if (sid && !keepMaximizedFlag) {
-    holos[sid]?.userData?.setMaximized?.(false);
-    stationDisplays[sid]?.userData?.setMaximized?.(false);
+  if (sid) {
+    labFrameScheduler.cancel?.(`hud:display-full:${sid}`);
+    labFrameScheduler.cancel?.(`hud:display-warm:${sid}`);
+    labFrameScheduler.cancel?.(`hud:selector:${sid}`);
+    labFrameScheduler.cancel?.('hud:fs-paint');
+    labFrameScheduler.cancel?.('hud:close-fs');
+    if (!keepMaximizedFlag) {
+      if (holos[sid]?.userData) holos[sid].userData.maximized = false;
+      if (stationDisplays[sid]?.userData) stationDisplays[sid].userData.maximized = false;
+    }
   }
   holoFsState.stationId = null;
+  // Free the giant fullscreen buffer on a later pulse (after camera frames).
+  labFrameScheduler.schedule?.('hud:fs-free', () => {
+    if (holoFsState.open) return;
+    if (holoFsCanvas && (holoFsCanvas.width > 4 || holoFsCanvas.height > 4)) {
+      holoFsCanvas.width = 1;
+      holoFsCanvas.height = 1;
+      holoFsState.canvasW = 1;
+      holoFsState.canvasH = 1;
+    }
+  }, { priority: 20 });
 }
 
 function toggleHoloFullscreen(stationId) {
@@ -2495,7 +2662,10 @@ window.addEventListener('resize', () => {
 document.addEventListener('keydown', (e) => {
   if (e.code === 'Escape' && holoFsState.open) {
     e.preventDefault();
+    // Esc exits fullscreen only — do not run full station shutdown on this frame.
     closeHoloFullscreen();
+    labFrameScheduler.beginSoftSwitch?.(6);
+    labFrameScheduler.rest?.(1);
     showToast('已退出全屏');
   }
 });
@@ -2543,10 +2713,13 @@ function pushHudToHoloScreens(hud) {
     const want = runningHere && id === activeId;
     if (!want && (d.userData.present || d.userData.active)) {
       // Hide without painting dense experiment chrome.
-      d.userData.setMaximized?.(false);
+      if (d.userData) d.userData.maximized = false;
       d.userData.setPresent?.(false);
       d.userData.boundHud = null;
       d.userData.boundDataHtml = '';
+      d.userData._contentExpId = null;
+      labFrameScheduler.cancel?.(`hud:display-full:${id}`);
+      labFrameScheduler.cancel?.(`hud:display-warm:${id}`);
     } else if (want && !d.userData.present) {
       // Show blank panel immediately (visibility only) — content paints next pulses.
       d.userData.setPresent?.(true);
@@ -2573,9 +2746,9 @@ function pushHudToHoloScreens(hud) {
     h.userData.setHud?.(snap, '');
   }, { priority: 100 });
 
-  // ── Content display: shell once on open/switch, then only full repaints ──
-  // Electromagnetic labs call pushHud on a short throttle; re-queuing shell on
-  // every pulse used to clear hitRegions and block 3D/fullscreen screen clicks.
+  // ── Content display: warm-cache / shell first, dense paint later ──
+  // First-open hitch was: skip shell for "prepared" labs → immediate full
+  // drawHoloScreen on the switch frame (camera freezes). Prefer boot bitmap.
   if (runningHere) {
     const display = stationDisplays[activeId];
     const expId = hud.experiment?.id || payload.expId || '';
@@ -2585,18 +2758,15 @@ function pushHudToHoloScreens(hud) {
       && Array.isArray(display.userData.hitRegions)
       && display.userData.hitRegions.length > 0
     );
-    // Boot prewarm paints every experiment UI once. Skip the non-interactive
-    // "加载中" shell for prepared labs so the first switch lands on full controls.
-    const prepared = !!(expId && preparedExperimentIds.has(expId));
 
-    if (!hasLiveContent && !prepared) {
-      labFrameScheduler.schedule(`hud:display-shell:${activeId}`, () => {
+    if (!hasLiveContent) {
+      // Show glass + try boot snapshot in one early pulse (blit is cheap).
+      labFrameScheduler.schedule(`hud:display-warm:${activeId}`, () => {
         const d = stationDisplays[activeId];
         const snap = lastHudSnapshot;
         if (!d?.userData || !snap?.running || snap.station?.id !== activeId || !snap.experiment) return;
         d.userData.setPresent?.(true);
         const sid = snap.experiment?.id || snap.expId || '';
-        // Race-safe: full paint may have landed between schedule and drain.
         if (
           d.userData._contentExpId === sid
           && Array.isArray(d.userData.hitRegions)
@@ -2604,25 +2774,62 @@ function pushHudToHoloScreens(hud) {
         ) {
           return;
         }
+        // Instant interactive panel when boot prewarm captured this experiment.
+        if (d.userData.applyWarm?.(sid)) {
+          // Bind live hud (pick meta / data) without re-layouting the canvas.
+          const dataHtml = formatData(snap.station.id, snap.experiment.id, snap.data);
+          lastHudDataHtml = dataHtml;
+          d.userData.setHud?.(snap, dataHtml, { skipIfLive: true });
+          return;
+        }
+        // Fallback placeholder — never block the camera with dense layout here.
         d.userData.setHud?.(snap, '', { shell: true });
-      }, { priority: 90 });
+      }, { priority: 95 });
     } else {
-      // Drop any stale shell so it cannot wipe a live / prepared interactive panel.
+      labFrameScheduler.cancel(`hud:display-warm:${activeId}`);
       labFrameScheduler.cancel(`hud:display-shell:${activeId}`);
-      if (!hasLiveContent && prepared && display?.userData) {
-        // Show the glass immediately; dense controls arrive on the next full paint.
-        display.userData.setPresent?.(true);
-      }
     }
 
-    labFrameScheduler.schedule(`hud:display-full:${activeId}`, () => {
+    // Dense full paint waits until soft-switch ends so look/WASD stay free.
+    // IMPORTANT: do not call rest() while waiting — rest used to keep soft-switch
+    // alive forever (softSwitch used to include cooldown).
+    const paintFull = () => {
+      if (labFrameScheduler.softSwitchActive?.()) {
+        labFrameScheduler.schedule(`hud:display-full:${activeId}`, paintFull, { priority: 30 });
+        return;
+      }
       const d = stationDisplays[activeId];
       const snap = lastHudSnapshot;
       if (!d?.userData || !snap?.running || snap.station?.id !== activeId || !snap.experiment) return;
+      const sid = snap.experiment?.id || snap.expId || '';
       const dataHtml = formatData(snap.station.id, snap.experiment.id, snap.data);
       lastHudDataHtml = dataHtml;
-      d.userData.setHud?.(snap, dataHtml, { force: true });
-    }, { priority: prepared || hasLiveContent ? 85 : 55 });
+
+      if (
+        d.userData._skipFullExpId === sid
+        && (d.userData._skipFullBudget || 0) > 0
+      ) {
+        d.userData._skipFullBudget -= 1;
+        if (d.userData._skipFullBudget <= 0) {
+          d.userData._skipFullExpId = null;
+        }
+        d.userData.setHud?.(snap, dataHtml, { skipIfLive: true });
+        return;
+      }
+
+      const live = !!(
+        d.userData._contentExpId === sid
+        && Array.isArray(d.userData.hitRegions)
+        && d.userData.hitRegions.length > 0
+      );
+      d.userData.setHud?.(snap, dataHtml, { force: !live });
+      labFrameScheduler.rest?.(1);
+    };
+    labFrameScheduler.schedule(
+      `hud:display-full:${activeId}`,
+      paintFull,
+      { priority: hasLiveContent ? 45 : 30 },
+    );
   }
 
   // Fullscreen overlay — never paint inline on switch.
@@ -2668,9 +2875,16 @@ function handleHoloScreenAction(pick, stationId) {
   const t = clock.elapsedTime;
   switch (pick.action) {
     case 'close':
+      // × button: keep this microtask under ~1ms so look/WASD stay live.
       closeHoloFullscreen();
-      expManager.closeMenu();
-      showToast('已关闭实验终端');
+      if (typeof expManager.closeStationUi === 'function') {
+        expManager.closeStationUi();
+      } else if (expManager.state?.running) {
+        expManager.exitExperiment();
+        expManager.closeMenu();
+      } else {
+        expManager.closeMenu();
+      }
       return true;
     case 'maximize': {
       // Maximize = fill the entire browser window (not 3D scale)
@@ -2846,14 +3060,19 @@ const EXP_MODE_BY_ID = Object.freeze({
 });
 
 /**
- * When true, the main animate() loop skips WebGL present so the GSAP loader
+ * When true, the main animate() loop skips WebGL present so the loader
  * (spinner / bar / brand) keeps getting animation frames during heavy prewarm.
  */
 let bootSuspendRender = false;
 
-/** Let the browser paint the loader chrome (double-rAF is intentional). */
-async function yieldToLoader() {
-  await nextFrame();
+/**
+ * Yield during boot prewarm. Prefer macrotask + rAF so browser chrome input
+ * is not starved by a long chain of microtasks / pure rAFs.
+ * @param {number} [minIdleMs]
+ */
+async function yieldToLoader(minIdleMs = 0) {
+  await yieldToBrowser(minIdleMs);
+  // Second frame: let GSAP / progress bar composite after the idle slice.
   await nextFrame();
 }
 
@@ -2922,6 +3141,15 @@ function seedWarmApparatus(stationId, expId, eq) {
     }
     if (stationId === 'thermo') {
       eq.updateState?.(expId, data, { forceVisual: true });
+      // One visual tick so first-open materials (thermal-expansion coils/glow)
+      // are already in the state compile will capture.
+      try {
+        const src = eq.sourceExperiments?.[expId];
+        if (src && typeof src.update === 'function') {
+          try { src.clock?.getDelta?.(); } catch { /* ignore */ }
+          src.update(1 / 60);
+        }
+      } catch { /* ignore */ }
       return;
     }
   } catch { /* best-effort */ }
@@ -2929,7 +3157,7 @@ function seedWarmApparatus(stationId, expId, eq) {
 
 /**
  * Show one apparatus mode under the loader (no full-scene thrash).
- * Heavy GPU compile/render is done once per station, not once per experiment.
+ * Heavy GPU compile is scoped to the station root and followed by a browser yield.
  */
 async function warmExperimentApparatus(job) {
   const st = STATION_EXPERIMENTS[job.stationId];
@@ -2941,73 +3169,74 @@ async function warmExperimentApparatus(job) {
   const defaults = exp.defaults || null;
   const stationRoot = stationScenes[job.stationId]?.root;
 
-  prepareExperiment(job.expId, job.stationId);
-  await yieldToLoader();
+  await runHeavyChunk(() => {
+    prepareExperiment(job.expId, job.stationId);
+  }, { minIdleMs: 10 });
 
-  if (mode && typeof setMode === 'function') {
+  await runHeavyChunk(() => {
+    if (mode && typeof setMode === 'function') {
+      try {
+        if (job.stationId === 'mechanics') {
+          setMode(mode, defaults, { reset: false });
+        } else if (job.stationId === 'thermo') {
+          // Thermo setMode takes experiment id (not a shared mode alias).
+          setMode(job.expId);
+        } else {
+          setMode(mode);
+        }
+      } catch { /* ignore */ }
+    }
+
     try {
-      if (job.stationId === 'mechanics') {
-        setMode(mode, defaults, { reset: false });
-      } else if (job.stationId === 'thermo') {
-        // Thermo setMode takes experiment id (not a shared mode alias).
-        setMode(job.expId);
-      } else {
-        setMode(mode);
+      if (job.stationId === 'optics' && mode === 'geometric' && typeof eq?.updateGeometric === 'function') {
+        eq.updateGeometric({
+          shape: exp.id === 'reflection' ? 'mirror' : exp.id === 'lens' ? 'sphere' : 'prism',
+          angle: exp.id === 'dispersion' ? 48 : exp.id === 'lens' ? 12 : 35,
+          rayCount: exp.id === 'dispersion' ? 9 : exp.id === 'lens' ? 7 : 1,
+          ior: 1.52,
+          dispersion: exp.id === 'dispersion',
+          dispersionStrength: 0.85,
+          rotate: 0,
+          showReflect: true,
+          opticsMode: exp.id === 'reflection' ? 'mirror' : 'dielectric',
+          mode: exp.id === 'reflection' ? 'mirror' : 'dielectric',
+        }, { force: true });
       }
+      if (job.stationId === 'optics' && mode === 'diffraction') {
+        eq?.updateOptics?.({
+          mode: 'diffraction',
+          lightOn: true,
+          lambdaNm: 550,
+          slitMm: 0.05,
+          pitchMm: 0.25,
+          N: 2,
+          distM: 1,
+          showBeam: true,
+          showWave: true,
+        }, { force: true });
+        eq?.flushDeferredDiffraction?.();
+      }
+      // Match first-open state so signature caches (field lines, wires, …) hit.
+      seedWarmApparatus(job.stationId, job.expId, eq);
     } catch { /* ignore */ }
-  }
+  }, { minIdleMs: 12 });
 
-  try {
-    if (job.stationId === 'optics' && mode === 'geometric' && typeof eq?.updateGeometric === 'function') {
-      eq.updateGeometric({
-        shape: exp.id === 'reflection' ? 'mirror' : exp.id === 'lens' ? 'sphere' : 'prism',
-        angle: exp.id === 'dispersion' ? 48 : exp.id === 'lens' ? 12 : 35,
-        rayCount: exp.id === 'dispersion' ? 9 : exp.id === 'lens' ? 7 : 1,
-        ior: 1.52,
-        dispersion: exp.id === 'dispersion',
-        dispersionStrength: 0.85,
-        rotate: 0,
-        showReflect: true,
-        opticsMode: exp.id === 'reflection' ? 'mirror' : 'dielectric',
-        mode: exp.id === 'reflection' ? 'mirror' : 'dielectric',
-      }, { force: true });
-    }
-    if (job.stationId === 'optics' && mode === 'diffraction') {
-      eq?.updateOptics?.({
-        mode: 'diffraction',
-        lightOn: true,
-        lambdaNm: 550,
-        slitMm: 0.05,
-        pitchMm: 0.25,
-        N: 2,
-        distM: 1,
-        showBeam: true,
-        showWave: true,
-      }, { force: true });
-      eq?.flushDeferredDiffraction?.();
-    }
-    // Match first-open state so signature caches (field lines, wires, …) hit.
-    seedWarmApparatus(job.stationId, job.expId, eq);
-  } catch { /* ignore */ }
-
-  // Compile this apparatus while it is visible — previously only the last
-  // experiment per station got a full-scene compile after the loop.
-  try {
-    if (stationRoot) {
-      stationRoot.updateWorldMatrix?.(true, true);
-      renderer.compile(stationRoot, camera);
-    } else {
-      renderer.compile(scene, camera);
-    }
-  } catch { /* best-effort */ }
-
-  await yieldToLoader();
+  // Compile only the station subtree (not the whole room) after mode switches.
+  await runHeavyChunk(() => {
+    try {
+      if (stationRoot) {
+        stationRoot.updateWorldMatrix?.(true, true);
+        renderer.compile(stationRoot, camera);
+      }
+    } catch { /* best-effort */ }
+  }, { minIdleMs: 16 });
 }
 
 /**
- * Paint every experiment's dense content UI under the loader.
- * One sample per station left first-switch canvas work (fonts/layout/hit
- * regions) unpaid — especially painful on electro with 6 dense panels.
+ * Paint experiment content UIs under the loader.
+ * Critical: menu chrome + first experiment (fonts/layout/hit regions + GPU).
+ * Remaining experiment panels are still painted, but each paint is followed by
+ * a macrotask yield so browser chrome stays responsive during long boots.
  */
 async function warmStationExperimentHuds(stationId, experiments, onHudTick) {
   const st = STATION_EXPERIMENTS[stationId];
@@ -3017,81 +3246,87 @@ async function warmStationExperimentHuds(stationId, experiments, onHudTick) {
   const display = stationDisplays[stationId];
 
   // Menu chrome once.
-  try {
-    if (holo?.userData) {
-      holo.userData.active = true;
-      holo.userData.setHud?.({
-        menuOpen: true,
-        station: st,
-        experiment: null,
-        stepIndex: 0,
-        step: null,
-        running: false,
-        data: {},
-        stations: STATION_EXPERIMENTS,
-        _rev: -2500,
-      }, '');
-      holo.userData.draw?.(true, true);
-    }
-  } catch { /* ignore */ }
-  await yieldToLoader();
+  await runHeavyChunk(() => {
+    try {
+      if (holo?.userData) {
+        holo.userData.active = true;
+        holo.userData.setHud?.({
+          menuOpen: true,
+          station: st,
+          experiment: null,
+          stepIndex: 0,
+          step: null,
+          running: false,
+          data: {},
+          stations: STATION_EXPERIMENTS,
+          _rev: -2500,
+        }, '');
+        holo.userData.draw?.(true, true);
+      }
+    } catch { /* ignore */ }
+  }, { minIdleMs: 10 });
 
   for (let i = 0; i < list.length; i += 1) {
     const sampleExp = list[i];
-    const mockData = warmInitData(stationId, sampleExp.id);
-    const mockHud = {
-      menuOpen: true,
-      station: st,
-      experiment: sampleExp,
-      stepIndex: 0,
-      step: sampleExp.steps?.[0] || null,
-      running: true,
-      data: mockData,
-      stations: STATION_EXPERIMENTS,
-      _rev: -3000 - i,
-      expId: sampleExp.id,
-    };
-    const dataHtml = formatData(stationId, sampleExp.id, mockData);
-    try {
-      if (holo?.userData) {
-        holo.userData.setHud?.(mockHud, dataHtml);
-        holo.userData.draw?.(true, true);
-      }
-      if (display?.userData) {
-        display.userData.setHud?.(mockHud, dataHtml, { force: true });
-        // First dense paint also compiles content-panel materials/shaders.
-        if (i === 0) {
-          try {
-            display.updateWorldMatrix?.(true, true);
-            renderer.compile(display, camera, scene);
-          } catch { /* ignore */ }
+    await runHeavyChunk(() => {
+      const mockData = warmInitData(stationId, sampleExp.id);
+      const mockHud = {
+        menuOpen: true,
+        station: st,
+        experiment: sampleExp,
+        stepIndex: 0,
+        step: sampleExp.steps?.[0] || null,
+        running: true,
+        data: mockData,
+        stations: STATION_EXPERIMENTS,
+        _rev: -3000 - i,
+        expId: sampleExp.id,
+      };
+      const dataHtml = formatData(stationId, sampleExp.id, mockData);
+      try {
+        if (holo?.userData) {
+          holo.userData.setHud?.(mockHud, dataHtml);
+          holo.userData.draw?.(true, true);
         }
-      }
-    } catch { /* ignore */ }
-    onHudTick?.(sampleExp);
-    await yieldToLoader();
+        if (display?.userData) {
+          display.userData.setHud?.(mockHud, dataHtml, { force: true });
+          // Snapshot pixels + hit regions for hitch-free first open.
+          display.userData.captureWarm?.(sampleExp.id);
+          // First dense paint also compiles content-panel materials/shaders.
+          if (i === 0) {
+            try {
+              display.updateWorldMatrix?.(true, true);
+              renderer.compile(display, camera, scene);
+            } catch { /* ignore */ }
+          }
+        }
+      } catch { /* ignore */ }
+      onHudTick?.(sampleExp);
+    }, { minIdleMs: i === 0 ? 16 : 12 });
   }
 
-  try {
-    if (holo?.userData) {
-      holo.userData.active = false;
-      holo.userData.setHud?.(null, '');
-      holo.userData.draw?.(false, true);
-    }
-    if (display?.userData) {
-      display.userData.setMaximized?.(false);
-      display.userData.setPresent?.(false);
-      display.userData.setHud?.(null, '');
-      display.userData._contentExpId = null;
-      display.userData.hitRegions = [];
-    }
-  } catch { /* ignore */ }
-  await yieldToLoader();
+  await runHeavyChunk(() => {
+    try {
+      if (holo?.userData) {
+        holo.userData.active = false;
+        holo.userData.setHud?.(null, '');
+        holo.userData.draw?.(false, true);
+      }
+      if (display?.userData) {
+        display.userData.setMaximized?.(false);
+        display.userData.setPresent?.(false);
+        display.userData.setHud?.(null, '');
+        display.userData._contentExpId = null;
+        display.userData.hitRegions = [];
+      }
+    } catch { /* ignore */ }
+  }, { minIdleMs: 8 });
 }
 
 /**
  * Compile + warm apparatus under the loader cover.
- * Time-sliced: yield after every heavy step so the loader animation stays fluid.
+ * Time-sliced with macrotask yields so browser chrome stays clickable.
+ * Avoids full-scene compile after every station (that was the main freeze).
  * @param {(ratio: number, status?: string) => void} onProgress
  */
 async function warmAllLabResources(onProgress) {
@@ -3107,14 +3342,14 @@ async function warmAllLabResources(onProgress) {
     });
   });
 
-  // Group by station: apparatus per experiment, then every dense content HUD.
+  // Group by station: apparatus per experiment, then dense content HUD paints.
   const byStation = new Map();
   jobs.forEach((job) => {
     if (!byStation.has(job.stationId)) byStation.set(job.stationId, []);
     byStation.get(job.stationId).push(job);
   });
 
-  // apparatus job + HUD paint per experiment + GPU present per station + boot steps
+  // apparatus job + HUD paint per experiment + per-station GPU present + boot steps
   const total = Math.max(1, jobs.length * 2 + byStation.size + 3);
   let done = 0;
   const ratioOf = () => 0.88 + (done / total) * 0.08;
@@ -3124,9 +3359,10 @@ async function warmAllLabResources(onProgress) {
   };
 
   bootSuspendRender = true;
+  labLoader.setBusy?.(true);
   try {
     onProgress(0.88, '预编译全息终端…');
-    // Yield between stations inside prewarm so status tweens can run.
+    // Yield between stations inside prewarm so status + chrome stay live.
     for (const id of Object.keys(holos)) {
       const h = holos[id];
       if (!h?.userData) continue;
@@ -3142,35 +3378,42 @@ async function warmAllLabResources(onProgress) {
         stations: STATION_EXPERIMENTS,
         _rev: -1,
       };
-      try {
-        h.userData.active = true;
-        h.userData.setHud?.(mockHud, '');
-        h.userData.draw?.(true, true);
-      } finally {
-        h.userData.active = false;
-        h.userData.setHud?.(null, '');
-        h.userData.draw?.(false, true);
-      }
-      await yieldToLoader();
+      await runHeavyChunk(() => {
+        try {
+          h.userData.active = true;
+          h.userData.setHud?.(mockHud, '');
+          h.userData.draw?.(true, true);
+        } finally {
+          h.userData.active = false;
+          h.userData.setHud?.(null, '');
+          h.userData.draw?.(false, true);
+        }
+      }, { minIdleMs: 10 });
     }
-    Object.values(stationDisplays).forEach((d) => {
-      d?.userData?.prewarm?.(renderer, camera, scene);
-    });
+    for (const d of Object.values(stationDisplays)) {
+      await runHeavyChunk(() => {
+        d?.userData?.prewarm?.(renderer, camera, scene);
+      }, { minIdleMs: 12 });
+    }
     hideAllContentDisplays();
     tick('预编译全息终端…');
-    await yieldToLoader();
+    await yieldToLoader(8);
 
     onProgress(0.89, '预编译实验室场景…');
-    try {
-      renderer.compile(scene, camera);
-    } catch {
-      // compile is best-effort
-    }
-    try {
-      renderer.render(scene, camera);
-    } catch { /* ignore */ }
+    // One full-scene compile at boot — not once per station/experiment.
+    await runHeavyChunk(() => {
+      try {
+        renderer.compile(scene, camera);
+      } catch {
+        // compile is best-effort
+      }
+    }, { minIdleMs: 24 });
+    await runHeavyChunk(() => {
+      try {
+        renderer.render(scene, camera);
+      } catch { /* ignore */ }
+    }, { minIdleMs: 12 });
     tick('预编译实验室场景…');
-    await yieldToLoader();
 
     for (const [stationId, stationJobs] of byStation) {
       const stationTitle = STATION_EXPERIMENTS[stationId]?.title || stationId;
@@ -3180,6 +3423,8 @@ async function warmAllLabResources(onProgress) {
         onProgress(ratioOf(), `预热器材：${job.label}`);
         await warmExperimentApparatus(job);
         tick(`器材就绪：${job.label}`);
+        // Extra breathing room after each apparatus so tab UI can process events.
+        await yieldToLoader(8);
       }
 
       // Every experiment content panel (not only the first card on the station).
@@ -3189,37 +3434,46 @@ async function warmAllLabResources(onProgress) {
         stationJobs.map((job) => job.exp),
         (sampleExp) => tick(`界面就绪：${sampleExp?.name || sampleExp?.id || ''}`),
       );
-      try {
-        renderer.compile(scene, camera);
-      } catch { /* ignore */ }
-      try {
-        renderer.render(scene, camera);
-      } catch { /* ignore */ }
+      // Present once per station (not full recompile of the whole room).
+      await runHeavyChunk(() => {
+        try {
+          const root = stationScenes[stationId]?.root;
+          if (root) {
+            root.updateWorldMatrix?.(true, true);
+            renderer.compile(root, camera);
+          }
+          renderer.render(scene, camera);
+        } catch { /* ignore */ }
+      }, { minIdleMs: 16 });
       tick(`${stationTitle} GPU 就绪`);
-      await yieldToLoader();
+      await yieldToLoader(10);
     }
 
     // Restore default electro / optics idle presentation.
-    try { equipment.electro?.setMode?.('hall'); } catch { /* ignore */ }
-    try { equipment.optics?.setMode?.('idle'); } catch { /* ignore */ }
-    const mechanicsPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'mechanics'
-      ? (new URLSearchParams(window.location.search).get('exp') || 'free-fall')
-      : null;
-    try { equipment.mechanics?.setMode?.(mechanicsPreview); } catch { /* ignore */ }
-    const thermoPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'thermo'
-      ? (new URLSearchParams(window.location.search).get('exp') || 'calorimetry')
-      : null;
-    try { equipment.thermo?.setMode?.(thermoPreview); } catch { /* ignore */ }
-    hideAllContentDisplays();
+    await runHeavyChunk(() => {
+      try { equipment.electro?.setMode?.('hall'); } catch { /* ignore */ }
+      try { equipment.optics?.setMode?.('idle'); } catch { /* ignore */ }
+      const mechanicsPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'mechanics'
+        ? (new URLSearchParams(window.location.search).get('exp') || 'free-fall')
+        : null;
+      try { equipment.mechanics?.setMode?.(mechanicsPreview); } catch { /* ignore */ }
+      const thermoPreview = import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'thermo'
+        ? (new URLSearchParams(window.location.search).get('exp') || 'calorimetry')
+        : null;
+      try { equipment.thermo?.setMode?.(thermoPreview); } catch { /* ignore */ }
+      hideAllContentDisplays();
+    }, { minIdleMs: 10 });
 
     onProgress(0.96, '预热完成…');
-    try {
-      renderer.render(scene, camera);
-    } catch { /* ignore */ }
-    await yieldToLoader();
-    hideAllContentDisplays();
+    await runHeavyChunk(() => {
+      try {
+        renderer.render(scene, camera);
+      } catch { /* ignore */ }
+      hideAllContentDisplays();
+    }, { minIdleMs: 12 });
   } finally {
     bootSuspendRender = false;
+    labLoader.setBusy?.(false);
   }
 }
 
@@ -4553,37 +4807,36 @@ window.addEventListener('resize', () => {
 const clock = new THREE.Clock();
 
 /**
- * Hard main-thread budget before WebGL present (ms).
- * Prefer late apparatus over a frozen camera — leftover work drains after render.
+ * Post-render only: canvas HUD paints / one-shot attach work.
+ * Keep this tight — after any heavy job the scheduler also inserts a
+ * camera-only cooldown frame so look/WASD stay continuous during switches.
  */
-const PRE_RENDER_BUDGET_MS = 7.5;
-const POST_RENDER_BUDGET_MS = 3.5;
-/** Skip non-essential station animators when the frame is already heavy. */
-let animatorCursor = 0;
-/**
- * After clicking an experiment card: pure free-look frames (render only).
- * No drain / no sim / no canvas paint until this timestamp — so the camera
- * never freezes on the click stack.
- */
-let interactionQuietUntil = 0;
-
-function beginInteractionQuiet(ms = 130) {
-  const until = performance.now() + ms;
-  if (until > interactionQuietUntil) interactionQuietUntil = until;
-}
+const POST_RENDER_BUDGET_MS = 3.0;
 
 function animate() {
+  // Schedule the next frame first so a long drain cannot delay rAF arming.
   requestAnimationFrame(animate);
-  const frameStart = performance.now();
+  // During boot prewarm, leave almost all main-thread budget to warm chunks +
+  // loader paints so browser chrome (tabs / back) stays responsive.
+  if (bootSuspendRender) {
+    labFrameScheduler.drain(1);
+    return;
+  }
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
-  const nowMs = frameStart;
+  const nowMs = performance.now();
   const arActive = !!handTracking?.isActive();
-  const elapsed = () => performance.now() - frameStart;
+  const softSwitch = !!labFrameScheduler.softSwitchActive?.();
+  labFrameScheduler.tickSoftSwitch?.();
 
   // Camera inference is throttled internally and only runs in user-enabled AR mode.
-  handTracking?.update(nowMs);
-  const arState = arInteractionController?.update(nowMs);
+  // During experiment switch, skip AR vision work — it steals frames from look/WASD.
+  if (!softSwitch) {
+    handTracking?.update(nowMs);
+  }
+  const arState = (!softSwitch && arActive)
+    ? arInteractionController?.update(nowMs)
+    : null;
 
   if (controls.isLocked || arActive) {
     velocity.x -= velocity.x * 9.0 * dt;
@@ -4629,19 +4882,16 @@ function animate() {
     camera.position.y = THREE.MathUtils.clamp(camera.position.y, BOUND.minY, BOUND.maxY);
   }
 
-  // While apparatus is still loading after a switch, skip sim + heavy animators
-  // so the camera never contends with attach/reset/canvas paint.
-  const apparatusLoading = !!(
-    expManager?.state?.running
-    && expManager.state.data
-    && expManager.state.data._apparatusReady === false
-  );
-  const interactionQuiet = performance.now() < interactionQuietUntil;
-  // Free-look only: after experiment-card click, do not touch sim or budget jobs.
-  const freezeSim = interactionQuiet || apparatusLoading;
+  // Soft switch: camera + present + tiny budget only. No focus raycasts,
+  // station animators, or dense interaction — that was the remaining freeze.
+  if (softSwitch) {
+    renderer.render(scene, camera);
+    labFrameScheduler.drain(2.5);
+    return;
+  }
 
-  // experiment simulation — must stay responsive, but yield if the frame is late
-  if (expManager && !freezeSim && elapsed() < PRE_RENDER_BUDGET_MS) {
+  // experiment simulation — every frame, same as the standalone sources
+  if (expManager) {
     syncMouseDragState();
     const handInteraction = handTracking?.getPrimaryInteraction();
     const pointerTarget = controls.isLocked ? getFocusTarget() : null;
@@ -4679,58 +4929,28 @@ function animate() {
     }
   }
 
-  // During boot prewarm the loader owns the main thread budget: skip the full
-  // WebGL present so GSAP / spinner animations stay smooth under the cover.
-  if (bootSuspendRender) {
-    // Still drain tiny deferred jobs so boot prep does not rely on present.
-    labFrameScheduler.drain(2);
-    return;
+  // All station animators every frame (particles, rays, holo float).
+  // Time-slicing here made migrated benches stutter while looking around.
+  for (const fn of animators) {
+    try { fn(t); } catch { /* never let one station freeze the lab */ }
   }
 
-  // Station animators (particles, deferred rays, holos). Skip entirely while a
-  // switch is still loading apparatus; otherwise time-slice against the budget.
-  if (!freezeSim && animators.length && elapsed() < PRE_RENDER_BUDGET_MS) {
-    const n = animators.length;
-    const start = animatorCursor % n;
-    for (let i = 0; i < n; i += 1) {
-      if (elapsed() >= PRE_RENDER_BUDGET_MS) {
-        animatorCursor = (start + i) % n;
-        break;
-      }
-      try {
-        animators[(start + i) % n](t);
-      } catch { /* never let one station freeze the lab */ }
-      if (i === n - 1) animatorCursor = 0;
-    }
-  }
-
-  // ── Present first. Smoothness > completeness. ──
   renderer.render(scene, camera);
 
-  // Leftover budget: HUD paints, experiment attach, soft prewarm — never block render.
-  // CRITICAL: during interactionQuiet (just clicked an experiment card) do NOT
-  // drain at all — even a 15ms canvas paint here freezes mouse-look for a frame.
-  if (!interactionQuiet) {
-    const postBudget = apparatusLoading ? 2.0 : POST_RENDER_BUDGET_MS;
-    labFrameScheduler.drain(postBudget);
-  }
+  // One-shot HUD / attach work only — never block the next frame's sim.
+  labFrameScheduler.drain(POST_RENDER_BUDGET_MS);
 }
 
 function startExperimentSafe(expId) {
   if (!expId) return;
-  // Click handler must return in <1ms. Enqueue only; start after quiet free-look.
-  // Prepared labs only need a short free-look buffer — long quiet delayed the
-  // already-warmed full HUD paint and felt like a first-switch hitch.
-  const ready = preparedExperimentIds.has(expId);
-  beginInteractionQuiet(ready ? 48 : 140);
-  labFrameScheduler.schedule(`cli:start:${expId}`, () => {
-    if (!preparedExperimentIds.has(expId)) {
-      labFrameScheduler.schedule(`warm:${expId}`, () => {
-        try { prepareExperiment(expId); } catch { /* best-effort */ }
-      }, { priority: 75 });
-    }
-    expManager?.startExperiment(expId);
-  }, { priority: 200 });
+  // Never run prepareExperiment on the click microtask — that freezes the view.
+  // Bookkeeping + HUD schedule only; GPU warm (if somehow missing) is one budget job.
+  if (!preparedExperimentIds.has(expId)) {
+    labFrameScheduler.schedule(`exp:prepare:${expId}`, () => {
+      try { prepareExperiment(expId); } catch { /* best-effort */ }
+    }, { priority: 80 });
+  }
+  expManager?.startExperiment(expId);
 }
 
 mountUi({
@@ -4755,19 +4975,18 @@ animate();
 
 // ── Boot gate: assets + GPU prewarm must complete before the lab is revealed ──
 const bootStarted = performance.now();
-const MIN_BOOT_MS = 700;
-
-function nextFrame() {
-  return new Promise((resolve) => requestAnimationFrame(resolve));
-}
+const MIN_BOOT_MS = 500;
 
 /** Present a few frames so the first visible image is the lab, not an empty buffer. */
 async function paintReadyFrames() {
   labLoader.setProgress(0.97, '渲染首帧…');
   for (let i = 0; i < 3; i++) {
-    renderer.render(scene, camera);
+    await runHeavyChunk(() => {
+      try {
+        renderer.render(scene, camera);
+      } catch { /* ignore */ }
+    }, { minIdleMs: 8 });
     labLoader.setProgress(0.97 + (i + 1) * 0.008, '渲染首帧…');
-    await nextFrame();
   }
 }
 
@@ -4778,6 +4997,8 @@ async function bootReveal() {
       Promise.all(portraitLoadPromises),
       new Promise((r) => setTimeout(r, 4000)),
     ]);
+    // Let portrait decode / layout settle before the heavy prewarm wave.
+    await yieldToBrowser(16);
     labLoader.setProgress(0.88, '预热实验器材…');
     // Heavy compile + first geometry builds happen while the loader covers the view.
     await warmAllLabResources((ratio, status) => labLoader.setProgress(ratio, status));
@@ -4788,7 +5009,8 @@ async function bootReveal() {
 
     labLoader.setProgress(1, '系统就绪 · 欢迎进入实验室');
     await labLoader.finish();
-  } catch {
+  } catch (err) {
+    console.warn('[boot] reveal failed, using fallback warm', err);
     // Best-effort fallback: still try a quick warm so entry is not bare.
     try {
       Object.entries(STATION_EXPERIMENTS).forEach(([sid, st]) => {
@@ -4796,7 +5018,9 @@ async function bootReveal() {
       });
     } catch { /* ignore */ }
     await paintReadyFrames().catch(() => {});
-    await labLoader.finish();
+    try {
+      await labLoader.finish();
+    } catch { /* ignore */ }
   }
 }
 

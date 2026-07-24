@@ -448,17 +448,35 @@ export function createHandlers(ctx) {
 
   function applyVisualDefaults(expId) {
     // Visibility only (this function itself runs on the frame budget).
-    // Source reset is a *second* budget job — liquid mesh rebuild must never
-    // run inside the pre-render expManager.update path.
+    // Heavy source reset is a *second* budget job — never stack with setMode.
     equipment.thermo?.setMode?.(expId);
     state.data._awaitThermoReset = null;
+    labFrameScheduler.rest?.(1);
     labFrameScheduler.schedule(`thermo:reset:${expId}`, () => {
       if (!state.running || state.expId !== expId || !state.data) return;
       try {
+        // 固体热膨胀 is pure parametric geometry. Hard reset + material/geometry
+        // thrash on every open was a first-switch hitch; soft-sync host state.
+        // (cleanup() still hard-resets so re-entry stays clean.)
+        if (expId === 'thermal-expansion') {
+          const src = equipment.thermo?.sourceExperiments?.['thermal-expansion'];
+          const d = state.data;
+          if (src?.params && d) {
+            src.params.temperature = d.temperature;
+            src.params.length0 = d.length0;
+            src.params.material = d.material;
+            src._applyMaterialLook?.();
+            src._updateGeometry?.(true);
+          }
+          equipment.thermo?.updateState?.(expId, d, { forceVisual: false });
+          labFrameScheduler.rest?.(1);
+          return;
+        }
         equipment.thermo?.reset?.(expId);
         equipment.thermo?.updateState?.(expId, state.data, { forceVisual: true });
+        labFrameScheduler.rest?.(1);
       } catch { /* ignore */ }
-    }, { priority: 65 });
+    }, { priority: expId === 'thermal-expansion' ? 38 : 40 });
   }
 
   /**

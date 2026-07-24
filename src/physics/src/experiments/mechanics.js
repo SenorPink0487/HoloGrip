@@ -205,12 +205,14 @@ export function createHandlers(ctx) {
     const defaults = { ...(definition?.defaults || {}) };
     // Visibility only on this budget pulse (attach content, hide others).
     equipment.mechanics?.setMode?.(expId, defaults, { reset: false, snapshot: false });
-    // Soft-reset (clock + park balls) on a later pulse — never stack with setMode.
+    // Soft-reset on a later pulse with a camera rest frame between.
+    labFrameScheduler.rest?.(1);
     labFrameScheduler.schedule(`mech:reset:${expId}`, () => {
       if (state.expId !== expId || !state.running) return;
       const snapshot = equipment.mechanics?.reset?.(expId, defaults);
       mergeSnapshot(snapshot, false);
-    }, { priority: 55 });
+      labFrameScheduler.rest?.(1);
+    }, { priority: 40 });
   }
 
   function onUiAction(action, payload = {}) {

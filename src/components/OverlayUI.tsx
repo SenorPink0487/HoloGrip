@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useARStore, HandState, MathShape } from '../store';
 import { cn } from '../lib/utils';
-import { Box, Cylinder, Cone, Triangle, PenTool, Cuboid, Palette, Eraser, Trash2, Unplug, Upload, X, Network, Ruler, Camera } from 'lucide-react';
+import { Box, Cylinder, Cone, Triangle, PenTool, Cuboid, Palette, Eraser, Trash2, Unplug, Upload, X, Network, Ruler, Camera, Scan } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { parseGeometryImage } from '../lib/gemini';
 import { normalizeVertices } from '../lib/geometry';
@@ -34,6 +34,12 @@ export function OverlayUI() {
   const setLineDrawingActive = useARStore(state => state.setLineDrawingActive);
   const isXYZDrawingActive = useARStore(state => state.isXYZDrawingActive);
   const setXYZDrawingActive = useARStore(state => state.setXYZDrawingActive);
+  const isSectionPlaneActive = useARStore(state => state.isSectionPlaneActive);
+  const setSectionPlaneActive = useARStore(state => state.setSectionPlaneActive);
+  const sectionDraftPoints = useARStore(state => state.sectionDraftPoints);
+  const sectionPlanes = useARStore(state => state.sectionPlanes);
+  const clearSectionDraft = useARStore(state => state.clearSectionDraft);
+  const clearSectionPlanes = useARStore(state => state.clearSectionPlanes);
   const snappedPointInfo = useARStore(state => state.snappedPointInfo);
   const activeLineStart = useARStore(state => state.activeLineStart);
   const showAllLengths = useARStore(state => state.showAllLengths);
@@ -105,29 +111,30 @@ export function OverlayUI() {
   // 工具按钮 3 态循环：
   //   未激活+面板关 → 激活+面板开 → 激活+面板关 → 未激活+面板关
   // “激活”定义：
-  //   - 绘图：isPenActive=true 或 isLineDrawingActive=true
-  //     （任一开启都视为绘图体系激活；面板内可在画笔/连线/橡皮擦间切换，
+  //   - 绘图：isPenActive / isLineDrawingActive / isXYZDrawingActive / isSectionPlaneActive
+  //     （任一开启都视为绘图体系激活；面板内可在画笔/连线/剖切/橡皮擦间切换，
   //      切换不影响 dock 三段式的激活态）
   //   - 模型：已选中某个模型（activeModel 或 activeCustomModelId）
   const handleTabClick = (tab: 'model' | 'pen') => {
     if (tab === 'pen') {
-      // dock 视角下，画笔与连线同属"绘图体系"，共享同一个三段式循环
-      const drawingActive = isPenActive || isLineDrawingActive || isXYZDrawingActive;
+      // dock 视角下，画笔与连线/剖切同属"绘图体系"，共享同一个三段式循环
+      const drawingActive = isPenActive || isLineDrawingActive || isXYZDrawingActive || isSectionPlaneActive;
 
       // 同时只展开一个面板：开画笔时关掉模型面板
       if (!drawingActive && !isPenPanelOpen) {
-        // 第一态 → 第二态：默认激活画笔并展开面板，用户可在面板内切到连线
+        // 第一态 → 第二态：默认激活画笔并展开面板，用户可在面板内切到连线/剖切
         setPenActive(true);
         setPenPanelOpen(true);
         setModelPanelOpen(false);
       } else if (drawingActive && isPenPanelOpen) {
-        // 第二态 → 第三态：保持当前工具(画笔或连线)激活，仅收起面板
+        // 第二态 → 第三态：保持当前工具激活，仅收起面板
         setPenPanelOpen(false);
       } else if (drawingActive && !isPenPanelOpen) {
         // 第三态 → 第一态：彻底取消绘图体系激活
         setPenActive(false);
         setLineDrawingActive(false);
         setXYZDrawingActive(false);
+        setSectionPlaneActive(false);
         setPenPanelOpen(false);
       } else {
         // 边界态：未激活但面板开着 → 收起面板回到第一态
@@ -522,7 +529,7 @@ export function OverlayUI() {
             <div className="w-px h-14 bg-white/20 mx-2 self-center rounded-full" />
 
             <DockButton 
-              active={isPenActive || isLineDrawingActive || isXYZDrawingActive} 
+              active={isPenActive || isLineDrawingActive || isXYZDrawingActive || isSectionPlaneActive} 
               onClick={() => handleTabClick('pen')}
               label="画笔工具"
             >
@@ -705,6 +712,21 @@ export function OverlayUI() {
             </button>
 
             <button 
+              onClick={() => {
+                setSectionPlaneActive(!isSectionPlaneActive);
+              }}
+              className={cn(
+                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
+                isSectionPlaneActive ? "bg-yellow-400/20 text-yellow-300 shadow-[0_0_12px_rgba(250,204,21,0.3)]" : "text-white/60 hover:bg-white/10"
+              )}
+            >
+              <Scan className="w-7 h-7 sm:w-8 sm:h-8" />
+              <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
+                剖切面（仅线上取点）
+              </span>
+            </button>
+
+            <button 
               onClick={() => toggleShowAllLengths()}
               className={cn(
                 "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
@@ -723,6 +745,7 @@ export function OverlayUI() {
               onClick={() => {
                 setIsEraser(!isEraser);
                 if (!isEraser && isLineDrawingActive) setLineDrawingActive(false);
+                if (!isEraser && isSectionPlaneActive) setSectionPlaneActive(false);
               }}
               className={cn(
                 "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
@@ -740,6 +763,8 @@ export function OverlayUI() {
                 window.dispatchEvent(new CustomEvent('holomath:whiteboard-local-clear'));
                 useARStore.getState().clearModelLines();
                 useARStore.getState().clearSurfaceStrokes();
+                useARStore.getState().clearSectionDraft();
+                useARStore.getState().clearSectionPlanes();
               }}
               className="relative group shrink-0 p-3 sm:p-4 rounded-full text-white/60 hover:bg-red-500/20 hover:text-red-400 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90"
             >
@@ -749,6 +774,40 @@ export function OverlayUI() {
               </span>
             </button>
           </div>
+
+          {/* 剖切工具：清空草稿点 / 清空已生成面 */}
+          {isSectionPlaneActive && (
+            <div className="flex max-w-full flex-nowrap items-center justify-center gap-2 pt-1 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <button
+                onClick={() => clearSectionDraft()}
+                disabled={sectionDraftPoints.length === 0}
+                className={cn(
+                  "relative group shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition-all active:scale-95",
+                  sectionDraftPoints.length === 0
+                    ? "bg-white/5 text-white/25 cursor-not-allowed"
+                    : "bg-white/10 text-white/80 hover:bg-white/15 hover:text-white"
+                )}
+                title="清空当前未成面的取点"
+              >
+                <X className="w-4 h-4" />
+                清空点
+              </button>
+              <button
+                onClick={() => clearSectionPlanes()}
+                disabled={sectionPlanes.length === 0}
+                className={cn(
+                  "relative group shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition-all active:scale-95",
+                  sectionPlanes.length === 0
+                    ? "bg-yellow-400/10 text-yellow-200/30 cursor-not-allowed"
+                    : "bg-yellow-400/20 text-yellow-300 hover:bg-yellow-400/30 shadow-[0_0_10px_rgba(250,204,21,0.15)]"
+                )}
+                title="清空所有已生成的剖切面"
+              >
+                <Trash2 className="w-4 h-4" />
+                清空面
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

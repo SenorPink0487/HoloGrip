@@ -22,6 +22,11 @@ export const ROTATION_TUNING = {
   arcballGain: 1.0,
   /** 双手 Roll(Z 轴) 灵敏度倍率 */
   rollGain: 1.0,
+  /**
+   * 轴约束模式角度倍率：angle = ndcDelta * orbitAngleGain * gain
+   * 典型 0.02 NDC × 3 × 1 ≈ 3.4°/帧
+   */
+  orbitAngleGain: 3.0,
   /** Slerp 平滑半衰期(秒)：值越小越跟手，越大越柔和。0.08s 在 60fps 下相当于 ~lerp(0.4) */
   slerpHalfLife: 0.06,
   /** 缩放(modelScale)的 lerp 半衰期(秒)。调小 → 缩放更跟手 */
@@ -243,6 +248,74 @@ export function computeArcballDelta(
   }
 
   outQ.setFromAxisAngle(_arcAxis, angle);
+  return true;
+}
+
+// ─────────────────────────────────────────────────────────────
+// 轴约束轨道：世界轴 / 模型局部轴
+// ─────────────────────────────────────────────────────────────
+
+const _axisX = new THREE.Vector3(1, 0, 0);
+const _axisY = new THREE.Vector3(0, 1, 0);
+const _tmpAxisQ = new THREE.Quaternion();
+
+/**
+ * 把 NDC 光标位移映射为「水平 yaw + 竖直 pitch」增量，并写到 targetQ 上。
+ *
+ * - world: premultiply 世界 X/Y（屏幕水平 → 绕竖直轴转，竖直 → 绕水平轴仰俯）
+ * - local: multiply  局部 X/Y（绕模型自身坐标轴转，适合对齐棱/面）
+ *
+ * 轴约束模式下不做斜向混合成单轴：dx、dy 可同时生效，但始终只绕正交轴，便于对齐。
+ *
+ * @returns 是否写入了有效旋转
+ */
+export function applyAxisOrbitDelta(
+  targetQ: THREE.Quaternion,
+  prevX: number,
+  prevY: number,
+  currX: number,
+  currY: number,
+  gain: number,
+  mode: 'world' | 'local',
+): boolean {
+  const dx = currX - prevX;
+  const dy = currY - prevY;
+  if (dx * dx + dy * dy < ROTATION_TUNING.cursorDeadzone * ROTATION_TUNING.cursorDeadzone) {
+    return false;
+  }
+
+  const scale = ROTATION_TUNING.orbitAngleGain * gain;
+  // 水平右滑 → 绕竖直轴逆时针（符合常见 3D 查看器）
+  let yaw = -dx * scale;
+  // 上滑 → 抬头（绕 X 负向或正向：取 dy 正方向为俯仰）
+  let pitch = dy * scale;
+
+  yaw = clampMag(yaw, ROTATION_TUNING.maxAngleStepPerFrame);
+  pitch = clampMag(pitch, ROTATION_TUNING.maxAngleStepPerFrame);
+
+  if (Math.abs(yaw) < 1e-6 && Math.abs(pitch) < 1e-6) return false;
+
+  if (mode === 'world') {
+    // 世界空间：先 yaw(Y) 再 pitch(X)
+    if (Math.abs(yaw) >= 1e-6) {
+      _tmpAxisQ.setFromAxisAngle(_axisY, yaw);
+      targetQ.premultiply(_tmpAxisQ);
+    }
+    if (Math.abs(pitch) >= 1e-6) {
+      _tmpAxisQ.setFromAxisAngle(_axisX, pitch);
+      targetQ.premultiply(_tmpAxisQ);
+    }
+  } else {
+    // 局部空间：右乘局部轴旋转
+    if (Math.abs(yaw) >= 1e-6) {
+      _tmpAxisQ.setFromAxisAngle(_axisY, yaw);
+      targetQ.multiply(_tmpAxisQ);
+    }
+    if (Math.abs(pitch) >= 1e-6) {
+      _tmpAxisQ.setFromAxisAngle(_axisX, pitch);
+      targetQ.multiply(_tmpAxisQ);
+    }
+  }
   return true;
 }
 

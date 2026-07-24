@@ -316,7 +316,7 @@ export function createHandlers(ctx) {
     data.fresnel = (aperture * aperture) / (lambda * data.distM);
     data.farField = data.fresnel < 0.15;
     data.halfSpanMm = diffractionHalfSpan(data) * 1e3;
-    // Switch path may defer the 640×240 canvas paint to the next animation frame.
+    // Fringe canvas is progressive unless caller asks for syncPaint / full force paint.
     equipment.optics?.updateOptics?.(data, opts);
     data._opticsDirty = false;
     if (refresh) pushHud();
@@ -414,21 +414,69 @@ export function createHandlers(ctx) {
       state.data._opticsDirty = false;
     }
     if (isGeometricOpticsExp(expId)) {
-      // Visibility only on this frame; full raytrace flushes next animator tick.
-      equipment.optics.setMode?.('geometric');
-      state.data._awaitRayFlush = true;
-      // Cancel any leftover deferred diffraction paint from a prior experiment.
+      // Soft multi-frame open: visibility → mesh → one-beam-at-a-time trace → HUD.
       equipment.optics.cancelDeferred?.();
-      syncGeometric(state.data, false, { defer: true });
+      equipment.optics.setMode?.('geometric');
+      state.data._awaitRayFlush = false;
+      labFrameScheduler.beginSoftSwitch?.(20);
+      labFrameScheduler.rest?.(1);
+      labFrameScheduler.scheduleChain?.('optics:open-geo', [
+        () => {
+          if (!state.running || state.expId !== expId || !state.data) return;
+          syncGeometric(state.data, false, { defer: true });
+          applyAnalyticAngles(state.data);
+          applyVerifyFields(state.data);
+        },
+        () => {
+          if (!state.running || state.expId !== expId || !state.data) return;
+          // Progressive raytrace: 1 beam per coop slice (~3ms) + rest frames.
+          labFrameScheduler.scheduleCoop?.('optics:rays', () => {
+            if (!state.running || state.expId !== expId) return false;
+            const more = equipment.optics?.stepDeferredGeometry?.();
+            if (more === true) return true;
+            // Finished (or nothing pending) — publish angles once.
+            const snap = equipment.optics?.snapshotGeometric?.();
+            if (snap && state.data) {
+              state.data.theta1 = snap.theta1;
+              state.data.theta2 = snap.theta2;
+              state.data.thetaReflect = snap.thetaReflect;
+              state.data.thetaRefract = snap.thetaRefract;
+              applyVerifyFields(state.data);
+            }
+            return false;
+          }, { priority: 36, sliceMs: 3, restFrames: 1 });
+        },
+        () => {
+          if (!state.running || state.expId !== expId) return;
+          pushHud();
+        },
+      ], { priority: 42, restFrames: 1 });
       return;
     }
     equipment.optics.setMode?.('diffraction');
     if (expId === 'multi_slit_diffraction') {
-      // Cancel leftover geometric deferred rays; fringe paint may still defer.
       equipment.optics.cancelDeferred?.();
-      // Signature match after prewarm → no canvas work; else defer paint.
-      state.data._awaitDiffFlush = true;
-      syncDiffraction(state.data, false, { defer: true });
+      state.data._awaitDiffFlush = false;
+      labFrameScheduler.beginSoftSwitch?.(20);
+      labFrameScheduler.rest?.(1);
+      labFrameScheduler.scheduleChain?.('optics:open-diff', [
+        () => {
+          if (!state.running || state.expId !== expId || !state.data) return;
+          // Geometry + start progressive fringe paint (never a single 640×H hitch).
+          syncDiffraction(state.data, false, { force: false });
+        },
+        () => {
+          if (!state.running || state.expId !== expId) return;
+          labFrameScheduler.scheduleCoop?.('optics:fringe', () => {
+            if (!state.running || state.expId !== expId) return false;
+            return equipment.optics?.stepDiffractionPaint?.() === true;
+          }, { priority: 36, sliceMs: 3, restFrames: 1 });
+        },
+        () => {
+          if (!state.running || state.expId !== expId) return;
+          pushHud();
+        },
+      ], { priority: 42, restFrames: 1 });
     }
   }
 
@@ -1065,6 +1113,7 @@ export function createHandlers(ctx) {
       if (data._awaitRayFlush) {
         data._awaitRayFlush = false;
         const expId = state.expId;
+        labFrameScheduler.rest?.(1);
         labFrameScheduler.schedule('optics:ray-flush', () => {
           if (!state.running || state.expId !== expId || !state.data) return;
           const snap = equipment.optics?.flushDeferredGeometry?.()
@@ -1077,18 +1126,22 @@ export function createHandlers(ctx) {
             applyVerifyFields(state.data);
             pushHud();
           }
-        }, { priority: 55 });
+          labFrameScheduler.rest?.(1);
+        }, { priority: 40 });
       }
       if (data._opticsDirty) {
         data._opticsDirty = false;
         const expId = state.expId;
+        labFrameScheduler.rest?.(1);
         labFrameScheduler.schedule('optics:dirty-geo', () => {
           if (!state.running || state.expId !== expId || !state.data) return;
           syncGeometric(state.data, false);
-        }, { priority: 50 });
+          labFrameScheduler.rest?.(1);
+        }, { priority: 38 });
       }
       data._hudThrottle = (data._hudThrottle || 0) + dt;
-      if (data._hudThrottle > 0.35) {
+      // No HUD work while the station menu/panel is closed (avoids thrash after ×).
+      if (state.menuOpen && data._hudThrottle > 0.35) {
         data._hudThrottle = 0;
         pushHud();
       }
@@ -1099,18 +1152,24 @@ export function createHandlers(ctx) {
     // Only schedule fringe flush when switch path left work pending.
     if (data._awaitDiffFlush) {
       data._awaitDiffFlush = false;
+      labFrameScheduler.rest?.(1);
       labFrameScheduler.schedule('optics:diff-flush', () => {
         if (!state.running || state.expId !== 'multi_slit_diffraction') return;
         equipment.optics?.flushDeferredDiffraction?.();
-      }, { priority: 55 });
+        labFrameScheduler.rest?.(1);
+      }, { priority: 40 });
     }
     if (data._opticsDirty) {
       data._opticsDirty = false;
+      labFrameScheduler.rest?.(1);
       labFrameScheduler.schedule('optics:dirty-diff', () => {
         if (!state.running || state.expId !== 'multi_slit_diffraction' || !state.data) return;
         syncDiffraction(state.data, false);
-      }, { priority: 50 });
+        labFrameScheduler.rest?.(1);
+      }, { priority: 38 });
     }
+    // Demo / dirty HUD only while the station panel is open.
+    if (!state.menuOpen) return data;
     if (data.demoOn) {
       data.demoElapsed = (data.demoElapsed || 0) + dt;
       if (data.demoElapsed >= 0.08) {
@@ -1136,15 +1195,32 @@ export function createHandlers(ctx) {
     directManipulation = null;
     if (state.data) {
       state.data._awaitRayFlush = false;
+      state.data._awaitDiffFlush = false;
       state.data._opticsDirty = false;
       state.data.demoOn = false;
       state.data.dragArmed = false;
       state.data.dragging = false;
     }
-    equipment.optics?.clearIdentifyVisuals?.();
-    // Drop deferred ray/canvas work so idle showcase does not flush stale config.
-    equipment.optics?.cancelDeferred?.();
-    equipment.optics?.setMode?.('idle');
+    // Abort multi-frame open chains so they cannot flush into idle.
+    labFrameScheduler.cancel?.('optics:open-geo');
+    labFrameScheduler.cancel?.('optics:open-diff');
+    labFrameScheduler.cancel?.('optics:rays');
+    labFrameScheduler.cancel?.('optics:fringe');
+    labFrameScheduler.cancel?.('optics:ray-flush');
+    labFrameScheduler.cancel?.('optics:diff-flush');
+    labFrameScheduler.cancel?.('optics:dirty-geo');
+    labFrameScheduler.cancel?.('optics:dirty-diff');
+    labFrameScheduler.cancel?.('optics:freeze');
+    // Hide both geometric + diffraction (not idle showcase). Freeze is chunked.
+    try {
+      equipment.optics?.clearIdentifyVisuals?.();
+      equipment.optics?.cancelDeferred?.();
+      if (typeof equipment.optics?.hideAll === 'function') {
+        equipment.optics.hideAll();
+      } else {
+        equipment.optics?.setMode?.('off');
+      }
+    } catch { /* ignore */ }
   }
 
   return {

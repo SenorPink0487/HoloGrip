@@ -35,37 +35,50 @@ html, body {
   background: #eaf5ff;
   overflow: hidden;
   isolation: isolate;
+  /* Contain layout/paint so loader work does not thrash the whole document. */
+  contain: layout style paint;
+  /* Never block browser chrome hit-testing outside the page surface. */
+  pointer-events: none;
 }
 
 .loader-aurora {
   position: absolute;
-  inset: -20%;
+  inset: -10%;
   background:
-    radial-gradient(ellipse 50% 40% at 30% 30%, rgba(34, 211, 238, 0.35), transparent 55%),
-    radial-gradient(ellipse 45% 50% at 75% 65%, rgba(14, 165, 233, 0.28), transparent 50%),
-    radial-gradient(ellipse 40% 35% at 50% 90%, rgba(165, 243, 252, 0.45), transparent 45%),
+    radial-gradient(ellipse 50% 40% at 30% 30%, rgba(34, 211, 238, 0.28), transparent 55%),
+    radial-gradient(ellipse 45% 50% at 75% 65%, rgba(14, 165, 233, 0.2), transparent 50%),
     linear-gradient(165deg, #f0f9ff 0%, #e0f2fe 45%, #dbeafe 100%);
-  animation: loader-aurora-drift 10s ease-in-out infinite alternate;
+  /* Transform-only; paused while prewarm holds the main thread. */
+  animation: loader-aurora-drift 14s ease-in-out infinite alternate;
   pointer-events: none;
   z-index: 0;
+  will-change: transform;
 }
 
 @keyframes loader-aurora-drift {
-  from { transform: translate3d(-2%, -1%, 0) scale(1); }
-  to { transform: translate3d(2%, 1.5%, 0) scale(1.04); }
+  from { transform: translate3d(-1.5%, -0.8%, 0) scale(1); }
+  to { transform: translate3d(1.5%, 1%, 0) scale(1.03); }
 }
 
 .loader-grid {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(14, 165, 233, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(14, 165, 233, 0.06) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 20%, transparent 75%);
-  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 50%, #000 20%, transparent 75%);
+    linear-gradient(rgba(14, 165, 233, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(14, 165, 233, 0.05) 1px, transparent 1px);
+  background-size: 56px 56px;
+  /* Soft fade without full-screen mask recompute every frame */
+  opacity: 0.55;
   pointer-events: none;
   z-index: 0;
+}
+
+/* Heavy prewarm: freeze decorative motion so rAF budget goes to progress paints. */
+#loader.loader-busy .loader-aurora {
+  animation-play-state: paused;
+}
+#loader.loader-busy .loader-particle {
+  opacity: 0.35;
 }
 
 .loader-content {
@@ -115,7 +128,9 @@ html, body {
   z-index: 1;
   display: grid;
   place-items: center;
-  filter: drop-shadow(0 0 18px rgba(34, 211, 238, 0.45));
+  /* Soft glow without continuous filter repaint on the spinner host */
+  box-shadow: 0 0 28px rgba(34, 211, 238, 0.28);
+  border-radius: 50%;
 }
 
 .loader-particle {
@@ -124,7 +139,7 @@ html, body {
   height: 5px;
   border-radius: 50%;
   background: #67e8f9;
-  box-shadow: 0 0 10px #22d3ee, 0 0 18px rgba(14, 165, 233, 0.5);
+  box-shadow: 0 0 8px rgba(34, 211, 238, 0.65);
   z-index: 2;
 }
 
@@ -205,11 +220,10 @@ html, body {
   width: 24px;
   height: 12px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(255, 255, 255, 0.95), rgba(34, 211, 238, 0.4) 45%, transparent 70%);
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.9), rgba(34, 211, 238, 0.35) 45%, transparent 70%);
   transform: translate(-50%, -50%);
   will-change: left;
   pointer-events: none;
-  filter: blur(1px);
 }
 
 .loader-pct-wrap {

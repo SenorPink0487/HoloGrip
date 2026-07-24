@@ -12,6 +12,7 @@ import {
   gaussFluxParticleSpeed,
   gaussNormalFluxDensity,
 } from '../../experiments/electro.js';
+import { labFrameScheduler } from '../../frameBudget.js';
 
 /** Build and expose all electromagnetism-station apparatus. */
 export function createStationEquipment(ctx) {
@@ -1712,6 +1713,8 @@ export function createStationEquipment(ctx) {
 
     /** Skip full mesh raycast rebind when mode is unchanged (experiment re-entry). */
     let electroActiveMode = null;
+    /** id → frozen flag; freezeMatrixTree only when the flag flips (switch hitch). */
+    const electroFrozen = Object.create(null);
     const noopRaycast = () => {};
     const meshRaycastFn = THREE.Mesh.prototype.raycast;
     function gateGroupRaycasts(group, enabled) {
@@ -1720,27 +1723,81 @@ export function createStationEquipment(ctx) {
         if (child.isMesh) child.raycast = raycast;
       });
     }
+    /** Stop matrix walks on dense hidden apparatus (Gauss/Hall/Faraday…). */
+    function freezeMatrixTree(group, frozen) {
+      if (!group) return;
+      group.traverse((object) => {
+        object.matrixAutoUpdate = !frozen;
+        if (frozen) object.updateMatrix();
+      });
+    }
+    const electroModeGroups = [
+      ['hall', hallGroup],
+      ['hall-demo', hallDemoGroup],
+      ['gauss', gaussGroup],
+      ['electric-field', electricFieldGroup],
+      ['faraday', faradayGroup],
+      ['induced-e', inducedEGroup],
+    ];
     g.userData.setMode = (mode) => {
-      if (electroActiveMode === mode) return;
+      const next = mode || null;
+      if (electroActiveMode === next) return;
       const prev = electroActiveMode;
-      electroActiveMode = mode;
-      hallGroup.visible = mode === 'hall';
-      hallDemoGroup.visible = mode === 'hall-demo';
-      gaussGroup.visible = mode === 'gauss';
-      electricFieldGroup.visible = mode === 'electric-field';
-      faradayGroup.visible = mode === 'faraday';
-      inducedEGroup.visible = mode === 'induced-e';
-      electricFieldGroup.userData.setInteractive?.(mode === 'electric-field');
-      inducedEGroup.userData.setInteractive?.(mode === 'induced-e');
-      // Hidden Gauss / Faraday hit proxies still participate in raycasts; gate
-      // only on first bind or when entering/leaving those modes.
-      if (prev == null || mode === 'gauss' || prev === 'gauss') {
-        gateGroupRaycasts(gaussGroup, mode === 'gauss');
+      electroActiveMode = next;
+      // Phase 1 (this call): visibility + interaction flags only — camera-safe.
+      for (const [id, group] of electroModeGroups) {
+        group.visible = next === id;
       }
-      if (prev == null || mode === 'faraday' || prev === 'faraday') {
-        gateGroupRaycasts(faradayGroup, mode === 'faraday');
+      electricFieldGroup.userData.setInteractive?.(next === 'electric-field');
+      inducedEGroup.userData.setInteractive?.(next === 'induced-e');
+      if (prev == null || next === 'gauss' || prev === 'gauss') {
+        gateGroupRaycasts(gaussGroup, next === 'gauss');
+      }
+      if (prev == null || next === 'faraday' || prev === 'faraday') {
+        gateGroupRaycasts(faradayGroup, next === 'faraday');
+      }
+
+      // Phase 2 (later frames): freezeMatrixTree walks are the switch hitch.
+      // Split prev-freeze / next-unfreeze across rest frames so look/WASD keep rAF.
+      const freezeSteps = [];
+      if (prev && prev !== next) {
+        const prevGroup = electroModeGroups.find(([id]) => id === prev)?.[1];
+        if (prevGroup && electroFrozen[prev] !== true) {
+          freezeSteps.push(() => {
+            if (electroActiveMode === prev) return; // superseded
+            if (electroFrozen[prev] === true) return;
+            electroFrozen[prev] = true;
+            freezeMatrixTree(prevGroup, true);
+          });
+        }
+      }
+      if (next) {
+        const nextGroup = electroModeGroups.find(([id]) => id === next)?.[1];
+        if (nextGroup && electroFrozen[next] !== false) {
+          freezeSteps.push(() => {
+            if (electroActiveMode !== next) return;
+            if (electroFrozen[next] === false) return;
+            electroFrozen[next] = false;
+            freezeMatrixTree(nextGroup, false);
+          });
+        }
+      }
+      if (freezeSteps.length && labFrameScheduler?.scheduleChain) {
+        labFrameScheduler.scheduleChain('electro:freeze', freezeSteps, {
+          priority: 48,
+          restFrames: 1,
+        });
+      } else {
+        freezeSteps.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
       }
     };
+    // Boot: freeze every mode, then open the default Hall showcase (others stay frozen).
+    for (const [id, group] of electroModeGroups) {
+      group.visible = false;
+      electroFrozen[id] = true;
+      freezeMatrixTree(group, true);
+    }
+    g.userData.setMode('hall');
     g.userData.updateHallDemo = (d, dt) => hallDemoGroup.userData.update?.(d, dt);
     g.userData.updateGauss = (d, dt) => gaussGroup.userData.update?.(d, dt);
     g.userData.updateElectricField = (d, dt) => electricFieldGroup.userData.update?.(d, dt);

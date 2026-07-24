@@ -986,7 +986,7 @@ export function createHandTracking({
         type: 'init',
         wasmLoaderPath: workerWasmLoaderPath,
         wasmBinaryPath: workerWasmBinaryPath,
-        modelPath: `${MEDIAPIPE_BASE}/hand_landmarker.task`,
+        modelPath: '/assets/mediapipe/hand_landmarker.task',
         numHands: 2,
       });
     });
@@ -1009,9 +1009,9 @@ export function createHandTracking({
   async function ensureFallbackLandmarker() {
     if (fallbackLandmarker) return;
     const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
-    const vision = await FilesetResolver.forVisionTasks(`${MEDIAPIPE_BASE}/wasm`);
+    const vision = await FilesetResolver.forVisionTasks('/assets/mediapipe/wasm');
     fallbackLandmarker = await HandLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: `${MEDIAPIPE_BASE}/hand_landmarker.task` },
+      baseOptions: { modelAssetPath: '/assets/mediapipe/hand_landmarker.task' },
       runningMode: 'VIDEO',
       numHands: 2,
       minHandDetectionConfidence: 0.55,

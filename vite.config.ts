@@ -75,6 +75,9 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
+      // HoloPhysics boot uses top-level await (station cooperative load).
+      // Aligns with standalone wuli vite target (es2022 / chrome105+).
+      target: 'es2022',
       rollupOptions: {
         input: targetInputs[target] ?? targetInputs.all,
       },

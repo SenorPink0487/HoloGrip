@@ -12,6 +12,7 @@ import {
   getGeometricExperiment,
 } from '../../guangxue/catalog.js';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
+import { labFrameScheduler } from '../../frameBudget.js';
 
 /** Optics station: multi-slit diffraction + geometric optics (guangxue) bench. */
 export function createStationEquipment(ctx) {
@@ -348,47 +349,93 @@ export function createStationEquipment(ctx) {
         ));
       }
 
+      // Geometry/beams done; fringe paint is progressive (coop) so switch does
+      // not freeze the camera on a 640×H pixel loop.
       const W = diffScreenCanvas.width;
       const H = diffScreenCanvas.height;
       diffScreenCtx.fillStyle = '#030509';
       diffScreenCtx.fillRect(0, 0, W, H);
+      diffScreenTex.needsUpdate = true;
       if (lit) {
-        const image = diffScreenCtx.createImageData(W, H);
-        const pixels = image.data;
-        const half = diffractionHalfSpan(d);
-        for (let col = 0; col < W; col++) {
-          const x = ((col / (W - 1)) * 2 - 1) * half;
-          const intensity = diffractionIntensity(x, d);
-          const soft = Math.min(1, Math.pow(intensity / (intensity + 0.06), 0.8) * 1.08);
-          for (let row = 0; row < H; row++) {
-            const v = (row / (H - 1)) * 2 - 1;
-            const bright = soft * Math.exp(-v * v * 1.6);
-            const idx = (row * W + col) * 4;
-            pixels[idx] = 4 + Math.round(color.r * 245 * bright);
-            pixels[idx + 1] = 4 + Math.round(color.g * 245 * bright);
-            pixels[idx + 2] = 8 + Math.round(color.b * 245 * bright);
-            pixels[idx + 3] = 255;
+        diffPaint = {
+          col: 0,
+          W,
+          H,
+          half: diffractionHalfSpan(d),
+          color: color.clone(),
+          d: { ...d },
+          image: diffScreenCtx.createImageData(W, H),
+        };
+        if (opts.syncPaint) {
+          while (stepDiffractionPaint()) {
+            /* full paint for tests / non-switch */
           }
         }
-        diffScreenCtx.putImageData(image, 0, 0);
+      } else {
+        diffPaint = null;
       }
-      diffScreenTex.needsUpdate = true;
+    }
+
+    /** @type {null | { col: number, W: number, H: number, half: number, color: THREE.Color, d: object, image: ImageData }} */
+    let diffPaint = null;
+
+    /**
+     * Paint a batch of diffraction-screen columns. Returns true if more remain.
+     */
+    function stepDiffractionPaint() {
+      if (!diffPaint) return false;
+      const job = diffPaint;
+      const { W, H, half, color: colr, image } = job;
+      const pixels = image.data;
+      const batch = 48;
+      const end = Math.min(job.col + batch, W);
+      for (let col = job.col; col < end; col += 1) {
+        const x = ((col / (W - 1)) * 2 - 1) * half;
+        const intensity = diffractionIntensity(x, job.d);
+        const soft = Math.min(1, Math.pow(intensity / (intensity + 0.06), 0.8) * 1.08);
+        for (let row = 0; row < H; row += 1) {
+          const v = (row / (H - 1)) * 2 - 1;
+          const bright = soft * Math.exp(-v * v * 1.6);
+          const idx = (row * W + col) * 4;
+          pixels[idx] = 4 + Math.round(colr.r * 245 * bright);
+          pixels[idx + 1] = 4 + Math.round(colr.g * 245 * bright);
+          pixels[idx + 2] = 8 + Math.round(colr.b * 245 * bright);
+          pixels[idx + 3] = 255;
+        }
+      }
+      job.col = end;
+      if (job.col >= W) {
+        diffScreenCtx.putImageData(image, 0, 0);
+        diffScreenTex.needsUpdate = true;
+        diffPaint = null;
+        return false;
+      }
+      return true;
     }
 
     function flushDeferredDiffraction() {
-      if (!deferredDiffraction) return;
-      const pending = deferredDiffraction;
-      deferredDiffraction = null;
-      updateDiffraction(pending, { force: false });
+      if (!deferredDiffraction && !diffPaint) return;
+      if (deferredDiffraction) {
+        const pending = deferredDiffraction;
+        deferredDiffraction = null;
+        updateDiffraction(pending, { force: false, syncPaint: true });
+      } else {
+        while (stepDiffractionPaint()) {
+          /* finish partial paint */
+        }
+      }
     }
 
     function cancelDeferredDiffraction() {
       deferredDiffraction = null;
+      diffPaint = null;
     }
 
     function animateDiffraction(t, dt) {
       if (!diffractionGroup.visible) return;
-      flushDeferredDiffraction();
+      // Do NOT flushDeferredDiffraction here — that 640×H pixel paint was a
+      // pre-render hitch on experiment switch. Flush only via frame budget
+      // (optics:diff-flush) so camera/WASD keep a clean frame between steps.
       if (diffEmitter.visible) {
         diffEmitter.scale.setScalar(1 + 0.12 * Math.sin(t * 10));
         diffHalo.material.opacity = 0.3 + 0.2 * Math.sin(t * 7);
@@ -469,6 +516,7 @@ export function createStationEquipment(ctx) {
     g.userData.updateOptics = updateOptics;
     g.userData.updateDiffraction = updateDiffraction;
     g.userData.flushDeferredDiffraction = flushDeferredDiffraction;
+    g.userData.stepDiffractionPaint = stepDiffractionPaint;
     g.userData.cancelDeferredDiffraction = cancelDeferredDiffraction;
     g.userData.setPartState = setPartState;
     g.userData.clearIdentifyVisuals = clearIdentifyVisuals;
@@ -535,6 +583,17 @@ export function createStationEquipment(ctx) {
   // Rebuild rays after parenting so matrixWorld includes host scale.
   try { geoApi?.updateRays?.(); } catch { /* ignore */ }
 
+  function freezeMatrixTree(group, frozen) {
+    if (!group) return;
+    group.traverse((object) => {
+      object.matrixAutoUpdate = !frozen;
+      if (frozen) object.updateMatrix();
+    });
+  }
+  // Dense geometric island stays frozen until that mode is selected.
+  freezeMatrixTree(geoRig, true);
+  let geoFrozen = true;
+
   const decorBeakers = [];
   [
     { o: shared.makeBeaker(0.1, 0.03, 0xaaddff), p: [5.5, 0.93, -2.5] },
@@ -547,19 +606,76 @@ export function createStationEquipment(ctx) {
 
   let activeMode = 'idle';
 
-  /** Visibility-only mode switch — never runs full ray tracing / canvas paint. */
+  /**
+   * Visibility-only mode switch on the call stack.
+   * freezeMatrixTree on the dense geometric island is deferred / chunked so
+   * look/WASD keep animation frames during experiment switch and × close.
+   *
+   * mode:
+   *  - 'geometric' | experiment id → geometric island
+   *  - 'diffraction' | 'idle' → multi-slit showcase
+   *  - 'off' | null → hide all (close path — no idle showcase flash)
+   */
   function setMode(mode) {
-    const m = mode || 'idle';
+    const m = mode == null ? 'off' : mode;
     activeMode = m;
-    const geo = m === 'geometric' || isGeometricOpticsExp(m);
+    const off = m === 'off' || m === 'none' || m === 'hidden';
+    const geo = !off && (m === 'geometric' || isGeometricOpticsExp(m));
+    const showDiff = !off && !geo;
+
     geoRig.visible = geo;
     // Hide host diffraction showcase + decor when geometric island is active
-    optics.visible = !geo;
-    decorBeakers.forEach((b) => { b.visible = !geo; });
-    if (geo) {
-      optics.userData.setMode?.('geometric');
+    // or when fully off (× close must not re-show diffraction for a frame).
+    optics.visible = showDiff;
+    decorBeakers.forEach((b) => { b.visible = showDiff; });
+    if (!off) {
+      if (geo) optics.userData.setMode?.('geometric');
+      else optics.userData.setMode?.(m === 'idle' ? 'idle' : m);
     } else {
-      optics.userData.setMode?.(m);
+      optics.userData.setMode?.('idle');
+      if (optics.userData.diffractionGroup) {
+        optics.userData.diffractionGroup.visible = false;
+      }
+    }
+
+    // Defer freeze/unfreeze of the geometric island (large mesh tree).
+    // Use scheduleCoop to walk the tree in slices — a full traverse freezes look.
+    const wantFrozen = !geo;
+    if (geoFrozen === wantFrozen) return;
+
+    if (!wantFrozen && geoFrozen) {
+      // Unfreeze is needed for live animation; still defer off the click frame.
+      labFrameScheduler.schedule?.('optics:unfreeze', () => {
+        if (!geoRig.visible || !geoFrozen) return;
+        freezeMatrixTree(geoRig, false);
+        geoFrozen = false;
+      }, { priority: 35 });
+      return;
+    }
+
+    if (wantFrozen && !geoFrozen) {
+      // Chunked freeze after hide — camera keeps frames while we walk meshes.
+      const list = [];
+      geoRig.traverse((object) => { list.push(object); });
+      let i = 0;
+      const batch = 80;
+      labFrameScheduler.scheduleCoop?.('optics:freeze', () => {
+        if (geoRig.visible) {
+          // Mode became geometric again — abort freeze.
+          return false;
+        }
+        const end = Math.min(i + batch, list.length);
+        for (; i < end; i += 1) {
+          const object = list[i];
+          object.matrixAutoUpdate = false;
+          object.updateMatrix();
+        }
+        if (i >= list.length) {
+          geoFrozen = true;
+          return false;
+        }
+        return true;
+      }, { priority: 30, sliceMs: 2.5, restFrames: 1, maxPulses: 40 });
     }
   }
 
@@ -598,6 +714,17 @@ export function createStationEquipment(ctx) {
     return geoApi.flushDeferredRays?.() || null;
   }
 
+  /** One beam; returns true if more remain. For scheduleCoop. */
+  function stepDeferredGeometry() {
+    if (!geoRig.visible || !geoApi) return false;
+    if (typeof geoApi.stepRayBuild === 'function') {
+      if (!geoApi.raysPending) return false;
+      return !!geoApi.stepRayBuild();
+    }
+    flushDeferredGeometry();
+    return false;
+  }
+
   function cancelDeferred() {
     // Drop pending geometric ray rebuild + diffraction canvas paint so a
     // mid-switch exit cannot flush the previous experiment's config later.
@@ -610,6 +737,8 @@ export function createStationEquipment(ctx) {
   optics.userData.interactive = true;
   const equipment = {
     setMode,
+    /** Instant hide for × close — no diffraction idle flash, freeze deferred. */
+    hideAll: () => setMode('off'),
     updateOptics: (data, opts = {}) => {
       if (data?.mode === 'geometric' || isGeometricOpticsExp(data?.expId)) {
         setMode('geometric');
@@ -620,7 +749,9 @@ export function createStationEquipment(ctx) {
     },
     updateGeometric,
     flushDeferredGeometry,
+    stepDeferredGeometry,
     flushDeferredDiffraction: () => optics.userData.flushDeferredDiffraction?.(),
+    stepDiffractionPaint: () => optics.userData.stepDiffractionPaint?.() || false,
     cancelDeferred,
     snapshotGeometric: () => geoApi?.snapshot?.() || null,
     setPartState: (part, mode) => optics.userData.setPartState?.(part, mode),
@@ -690,8 +821,8 @@ export function createStationEquipment(ctx) {
     animators: [
       (t, dt) => {
         if (geoRig.visible) {
-          // Flush deferred full ray builds one frame after setMode (秒切).
-          flushDeferredGeometry();
+          // Never flushDeferredGeometry on the pre-render path — full raytrace
+          // freezes the camera. Flush only via labFrameScheduler (optics:ray-flush).
           geoApi?.animate?.(t);
         } else {
           optics.userData.animateDiffraction?.(t, dt);

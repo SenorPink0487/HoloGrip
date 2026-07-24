@@ -2,18 +2,20 @@ import { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Box, Sphere, Cylinder, Cone, Tetrahedron, Edges, Line, Text, Billboard, Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { useARStore, Point3D, CustomModel, MathShape, AuxiliaryLine } from '../store';
+import { useARStore, Point3D, CustomModel, MathShape, AuxiliaryLine, SectionPlane } from '../store';
 import { triangulateFaces } from '../lib/geometry';
 import { LineLengthLabel, PRESET_EDGE_DEFS } from './LineLengthLabel';
+
+/** 剖切面统一黄色 */
+const SECTION_PLANE_COLOR = '#facc15';
 import {
   ROTATION_TUNING,
   smoothingAlpha,
   oneEuroFilter,
   createOneEuroState,
-  computeArcballDelta,
-  computeRollDelta,
   computeScaleFactor,
   adaptiveSensitivity,
+  applyAxisOrbitDelta,
 } from '../lib/rotation';
 
 function GlassMaterial() {
@@ -184,6 +186,74 @@ function CustomEdges({ model }: { model: CustomModel }) {
 }
 
 /**
+ * 剖切面渲染：完整闭合连接后生成；不透明双面网格 + 闭合边框
+ */
+function SectionPlaneMesh({
+  plane,
+  isHovered = false,
+}: {
+  plane: SectionPlane;
+  isHovered?: boolean;
+}) {
+  const geometry = useMemo(() => {
+    const pts = plane.points;
+    if (pts.length < 3) return null;
+
+    const geom = new THREE.BufferGeometry();
+    const positions = new Float32Array(pts.length * 3);
+    for (let i = 0; i < pts.length; i++) {
+      positions[i * 3] = pts[i].x;
+      positions[i * 3 + 1] = pts[i].y;
+      positions[i * 3 + 2] = pts[i].z;
+    }
+    geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+
+    // 扇形三角化（点按用户拾取顺序）
+    const indices: number[] = [];
+    for (let i = 1; i < pts.length - 1; i++) {
+      indices.push(0, i, i + 1);
+    }
+    geom.setIndex(indices);
+    geom.computeVertexNormals();
+    return geom;
+  }, [plane]);
+
+  const borderPoints = useMemo(() => {
+    if (plane.points.length < 2) return null;
+    const closed = [...plane.points, plane.points[0]];
+    return closed.map((p) => new THREE.Vector3(p.x, p.y, p.z));
+  }, [plane]);
+
+  if (!geometry || !borderPoints) return null;
+
+  // 悬停（橡皮擦）时改色，仍保持不透明
+  const faceColor = isHovered ? '#f87171' : plane.color;
+  const edgeColor = isHovered ? '#fecaca' : '#eab308';
+
+  return (
+    <group>
+      <mesh geometry={geometry} renderOrder={1}>
+        <meshBasicMaterial
+          color={faceColor}
+          transparent={false}
+          opacity={1}
+          depthWrite
+          depthTest
+          side={THREE.DoubleSide}
+          toneMapped={false}
+        />
+      </mesh>
+      <Line
+        points={borderPoints}
+        color={edgeColor}
+        lineWidth={isHovered ? 5 : 3}
+        depthTest={false}
+      />
+    </group>
+  );
+}
+
+/**
  * 连线/画线过程中的实时长度标签：从 R3F 预览线 ref 读取端点，平滑且无 React 渲染开销地在 3D 空间更新
  */
 interface PreviewLengthLabelProps {
@@ -272,7 +342,9 @@ export function MathModel() {
   const dragPlaneZ = useRef<number>(0);
   const [hoveredLineIndex, setHoveredLineIndex] = useState<number | null>(null);
   const [selectedLineIndex, setSelectedLineIndex] = useState<number | null>(null);
+  const [hoveredSectionId, setHoveredSectionId] = useState<string | null>(null);
   const prevHovered = useRef<number | null>(null);
+  const prevHoveredSection = useRef<string | null>(null);
 
   // Smart inference snapping states & refs (SolidWorks style)
   const [inferenceActive, setInferenceActive] = useState<{
@@ -321,6 +393,8 @@ export function MathModel() {
   const customModels = useARStore(state => state.customModels);
   const presetDimensions = useARStore(state => state.presetDimensions);
   const snapPointsRef = useRef<{ coord: THREE.Vector3; label: string }[]>([]);
+  /** 模型棱边线段（局部坐标），剖切点仅允许落在这些线 + 用户连线上 */
+  const edgeSegmentsRef = useRef<[THREE.Vector3, THREE.Vector3][]>([]);
   const { camera, raycaster } = useThree();
 
   const logicalScale = useMemo(() => {
@@ -379,11 +453,13 @@ export function MathModel() {
         const edgeGeom = new THREE.EdgesGeometry(geom, activeModel === 'sphere' ? 15 : 45);
         const pos = edgeGeom.attributes.position;
         const points: { coord: THREE.Vector3; label: string }[] = [];
+        const segments: [THREE.Vector3, THREE.Vector3][] = [];
         
         if (pos) {
           for (let i = 0; i < pos.count; i += 2) {
             const p1 = new THREE.Vector3().fromBufferAttribute(pos as THREE.BufferAttribute, i);
             const p2 = new THREE.Vector3().fromBufferAttribute(pos as THREE.BufferAttribute, i + 1);
+            segments.push([p1.clone(), p2.clone()]);
             
             points.push({ coord: p1, label: '顶点' });
             points.push({ coord: p2, label: '顶点' });
@@ -399,6 +475,20 @@ export function MathModel() {
                 points.push({ coord: p1.clone().lerp(p2, t), label: `线段整数点 (距离端点: ${k})` });
               }
             }
+          }
+        }
+
+        // 自定义模型优先使用语义棱边
+        if (activeCustomModel?.edges?.length) {
+          segments.length = 0;
+          for (const edge of activeCustomModel.edges) {
+            const v1 = activeCustomModel.vertices[edge[0]];
+            const v2 = activeCustomModel.vertices[edge[1]];
+            if (!v1 || !v2) continue;
+            segments.push([
+              new THREE.Vector3(v1.x, v1.y, v1.z),
+              new THREE.Vector3(v2.x, v2.y, v2.z),
+            ]);
           }
         }
 
@@ -418,10 +508,11 @@ export function MathModel() {
         });
 
         snapPointsRef.current = uniquePoints;
+        edgeSegmentsRef.current = segments;
     } catch(e) {
         console.error(e);
     }
-  }, [activeModel, activeCustomModel]);
+  }, [activeModel, activeCustomModel, logicalScale]);
   
   // A plane facing the camera, fixed at z=0, used to compute drag motion in 3D
   const dragPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), 0);
@@ -455,10 +546,13 @@ export function MathModel() {
     const isEraser = store.isEraser;
     const isLineDrawingActive = store.isLineDrawingActive;
     const isXYZDrawingActive = store.isXYZDrawingActive;
+    const isSectionPlaneActive = store.isSectionPlaneActive;
     const modelLinesStore = store.modelLines;
+    const sectionDraft = store.sectionDraftPoints;
+    const sectionPlanesStore = store.sectionPlanes;
 
-    // Only allow vertex connection if line drawing or XYZ axis drawing is active and not erasing
-    if ((isLineDrawingActive || isXYZDrawingActive) && !isEraser && rightHand.isVisible && !leftPinching) {
+    // 连线 / XYZ / 剖切 任一激活时允许顶点吸附与拾取
+    if ((isLineDrawingActive || isXYZDrawingActive || isSectionPlaneActive) && !isEraser && rightHand.isVisible && !leftPinching) {
       raycaster.setFromCamera(rightHand.cursor, camera);
       const ray = raycaster.ray;
 
@@ -477,6 +571,9 @@ export function MathModel() {
         const refPointLocal = new THREE.Vector3(0, 0, 0);
         if (store.activeLineStart) {
           refPointLocal.set(store.activeLineStart.x, store.activeLineStart.y, store.activeLineStart.z);
+        } else if (isSectionPlaneActive && sectionDraft.length > 0) {
+          const last = sectionDraft[sectionDraft.length - 1];
+          refPointLocal.set(last.x, last.y, last.z);
         }
         const refPointWorld = refPointLocal.clone().applyMatrix4(meshRef.current.matrixWorld);
         billboardPlane.setFromNormalAndCoplanarPoint(planeNormal, refPointWorld);
@@ -611,6 +708,127 @@ export function MathModel() {
               ? `${axisInfo.name}对齐 (对齐顶点, 长度: ${roundedLogicalLen})` 
               : `${axisInfo.name}对齐 (长度: ${roundedLogicalLen})`;
           }
+        } else if (isSectionPlaneActive) {
+          // ── 剖切模式：节点只能落在已有线上（模型棱边 + 用户连线）──
+          const aspect = window.innerWidth / window.innerHeight;
+          const cursorNDC = new THREE.Vector2(rightHand.cursor.x, rightHand.cursor.y);
+          // 屏上距离阈值（NDC，已乘 aspect）：约 6% 屏高
+          const ON_LINE_THRESH_SQ = 0.0035;
+
+          const collectSectionSegments = (): [THREE.Vector3, THREE.Vector3][] => {
+            const segs: [THREE.Vector3, THREE.Vector3][] = edgeSegmentsRef.current.map(
+              ([a, b]) => [a.clone(), b.clone()]
+            );
+            for (let i = 0; i < modelLinesStore.length; i++) {
+              const ml = modelLinesStore[i];
+              const p1 = new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z);
+              const p2 = new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z);
+              if (ml.isAuxiliary) {
+                const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+                const a = ml.extendBefore > 0
+                  ? p1.clone().sub(dir.clone().multiplyScalar(ml.extendBefore))
+                  : p1;
+                const b = ml.extendAfter > 0
+                  ? p2.clone().add(dir.clone().multiplyScalar(ml.extendAfter))
+                  : p2;
+                segs.push([a, b]);
+              } else {
+                segs.push([p1, p2]);
+              }
+            }
+            return segs;
+          };
+
+          const segs = collectSectionSegments();
+
+          // 1) 离散吸附：端点 / 整数点（本身都在线上）
+          for (let i = 0; i < snapPointsRef.current.length; i++) {
+            const sp = snapPointsRef.current[i];
+            checkSnapPoint(sp.coord, sp.label.startsWith('吸附：') ? sp.label : `吸附：${sp.label}`);
+          }
+          for (let i = 0; i < modelLinesStore.length; i++) {
+            const ml = modelLinesStore[i];
+            const p1 = new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z);
+            const p2 = new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z);
+            checkSnapPoint(p1, '吸附：连线端点');
+            checkSnapPoint(p2, '吸附：连线端点');
+            const p1Scale = p1.clone().multiply(logicalScale);
+            const p2Scale = p2.clone().multiply(logicalScale);
+            const D_log = p1Scale.distanceTo(p2Scale);
+            const numPoints = Math.floor(D_log - 1e-4);
+            for (let k = 1; k <= numPoints; k++) {
+              const t = k / D_log;
+              if (t > 0 && t < 1) {
+                checkSnapPoint(p1.clone().lerp(p2, t), `吸附：连线整数点 (${k})`);
+              }
+            }
+          }
+
+          // 2) 连续吸附：光标在屏上到线段最近点（保证点严格落在线上）
+          for (let i = 0; i < segs.length; i++) {
+            const [aLocal, bLocal] = segs[i];
+            const aWorld = aLocal.clone().applyMatrix4(meshRef.current.matrixWorld);
+            const bWorld = bLocal.clone().applyMatrix4(meshRef.current.matrixWorld);
+            const aCam = aWorld.clone().applyMatrix4(camera.matrixWorldInverse);
+            const bCam = bWorld.clone().applyMatrix4(camera.matrixWorldInverse);
+            if (aCam.z > 0 && bCam.z > 0) continue;
+
+            const aNDC = aWorld.clone().project(camera);
+            const bNDC = bWorld.clone().project(camera);
+            const ax = aNDC.x * aspect;
+            const ay = aNDC.y;
+            const bx = bNDC.x * aspect;
+            const by = bNDC.y;
+            const cx = cursorNDC.x * aspect;
+            const cy = cursorNDC.y;
+            const vx = bx - ax;
+            const vy = by - ay;
+            const lenSq = vx * vx + vy * vy;
+            if (lenSq < 1e-12) continue;
+            let t = ((cx - ax) * vx + (cy - ay) * vy) / lenSq;
+            t = Math.max(0, Math.min(1, t));
+            const px = ax + vx * t;
+            const py = ay + vy * t;
+            const distSq = (cx - px) * (cx - px) + (cy - py) * (cy - py);
+            if (distSq < ON_LINE_THRESH_SQ && distSq < closestDistSq) {
+              closestDistSq = distSq;
+              closestVertLocal.copy(aLocal).lerp(bLocal, t);
+              foundVertex = true;
+              matchedSnapLabel = '吸附：棱边/连线';
+            }
+          }
+
+          // 3) 用户连线之间的交点（也在线上）
+          const drawnSegs: [THREE.Vector3, THREE.Vector3][] = modelLinesStore.map((ml) => [
+            new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z),
+            new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z),
+          ]);
+          for (let i = 0; i < drawnSegs.length; i++) {
+            for (let j = i + 1; j < drawnSegs.length; j++) {
+              const [a1, a2] = drawnSegs[i];
+              const [b1, b2] = drawnSegs[j];
+              const d1 = new THREE.Vector3().subVectors(a2, a1);
+              const d2 = new THREE.Vector3().subVectors(b2, b1);
+              const r = new THREE.Vector3().subVectors(a1, b1);
+              const a = d1.dot(d1);
+              const e = d2.dot(d2);
+              const f = d2.dot(r);
+              const denom = a * e - d1.dot(d2) * d1.dot(d2);
+              if (Math.abs(denom) > 1e-8) {
+                const b = d1.dot(d2);
+                const c = d1.dot(r);
+                let s = (b * f - c * e) / denom;
+                let t = (a * f - b * c) / denom;
+                s = Math.max(0, Math.min(1, s));
+                t = Math.max(0, Math.min(1, t));
+                const cp1 = a1.clone().add(d1.clone().multiplyScalar(s));
+                const cp2 = b1.clone().add(d2.clone().multiplyScalar(t));
+                if (cp1.distanceTo(cp2) < 0.05) {
+                  checkSnapPoint(cp1.clone().add(cp2).multiplyScalar(0.5), '吸附：交点');
+                }
+              }
+            }
+          }
         } else {
           // 1. Check original geometry snap points
           for (let i = 0; i < snapPointsRef.current.length; i++) {
@@ -691,8 +909,9 @@ export function MathModel() {
 
 
         // --- 智能几何推导吸附逻辑 (SolidWorks 风格) ---
+        // 剖切模式不强制轴向吸附，保留顶点/棱边吸附即可
         let inferenceMatch = null;
-        if (isLineDrawingActive && !isXYZDrawingActive && !isEraser && store.activeLineStart && !foundVertex) {
+        if (isLineDrawingActive && !isXYZDrawingActive && !isSectionPlaneActive && !isEraser && store.activeLineStart && !foundVertex) {
           const S = new THREE.Vector3(store.activeLineStart.x, store.activeLineStart.y, store.activeLineStart.z);
           
           let dist = 5; 
@@ -770,7 +989,7 @@ export function MathModel() {
         }
 
         if (!foundVertex) {
-          if (store.activeLineStart) {
+          if (!isSectionPlaneActive && store.activeLineStart) {
             // 如果连线激活且有起点，我们将自由拖拽的终点限制到最近的整数逻辑长度上
             const S = new THREE.Vector3(store.activeLineStart.x, store.activeLineStart.y, store.activeLineStart.z);
             const fallbackPt = fallbackLocal.clone();
@@ -793,8 +1012,22 @@ export function MathModel() {
             closestVertLocal.copy(SScale.clone().add(vecLog).divide(logicalScale));
             foundVertex = true;
             matchedSnapLabel = `自由绘制 (当前长度: ${roundedLen})`;
-          } else {
-            closestVertLocal.copy(fallbackLocal);
+          }
+          // 剖切模式：未命中棱边/连线则不落点（禁止自由空间拾取）
+        }
+
+        // 剖切模式：落点确定后检测是否贴近首点，可闭合成面
+        let canCloseSection = false;
+        if (isSectionPlaneActive && foundVertex && sectionDraft.length >= 3) {
+          const first = sectionDraft[0];
+          const closeDistSq =
+            (closestVertLocal.x - first.x) ** 2 +
+            (closestVertLocal.y - first.y) ** 2 +
+            (closestVertLocal.z - first.z) ** 2;
+          if (closeDistSq < 0.08 * 0.08) {
+            canCloseSection = true;
+            closestVertLocal.set(first.x, first.y, first.z);
+            matchedSnapLabel = '闭合剖切面（回到起点）';
           }
         }
 
@@ -816,10 +1049,12 @@ export function MathModel() {
             hoverSphereRef.current.scale.set(scale, scale, scale);
             
             const material = hoverSphereRef.current.material as THREE.MeshBasicMaterial;
-            if (rightPinching) {
-               material.color.setHex(0x22d3ee); 
+            if (canCloseSection) {
+              material.color.setHex(0xfde047); // 亮黄：可闭合
+            } else if (rightPinching) {
+               material.color.setHex(isSectionPlaneActive ? 0xfacc15 : 0x22d3ee); 
             } else {
-               material.color.setHex(0x38bdf8); // Sky blue hover highlight
+               material.color.setHex(isSectionPlaneActive ? 0xfacc15 : 0x38bdf8);
             }
           }
         }
@@ -827,7 +1062,13 @@ export function MathModel() {
         if (rightPinching && !prevRightPinch.current) {
           if (foundVertex) {
             const pt: Point3D = { x: closestVertLocal.x, y: closestVertLocal.y, z: closestVertLocal.z };
-            if (store.activeLineStart) {
+            if (isSectionPlaneActive) {
+              if (canCloseSection) {
+                store.completeSectionPlane(SECTION_PLANE_COLOR);
+              } else {
+                store.addSectionDraftPoint(pt);
+              }
+            } else if (store.activeLineStart) {
               store.addModelLine(store.activeLineStart, pt, isXYZDrawingActive);
               store.setActiveLineStart(null);
             } else {
@@ -838,7 +1079,21 @@ export function MathModel() {
       }
 
       // Handle Preview Line
-      if (store.activeLineStart && previewLineRef.current) {
+      if (isSectionPlaneActive && sectionDraft.length > 0 && foundVertex && previewLineRef.current) {
+         const last = sectionDraft[sectionDraft.length - 1];
+         const lineGeom = previewLineRef.current.geometry;
+         const pos = lineGeom.attributes.position.array as Float32Array;
+         if (pos) {
+           pos[0] = last.x; pos[1] = last.y; pos[2] = last.z;
+           pos[3] = closestVertLocal.x; pos[4] = closestVertLocal.y; pos[5] = closestVertLocal.z;
+           lineGeom.attributes.position.needsUpdate = true;
+           previewLineRef.current.visible = true;
+           const mat = previewLineRef.current.material as THREE.LineBasicMaterial;
+           mat.color.setHex(0xfacc15);
+         }
+      } else if (isSectionPlaneActive && previewLineRef.current) {
+         previewLineRef.current.visible = false;
+      } else if (store.activeLineStart && previewLineRef.current) {
          const start = store.activeLineStart;
          const lineGeom = previewLineRef.current.geometry;
          const pos = lineGeom.attributes.position.array as Float32Array;
@@ -848,6 +1103,8 @@ export function MathModel() {
            
            lineGeom.attributes.position.needsUpdate = true;
            previewLineRef.current.visible = true;
+           const mat = previewLineRef.current.material as THREE.LineBasicMaterial;
+           mat.color.setHex(0x22d3ee);
          }
       } else if (previewLineRef.current) {
          previewLineRef.current.visible = false;
@@ -861,55 +1118,71 @@ export function MathModel() {
       if (previewLineRef.current) previewLineRef.current.visible = false;
     }
     
-    // Eraser Logic for Lines
+    // Eraser Logic for Lines + Section Planes
     if (isEraser && rightHand.isVisible && !leftPinching) {
       if (groupRef.current) {
         let closestDistSq = Infinity;
-        let currentHovered = null;
-        
+        let currentHovered = null as number | null;
+        let currentHoveredSection: string | null = null;
+        const aspect = window.innerWidth / window.innerHeight;
+
+        const segmentDistSqNDC = (p1Local: THREE.Vector3, p2Local: THREE.Vector3) => {
+          const p1World = p1Local.clone().applyMatrix4(groupRef.current!.matrixWorld);
+          const p2World = p2Local.clone().applyMatrix4(groupRef.current!.matrixWorld);
+          const p1Cam = p1World.clone().applyMatrix4(camera.matrixWorldInverse);
+          const p2Cam = p2World.clone().applyMatrix4(camera.matrixWorldInverse);
+          if (p1Cam.z > 0 && p2Cam.z > 0) return Infinity;
+
+          const p1NDC = p1World.clone().project(camera);
+          const p2NDC = p2World.clone().project(camera);
+          const v = new THREE.Vector2((p2NDC.x - p1NDC.x) * aspect, p2NDC.y - p1NDC.y);
+          const w = new THREE.Vector2((rightHand.cursor.x - p1NDC.x) * aspect, rightHand.cursor.y - p1NDC.y);
+          const c1 = w.dot(v);
+          const c2 = v.dot(v);
+          if (c1 <= 0) return w.lengthSq();
+          if (c2 <= c1) {
+            const dx = (rightHand.cursor.x - p2NDC.x) * aspect;
+            const dy = rightHand.cursor.y - p2NDC.y;
+            return dx * dx + dy * dy;
+          }
+          const b = c1 / c2;
+          const projX = p1NDC.x * aspect + b * v.x;
+          const projY = p1NDC.y + b * v.y;
+          const dx = rightHand.cursor.x * aspect - projX;
+          const dy = rightHand.cursor.y - projY;
+          return dx * dx + dy * dy;
+        };
+
         for (let i = 0; i < modelLinesStore.length; i++) {
           const line = modelLinesStore[i];
           const p1Local = new THREE.Vector3(line.p1.x, line.p1.y, line.p1.z);
           const p2Local = new THREE.Vector3(line.p2.x, line.p2.y, line.p2.z);
-          
-          const p1World = p1Local.clone().applyMatrix4(groupRef.current.matrixWorld);
-          const p2World = p2Local.clone().applyMatrix4(groupRef.current.matrixWorld);
-          
-          const p1Cam = p1World.clone().applyMatrix4(camera.matrixWorldInverse);
-          const p2Cam = p2World.clone().applyMatrix4(camera.matrixWorldInverse);
-          
-          if (p1Cam.z > 0 && p2Cam.z > 0) continue;
-          
-          const p1NDC = p1World.clone().project(camera);
-          const p2NDC = p2World.clone().project(camera);
-          
-          const aspect = window.innerWidth / window.innerHeight;
-          const v = new THREE.Vector2((p2NDC.x - p1NDC.x) * aspect, p2NDC.y - p1NDC.y);
-          const w = new THREE.Vector2((rightHand.cursor.x - p1NDC.x) * aspect, rightHand.cursor.y - p1NDC.y);
-          
-          const c1 = w.dot(v);
-          const c2 = v.dot(v);
-          
-          let distSq = 0;
-          if (c1 <= 0) {
-              distSq = w.lengthSq();
-          } else if (c2 <= c1) {
-              const dx = (rightHand.cursor.x - p2NDC.x) * aspect;
-              const dy = rightHand.cursor.y - p2NDC.y;
-              distSq = dx*dx + dy*dy;
-          } else {
-              const b = c1 / c2;
-              const projX = p1NDC.x * aspect + b * v.x;
-              const projY = p1NDC.y + b * v.y;
-              const dx = rightHand.cursor.x * aspect - projX;
-              const dy = rightHand.cursor.y - projY;
-              distSq = dx*dx + dy*dy;
-          }
-          
+          const distSq = segmentDistSqNDC(p1Local, p2Local);
           // 线段命中阈值：sqrt(0.003) ≈ 0.055，~5.5% 屏高
           if (distSq < 0.003 && distSq < closestDistSq) {
+            closestDistSq = distSq;
+            currentHovered = i;
+            currentHoveredSection = null;
+          }
+        }
+
+        // 剖切面边框命中
+        for (let s = 0; s < sectionPlanesStore.length; s++) {
+          const plane = sectionPlanesStore[s];
+          const n = plane.points.length;
+          if (n < 2) continue;
+          for (let i = 0; i < n; i++) {
+            const a = plane.points[i];
+            const b = plane.points[(i + 1) % n];
+            const distSq = segmentDistSqNDC(
+              new THREE.Vector3(a.x, a.y, a.z),
+              new THREE.Vector3(b.x, b.y, b.z),
+            );
+            if (distSq < 0.003 && distSq < closestDistSq) {
               closestDistSq = distSq;
-              currentHovered = i;
+              currentHovered = null;
+              currentHoveredSection = plane.id;
+            }
           }
         }
         
@@ -917,13 +1190,21 @@ export function MathModel() {
             prevHovered.current = currentHovered;
             setHoveredLineIndex(currentHovered);
         }
+        if (currentHoveredSection !== prevHoveredSection.current) {
+            prevHoveredSection.current = currentHoveredSection;
+            setHoveredSectionId(currentHoveredSection);
+        }
         
         if (selectedLineIndex !== null && currentHovered !== selectedLineIndex) {
             setSelectedLineIndex(null);
         }
         
         if (rightPinching && !prevRightPinch.current) {
-            if (currentHovered !== null) {
+            if (currentHoveredSection !== null) {
+                useARStore.getState().removeSectionPlane(currentHoveredSection);
+                setHoveredSectionId(null);
+                prevHoveredSection.current = null;
+            } else if (currentHovered !== null) {
                 if (selectedLineIndex === currentHovered) {
                     useARStore.getState().removeModelLine(currentHovered);
                     setSelectedLineIndex(null);
@@ -940,6 +1221,10 @@ export function MathModel() {
             prevHovered.current = null;
             setHoveredLineIndex(null);
             setSelectedLineIndex(null);
+        }
+        if (prevHoveredSection.current !== null) {
+            prevHoveredSection.current = null;
+            setHoveredSectionId(null);
         }
     }
     
@@ -999,26 +1284,20 @@ export function MathModel() {
           prevPinchDist.current = dist;
         }
 
-        // ── Roll: 帧率无关 + 单帧上限 + 死区 ──
-        if (computeRollDelta(tmpQ.current, prevPinchAngle.current, angle)) {
-          targetQuaternion.current.premultiply(tmpQ.current);
-          prevPinchAngle.current = angle;
-        }
-
-        // ── Pitch/Yaw: 用 Arcball,把"两手中点"当作虚拟单手 ──
-        // 这样和单手分支语义一致，且自带球面投影、无路径漂移。
-        // 灵敏度按 modelScale 自适应，模型越大手势越柔。
+        // 旋转固定为世界轴：水平→世界 Y，竖直→世界 X（无 Roll，便于对齐坐标）
+        prevPinchAngle.current = angle;
+        const bothGain = ROTATION_TUNING.arcballGain * sens * 2.0;
         if (
-          computeArcballDelta(
-            tmpQ.current,
+          applyAxisOrbitDelta(
+            targetQuaternion.current,
             prevPinchCenter.current.x,
             prevPinchCenter.current.y,
             centerX,
             centerY,
-            ROTATION_TUNING.arcballGain * sens * 2.0, // 双手的中点位移幅度通常较小，乘 2 补偿
+            bothGain,
+            'world',
           )
         ) {
-          targetQuaternion.current.premultiply(tmpQ.current);
           prevPinchCenter.current.set(centerX, centerY);
         }
       } else {
@@ -1150,27 +1429,28 @@ export function MathModel() {
             groupRef.current!.position.lerp(targetPos, dragAlpha);
           }
         } else if (isRotating && prevRotateCursor.current) {
-          // ── 单手 Arcball 空滑旋转 ──
-          // 1) One-Euro 滤波光标，慢动作时强滤波吃抖动，快动作时几乎零延迟
+          // ── 单手空滑旋转：固定世界轴 ──
+          // 1) One-Euro 滤波光标
           const minCut = ROTATION_TUNING.oneEuroMinCutoff;
           const beta = ROTATION_TUNING.oneEuroBeta;
           const dCut = ROTATION_TUNING.oneEuroDcutoff;
           smoothLeft.current.x = oneEuroFilter(leftXFilter.current, leftHand.cursor.x, delta, minCut, beta, dCut);
           smoothLeft.current.y = oneEuroFilter(leftYFilter.current, leftHand.cursor.y, delta, minCut, beta, dCut);
 
-          // 2) 调用 Arcball 算法，得到与路径无关的旋转
+          // 2) 水平绕世界 Y，竖直绕世界 X
           const sens = adaptiveSensitivity(modelScale);
+          const singleGain = ROTATION_TUNING.arcballGain * sens * 2.5;
           if (
-            computeArcballDelta(
-              tmpQ.current,
+            applyAxisOrbitDelta(
+              targetQuaternion.current,
               prevRotateCursor.current.x,
               prevRotateCursor.current.y,
               smoothLeft.current.x,
               smoothLeft.current.y,
-              ROTATION_TUNING.arcballGain * sens * 2.5, // 单手手势幅度通常较大，灵敏度可以稍高
+              singleGain,
+              'world',
             )
           ) {
-            targetQuaternion.current.premultiply(tmpQ.current);
             prevRotateCursor.current.set(smoothLeft.current.x, smoothLeft.current.y);
           }
         }
@@ -1206,6 +1486,7 @@ export function MathModel() {
       penState.isPenActive &&
       !penState.isLineDrawingActive &&
       !penState.isXYZDrawingActive &&
+      !penState.isSectionPlaneActive &&
       !penState.isEraser &&
       rightHand.isVisible &&
       rightPinching &&
@@ -1281,6 +1562,9 @@ export function MathModel() {
   const activeLineStart = useARStore(state => state.activeLineStart);
   const isLineDrawingActive = useARStore(state => state.isLineDrawingActive);
   const isXYZDrawingActive = useARStore(state => state.isXYZDrawingActive);
+  const isSectionPlaneActive = useARStore(state => state.isSectionPlaneActive);
+  const sectionDraftPoints = useARStore(state => state.sectionDraftPoints);
+  const sectionPlanes = useARStore(state => state.sectionPlanes);
   const surfaceStrokes = useARStore(state => state.surfaceStrokes);
   const showAllLengths = useARStore(state => state.showAllLengths);
 
@@ -1539,6 +1823,42 @@ export function MathModel() {
             );
           })}
           
+          {/* 已完成的剖切面 */}
+          {sectionPlanes.map((plane) => (
+            <SectionPlaneMesh
+              key={plane.id}
+              plane={plane}
+              isHovered={hoveredSectionId === plane.id}
+            />
+          ))}
+
+          {/* 剖切草稿：仅显示节点与连线；完整闭合后才生成面 */}
+          {isSectionPlaneActive && sectionDraftPoints.length > 0 && (
+            <group>
+              {sectionDraftPoints.map((p, i) => (
+                <mesh key={`sd_${i}`} position={[p.x, p.y, p.z]}>
+                  <sphereGeometry args={[i === 0 ? 0.07 : 0.05, 12, 12]} />
+                  <meshBasicMaterial
+                    color={i === 0 ? '#fde047' : SECTION_PLANE_COLOR}
+                    depthTest={false}
+                    transparent
+                    opacity={0.95}
+                  />
+                </mesh>
+              ))}
+              {sectionDraftPoints.length >= 2 && (
+                <Line
+                  points={sectionDraftPoints.map((p) => new THREE.Vector3(p.x, p.y, p.z))}
+                  color={SECTION_PLANE_COLOR}
+                  lineWidth={3}
+                  depthTest={false}
+                  transparent
+                  opacity={0.9}
+                />
+              )}
+            </group>
+          )}
+
           {/* Highlight active vertex selection */}
           {activeLineStart && (
              <mesh position={[activeLineStart.x, activeLineStart.y, activeLineStart.z]}>

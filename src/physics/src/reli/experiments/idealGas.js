@@ -257,7 +257,9 @@ export class IdealGasExperiment extends Experiment {
     });
     this.particlesMesh = new THREE.InstancedMesh(pGeo, pMat, PARTICLE_COUNT);
     this.particlesMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.particlesMesh.castShadow = true;
+    // 200 instanced spheres casting soft shadows dominates the host shadow pass.
+    this.particlesMesh.castShadow = false;
+    this.particlesMesh.receiveShadow = false;
     this.rig.add(this.particlesMesh);
     this.dummy = new THREE.Object3D();
     this.particles = [];
