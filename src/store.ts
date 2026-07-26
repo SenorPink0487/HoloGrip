@@ -3,7 +3,14 @@ import type { Vector2 } from 'three';
 import type { AIVertex } from './lib/gemini';
 
 export type MathShape = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'pyramid';
-export type AppTab = 'whiteboard' | 'function' | 'calculator3d' | 'ar_3d';
+export type AppTab = 'launcher' | 'whiteboard' | 'function' | 'calculator3d' | 'ar_3d' | 'physics' | 'chem' | 'rocket' | 'pool';
+
+export interface UserProfile {
+  name: string;
+  avatar: string;
+  role: string;
+  email: string;
+}
 
 export interface HandState {
   cursor: Vector2;
@@ -221,6 +228,19 @@ interface ARState {
 
   theme: 'dark' | 'light';
   setTheme: (t: 'dark' | 'light') => void;
+
+  // macOS 桌面端 Splash & 认证状态
+  currentUser: UserProfile | null;
+  isLoggedIn: boolean;
+  isLocked: boolean;
+  isSplashActive: boolean;
+
+  setCurrentUser: (user: UserProfile | null) => void;
+  login: (username?: string) => void;
+  logout: () => void;
+  lockScreen: () => void;
+  unlockScreen: () => void;
+  dismissSplash: () => void;
 }
 
 export const useARStore = create<ARState>((set) => ({
@@ -233,7 +253,7 @@ export const useARStore = create<ARState>((set) => ({
   isAnalyzing: false,
   modelScale: 2.5,
 
-  activeTab: 'whiteboard',
+  activeTab: 'launcher',
 
   isModelPanelOpen: false,
   isPenPanelOpen: false,
@@ -597,4 +617,41 @@ export const useARStore = create<ARState>((set) => ({
   setShowCompass: (s) => set({ showCompass: s }),
 
   setTheme: (t) => set({ theme: t }),
+
+  // macOS 桌面端 Splash & 认证状态初始值与操作
+  currentUser: {
+    name: 'Holo Explorer',
+    avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+    role: '首席科学家 / 实验室研究员',
+    email: 'scientist@hologrip.com',
+  },
+  isLoggedIn: typeof window !== 'undefined' ? Boolean(localStorage.getItem('hg_token')) : false,
+  isLocked: false,
+  isSplashActive: true,
+
+  setCurrentUser: (user) => set({ currentUser: user }),
+  login: (username) => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('hologrip_logged_in', 'true');
+    }
+    set((state) => ({
+      isLoggedIn: true,
+      isLocked: false,
+      currentUser: state.currentUser ? { ...state.currentUser, name: username || state.currentUser.name } : {
+        name: username || 'Holo Explorer',
+        avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=256&q=80',
+        role: '首席科学家 / 实验室研究员',
+        email: 'scientist@hologrip.com',
+      }
+    }));
+  },
+  logout: () => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('hologrip_logged_in', 'false');
+    }
+    set({ isLoggedIn: false, isLocked: false });
+  },
+  lockScreen: () => set({ isLocked: true }),
+  unlockScreen: () => set({ isLocked: false }),
+  dismissSplash: () => set({ isSplashActive: false }),
 }));

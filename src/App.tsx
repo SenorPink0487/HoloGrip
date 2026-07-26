@@ -33,9 +33,13 @@ import { TriangleRuler } from './components/tools/TriangleRuler';
 import { Protractor } from './components/tools/Protractor';
 import { Compass } from './components/tools/Compass';
 
-// 桌面端自绘标题栏(仅 Tauri 容器内挂载)
+// 桌面端自绘标题栏、启动屏、登录锁屏与启动器大厅组件
 import { isDesktop } from './lib/platform';
 import { TitleBar } from './components/desktop/TitleBar';
+import { SplashScreen } from './components/desktop/SplashScreen';
+import { LoginModal } from './components/desktop/LoginModal';
+import { SubjectIFrameView } from './components/desktop/DesktopShell';
+import { LauncherPortal } from './components/desktop/LauncherPortal';
 
 const ARExperience = lazy(() =>
   import('./components/ARExperience').then(module => ({ default: module.ARExperience }))
@@ -791,7 +795,15 @@ export default function App() {
         </>
       )}
       
-      {/* 4. 原有 3D AR 空间几何: 懒加载以保持 iPad 白板首屏轻量 */}
+      {/* 4. 启动器页面：五大学科 Launchpad 空间实验室大厅 */}
+      {activeTab === 'launcher' && <LauncherPortal />}
+
+      {/* 5. 物理、化学、航天、台球等 4 大学科外部场景全景嵌入 */}
+      {['physics', 'chem', 'rocket', 'pool'].includes(activeTab) && (
+        <SubjectIFrameView tab={activeTab} />
+      )}
+
+      {/* 5. 原有 3D AR 空间几何: 懒加载以保持 iPad 白板首屏轻量 */}
       {activeTab === 'ar_3d' && (
         <Suspense fallback={null}>
           <ARExperience stageRef={stageRef} />
@@ -801,8 +813,12 @@ export default function App() {
       {/* 6. 顶层穿透白板书写画布 (仅在超级白板下供老师书写,函数探究单独隔离) */}
       {activeTab === 'whiteboard' && <WhiteboardCanvas />}
  
-      {/* 7. 全新底部苹果 Dock 菜单 */}
-      {activeTab !== 'ar_3d' && <AppleDock />}
+      {/* 7. 全新底部苹果 Dock 菜单 (启动器页面与 AR 3D 模式下隐藏) */}
+      {activeTab !== 'ar_3d' && activeTab !== 'launcher' && <AppleDock />}
+
+      {/* 8. macOS 冷启动启动页 Splash Screen 与登录/锁屏卡片 */}
+      <SplashScreen />
+      <LoginModal />
 
       </div>
 

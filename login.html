@@ -688,6 +688,9 @@
         const pwdInput = document.getElementById('password');
         const confirmPwdInput = document.getElementById('confirm-password');
         const usernameInput = document.getElementById('username');
+        const apiUrl = (path) => window.__TAURI_INTERNALS__
+            ? `https://hologrip.cn${path}`
+            : path;
 
         const setButtonText = async (text) => {
             btnText.style.opacity = '0';
@@ -766,7 +769,7 @@
                     ? { email: emailInput.value.trim(), password: pwdInput.value }
                     : { username: usernameInput.value.trim(), email: emailInput.value.trim(), password: pwdInput.value };
 
-                const res = await fetch(endpoint, {
+                const res = await fetch(apiUrl(endpoint), {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)

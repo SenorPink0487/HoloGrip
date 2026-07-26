@@ -9,7 +9,13 @@ import {
   Compass, 
   Trash2,
   Moon,
-  Sun
+  Sun,
+  Atom,
+  FlaskConical,
+  Rocket,
+  CircleDot,
+  Lock,
+  LayoutGrid
 } from 'lucide-react';
 import { motion, useMotionValue, useSpring, useTransform, AnimatePresence } from 'motion/react';
 
@@ -21,6 +27,7 @@ interface DockItem {
 
 export function AppleDock() {
   const activeTab = useARStore(state => state.activeTab);
+  if (activeTab === 'launcher' || activeTab === 'ar_3d') return null;
   const setActiveTab = useARStore(state => state.setActiveTab);
   const clearCanvas = useARStore(state => state.clearCanvas);
   const clearModelLines = useARStore(state => state.clearModelLines);
@@ -58,7 +65,6 @@ export function AppleDock() {
       flushSync(() => {
         setTheme(nextTheme);
       });
-      // 强制重绘，保证新视图以最终配色进行快照捕获，解决 transition 中间态导致的闪烁
       document.documentElement.offsetHeight;
     });
 
@@ -96,11 +102,18 @@ export function AppleDock() {
     });
   };
 
+  const lockScreen = useARStore(state => state.lockScreen);
+
   const items: DockItem[] = [
-    { tab: 'whiteboard', label: '超级白板', icon: <PenTool className="w-6 h-6" /> },
-    { tab: 'function', label: '函数探究', icon: <TrendingUp className="w-6 h-6" /> },
-    { tab: 'calculator3d', label: '3D计算器', icon: <Box className="w-6 h-6" /> },
-    { tab: 'ar_3d', label: '空间AR', icon: <Compass className="w-6 h-6" /> },
+    { tab: 'launcher', label: '🚀 启动器大厅', icon: <LayoutGrid className="w-6 h-6" /> },
+    { tab: 'whiteboard', label: '📐 数学 · 白板', icon: <PenTool className="w-6 h-6" /> },
+    { tab: 'function', label: '📈 函数探究', icon: <TrendingUp className="w-6 h-6" /> },
+    { tab: 'calculator3d', label: '📦 3D计算器', icon: <Box className="w-6 h-6" /> },
+    { tab: 'ar_3d', label: '🧭 空间AR', icon: <Compass className="w-6 h-6" /> },
+    { tab: 'physics', label: '⚡ 物理实验室', icon: <Atom className="w-6 h-6" /> },
+    { tab: 'chem', label: '🧪 化学观象台', icon: <FlaskConical className="w-6 h-6" /> },
+    { tab: 'rocket', label: '🚀 航天仿真', icon: <Rocket className="w-6 h-6" /> },
+    { tab: 'pool', label: '🎱 三维台球', icon: <CircleDot className="w-6 h-6" /> },
   ];
 
   const getIsActive = (tab: AppTab) => {
@@ -115,7 +128,7 @@ export function AppleDock() {
   return (
     <>
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 select-none pointer-events-auto">
-        {/* Themes & Clear panel */}
+        {/* Themes, Lock & Clear panel */}
         <div className="flex items-center gap-1.5 p-2 rounded-2xl bg-white/70 dark:bg-zinc-900/60 backdrop-blur-2xl border border-black/5 dark:border-white/10 shadow-2xl transition-all duration-500">
           <button
             onClick={toggleTheme}
@@ -125,6 +138,14 @@ export function AppleDock() {
             {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </button>
           
+          <button
+            onClick={lockScreen}
+            className="p-2.5 rounded-xl text-zinc-500 dark:text-zinc-400 hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10 dark:hover:bg-amber-500/20 transition-all duration-200 active:scale-90 cursor-pointer"
+            title="锁定屏幕 (macOS Lock)"
+          >
+            <Lock className="w-5 h-5" />
+          </button>
+
           <button
             onClick={() => {
               clearCanvas();

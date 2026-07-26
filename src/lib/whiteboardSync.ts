@@ -1,4 +1,6 @@
 import type { PageData } from '../store';
+import { apiUrl } from './apiOrigin';
+import { isTauriRuntime } from './platform';
 
 export interface WhiteboardSnapshot {
   version: 1;
@@ -50,7 +52,7 @@ async function request(url: string, init: RequestInit): Promise<Response> {
 
   let resp: Response;
   try {
-    resp = await fetch(url, {
+    resp = await fetch(apiUrl(url), {
       ...init,
       headers,
     });
@@ -98,6 +100,8 @@ function loadLocalSnapshot(): WhiteboardSnapshot | null {
 
 function redirectToLogin(): void {
   if (typeof window === 'undefined') return;
+  // In Tauri, LoginModal handles authentication inside the desktop shell.
+  if (isTauriRuntime) return;
   const next = `${window.location.pathname}${window.location.search}`;
   window.location.href = `login.html?next=${encodeURIComponent(next)}`;
 }

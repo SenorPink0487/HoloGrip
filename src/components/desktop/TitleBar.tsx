@@ -12,100 +12,177 @@
  */
 import { useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { Minus, Square, Copy, X } from 'lucide-react';
+import { Minus, Square, Copy, X, Lock, Sparkles, UserCheck, LayoutGrid, ArrowLeft } from 'lucide-react';
 import { useARStore } from '../../store';
+
+const SUBJECT_TITLES: Record<string, string> = {
+  launcher: '🚀 HoloGrip 启动器大厅 · 空间科学实验室',
+  whiteboard: '📐 数学 · 空间几何超级白板',
+  function: '📈 数学 · 三维动态函数探究',
+  calculator3d: '📦 数学 · 空间计算器与几何模型',
+  ar_3d: '🧭 数学 · 空间 AR 交互体验',
+  physics: '⚡ 物理 · 3D 经典力学与实验室',
+  chem: '🧪 化学 · 3D 分子结构观象台',
+  rocket: '🚀 航天 · 矢量轨道与推进仿真',
+  pool: '🎱 台球 · 三维碰撞物理引擎',
+};
 
 export function TitleBar() {
   const [maximized, setMaximized] = useState(false);
   const activeTab = useARStore(state => state.activeTab);
+  const setActiveTab = useARStore(state => state.setActiveTab);
+  const lockScreen = useARStore(state => state.lockScreen);
+  const currentUser = useARStore(state => state.currentUser);
   const isAR = activeTab === 'ar_3d';
 
   useEffect(() => {
-    const win = getCurrentWindow();
-    let unlisten: (() => void) | undefined;
+    try {
+      const win = getCurrentWindow();
+      let unlisten: (() => void) | undefined;
 
-    // 初始一次,以及窗口尺寸变化时同步最大化图标
-    win.isMaximized().then(setMaximized).catch(() => {});
-    win
-      .onResized(async () => {
-        try {
-          setMaximized(await win.isMaximized());
-        } catch {
-          /* 忽略关闭中的窗口报错 */
-        }
-      })
-      .then(fn => {
-        unlisten = fn;
-      })
-      .catch(() => {});
+      win.isMaximized().then(setMaximized).catch(() => {});
+      win
+        .onResized(async () => {
+          try {
+            setMaximized(await win.isMaximized());
+          } catch {
+            /* 忽略关闭中的窗口报错 */
+          }
+        })
+        .then(fn => {
+          unlisten = fn;
+        })
+        .catch(() => {});
 
-    return () => {
-      unlisten?.();
-    };
+      return () => {
+        unlisten?.();
+      };
+    } catch {
+      // 兼容 Web 预览环境
+    }
   }, []);
 
   const handleMinimize = () => {
-    getCurrentWindow().minimize().catch(() => {});
+    try { getCurrentWindow().minimize().catch(() => {}); } catch {}
   };
   const handleToggleMaximize = () => {
-    getCurrentWindow().toggleMaximize().catch(() => {});
+    try { getCurrentWindow().toggleMaximize().catch(() => {}); } catch {}
   };
   const handleClose = () => {
-    getCurrentWindow().close().catch(() => {});
+    try { getCurrentWindow().close().catch(() => {}); } catch {}
   };
 
   return (
     <div
       data-tauri-drag-region
       className={[
-        'h-9 w-full flex items-center justify-between select-none',
-        'border-b border-white/5',
-        'transition-colors duration-300',
+        'h-9 w-full flex items-center justify-between select-none px-3',
+        'border-b border-white/5 shadow-sm',
+        'transition-colors duration-300 z-50',
         isAR
-          ? 'bg-zinc-900/40 backdrop-blur-sm text-zinc-300/80'
-          : 'bg-zinc-900/85 backdrop-blur-md text-zinc-200',
+          ? 'bg-zinc-950/40 backdrop-blur-sm text-zinc-300/80'
+          : 'bg-zinc-950/90 backdrop-blur-xl text-zinc-200',
       ].join(' ')}
       style={{
-        // Windows 透明窗口下,让 titlebar 跟随外层圆角
         WebkitAppRegion: 'drag',
       } as React.CSSProperties}
     >
-      {/* 左侧标识(也是拖拽区一部分) */}
-      <div
-        data-tauri-drag-region
-        className="px-3 text-xs font-medium tracking-wide pointer-events-none flex items-center gap-2"
-      >
-        <span className="text-cyan-400">●</span>
-        <span>HoloMath · Desktop</span>
+      {/* 左侧：macOS 经典红黄绿红绿灯 Traffic Lights */}
+      <div className="flex items-center gap-2 group cursor-pointer" data-tauri-drag-region>
+        <button
+          onClick={handleClose}
+          className="w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-zinc-950 font-bold transition-all shadow-sm cursor-pointer"
+          title="关闭窗口"
+        >
+          <X className="w-2 h-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+        </button>
+        <button
+          onClick={handleMinimize}
+          className="w-3 h-3 rounded-full bg-amber-500 hover:bg-amber-600 flex items-center justify-center text-zinc-950 font-bold transition-all shadow-sm cursor-pointer"
+          title="最小化"
+        >
+          <Minus className="w-2 h-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+        </button>
+        <button
+          onClick={handleToggleMaximize}
+          className="w-3 h-3 rounded-full bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center text-zinc-950 font-bold transition-all shadow-sm cursor-pointer"
+          title="全屏/还原"
+        >
+          <PlusIcon className="w-2 h-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+        </button>
+
+        <span className="ml-3 text-xs font-semibold tracking-wide text-zinc-300 flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+          <span>HoloGrip Desktop</span>
+        </span>
       </div>
 
-      {/* 右侧三按钮 */}
-      <div className="flex h-full">
+      {/* 中间：当前学科与模式标题 */}
+      <div
+        data-tauri-drag-region
+        className="text-xs font-medium text-zinc-400 tracking-wide pointer-events-none flex items-center gap-2"
+      >
+        <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[11px]">
+          {SUBJECT_TITLES[activeTab] || '五大学科空间实验室'}
+        </span>
+      </div>
+
+      {/* 右侧：返回启动器按钮、用户状态与锁定按钮 */}
+      <div className="flex items-center gap-2">
+        {activeTab !== 'launcher' && (
+          <button
+            onClick={() => setActiveTab('launcher')}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-600/20 hover:from-cyan-500/30 hover:to-blue-600/30 border border-cyan-400/40 text-cyan-300 text-xs font-semibold shadow-md active:scale-95 transition-all cursor-pointer"
+            title="返回启动器大厅"
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span>返回启动器</span>
+          </button>
+        )}
+
         <button
-          type="button"
-          onClick={handleMinimize}
-          aria-label="最小化"
-          className="h-full w-11 flex items-center justify-center hover:bg-white/10 active:bg-white/15 transition-colors cursor-pointer"
+          onClick={lockScreen}
+          className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-cyan-400 px-2 py-1 rounded-lg hover:bg-white/5 transition-all cursor-pointer"
+          title="锁屏"
         >
-          <Minus size={14} />
+          <Lock className="w-3.5 h-3.5" />
+          <span className="text-[11px] hidden sm:inline">{currentUser?.name || '用户'}</span>
         </button>
-        <button
-          type="button"
-          onClick={handleToggleMaximize}
-          aria-label={maximized ? '还原' : '最大化'}
-          className="h-full w-11 flex items-center justify-center hover:bg-white/10 active:bg-white/15 transition-colors cursor-pointer"
-        >
-          {maximized ? <Copy size={12} /> : <Square size={12} />}
-        </button>
-        <button
-          type="button"
-          onClick={handleClose}
-          aria-label="关闭"
-          className="h-full w-11 flex items-center justify-center hover:bg-red-500/85 hover:text-white active:bg-red-600 transition-colors cursor-pointer"
-        >
-          <X size={14} />
-        </button>
+
+        {/* 标准窗口操作控制（针对 Windows/Linux 窗口） */}
+        <div className="flex items-center border-l border-white/10 pl-2 space-x-1">
+          <button
+            type="button"
+            onClick={handleMinimize}
+            className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-white transition-colors cursor-pointer"
+          >
+            <Minus size={12} />
+          </button>
+          <button
+            type="button"
+            onClick={handleToggleMaximize}
+            className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-white transition-colors cursor-pointer"
+          >
+            {maximized ? <Copy size={11} /> : <Square size={11} />}
+          </button>
+          <button
+            type="button"
+            onClick={handleClose}
+            className="p-1 hover:bg-red-500/80 rounded text-zinc-400 hover:text-white transition-colors cursor-pointer"
+          >
+            <X size={12} />
+          </button>
+        </div>
       </div>
     </div>
   );
 }
+
+function PlusIcon(props: any) {
+  return (
+    <svg width="8" height="8" viewBox="0 0 8 8" fill="none" xmlns="http://www.w3.org/2000/svg" {...props}>
+      <path d="M4 1V7M1 4H7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+

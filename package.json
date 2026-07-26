@@ -1,11 +1,12 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.2.1",
   "type": "module",
   "license": "GPL-3.0-or-later",
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev:tauri": "vite --port=3002 --host=0.0.0.0 --strictPort",
     "dev:ipad": "HOLO_TARGET=ipad vite --host=0.0.0.0 --port=3002 --strictPort",
     "build": "vite build",
     "build:ipad": "HOLO_TARGET=ipad vite build && node scripts/sync-ios-assets.mjs",

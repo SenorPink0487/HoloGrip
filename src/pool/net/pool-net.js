@@ -5,6 +5,9 @@
 
 export function poolLiveUrl() {
   if (typeof window === 'undefined') return '';
+  if (window.__TAURI_INTERNALS__) {
+    return 'wss://hologrip.cn/api/pool/live';
+  }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}/api/pool/live`;
 }

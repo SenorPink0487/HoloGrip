@@ -1,4 +1,6 @@
 import type { WhiteboardSnapshot } from './whiteboardSync';
+import { apiUrl, apiWebSocketUrl } from './apiOrigin';
+import { isTauriRuntime } from './platform';
 
 export interface ClassInfo {
   id: number;
@@ -141,8 +143,7 @@ export function openLessonWhiteboardSocket(
 
   const token = localStorage.getItem(TOKEN_KEY);
   if (!token) return null;
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const url = `${protocol}//${window.location.host}/api/lessons/${lessonId}/whiteboard/live?token=${encodeURIComponent(token)}`;
+  const url = apiWebSocketUrl(`/api/lessons/${lessonId}/whiteboard/live?token=${encodeURIComponent(token)}`);
   const socket = new WebSocket(url);
   socket.onmessage = (message) => {
     try {
@@ -165,7 +166,7 @@ async function request(url: string, init: RequestInit & { allowConflict?: boolea
   const headers = new Headers(init.headers);
   headers.set('Authorization', `Bearer ${token}`);
 
-  const resp = await fetch(url, { ...fetchInit, headers });
+  const resp = await fetch(apiUrl(url), { ...fetchInit, headers });
   if (resp.status === 401) {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem('hg_user');
@@ -191,6 +192,9 @@ function parseSnapshot(value: unknown): WhiteboardSnapshot | null {
 }
 
 function redirectToLogin(): void {
+  // The desktop shell owns its login flow. Navigating a Tauri webview to the
+  // standalone login page replaces the native-style desktop UI.
+  if (isTauriRuntime) return;
   const next = `${window.location.pathname}${window.location.search}`;
   window.location.href = `login.html?next=${encodeURIComponent(next)}`;
 }

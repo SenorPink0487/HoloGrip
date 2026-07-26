@@ -878,6 +878,10 @@
         drawCanvas();
 
         // 2. 身份验证逻辑
+        const apiUrl = (path) => window.__TAURI_INTERNALS__
+            ? `https://hologrip.cn${path}`
+            : path;
+
         document.addEventListener('DOMContentLoaded', async () => {
             const token = localStorage.getItem('hg_token');
             if (!token) {
@@ -887,7 +891,7 @@
             }
 
             try {
-                const res = await fetch('/api/user/me', {
+                const res = await fetch(apiUrl('/api/user/me'), {
                     headers: { 'Authorization': `Bearer ${token}` }
                 });
                 
@@ -953,7 +957,7 @@
 
             let res;
             try {
-                res = await fetch(url, {
+                res = await fetch(apiUrl(url), {
                     ...options,
                     headers: {
                         'Content-Type': 'application/json',

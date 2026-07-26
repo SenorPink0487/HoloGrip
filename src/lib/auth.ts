@@ -14,6 +14,8 @@
  * 仍然走 API key,跳过本模块。
  */
 
+import { apiUrl } from './apiOrigin';
+
 const LS_KEY = 'hologrip.proxyToken.v1';
 // 服务端默认 1 小时过期,我们提前 30 秒作废,留出网络抖动余量
 const EXPIRY_BUFFER_SEC = 30;
@@ -59,7 +61,7 @@ export function invalidateProxyToken(): void {
 }
 
 async function issueNew(): Promise<string> {
-  const resp = await fetch('/api/auth/issue', {
+  const resp = await fetch(apiUrl('/api/auth/issue'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: '{}',

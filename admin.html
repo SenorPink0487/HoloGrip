@@ -263,7 +263,8 @@
       const headers = new Headers(options.headers || {});
       headers.set('Authorization', `Bearer ${token}`);
       if (options.body && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json');
-      const resp = await fetch(url, { ...options, headers });
+      const apiUrl = window.__TAURI_INTERNALS__ ? `https://hologrip.cn${url}` : url;
+      const resp = await fetch(apiUrl, { ...options, headers });
       if (resp.status === 401) throw new Error('UNAUTHORIZED');
       if (resp.status === 403) throw new Error('FORBIDDEN');
       const text = await resp.text();
