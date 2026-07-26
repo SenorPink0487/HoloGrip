@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import workerWasmLoaderPath from '../node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_module_internal.js?url';
+import workerWasmBinaryPath from '../node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_module_internal.wasm?url';
 import {
   OCCLUSION_HOLD_MS,
   DynamicMotionGateVector3,
@@ -20,13 +22,6 @@ import {
   mapMediaPipeToXR,
   occlusionOpacity,
 } from './handPoseMath.js';
-
-// Shared MediaPipe assets (same as HoloMath: public/assets/mediapipe/).
-// Nested under src/physics/src — do not import via relative node_modules path.
-// Vite BASE_URL ends with / so this resolves to /assets/mediapipe/... in default deploy.
-const MEDIAPIPE_BASE = `${import.meta.env.BASE_URL}assets/mediapipe`;
-const workerWasmLoaderPath = `${MEDIAPIPE_BASE}/wasm/vision_wasm_module_internal.js`;
-const workerWasmBinaryPath = `${MEDIAPIPE_BASE}/wasm/vision_wasm_module_internal.wasm`;
 
 const HAND_COLORS = {
   Left: 0x67e8f9,
@@ -261,7 +256,10 @@ export function createHandTracking({
     palmNdc: new THREE.Vector2(),
     openPalm: false,
     lastRenderAt: -Infinity,
-    pinch: new PinchStateMachine(),
+    // MediaPipe occasionally reports one wide thumb/index sample during an
+    // otherwise held pinch. A short release dwell prevents that blip from
+    // ending and restarting an AR drag (which appears as dotted writing).
+    pinch: new PinchStateMachine({ exitGraceMs: 180 }),
     poseInitialized: false,
     visible: false,
     trackingVisible: false,
@@ -648,7 +646,7 @@ export function createHandTracking({
     // so terminal snapping uses the visible cursor's final position.
     if (state.pinching) updateRayFromVisualCursor(state);
     if (Number.isFinite(state.pendingPinchRatio)) {
-      updateGesture(state, state.pendingPinchRatio, state.pendingRawPinchRatio);
+      updateGesture(state, state.pendingPinchRatio, state.pendingRawPinchRatio, nowMs);
       state.pendingPinchRatio = null;
       state.pendingRawPinchRatio = null;
     }
@@ -717,8 +715,8 @@ export function createHandTracking({
     return { dx, dy };
   }
 
-  function updateGesture(state, filteredRatio, rawRatio) {
-    const event = state.pinch.update(filteredRatio, rawRatio);
+  function updateGesture(state, filteredRatio, rawRatio, nowMs) {
+    const event = state.pinch.update(filteredRatio, rawRatio, nowMs);
 
     if (event === 'start') {
       // Both hands may pinch at once (dual-hand dolly). Arbiter tracks primary for status.

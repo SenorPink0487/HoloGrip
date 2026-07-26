@@ -296,6 +296,16 @@ test('pinch state uses filtered entry and immediate raw-distance release', () =>
   assert.equal(pinch.forceEnd(), 'end');
 });
 
+test('pinch release grace ignores a transient wide fingertip sample', () => {
+  const pinch = new PinchStateMachine({ exitGraceMs: 180 });
+  assert.equal(pinch.update(0.2, 0.2, 0), 'start');
+  assert.equal(pinch.update(0.35, 0.7, 40), null);
+  assert.equal(pinch.pinching, true);
+  assert.equal(pinch.update(0.25, 0.25, 80), null);
+  assert.equal(pinch.update(0.35, 0.7, 100), null);
+  assert.equal(pinch.update(0.35, 0.7, 280), 'end');
+});
+
 test('left and right pinch machines classify independently', () => {
   const left = new PinchStateMachine();
   const right = new PinchStateMachine();

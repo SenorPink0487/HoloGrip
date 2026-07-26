@@ -247,9 +247,9 @@ export const freeFall = {
 
     setFormula(
       ui.formula,
-      `<strong>落体实验塔 · 理论</strong><br/>
+      `<strong>自由落体</strong><br/>
        加速度：<code>a = g</code>（与质量无关）<br/>
-       落地时间：<code>t = √(2h/g)</code><br/>
+       下落时间：<code>t = √(2h/g)</code><br/>
        落地速度：<code>v = √(2gh)</code>`
     );
 

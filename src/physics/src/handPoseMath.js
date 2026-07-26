@@ -611,30 +611,43 @@ export class PinchStateMachine {
   constructor({
     enterThreshold = 0.32,
     exitThreshold = 0.5,
+    exitGraceMs = 0,
   } = {}) {
     this.enterThreshold = enterThreshold;
     this.exitThreshold = Math.max(exitThreshold, enterThreshold);
+    this.exitGraceMs = Math.max(0, Number(exitGraceMs) || 0);
     this.reset();
   }
 
   reset() {
     this.pinching = false;
+    this.releaseSince = null;
   }
 
-  update(filteredRatio, rawRatio = filteredRatio) {
+  update(filteredRatio, rawRatio = filteredRatio, nowMs = performance.now()) {
     if (!Number.isFinite(filteredRatio) || !Number.isFinite(rawRatio)) return null;
     if (!this.pinching) {
       if (filteredRatio < this.enterThreshold && rawRatio < this.exitThreshold) {
         this.pinching = true;
+        this.releaseSince = null;
         return 'start';
       }
       return null;
     }
 
     if (rawRatio > this.exitThreshold) {
+      if (this.exitGraceMs > 0) {
+        if (this.releaseSince == null) {
+          this.releaseSince = nowMs;
+          return null;
+        }
+        if (nowMs - this.releaseSince < this.exitGraceMs) return null;
+      }
       this.pinching = false;
+      this.releaseSince = null;
       return 'end';
     }
+    this.releaseSince = null;
     return null;
   }
 

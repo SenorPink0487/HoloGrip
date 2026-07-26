@@ -1,6 +1,10 @@
 /**
  * Geometric optics core — ported from guangxue-source `optics.ts`.
  * Single source of truth for ray–mesh intersection, Snell / reflection, and Cauchy n(λ).
+ *
+ * Performance notes:
+ *  - intersectMesh reuses scratch vectors and early-outs on bounding sphere.
+ *  - Bounce caps keep multi-ray rebuilds (dispersion / fan beams) under a frame budget.
  */
 import * as THREE from 'three';
 
@@ -49,31 +53,97 @@ export function cauchyIOR(baseIOR, nm, strength) {
   return A + B / (lambdaUm * lambdaUm);
 }
 
+// ── Scratch pool (intersect is hot path: no per-triangle allocations) ──
+const _e1 = new THREE.Vector3();
+const _e2 = new THREE.Vector3();
+const _pvec = new THREE.Vector3();
+const _tvec = new THREE.Vector3();
+const _qvec = new THREE.Vector3();
+const _nScratch = new THREE.Vector3();
+const _v0 = new THREE.Vector3();
+const _v1 = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _localOrigin = new THREE.Vector3();
+const _localDir = new THREE.Vector3();
+const _invMatrix = new THREE.Matrix4();
+const _normalMatrix = new THREE.Matrix3();
+const _hitPoint = new THREE.Vector3();
+const _hitNormal = new THREE.Vector3();
+const _sphereCenter = new THREE.Vector3();
+const _oc = new THREE.Vector3();
+const _I = new THREE.Vector3();
+const _N = new THREE.Vector3();
+const _R = new THREE.Vector3();
+const _tmpDir = new THREE.Vector3();
+
 function rayTriangle(origin, dir, v0, v1, v2, tMin, tMax) {
   const eps = 1e-8;
-  const e1 = new THREE.Vector3().subVectors(v1, v0);
-  const e2 = new THREE.Vector3().subVectors(v2, v0);
-  const pvec = new THREE.Vector3().crossVectors(dir, e2);
-  const det = e1.dot(pvec);
+  _e1.subVectors(v1, v0);
+  _e2.subVectors(v2, v0);
+  _pvec.crossVectors(dir, _e2);
+  const det = _e1.dot(_pvec);
   if (Math.abs(det) < eps) return null;
   const invDet = 1 / det;
-  const tvec = new THREE.Vector3().subVectors(origin, v0);
-  const u = tvec.dot(pvec) * invDet;
+  _tvec.subVectors(origin, v0);
+  const u = _tvec.dot(_pvec) * invDet;
   if (u < 0 || u > 1) return null;
-  const qvec = new THREE.Vector3().crossVectors(tvec, e1);
-  const v = dir.dot(qvec) * invDet;
+  _qvec.crossVectors(_tvec, _e1);
+  const v = dir.dot(_qvec) * invDet;
   if (v < 0 || u + v > 1) return null;
-  const t = e2.dot(qvec) * invDet;
+  const t = _e2.dot(_qvec) * invDet;
   if (t < tMin || t > tMax) return null;
 
-  const normal = new THREE.Vector3().crossVectors(e1, e2).normalize();
-  if (normal.dot(dir) > 0) normal.negate();
+  _nScratch.crossVectors(_e1, _e2).normalize();
+  if (_nScratch.dot(dir) > 0) _nScratch.negate();
 
   return {
     point: origin.clone().addScaledVector(dir, t),
-    normal,
+    normal: _nScratch.clone(),
     distance: t,
   };
+}
+
+/** Write hit into reusable buffers; returns true on hit (no alloc on miss). */
+function rayTriangleInto(origin, dir, v0, v1, v2, tMin, tMax, out) {
+  const eps = 1e-8;
+  _e1.subVectors(v1, v0);
+  _e2.subVectors(v2, v0);
+  _pvec.crossVectors(dir, _e2);
+  const det = _e1.dot(_pvec);
+  if (Math.abs(det) < eps) return false;
+  const invDet = 1 / det;
+  _tvec.subVectors(origin, v0);
+  const u = _tvec.dot(_pvec) * invDet;
+  if (u < 0 || u > 1) return false;
+  _qvec.crossVectors(_tvec, _e1);
+  const v = dir.dot(_qvec) * invDet;
+  if (v < 0 || u + v > 1) return false;
+  const t = _e2.dot(_qvec) * invDet;
+  if (t < tMin || t > tMax) return false;
+
+  _nScratch.crossVectors(_e1, _e2).normalize();
+  if (_nScratch.dot(dir) > 0) _nScratch.negate();
+  out.t = t;
+  out.nx = _nScratch.x;
+  out.ny = _nScratch.y;
+  out.nz = _nScratch.z;
+  return true;
+}
+
+const _triHit = { t: 0, nx: 0, ny: 0, nz: 0 };
+
+/** Ray vs sphere early-out in local space (geom.boundingSphere). */
+function rayHitsLocalSphere(origin, dir, center, radius, tMax) {
+  _oc.subVectors(origin, center);
+  const b = _oc.dot(dir);
+  const c = _oc.dot(_oc) - radius * radius;
+  if (c > 0 && b > 0) return false;
+  const disc = b * b - c;
+  if (disc < 0) return false;
+  const s = Math.sqrt(disc);
+  let t = -b - s;
+  if (t < 0) t = -b + s;
+  return t <= tMax;
 }
 
 /** Find nearest intersection of a ray with a BufferGeometry mesh */
@@ -82,15 +152,27 @@ export function intersectMesh(origin, dir, mesh, tMin = 1e-4, tMax = 100) {
   const pos = geom.attributes.position;
   if (!pos) return null;
 
-  const invMatrix = new THREE.Matrix4().copy(mesh.matrixWorld).invert();
-  const localOrigin = origin.clone().applyMatrix4(invMatrix);
-  const localDir = dir.clone().transformDirection(invMatrix).normalize();
+  if (!geom.boundingSphere) geom.computeBoundingSphere();
+  const bs = geom.boundingSphere;
 
-  let best = null;
+  _invMatrix.copy(mesh.matrixWorld).invert();
+  _localOrigin.copy(origin).applyMatrix4(_invMatrix);
+  _localDir.copy(dir).transformDirection(_invMatrix).normalize();
+
+  if (bs) {
+    _sphereCenter.copy(bs.center);
+    // Slightly pad so numerical error near silhouette does not miss.
+    if (!rayHitsLocalSphere(_localOrigin, _localDir, _sphereCenter, bs.radius * 1.02, tMax)) {
+      return null;
+    }
+  }
+
+  let bestT = Infinity;
+  let bestNx = 0;
+  let bestNy = 0;
+  let bestNz = 0;
+  let found = false;
   const index = geom.index;
-  const v0 = new THREE.Vector3();
-  const v1 = new THREE.Vector3();
-  const v2 = new THREE.Vector3();
   const triCount = index ? index.count / 3 : pos.count / 3;
 
   for (let i = 0; i < triCount; i++) {
@@ -104,62 +186,71 @@ export function intersectMesh(origin, dir, mesh, tMin = 1e-4, tMax = 100) {
       i1 = i * 3 + 1;
       i2 = i * 3 + 2;
     }
-    v0.fromBufferAttribute(pos, i0);
-    v1.fromBufferAttribute(pos, i1);
-    v2.fromBufferAttribute(pos, i2);
+    _v0.fromBufferAttribute(pos, i0);
+    _v1.fromBufferAttribute(pos, i1);
+    _v2.fromBufferAttribute(pos, i2);
 
-    const hit = rayTriangle(localOrigin, localDir, v0, v1, v2, tMin, tMax);
-    if (hit && (!best || hit.distance < best.distance)) {
-      best = hit;
-      best.faceIndex = i;
+    if (!rayTriangleInto(_localOrigin, _localDir, _v0, _v1, _v2, tMin, tMax, _triHit)) continue;
+    if (_triHit.t < bestT) {
+      bestT = _triHit.t;
+      bestNx = _triHit.nx;
+      bestNy = _triHit.ny;
+      bestNz = _triHit.nz;
+      found = true;
     }
   }
 
-  if (!best) return null;
+  if (!found) return null;
 
-  best.point.applyMatrix4(mesh.matrixWorld);
-  const normalMatrix = new THREE.Matrix3().getNormalMatrix(mesh.matrixWorld);
-  best.normal.applyMatrix3(normalMatrix).normalize();
-  best.distance = best.point.distanceTo(origin);
-  if (best.normal.dot(dir) > 0) best.normal.negate();
-  return best;
+  _hitPoint.copy(_localOrigin).addScaledVector(_localDir, bestT).applyMatrix4(mesh.matrixWorld);
+  _hitNormal.set(bestNx, bestNy, bestNz);
+  _normalMatrix.getNormalMatrix(mesh.matrixWorld);
+  _hitNormal.applyMatrix3(_normalMatrix).normalize();
+  if (_hitNormal.dot(dir) > 0) _hitNormal.negate();
+
+  return {
+    point: _hitPoint.clone(),
+    normal: _hitNormal.clone(),
+    distance: _hitPoint.distanceTo(origin),
+  };
 }
 
 /** Snell's law refraction. Returns null on total internal reflection. */
 export function refract(incident, normal, n1, n2) {
-  const I = incident.clone().normalize();
-  let N = normal.clone().normalize();
+  _I.copy(incident).normalize();
+  _N.copy(normal).normalize();
   let eta = n1 / n2;
-  let cosi = -I.dot(N);
+  let cosi = -_I.dot(_N);
 
   if (cosi < 0) {
     cosi = -cosi;
-    N.negate();
+    _N.negate();
     eta = n2 / n1;
   }
 
   const k = 1 - eta * eta * (1 - cosi * cosi);
   if (k < 0) return null;
 
-  return I.multiplyScalar(eta).addScaledVector(N, eta * cosi - Math.sqrt(k)).normalize();
+  return _I.multiplyScalar(eta).addScaledVector(_N, eta * cosi - Math.sqrt(k)).normalize().clone();
 }
 
 export function reflect(incident, normal) {
-  const I = incident.clone().normalize();
-  const N = normal.clone().normalize();
-  return I.sub(N.multiplyScalar(2 * I.dot(N))).normalize();
+  _I.copy(incident).normalize();
+  _N.copy(normal).normalize();
+  return _I.sub(_N.multiplyScalar(2 * _I.dot(_N))).normalize().clone();
 }
 
-const MAX_BOUNCES = 8;
+/** Dielectric bounce cap — pedagogy-complete for prism/lens without 8× mesh walks. */
+const MAX_BOUNCES = 5;
 const RAY_LENGTH = 12;
 
 function angleFromNormal(dir, normal) {
-  const cosi = Math.abs(dir.clone().normalize().dot(normal.clone().normalize()));
+  const cosi = Math.abs(_tmpDir.copy(dir).normalize().dot(_N.copy(normal).normalize()));
   return Math.acos(Math.min(1, Math.max(0, cosi))) * (180 / Math.PI);
 }
 
 function traceMirrorRay(origin, direction, mesh, color, options) {
-  const maxBounces = options.mirrorBounces ?? 4;
+  const maxBounces = options.mirrorBounces ?? 3;
   const segments = [];
   let pos = origin.clone();
   let dir = direction.clone().normalize();
@@ -331,3 +422,6 @@ export function criticalAngleDeg(n1, n2 = 1) {
   if (s >= 1) return null;
   return (Math.asin(s) * 180) / Math.PI;
 }
+
+// Keep rayTriangle export surface free of unused lint if tests import internals.
+export const __test = { rayTriangle };

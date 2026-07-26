@@ -3,6 +3,7 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { Line2 } from 'three/addons/lines/Line2.js';
 import { LineGeometry } from 'three/addons/lines/LineGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
+import { labFrameScheduler } from '../../frameBudget.js';
 import { createHallDemoEquipment } from '../../experiments/hallDemoEquipment.js';
 import { createElectricFieldEquipment } from '../../experiments/electricFieldEquipment.js';
 import { createInducedElectricFieldEquipment } from '../../experiments/inducedElectricFieldEquipment.js';
@@ -12,7 +13,6 @@ import {
   gaussFluxParticleSpeed,
   gaussNormalFluxDensity,
 } from '../../experiments/electro.js';
-import { labFrameScheduler } from '../../frameBudget.js';
 
 /** Build and expose all electromagnetism-station apparatus. */
 export function createStationEquipment(ctx) {
@@ -137,6 +137,8 @@ export function createStationEquipment(ctx) {
     let lastRadius = NaN;
     let lastFieldSignature = '';
     let pendingFieldRebuild = false;
+    let fieldRebuildGen = 0;
+    const GAUSS_FIELD_JOB_ID = 'gauss:field-lines';
     function rebuildSurface(radius) {
       const worldRadius = radius * WORLD_PER_SOURCE_UNIT;
       fluxWorldRadius = worldRadius;
@@ -267,7 +269,8 @@ export function createStationEquipment(ctx) {
           );
           const r2 = _gDelta.lengthSq();
           if (r2 < 1e-5) continue;
-          out.addScaledVector(_gDelta, q / (r2 * Math.sqrt(r2)));
+          // E = kQ r̂/r²（与 electro.js 一致；Q 为 μC 界面读数）
+          out.addScaledVector(_gDelta, (9.0e9 * 1e-6 * q) / (r2 * Math.sqrt(r2)));
         }
         return out;
       };
@@ -374,18 +377,42 @@ export function createStationEquipment(ctx) {
       )).join('|');
       // Charge meshes follow the pointer every frame; field-line integration is
       // expensive (dispose + re-allocate dozens of geometries). Keep the last
-      // lines while grabbed, then rebuild once on release.
+      // lines while grabbed, then rebuild once on release via the post-render
+      // frame budget so pointerup never freezes the camera.
       const chargeHeld = !!(data.dragArmed || data.dragging);
+      const forceField = data._forceDecorations === true;
+      const scheduleFieldRebuild = (list, signature) => {
+        pendingFieldRebuild = true;
+        lastFieldSignature = signature;
+        const snap = list.map((c) => ({
+          id: c.id,
+          q: Number(c.q || 0),
+          x: Number(c.x || 0),
+          y: Number(c.y || 0),
+          z: Number(c.z || 0),
+        }));
+        const gen = (fieldRebuildGen += 1);
+        // soft:false — post-render only; avoid soft-switch sticky frames after drag.
+        labFrameScheduler.schedule(GAUSS_FIELD_JOB_ID, () => {
+          if (gen !== fieldRebuildGen) return;
+          rebuildFieldLines(snap);
+        }, { priority: 18, soft: false });
+      };
       if (fieldSignature !== lastFieldSignature) {
-        if (chargeHeld) {
+        if (chargeHeld && !forceField) {
+          fieldRebuildGen += 1;
+          labFrameScheduler.cancel?.(GAUSS_FIELD_JOB_ID);
           pendingFieldRebuild = true;
-        } else {
+        } else if (forceField) {
+          fieldRebuildGen += 1;
+          labFrameScheduler.cancel?.(GAUSS_FIELD_JOB_ID);
           rebuildFieldLines(charges);
           lastFieldSignature = fieldSignature;
+        } else {
+          scheduleFieldRebuild(charges, fieldSignature);
         }
       } else if (pendingFieldRebuild && !chargeHeld) {
-        rebuildFieldLines(charges);
-        lastFieldSignature = fieldSignature;
+        scheduleFieldRebuild(charges, fieldSignature);
       }
       surfaceGroup.visible = data.showSurface !== false;
       fieldGroup.visible = data.showLines !== false;
@@ -413,6 +440,7 @@ export function createStationEquipment(ctx) {
         qEnclosed: 1,
         dragArmed: false,
         dragging: false,
+        _forceDecorations: true,
       }, 0.016);
       webglRenderer.compile(root, activeCamera, targetScene);
       root.visible = wasVisible;
@@ -1354,6 +1382,8 @@ export function createStationEquipment(ctx) {
     }
 
     animators.push((time) => {
+      // Only animate field dashes while Hall group is the live mode.
+      if (!hallGroup.visible) return;
       if (hallFieldViewportWidth !== window.innerWidth
         || hallFieldViewportHeight !== window.innerHeight) {
         hallFieldViewportWidth = window.innerWidth;
@@ -1423,13 +1453,35 @@ export function createStationEquipment(ctx) {
       circuitGroup.add(hit);
 
       const fieldBounds = { x0: 0, x1: X_MAX + 1, z0: -RAIL_Z - 1, z1: RAIL_Z + 1, y0: -2.8, y1: 2.8 };
-      // Geometry is keyed by sign + density tier only. Continuous B changes during
-      // the content-screen slider used to rebuild hundreds of ArrowHelpers every
-      // milliTesla and freeze the main thread — style (color/opacity) updates in place.
-      let fieldGeoKey = '';
-      let fieldStyleKey = '';
+      // Single mid-plane. Fixed lattice indices; spacing = continuous f(|B|).
+      // Arrows glide toward/away from center — no floor(nx) jumps. Length fixed forever.
+      // Whole shaft+head stays ABOVE the rail/area plane so downward (B<0) tips are not buried in the table.
+      const FIELD_LEN = 0.95 * S;
+      const FIELD_HEAD_LEN = 0.28 * S;
+      const FIELD_HEAD_W = 0.16 * S;
+      // Vertical center of each arrow (local y). Origin shifts with sign so the body is centered here.
+      const FIELD_MID_Y = Y * S + 0.018 + FIELD_LEN * 0.5;
+      const FIELD_SPACING_SPARSE = 3.15;
+      const FIELD_SPACING_DENSE = 1.12;
+      const FIELD_X0 = fieldBounds.x0 + 0.8;
+      const FIELD_X1 = fieldBounds.x1 - 0.15;
+      const FIELD_Z0 = fieldBounds.z0 + 0.5;
+      const FIELD_Z1 = fieldBounds.z1 - 0.15;
+      const FIELD_CX = (FIELD_X0 + FIELD_X1) * 0.5;
+      const FIELD_CZ = (FIELD_Z0 + FIELD_Z1) * 0.5;
+      // Lattice sized so densest spacing exactly fills the draw box.
+      const FIELD_NX = Math.max(2, Math.round((FIELD_X1 - FIELD_X0) / FIELD_SPACING_DENSE) + 1);
+      const FIELD_NZ = Math.max(2, Math.round((FIELD_Z1 - FIELD_Z0) / FIELD_SPACING_DENSE) + 1);
+      const FIELD_HALF_IX = (FIELD_NX - 1) * 0.5;
+      const FIELD_HALF_IZ = (FIELD_NZ - 1) * 0.5;
+      const FIELD_EDGE_FADE = 0.55;
+      const FIELD_POOL = FIELD_NX * FIELD_NZ;
+      let fieldShowKey = '';
+      let fieldLastB = NaN;
+      let fieldLastSign = 0;
       let fieldFrame = null;
       const fieldArrows = [];
+      const fieldDir = new THREE.Vector3(0, 1, 0);
       function clearFieldMeshes() {
         while (fieldGroup.children.length) {
           const child = fieldGroup.children.pop();
@@ -1437,36 +1489,121 @@ export function createStationEquipment(ctx) {
         }
         fieldFrame = null;
         fieldArrows.length = 0;
-        fieldStyleKey = '';
+        fieldShowKey = '';
+        fieldLastB = NaN;
+        fieldLastSign = 0;
       }
-      function fieldGeometryKey(B, show) {
-        if (!show) return 'off';
-        const b = Number(B || 0);
-        const absB = Math.abs(b);
-        if (absB < 0.02) return `zero:${b >= 0 ? 1 : -1}`;
-        // 4 density tiers across 0–3 T (rebuild only when tier / sign flips).
-        const tier = Math.min(3, Math.floor(absB / 0.75));
-        return `${b >= 0 ? 1 : -1}:${tier}`;
+      function ensureFieldAssets(color) {
+        if (!fieldFrame) {
+          const box = new THREE.BoxGeometry(
+            (fieldBounds.x1 - fieldBounds.x0) * S,
+            (fieldBounds.y1 - fieldBounds.y0) * S,
+            (fieldBounds.z1 - fieldBounds.z0) * S,
+          );
+          const edges = new THREE.EdgesGeometry(box);
+          box.dispose();
+          fieldFrame = new THREE.LineSegments(
+            edges,
+            new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.24 }),
+          );
+          fieldFrame.position.set(
+            OFFSET_X + (fieldBounds.x0 + fieldBounds.x1) * S / 2,
+            (fieldBounds.y0 + fieldBounds.y1) * S / 2,
+            (fieldBounds.z0 + fieldBounds.z1) * S / 2,
+          );
+          fieldGroup.add(fieldFrame);
+        }
+        if (fieldArrows.length >= FIELD_POOL) return;
+        // Fixed (ix,iz) pool — densest fill; layout only moves roots / fades edges.
+        for (let ix = 0; ix < FIELD_NX; ix += 1) {
+          for (let iz = 0; iz < FIELD_NZ; iz += 1) {
+            if (fieldArrows.length >= FIELD_POOL) break;
+            const arrow = new THREE.ArrowHelper(
+              fieldDir,
+              new THREE.Vector3(0, FIELD_MID_Y - FIELD_LEN * 0.5, 0),
+              FIELD_LEN,
+              color,
+              FIELD_HEAD_LEN,
+              FIELD_HEAD_W,
+            );
+            arrow.userData.ix = ix;
+            arrow.userData.iz = iz;
+            arrow.line.material.transparent = true;
+            arrow.line.material.opacity = 0.7;
+            arrow.line.material.depthWrite = false;
+            arrow.line.material.depthTest = true;
+            arrow.cone.material.transparent = true;
+            arrow.cone.material.opacity = 0.88;
+            arrow.cone.material.depthWrite = false;
+            arrow.cone.material.depthTest = true;
+            // Avoid z-fight with the area plane when looking from above.
+            arrow.renderOrder = 2;
+            arrow.line.renderOrder = 2;
+            arrow.cone.renderOrder = 3;
+            arrow.visible = false;
+            fieldGroup.add(arrow);
+            fieldArrows.push(arrow);
+          }
+        }
       }
-      function applyFieldStyle(B) {
+      /** Soft mask: 1 inside the box, 0 outside, smooth band at the rim. */
+      function fieldEdgeWeight(x, z) {
+        const wx = THREE.MathUtils.smoothstep(x, FIELD_X0 - FIELD_EDGE_FADE, FIELD_X0)
+          * (1 - THREE.MathUtils.smoothstep(x, FIELD_X1, FIELD_X1 + FIELD_EDGE_FADE));
+        const wz = THREE.MathUtils.smoothstep(z, FIELD_Z0 - FIELD_EDGE_FADE, FIELD_Z0)
+          * (1 - THREE.MathUtils.smoothstep(z, FIELD_Z1, FIELD_Z1 + FIELD_EDGE_FADE));
+        return wx * wz;
+      }
+      function applyFieldLayout(B) {
         const b = Number(B || 0);
         const absB = Math.abs(b);
         const strength = THREE.MathUtils.clamp(absB / 3, 0, 1);
         const color = b >= 0 ? 0x38bdf8 : 0xea580c;
-        // Quantize style updates so we do not touch materials every sub-pixel move.
-        const styleKey = `${color}:${Math.round(strength * 20)}`;
-        if (styleKey === fieldStyleKey) return;
-        fieldStyleKey = styleKey;
+        const sign = b >= 0 ? 1 : -1;
+        // Skip only true no-ops; every distinct B moves spacing continuously.
+        if (sign === fieldLastSign && Number.isFinite(fieldLastB) && Math.abs(b - fieldLastB) < 1e-5) {
+          return;
+        }
+        fieldLastB = b;
+        fieldLastSign = sign;
+
         const frameOp = absB < 0.02 ? 0.14 : 0.24;
-        const lineOp = THREE.MathUtils.lerp(0.3, 0.86, strength);
-        const coneOp = THREE.MathUtils.lerp(0.38, 0.9, strength);
         if (fieldFrame?.material) {
           fieldFrame.material.color.setHex(color);
           fieldFrame.material.opacity = frameOp;
         }
+
+        if (absB < 0.02) {
+          for (let i = 0; i < fieldArrows.length; i += 1) fieldArrows[i].visible = false;
+          return;
+        }
+
+        // Linear spacing vs |B|: no tier / no floor(count) — lattice breathes continuously.
+        const spacing = THREE.MathUtils.lerp(FIELD_SPACING_SPARSE, FIELD_SPACING_DENSE, strength);
+        fieldDir.set(0, sign, 0);
+        const baseLineOp = THREE.MathUtils.lerp(0.5, 0.86, strength);
+        const baseConeOp = THREE.MathUtils.lerp(0.55, 0.9, strength);
+
         for (let i = 0; i < fieldArrows.length; i += 1) {
           const arrow = fieldArrows[i];
+          const ix = arrow.userData.ix;
+          const iz = arrow.userData.iz;
+          const x = FIELD_CX + (ix - FIELD_HALF_IX) * spacing;
+          const z = FIELD_CZ + (iz - FIELD_HALF_IZ) * spacing;
+          const edge = fieldEdgeWeight(x, z);
+          if (edge <= 0.012) {
+            arrow.visible = false;
+            continue;
+          }
+          arrow.visible = true;
+          // Origin at the trailing end: for ↓B the root sits higher so the tip stays above the table.
+          const originY = FIELD_MID_Y - sign * (FIELD_LEN * 0.5);
+          arrow.position.set(OFFSET_X + x * S, originY, z * S);
+          arrow.setDirection?.(fieldDir);
+          // Length is created fixed — never call setLength.
           arrow.setColor?.(color);
+          const lineOp = baseLineOp * edge;
+          const coneOp = baseConeOp * edge;
           if (arrow.line?.material) {
             arrow.line.material.color?.setHex?.(color);
             arrow.line.material.opacity = lineOp;
@@ -1478,111 +1615,166 @@ export function createStationEquipment(ctx) {
         }
       }
       function rebuildField(B, show) {
-        const geoKey = fieldGeometryKey(B, show);
-        if (geoKey !== fieldGeoKey) {
-          fieldGeoKey = geoKey;
-          clearFieldMeshes();
-          if (!show) return;
-          const b = Number(B || 0);
-          const absB = Math.abs(b);
-          const color = b >= 0 ? 0x38bdf8 : 0xea580c;
-          const box = new THREE.BoxGeometry(
-            (fieldBounds.x1 - fieldBounds.x0) * S,
-            (fieldBounds.y1 - fieldBounds.y0) * S,
-            (fieldBounds.z1 - fieldBounds.z0) * S,
-          );
-          const edges = new THREE.EdgesGeometry(box);
-          box.dispose();
-          fieldFrame = new THREE.LineSegments(
-            edges,
-            new THREE.LineBasicMaterial({ color, transparent: true, opacity: absB < 0.02 ? 0.14 : 0.24 }),
-          );
-          fieldFrame.position.set(
-            OFFSET_X + (fieldBounds.x0 + fieldBounds.x1) * S / 2,
-            (fieldBounds.y0 + fieldBounds.y1) * S / 2,
-            (fieldBounds.z0 + fieldBounds.z1) * S / 2,
-          );
-          fieldGroup.add(fieldFrame);
-          if (absB >= 0.02) {
-            // Coarser grid than the original 0.9–2.8 spacing — still readable, far fewer arrows.
-            const strength = THREE.MathUtils.clamp(absB / 3, 0, 1);
-            const spacing = THREE.MathUtils.lerp(3.0, 1.35, strength);
-            const yStep = THREE.MathUtils.lerp(2.6, 1.35, strength);
-            const dir = new THREE.Vector3(0, Math.sign(b) || 1, 0);
-            const len = THREE.MathUtils.lerp(0.75, 1.15, strength) * S;
-            for (let x = fieldBounds.x0 + 0.8; x <= fieldBounds.x1 - 0.15; x += spacing) {
-              for (let z = fieldBounds.z0 + 0.5; z <= fieldBounds.z1 - 0.15; z += spacing) {
-                for (let y = fieldBounds.y0 + 0.55; y < fieldBounds.y1 - 0.25; y += yStep) {
-                  const arrow = new THREE.ArrowHelper(
-                    dir,
-                    new THREE.Vector3(OFFSET_X + x * S, y * S, z * S),
-                    len,
-                    color,
-                    0.25 * S,
-                    0.13 * S,
-                  );
-                  arrow.line.material.transparent = true;
-                  arrow.line.material.opacity = THREE.MathUtils.lerp(0.3, 0.86, strength);
-                  arrow.cone.material.transparent = true;
-                  arrow.cone.material.opacity = THREE.MathUtils.lerp(0.38, 0.9, strength);
-                  fieldGroup.add(arrow);
-                  fieldArrows.push(arrow);
-                }
-              }
-            }
-          }
+        if (!show) {
+          if (fieldShowKey !== 'off') clearFieldMeshes();
+          fieldShowKey = 'off';
+          return;
         }
-        if (show) applyFieldStyle(B);
+        if (fieldShowKey !== 'on') {
+          fieldShowKey = 'on';
+          fieldLastB = NaN;
+          fieldLastSign = 0;
+        }
+        ensureFieldAssets(Number(B || 0) >= 0 ? 0x38bdf8 : 0xea580c);
+        applyFieldLayout(B);
       }
 
-      const particles = [];
+      // Induced-current flow: directional arrows along the closed circuit.
+      // (Spheres were too small / slow / isotropic — hard to see direction.)
+      // Fewer arrows → larger spacing along the closed circuit (reads clearer).
+      const FLOW_COUNT = 14;
+      const FLOW_ARROW_LEN = 0.58 * S;
+      const FLOW_HEAD_LEN = 0.24 * S;
+      const FLOW_HEAD_W = 0.15 * S;
+      const flowArrows = [];
       const progress = [];
       let flowSense = 'none';
       let flowRodX = 4.5;
-      const loopPoint = (u, rodX) => {
-        const y = (Y + 0.2) * S;
+      const _loopPos = new THREE.Vector3();
+      const _loopDir = new THREE.Vector3();
+      const _loopPts = [
+        new THREE.Vector3(),
+        new THREE.Vector3(),
+        new THREE.Vector3(),
+        new THREE.Vector3(),
+        new THREE.Vector3(),
+      ];
+      // Closed loop path slightly above rails/rod so arrows read clearly.
+      const loopSample = (u, rodX, outPos, outDir) => {
+        const y = (Y + 0.42) * S;
         const z0 = -RAIL_Z * S;
         const z1 = RAIL_Z * S;
-        const points = [
-          new THREE.Vector3(OFFSET_X + X_END * S, y, z0),
-          new THREE.Vector3(OFFSET_X + rodX * S, y, z0),
-          new THREE.Vector3(OFFSET_X + rodX * S, y, z1),
-          new THREE.Vector3(OFFSET_X + X_END * S, y, z1),
-          new THREE.Vector3(OFFSET_X + X_END * S, y, z0),
-        ];
-        const segLengths = points.slice(0, -1).map((p, i) => p.distanceTo(points[i + 1]));
-        const total = segLengths.reduce((sum, n) => sum + n, 0);
-        let distance = (((u % 1) + 1) % 1) * total;
-        for (let i = 0; i < segLengths.length; i += 1) {
-          if (distance <= segLengths[i]) return new THREE.Vector3().lerpVectors(points[i], points[i + 1], distance / Math.max(segLengths[i], 1e-8));
-          distance -= segLengths[i];
+        _loopPts[0].set(OFFSET_X + X_END * S, y, z0);
+        _loopPts[1].set(OFFSET_X + rodX * S, y, z0);
+        _loopPts[2].set(OFFSET_X + rodX * S, y, z1);
+        _loopPts[3].set(OFFSET_X + X_END * S, y, z1);
+        _loopPts[4].set(OFFSET_X + X_END * S, y, z0);
+        let total = 0;
+        const segLen = [];
+        for (let i = 0; i < 4; i += 1) {
+          const len = _loopPts[i].distanceTo(_loopPts[i + 1]);
+          segLen.push(len);
+          total += len;
         }
-        return points[0];
+        let distance = (((u % 1) + 1) % 1) * Math.max(total, 1e-8);
+        for (let i = 0; i < 4; i += 1) {
+          const len = Math.max(segLen[i], 1e-8);
+          if (distance <= len) {
+            const t = distance / len;
+            outPos.lerpVectors(_loopPts[i], _loopPts[i + 1], t);
+            outDir.subVectors(_loopPts[i + 1], _loopPts[i]).normalize();
+            return;
+          }
+          distance -= len;
+        }
+        outPos.copy(_loopPts[0]);
+        outDir.subVectors(_loopPts[1], _loopPts[0]).normalize();
       };
-      function clearFlow() {
-        while (currentGroup.children.length) {
-          const child = currentGroup.children.pop();
-          child.traverse?.((node) => { node.geometry?.dispose?.(); node.material?.dispose?.(); });
+      // Soft neon path outlining the circuit when current is flowing.
+      const pathGeo = new THREE.BufferGeometry();
+      pathGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(4 * 3), 3));
+      const pathMat = new THREE.LineBasicMaterial({
+        color: 0xf472b6,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+      });
+      const pathLine = new THREE.LineLoop(pathGeo, pathMat);
+      pathLine.renderOrder = 4;
+      pathLine.visible = false;
+      currentGroup.add(pathLine);
+      function updatePathLine(rodX, color, active) {
+        pathLine.visible = active;
+        if (!active) {
+          pathMat.opacity = 0;
+          return;
         }
-        particles.length = 0;
+        const y = (Y + 0.38) * S;
+        const z0 = -RAIL_Z * S;
+        const z1 = RAIL_Z * S;
+        const arr = pathGeo.attributes.position.array;
+        const corners = [
+          [OFFSET_X + X_END * S, y, z0],
+          [OFFSET_X + rodX * S, y, z0],
+          [OFFSET_X + rodX * S, y, z1],
+          [OFFSET_X + X_END * S, y, z1],
+        ];
+        for (let i = 0; i < 4; i += 1) {
+          arr[i * 3] = corners[i][0];
+          arr[i * 3 + 1] = corners[i][1];
+          arr[i * 3 + 2] = corners[i][2];
+        }
+        pathGeo.attributes.position.needsUpdate = true;
+        pathGeo.computeBoundingSphere?.();
+        pathMat.color.setHex(color);
+        pathMat.opacity = 0.72;
+      }
+      function clearFlow() {
+        for (let i = flowArrows.length - 1; i >= 0; i -= 1) {
+          const arrow = flowArrows[i];
+          currentGroup.remove(arrow);
+          arrow.line?.geometry?.dispose?.();
+          arrow.line?.material?.dispose?.();
+          arrow.cone?.geometry?.dispose?.();
+          arrow.cone?.material?.dispose?.();
+        }
+        flowArrows.length = 0;
         progress.length = 0;
         flowSense = 'none';
+        pathLine.visible = false;
+        pathMat.opacity = 0;
       }
       function buildFlow(sense, rodX) {
-        if (sense === flowSense && particles.length) return;
+        if (sense === flowSense && flowArrows.length) return;
         clearFlow();
         if (sense === 'none') return;
         flowSense = sense;
         flowRodX = rodX;
-        const color = sense === 'ccw' ? 0x8b5cf6 : 0xe879a9;
-        const core = new THREE.SphereGeometry(0.065 * S, 14, 12);
-        for (let i = 0; i < 18; i += 1) {
-          const mesh = new THREE.Mesh(core, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.42 + 0.45 * (1 - i / 26), depthWrite: false }));
-          mesh.position.copy(loopPoint(i / 18, rodX));
-          currentGroup.add(mesh);
-          particles.push(mesh);
-          progress.push(i / 18);
+        const color = sense === 'ccw' ? 0xa78bfa : 0xf472b6;
+        const dirSign = sense === 'ccw' ? 1 : -1;
+        for (let i = 0; i < FLOW_COUNT; i += 1) {
+          const arrow = new THREE.ArrowHelper(
+            new THREE.Vector3(1, 0, 0),
+            new THREE.Vector3(0, 0, 0),
+            FLOW_ARROW_LEN,
+            color,
+            FLOW_HEAD_LEN,
+            FLOW_HEAD_W,
+          );
+          if (arrow.line?.material) {
+            arrow.line.material.transparent = true;
+            arrow.line.material.depthWrite = false;
+            arrow.line.material.opacity = 0.9;
+          }
+          if (arrow.cone?.material) {
+            arrow.cone.material.transparent = true;
+            arrow.cone.material.depthWrite = false;
+            arrow.cone.material.opacity = 1;
+          }
+          arrow.renderOrder = 6;
+          if (arrow.line) arrow.line.renderOrder = 6;
+          if (arrow.cone) arrow.cone.renderOrder = 7;
+          const u = i / FLOW_COUNT;
+          loopSample(u, rodX, _loopPos, _loopDir);
+          if (dirSign < 0) _loopDir.negate();
+          // ArrowHelper origin is the tail; shift so the body sits on the path.
+          arrow.position.copy(_loopPos).addScaledVector(_loopDir, -FLOW_ARROW_LEN * 0.35);
+          if (_loopDir.lengthSq() > 1e-12) arrow.setDirection(_loopDir);
+          currentGroup.add(arrow);
+          flowArrows.push(arrow);
+          progress.push(u);
         }
+        updatePathLine(rodX, color, true);
       }
       root.userData.update = (data, dt = 0) => {
         const x = THREE.MathUtils.clamp(Number(data?.x ?? 4.5), 1.2, 8);
@@ -1595,21 +1787,36 @@ export function createStationEquipment(ctx) {
         areaMat.opacity = 0.12 + Math.min(Math.abs(Number(data?.flux || 0)) * 0.012, 0.18);
         rebuildField(Number(data?.B || 0), data?.showField !== false);
         buildFlow(data?.currentSense || 'none', x);
-        if (particles.length) {
-          const direction = flowSense === 'ccw' ? 1 : -1;
-          const speed = 0.22 * Math.max(0.7, Math.min(1.45, 0.9 + Math.abs(Number(data?.B || 0)) * 0.03));
+        if (flowArrows.length) {
+          const dirSign = flowSense === 'ccw' ? 1 : -1;
+          // ~0.55–0.95 rev/s so motion reads immediately while dragging/sliding B.
+          const speed = 0.55 * Math.max(0.85, Math.min(1.7, 1 + Math.abs(Number(data?.B || 0)) * 0.08));
           flowRodX = x;
-          particles.forEach((particle, i) => {
-            progress[i] = ((progress[i] + direction * speed * Math.max(0, Number(dt || 0))) % 1 + 1) % 1;
-            particle.position.copy(loopPoint(progress[i], flowRodX));
+          const color = flowSense === 'ccw' ? 0xa78bfa : 0xf472b6;
+          updatePathLine(flowRodX, color, true);
+          const step = dirSign * speed * Math.max(0, Number(dt || 0));
+          flowArrows.forEach((arrow, i) => {
+            progress[i] = ((progress[i] + step) % 1 + 1) % 1;
+            loopSample(progress[i], flowRodX, _loopPos, _loopDir);
+            // Flow direction: reverse geometric tangent when current is CW.
+            if (dirSign < 0) _loopDir.negate();
+            arrow.position.copy(_loopPos).addScaledVector(_loopDir, -FLOW_ARROW_LEN * 0.35);
+            if (_loopDir.lengthSq() > 1e-12) arrow.setDirection(_loopDir);
+            arrow.setColor(color);
+            // Opacity wave (avoid setLength every frame — ArrowHelper rebuilds geometry).
+            const pulse = 0.55 + 0.45 * (0.5 + 0.5 * Math.sin(progress[i] * Math.PI * 2 * 3 + i * 0.7));
+            if (arrow.line?.material) arrow.line.material.opacity = 0.55 + 0.45 * pulse;
+            if (arrow.cone?.material) arrow.cone.material.opacity = 0.7 + 0.3 * pulse;
           });
         }
       };
       root.userData.prewarm = (webglRenderer, activeCamera, targetScene) => {
         const wasVisible = root.visible;
         root.visible = true;
-        root.userData.update({ B: -1, x: 4.5, flux: -17, showField: true, currentSense: 'none' }, 0);
+        // Compile both field arrows and current-flow arrows (sense active path).
+        root.userData.update({ B: -1, x: 4.5, flux: -17, showField: true, currentSense: 'cw' }, 0.016);
         webglRenderer.compile(root, activeCamera, targetScene);
+        root.userData.update({ B: -1, x: 4.5, flux: -17, showField: true, currentSense: 'none' }, 0);
         root.visible = wasVisible;
       };
       root.userData.hit = hit;
@@ -1711,26 +1918,9 @@ export function createStationEquipment(ctx) {
     g.userData.faradayGroup = faradayGroup;
     g.userData.inducedEGroup = inducedEGroup;
 
-    /** Skip full mesh raycast rebind when mode is unchanged (experiment re-entry). */
+    /** Skip work when mode is unchanged (experiment re-entry). */
     let electroActiveMode = null;
-    /** id → frozen flag; freezeMatrixTree only when the flag flips (switch hitch). */
-    const electroFrozen = Object.create(null);
-    const noopRaycast = () => {};
-    const meshRaycastFn = THREE.Mesh.prototype.raycast;
-    function gateGroupRaycasts(group, enabled) {
-      const raycast = enabled ? meshRaycastFn : noopRaycast;
-      group.traverse((child) => {
-        if (child.isMesh) child.raycast = raycast;
-      });
-    }
-    /** Stop matrix walks on dense hidden apparatus (Gauss/Hall/Faraday…). */
-    function freezeMatrixTree(group, frozen) {
-      if (!group) return;
-      group.traverse((object) => {
-        object.matrixAutoUpdate = !frozen;
-        if (frozen) object.updateMatrix();
-      });
-    }
+    let electroModeGen = 0;
     const electroModeGroups = [
       ['hall', hallGroup],
       ['hall-demo', hallDemoGroup],
@@ -1739,65 +1929,42 @@ export function createStationEquipment(ctx) {
       ['faraday', faradayGroup],
       ['induced-e', inducedEGroup],
     ];
+    // Parent that owns mode groups. Inactive modes are DETACHED (O(1)), never
+    // freeze-walked — tree walks were the first-open hitch root cause.
+    const electroModeParent = hallGroup?.parent || g;
+    /**
+     * Attach/detach a mode group. O(1) scene-graph op — no matrix freeze walk.
+     * Detached graphs are invisible to updateMatrixWorld and picking.
+     */
+    function mountElectroMode(group, on) {
+      if (!group) return;
+      if (on) {
+        if (!group.parent) electroModeParent.add(group);
+        group.visible = true;
+      } else {
+        group.visible = false;
+        if (group.parent) group.parent.remove(group);
+      }
+    }
     g.userData.setMode = (mode) => {
       const next = mode || null;
       if (electroActiveMode === next) return;
-      const prev = electroActiveMode;
       electroActiveMode = next;
-      // Phase 1 (this call): visibility + interaction flags only — camera-safe.
+      electroModeGen += 1;
+      // Visibility + mount only — never freeze/unfreeze trees on open.
       for (const [id, group] of electroModeGroups) {
-        group.visible = next === id;
+        mountElectroMode(group, next === id);
       }
       electricFieldGroup.userData.setInteractive?.(next === 'electric-field');
       inducedEGroup.userData.setInteractive?.(next === 'induced-e');
-      if (prev == null || next === 'gauss' || prev === 'gauss') {
-        gateGroupRaycasts(gaussGroup, next === 'gauss');
-      }
-      if (prev == null || next === 'faraday' || prev === 'faraday') {
-        gateGroupRaycasts(faradayGroup, next === 'faraday');
-      }
-
-      // Phase 2 (later frames): freezeMatrixTree walks are the switch hitch.
-      // Split prev-freeze / next-unfreeze across rest frames so look/WASD keep rAF.
-      const freezeSteps = [];
-      if (prev && prev !== next) {
-        const prevGroup = electroModeGroups.find(([id]) => id === prev)?.[1];
-        if (prevGroup && electroFrozen[prev] !== true) {
-          freezeSteps.push(() => {
-            if (electroActiveMode === prev) return; // superseded
-            if (electroFrozen[prev] === true) return;
-            electroFrozen[prev] = true;
-            freezeMatrixTree(prevGroup, true);
-          });
-        }
-      }
-      if (next) {
-        const nextGroup = electroModeGroups.find(([id]) => id === next)?.[1];
-        if (nextGroup && electroFrozen[next] !== false) {
-          freezeSteps.push(() => {
-            if (electroActiveMode !== next) return;
-            if (electroFrozen[next] === false) return;
-            electroFrozen[next] = false;
-            freezeMatrixTree(nextGroup, false);
-          });
-        }
-      }
-      if (freezeSteps.length && labFrameScheduler?.scheduleChain) {
-        labFrameScheduler.scheduleChain('electro:freeze', freezeSteps, {
-          priority: 48,
-          restFrames: 1,
-        });
-      } else {
-        freezeSteps.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
-      }
+      // Raycast stays default Mesh.raycast. Detached groups are not pickable;
+      // no O(n) rebind walk on first open.
     };
-    // Boot: freeze every mode, then open the default Hall showcase (others stay frozen).
-    for (const [id, group] of electroModeGroups) {
-      group.visible = false;
-      electroFrozen[id] = true;
-      freezeMatrixTree(group, true);
+    // Boot with a clear tabletop; mount a mode only for a selected experiment.
+    for (const [, group] of electroModeGroups) {
+      mountElectroMode(group, false);
     }
-    g.userData.setMode('hall');
+    g.userData.setMode(null);
     g.userData.updateHallDemo = (d, dt) => hallDemoGroup.userData.update?.(d, dt);
     g.userData.updateGauss = (d, dt) => gaussGroup.userData.update?.(d, dt);
     g.userData.updateElectricField = (d, dt) => electricFieldGroup.userData.update?.(d, dt);
@@ -1809,7 +1976,7 @@ export function createStationEquipment(ctx) {
       const targetSolenoid = d.target === 'solenoid';
       if (probeHitMesh) {
         if (targetSolenoid) {
-          // 长螺线管模式下放大探针拾取盒的 Y 和 Z，方便在管内被鼠标轻松点中
+          // 长螺线管模式下放大探头拾取盒的 Y 和 Z，方便在管内被鼠标轻松点中
           probeHitMesh.scale.set(1, 3.8, 2.6);
         } else {
           probeHitMesh.scale.set(1, 1, 1);
@@ -2013,14 +2180,21 @@ export function createStationEquipment(ctx) {
 
   const root = new THREE.Group();
   root.name = 'electro-station';
+  // Slightly toward table center / back of sitting edge so multi-row desk
+  // sliders on z≈3.13 don't sit under the Faraday / Hall apparatus.
   const hallBench = makeHallSetup();
-  hallBench.position.set(-4.0, 0.93, 2.55);
+  hallBench.position.set(-4.15, 0.93, 2.42);
   root.add(hallBench);
 
   hallBench.userData.interactive = true;
   const equipment = {
     getHallProbePos: (cam, target) => hallBench.userData.getHallProbePos?.(cam, target) ?? null,
     setMode: (mode) => hallBench.userData.setMode?.(mode),
+    /** Active Station Runtime: clear the tabletop while the station is idle. */
+    showcase: () => hallBench.userData.setMode?.(null),
+    shutdown: () => hallBench.userData.setMode?.(null),
+    suspend: () => hallBench.userData.setMode?.(null),
+    resume: () => { /* mode restored by experiment applyVisualDefaults */ },
     updateHall: (data) => hallBench.userData.updateHall?.(data),
     updateHallDemo: (data, dt) => hallBench.userData.updateHallDemo?.(data, dt),
     updateGauss: (data, dt) => hallBench.userData.updateGauss?.(data, dt),
@@ -2033,7 +2207,7 @@ export function createStationEquipment(ctx) {
     setHallPartState: (part, mode) => hallBench.userData.setHallPartState?.(part, mode),
     clearHallIdentifyVisuals: () => hallBench.userData.clearHallIdentifyVisuals?.(),
     getCamera: () => camera,
-    mouseDrag: { holdLMB: false, movementX: 0, movementY: 0 },
+    mouseDrag: { holdLMB: false, movementX: 0, movementY: 0, shiftKey: false },
   };
   const prewarm = {
     hall_effect: () => hallBench.userData.prewarmHall?.(renderer, camera, scene),

@@ -27,7 +27,7 @@ export class ThermalExpansionExperiment extends Experiment {
       title: '线膨胀系数测量台',
       description:
         '左端固定试样棒，中段电热丝加热。升温后按 ΔL = α L₀ ΔT 伸长，自由端相对零点标尺右移。换材料对比 α（殷钢几乎不动）。',
-      formula: 'ΔL = α L₀ ΔT   ·   L(T) = L₀ (1 + α ΔT)   ·   α 单位 10⁻⁶ /K',
+      formula: 'Δl = α l₀ Δt；l = l₀(1 + αΔt)（α 单位 10⁻⁶ /℃）',
     };
   }
 

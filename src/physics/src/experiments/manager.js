@@ -4,6 +4,7 @@
 import { STATION_EXPERIMENTS, STATION_MODULES } from './registry.js';
 import { isParamSliderAction, valueFromParamSliderPick } from '../holoScreen.js';
 import { labFrameScheduler } from '../frameBudget.js';
+import { labOpenTiming } from '../runtime/openTiming.js';
 
 /** Create manager bound to scene equipment refs */
 export function createExperimentManager({
@@ -12,6 +13,19 @@ export function createExperimentManager({
   onToast,
   /** Optional external scheduler; defaults to shared lab frame budget. */
   scheduler = labFrameScheduler,
+  /**
+   * Active Station Runtime — at most one hot station.
+   * @type {{ setHotStation?: (id: string|null) => string|null, getHotStation?: () => string|null, coldBootAll?: () => void } | null}
+   */
+  stationPresence = null,
+  /** Optional open-timing recorder (defaults to shared labOpenTiming). */
+  openTiming = labOpenTiming,
+  /**
+   * Called after apparatus graph may have changed (setMode / showcase).
+   * Host uses this to invalidate pickable caches without full-scene walks.
+   * @type {null | ((stationId: string) => void)}
+   */
+  onApparatusGraphChanged = null,
 }) {
   const state = {
     stationId: null,
@@ -143,27 +157,63 @@ export function createExperimentManager({
     const paint = opts.paint !== false;
     Object.values(equipment.holos || {}).forEach((h) => {
       if (!h?.userData) return;
-      const active = on && h.userData.stationId === stationId;
-      h.userData.active = active;
-      // Closing used to call draw() on every station hologram — multi-canvas hitch.
-      if (paint && typeof h.userData.draw === 'function') h.userData.draw(active);
+      const nextActive = !!(on && h.userData.stationId === stationId);
+      const wasActive = !!h.userData.active;
+      h.userData.active = nextActive;
+      // Only repaint selectors whose active flag flipped — opening one station
+      // used to draw() every hologram (multi-canvas hitch on first menu open).
+      if (paint && nextActive !== wasActive && typeof h.userData.draw === 'function') {
+        h.userData.draw(nextActive);
+      }
     });
   }
 
+  function notifyGraphChanged(stationId) {
+    if (!stationId || typeof onApparatusGraphChanged !== 'function') return;
+    try { onApparatusGraphChanged(stationId); } catch { /* ignore */ }
+  }
+
+  /** End experiment apparatus → idle table showcase (keep room looking full). */
+  function shutdownStation(sid) {
+    if (!sid) return;
+    const eq = equipment[sid];
+    try {
+      if (typeof eq?.suspend === 'function') eq.suspend();
+      else if (typeof eq?.shutdown === 'function') eq.shutdown();
+      else if (typeof eq?.showcase === 'function') eq.showcase();
+      else if (typeof eq?.setMode === 'function') {
+        if (sid === 'mechanics') eq.setMode(null, null, { reset: false, snapshot: false });
+        else eq.setMode(null);
+      }
+    } catch { /* best-effort */ }
+  }
+
   function openStationMenu(stationId) {
+    openTiming?.begin?.('station-menu', { stationId });
+    const t0 = performance.now();
     state.stationId = stationId;
     state.menuOpen = true;
     state.running = false;
     state.expId = null;
     state.stepIndex = 0;
     state.data = {};
+    // Hot this station only — freezes other benches out of the render/anim path.
+    try {
+      const tHot = performance.now();
+      stationPresence?.setHotStation?.(stationId);
+      openTiming?.mark?.('setHotStation', { dtMs: performance.now() - tHot });
+    } catch { /* ignore */ }
+    const tSel = performance.now();
     setSelectorActive(stationId, true, { paint: true });
+    openTiming?.mark?.('selectorPaint', { dtMs: performance.now() - tSel });
     // Content display stays hidden until an experiment card is chosen.
     Object.values(equipment.displays || {}).forEach((d) => {
       d?.userData?.setPresent?.(false);
     });
     toast(`已打开 ${STATION_EXPERIMENTS[stationId]?.title || ''} · 请选择实验`);
     pushHud();
+    openTiming?.mark?.('menuBookkeepingDone', { clickMs: performance.now() - t0 });
+    openTiming?.end?.({ phase: 'menu' });
   }
 
   function closeMenu() {
@@ -187,6 +237,14 @@ export function createExperimentManager({
   }
 
   function startExperiment(expId) {
+    const t0 = performance.now();
+    console.log(`[open-trace] manager.startExperiment begin exp=${expId}`);
+    // Start camera-first rendering before station presence changes.  Any stale
+    // progressive work belongs to the previous card selection and is cancelled.
+    scheduler.beginSwitchSession?.();
+    ['electro:', 'optics:', 'mech:', 'thermo:'].forEach((prefix) => {
+      scheduler.cancelPrefix?.(prefix);
+    });
     const st = currentStation();
     if (!st) return;
     const exp = st.experiments.find((e) => e.id === expId);
@@ -195,12 +253,31 @@ export function createExperimentManager({
     const prevExpId = state.running ? state.expId : null;
     const prevHandlers = prevExpId ? handlers[st.id] : null;
 
+    openTiming?.begin?.('experiment', {
+      stationId: st.id,
+      expId,
+      prevExpId: prevExpId || null,
+    });
+
+    // Ensure this station is the sole hot apparatus before any visual work.
+    try {
+      const tHot = performance.now();
+      stationPresence?.setHotStation?.(st.id);
+      const hotDt = performance.now() - tHot;
+      console.log(`[open-trace] setHotStation ${st.id} dt=${hotDt.toFixed(1)}ms`);
+      openTiming?.mark?.('setHotStation', { dtMs: hotDt });
+    } catch { /* ignore */ }
+
     // Bookkeeping only — keep this microtask tiny so the click frame can paint.
     state.expId = expId;
     state.stepIndex = 0;
     state.running = true;
     state.menuOpen = true;
+    const tInit = performance.now();
     state.data = h?.initData(expId) || {};
+    const initDt = performance.now() - tInit;
+    console.log(`[open-trace] initData dt=${initDt.toFixed(1)}ms`);
+    openTiming?.mark?.('initData', { dtMs: initDt });
     state.data._apparatusReady = false;
 
     // Abort any in-flight switch chain from a previous card click.
@@ -215,6 +292,7 @@ export function createExperimentManager({
     const steps = [];
     steps.push(() => {
       if (!state.running || state.expId !== expId) return;
+      openTiming?.mark?.('toastHud');
       toast(`开始实验：${exp.name}`);
       // Shell / warm-cache paint only — dense layout is a later chain step.
       pushHud();
@@ -222,31 +300,45 @@ export function createExperimentManager({
     if (prevExpId && prevHandlers?.cleanup) {
       const cleanupId = prevExpId;
       steps.push(() => {
+        const tC = performance.now();
         try { prevHandlers.cleanup?.(cleanupId); } catch { /* ignore */ }
+        openTiming?.mark?.('cleanupPrev', { dtMs: performance.now() - tC, prevExpId: cleanupId });
       });
     }
     steps.push(() => {
       if (!state.running || state.expId !== expId) return;
+      const tA = performance.now();
+      console.log(`[open-trace] applyVisualDefaults begin exp=${expId}`);
       try { h?.applyVisualDefaults?.(expId); } catch { /* keep HUD up */ }
+      const visDt = performance.now() - tA;
+      console.log(`[open-trace] applyVisualDefaults end dt=${visDt.toFixed(1)}ms`);
+      openTiming?.mark?.('applyVisualDefaults', { dtMs: visDt });
+      notifyGraphChanged(st.id);
       if (state.data) state.data._apparatusReady = true;
     });
     steps.push(() => {
       if (!state.running || state.expId !== expId) return;
       // Second HUD pass after apparatus is visible (readouts / live hits).
+      const tH = performance.now();
       pushHud();
+      console.log(`[open-trace] post-visuals pushHud dt=${(performance.now() - tH).toFixed(1)}ms`);
+      openTiming?.mark?.('postVisualsHud', { dtMs: performance.now() - tH });
+      // End the click→mount session here; progressive GPU/rays may continue.
+      openTiming?.end?.({ phase: 'mounted' });
     });
 
     if (typeof scheduler.scheduleChain === 'function') {
-      scheduler.scheduleChain('exp:switch', steps, { priority: 70, restFrames: 1 });
+      // soft:false + restFrames:0 — open must not insert camera-only cooldowns.
+      // Each step is O(1) mount / HUD schedule; no tree walks remain.
+      scheduler.scheduleChain('exp:switch', steps, { priority: 70, restFrames: 0, soft: false });
     } else {
       // Fallback if a test injects a minimal scheduler.
       steps.forEach((fn, i) => {
         scheduler.schedule(`exp:switch:${i}`, fn, { priority: 70 - i });
       });
     }
-    // Soft-switch: main loop skips animators/focus while the chain drains.
-    scheduler.beginSoftSwitch?.(28);
-    scheduler.rest?.(2);
+    console.log(`[open-trace] manager.startExperiment scheduled +${(performance.now() - t0).toFixed(1)}ms`);
+    openTiming?.mark?.('scheduled', { clickMs: performance.now() - t0 });
   }
 
   function interact(target, t) {
@@ -487,12 +579,15 @@ export function createExperimentManager({
 
   function exitExperiment() {
     const eid = state.expId;
+    const sid = state.stationId;
     const h = activeHandlers();
     state.running = false;
     state.expId = null;
     state.stepIndex = 0;
     state.data = {};
     state.menuOpen = true;
+    // Shutdown apparatus immediately; keep station hot for menu, not apparatus.
+    shutdownStation(sid);
     // No toast/pushHud on the click stack — schedule so camera keeps frames.
     scheduler.cancel('exp:switch');
     scheduler.cancel('exp:cleanup');
@@ -500,8 +595,20 @@ export function createExperimentManager({
     scheduler.cancel('exp:visuals-hud');
     scheduler.cancel('exp:toast');
     scheduler.cancel('exp:close-hud');
-    scheduler.beginSoftSwitch?.(10);
-    scheduler.rest?.(1);
+    [
+      'optics:open-geo',
+      'optics:open-diff',
+      'optics:rays',
+      'optics:fringe',
+      'optics:ray-flush',
+      'optics:diff-flush',
+      'optics:dirty-geo',
+      'optics:dirty-diff',
+      'optics:demo-diff',
+      'optics:freeze',
+      'optics:unfreeze',
+    ].forEach((id) => scheduler.cancel(id));
+    scheduler.endSoftSwitch?.();
     if (typeof scheduler.scheduleChain === 'function') {
       const steps = [];
       if (h?.cleanup && eid) {
@@ -512,8 +619,9 @@ export function createExperimentManager({
       steps.push(() => {
         toast('已退出当前实验');
         pushHud();
+        scheduler.endSoftSwitch?.();
       });
-      scheduler.scheduleChain('exp:exit', steps, { priority: 45, restFrames: 1 });
+      scheduler.scheduleChain('exp:exit', steps, { priority: 45, restFrames: 0, soft: false });
     } else {
       if (h?.cleanup && eid) {
         scheduler.schedule('exp:cleanup', () => {
@@ -523,6 +631,7 @@ export function createExperimentManager({
       scheduler.schedule('exp:close-hud', () => {
         toast('已退出当前实验');
         pushHud();
+        scheduler.endSoftSwitch?.();
       }, { priority: 40 });
     }
   }
@@ -568,22 +677,14 @@ export function createExperimentManager({
       }
     });
 
-    // 3) Instantly hide dense apparatus so the *next* WebGL frame is cheap.
-    //    (Previously cleanup ran 2+ frames later and left optics geo on-screen.)
+    // 3) Instantly shut down apparatus + cold-boot all stations (Active Runtime).
+    //    Next WebGL frame must not pay for any dense bench.
+    shutdownStation(sid);
     try {
-      if (sid === 'optics') {
-        if (typeof equipment.optics?.hideAll === 'function') equipment.optics.hideAll();
-        else equipment.optics?.setMode?.('off');
-      } else if (sid === 'thermo') {
-        equipment.thermo?.setMode?.(null);
-      } else if (sid === 'electro') {
-        equipment.electro?.setMode?.(null);
-      } else if (sid === 'mechanics') {
-        equipment.mechanics?.setMode?.(null, null, { reset: false, snapshot: false });
-      }
-    } catch { /* best-effort visibility hide */ }
+      stationPresence?.setHotStation?.(null);
+    } catch { /* ignore */ }
 
-    // 4) Cancel in-flight work; keep camera-first soft window.
+    // 4) Cancel in-flight work. Do NOT leave a long soft-switch session.
     scheduler.cancel('exp:switch');
     scheduler.cancel('exp:exit');
     scheduler.cancel('exp:shutdown');
@@ -592,14 +693,22 @@ export function createExperimentManager({
     scheduler.cancel('exp:visuals-hud');
     scheduler.cancel('exp:toast');
     scheduler.cancel('exp:close-hud');
-    scheduler.cancel('optics:open-geo');
-    scheduler.cancel('optics:open-diff');
-    scheduler.cancel('optics:rays');
-    scheduler.cancel('optics:fringe');
-    scheduler.beginSoftSwitch?.(18);
-    scheduler.rest?.(2);
+    [
+      'optics:open-geo',
+      'optics:open-diff',
+      'optics:rays',
+      'optics:fringe',
+      'optics:ray-flush',
+      'optics:diff-flush',
+      'optics:dirty-geo',
+      'optics:dirty-diff',
+      'optics:demo-diff',
+      'optics:freeze',
+      'optics:unfreeze',
+    ].forEach((id) => scheduler.cancel(id));
+    scheduler.endSoftSwitch?.();
 
-    // 5) Residual cleanup + toast on later pulses (freeze is already chunked).
+    // 5) Residual cleanup + toast — low priority, no switch session.
     const steps = [];
     if (h?.cleanup && eid) {
       steps.push(() => {
@@ -609,12 +718,14 @@ export function createExperimentManager({
     steps.push(() => {
       toast('已关闭实验终端');
       pushHud();
+      scheduler.endSoftSwitch?.();
     });
     if (typeof scheduler.scheduleChain === 'function') {
-      scheduler.scheduleChain('exp:shutdown', steps, { priority: 28, restFrames: 2 });
+      // No soft-switch: apparatus already detached; toast must not freeze the lab.
+      scheduler.scheduleChain('exp:shutdown', steps, { priority: 20, restFrames: 0, soft: false });
     } else {
       steps.forEach((fn, i) => {
-        scheduler.schedule(`exp:shutdown:${i}`, fn, { priority: 28 - i });
+        scheduler.schedule(`exp:shutdown:${i}`, fn, { priority: 20 - i });
       });
     }
   }

@@ -30,7 +30,8 @@ export function createPrismGeometry(size = 1.35, depth = 1.0) {
 }
 
 export function createSphereGeometry(radius = 0.7) {
-  const geom = new THREE.IcosahedronGeometry(radius, 4);
+  // detail 2 ≈ 320 tris (detail 4 ≈ 5120) — ray–mesh walk is O(tris×bounces×rays).
+  const geom = new THREE.IcosahedronGeometry(radius, 2);
   geom.computeVertexNormals();
   return geom;
 }
@@ -42,7 +43,7 @@ export function createBlockGeometry(w = 1.4, h = 0.95, d = 1.0) {
 }
 
 export function createCylinderGeometry(radius = 0.55, height = 1.2) {
-  const geom = new THREE.CylinderGeometry(radius, radius, height, 48, 1, false);
+  const geom = new THREE.CylinderGeometry(radius, radius, height, 28, 1, false);
   geom.rotateZ(Math.PI / 2);
   geom.computeVertexNormals();
   return geom;
@@ -55,7 +56,7 @@ export function createMirrorGeometry(height = 1.35, width = 1.15, thickness = 0.
 }
 
 export function createConvexMirrorGeometry(radius = 0.72) {
-  const geom = new THREE.IcosahedronGeometry(radius, 4);
+  const geom = new THREE.IcosahedronGeometry(radius, 2);
   geom.computeVertexNormals();
   return geom;
 }

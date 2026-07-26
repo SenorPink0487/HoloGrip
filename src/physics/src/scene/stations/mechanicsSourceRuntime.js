@@ -17,12 +17,13 @@ export const SOURCE_MECHANICS_EXPERIMENTS = Object.freeze({
 });
 
 const LAYOUTS = Object.freeze({
-  'free-fall': { position: [-4.2, 0.93, -2.8], scale: 0.25 },
-  'inclined-plane': { position: [-5.45, 0.93, -2.8], scale: 0.34 },
-  pendulum: { position: [-4.2, 0.93, -2.8], scale: 0.68 },
-  collision: { position: [-4.2, 0.93, -2.8], scale: 0.26 },
-  projectile: { position: [-5.45, 0.93, -2.8], scale: 0.28 },
-  viscosity: { position: [-4.2, 0.055, -2.8], scale: 0.94 },
+  // z≈-3.0 leaves the sitting-edge strip (z≈-2.24) free for desk sliders.
+  'free-fall': { position: [-4.2, 0.93, -3.0], scale: 0.25 },
+  'inclined-plane': { position: [-5.45, 0.93, -3.0], scale: 0.34 },
+  pendulum: { position: [-4.2, 0.93, -3.0], scale: 0.68 },
+  collision: { position: [-4.2, 0.93, -3.0], scale: 0.26 },
+  projectile: { position: [-5.45, 0.93, -3.0], scale: 0.28 },
+  viscosity: { position: [-4.2, 0.055, -3.0], scale: 0.94 },
 });
 
 function disposeObject(root) {
@@ -209,14 +210,6 @@ function parseReadouts(container) {
   }));
 }
 
-function freezeMatrixTree(root, frozen) {
-  if (!root) return;
-  root.traverse((object) => {
-    object.matrixAutoUpdate = !frozen;
-    if (frozen) object.updateMatrix();
-  });
-}
-
 export class MechanicsSourceRuntime {
   constructor({ id, camera, renderer }) {
     this.id = id;
@@ -243,6 +236,10 @@ export class MechanicsSourceRuntime {
     this._readoutCacheAt = -Infinity;
     this._workflowStep = -1;
     this._attached = false;
+    /** @type {boolean | undefined} */
+    this._frozen = undefined;
+    /** Cancels in-flight chunked freeze when setVisible is re-entered. */
+    this._freezeGen = 0;
   }
 
   build(overrides = {}) {
@@ -307,35 +304,34 @@ export class MechanicsSourceRuntime {
       this.build(next);
       return this.snapshot({ forceReadouts: true });
     }
-    // Experiment switch path: avoid dispose + full source rebuild when the
-    // GPU scene is already warm and host defaults match (prewarm / re-entry).
+    // Experiment open path must NEVER dispose+rebuild when the host defaults
+    // already match prewarm state. Hard rebuild of viscosity/projectile was a
+    // multi-second main-thread freeze (architecture: eager full reactivation).
     // Compare only keys provided by the host defaults — source getParams() may
     // include extra internal fields that would false-trigger a hard rebuild.
-    try {
-      const cur = this.instance.getParams?.() || this.params || {};
-      let same = true;
-      for (const key of Object.keys(next)) {
-        // Skip host-only bookkeeping fields that should not force a rebuild.
-        if (key.startsWith('_')) continue;
-        if (String(cur[key]) !== String(next[key])) {
-          same = false;
-          break;
-        }
+    const cur = this.instance.getParams?.() || this.params || {};
+    let same = true;
+    for (const key of Object.keys(next)) {
+      // Skip host-only bookkeeping fields that should not force a rebuild.
+      if (key.startsWith('_')) continue;
+      if (String(cur[key]) !== String(next[key])) {
+        same = false;
+        break;
       }
-      if (same && typeof this.instance.hostAction === 'function') {
-        const ok = this.instance.hostAction('reset');
-        if (ok !== false) {
-          // Critical: soft visual reset must also rewind the fixed-step clock,
-          // otherwise release timers fire immediately and leftover velocities
-          // keep balls flying off the table (小球无限外跑).
-          this.engine?.resetClock?.();
-          this.params = this.instance.getParams?.() || { ...cur, ...next };
-          return this.snapshot({ forceReadouts: true });
-        }
-      }
-    } catch {
-      // fall through to hard rebuild
     }
+    if (same) {
+      try {
+        // Soft reset when available; ignore false (e.g. missing button ids).
+        this.instance.hostAction?.('reset');
+      } catch {
+        /* soft path only */
+      }
+      // Critical: rewind fixed-step clock so release timers do not fire immediately.
+      try { this.engine?.resetClock?.(); } catch { /* ignore */ }
+      this.params = this.instance.getParams?.() || { ...cur, ...next };
+      return this.snapshot({ forceReadouts: true });
+    }
+    // Params actually changed (user applied new conditions) — rebuild once.
     this.build(next);
     return this.snapshot({ forceReadouts: true });
   }
@@ -344,31 +340,34 @@ export class MechanicsSourceRuntime {
   detachContent() {
     if (this.content?.parent) this.content.parent.remove(this.content);
     this._attached = false;
-    freezeMatrixTree(this.content, true);
+    this._frozen = true;
   }
 
   attachContent() {
     if (!this.content) return;
     if (!this.content.parent) this.root.add(this.content);
     this._attached = true;
-    freezeMatrixTree(this.content, false);
+    this._frozen = false;
   }
 
-  setVisible(visible) {
+  /**
+   * O(1) attach/detach — no matrix freeze walks on open.
+   * @param {boolean} visible
+   * @param {{ sync?: boolean }} [opts] sync kept for call-site compat (ignored)
+   */
+  setVisible(visible, _opts = {}) {
     const on = !!visible;
     this.root.visible = on;
     if (!this.content) return;
-    // Keep content parented after first attach. Re-parent + full freeze traverse
-    // on every experiment switch was a major hitch. Toggle freeze only.
     if (on) {
       if (!this.content.parent) this.root.add(this.content);
+      this.content.visible = true;
       this._attached = true;
-      if (this._frozen !== false) {
-        freezeMatrixTree(this.content, false);
-        this._frozen = false;
-      }
-    } else if (this._frozen !== true) {
-      freezeMatrixTree(this.content, true);
+      this._frozen = false;
+    } else {
+      this.content.visible = false;
+      if (this.content.parent) this.content.parent.remove(this.content);
+      this._attached = false;
       this._frozen = true;
     }
   }

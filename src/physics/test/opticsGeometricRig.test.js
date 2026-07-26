@@ -92,3 +92,32 @@ test('applyParams defers full ray rebuild for experiment switch', () => {
   assert.equal(api.raysPending, false);
   assert.ok(rayGroup.children.length > 0, 'signature match keeps existing rays');
 });
+
+test('completed default rays survive close and restore without a rebuild', () => {
+  const rig = createGeometricOpticsRig();
+  const api = rig.userData.api;
+  const rayGroup = rig.getObjectByName('geo-rays');
+  const mirror = {
+    shape: 'mirror', mode: 'mirror', angle: 35, height: 0, rayCount: 2, ior: 1.52,
+    dispersion: false, dispersionStrength: 0.6, rotate: 0, showReflect: true,
+  };
+  const prism = {
+    shape: 'prism', mode: 'dielectric', angle: 48, height: 0, rayCount: 7, ior: 1.52,
+    dispersion: true, dispersionStrength: 0.85, rotate: 0, showReflect: true,
+  };
+
+  api.applyParams(mirror, { force: true });
+  const mirrorRayCount = rayGroup.children.length;
+  api.cancelDeferredRays();
+  assert.equal(rayGroup.children.length, 0, 'close parks active rays off-scene');
+  assert.ok(api.rayCacheSize >= 1);
+
+  api.applyParams(prism, { force: true });
+  api.cancelDeferredRays();
+  const cachedBeforeRestore = api.rayCacheSize;
+
+  api.applyParams(mirror, { deferRays: true });
+  assert.equal(api.raysPending, false, 'cached signature requires no deferred trace');
+  assert.equal(rayGroup.children.length, mirrorRayCount);
+  assert.equal(api.rayCacheSize, cachedBeforeRestore - 1);
+});

@@ -249,7 +249,8 @@ export function createStationEquipment(ctx) {
       wave.frustumCulled = false;
       diffWaveGroup.add(wave);
     }
-    const diffLaserLight = new THREE.PointLight(0x44ff88, 0.55, 1.8, 2);
+    const diffLaserLight = new THREE.PointLight(0x44ff88, 0.35, 1.2, 2);
+    diffLaserLight.castShadow = false;
     diffLaserLight.position.set(-0.7, 0.42, 0);
     diffractionGroup.add(diffLaserLight);
     g.add(diffractionGroup);
@@ -499,18 +500,20 @@ export function createStationEquipment(ctx) {
       updateDiffraction(d, opts);
     }
 
-    // Default showcase
+    // Build diffraction once under the loader path, but leave it dark/off.
+    // Idle showcase is no longer always-on (Active Station Runtime).
     updateOptics({
       mode: 'diffraction',
-      lightOn: true,
+      lightOn: false,
       lambdaNm: 550,
       slitMm: 0.05,
       pitchMm: 0.25,
       N: 2,
       distM: 1,
-      showBeam: true,
-      showWave: true,
+      showBeam: false,
+      showWave: false,
     });
+    diffractionGroup.visible = false;
 
     g.userData.setMode = setMode;
     g.userData.updateOptics = updateOptics;
@@ -538,8 +541,9 @@ export function createStationEquipment(ctx) {
         showWave: true,
       }, { force: true });
       webglRenderer.compile(diffractionGroup, activeCamera, targetScene);
-      setMode('idle');
-      diffractionGroup.visible = wasDiff;
+      setMode('off');
+      diffractionGroup.visible = false;
+      void wasDiff;
     };
     g.userData.interactive = true;
     g.userData.role = 'optics';
@@ -548,8 +552,11 @@ export function createStationEquipment(ctx) {
 
   const root = new THREE.Group();
   root.name = 'optics-station';
+  // Push apparatus toward the back edge (−Z) so the sitting-edge strip is free
+  // for the desk param panel (multi-row cards ≈0.5–0.7 m deep).
+  const OPTICS_TABLE = { x: 4.2, y: 0.93, z: -3.02 };
   const optics = makeOpticsBench();
-  optics.position.set(4.2, 0.93, -2.8);
+  optics.position.set(OPTICS_TABLE.x, OPTICS_TABLE.y, OPTICS_TABLE.z);
   optics.rotation.y = 0;
   root.add(optics);
 
@@ -574,30 +581,64 @@ export function createStationEquipment(ctx) {
   });
   const geoScale = GEO_HOST_SCALE;
   geoRig.scale.setScalar(geoScale);
-  geoRig.position.set(4.2, 0.93 + 1.35 * geoScale, -2.8);
+  geoRig.position.set(
+    OPTICS_TABLE.x,
+    OPTICS_TABLE.y + 1.35 * geoScale,
+    OPTICS_TABLE.z,
+  );
   geoRig.rotation.y = 0;
   geoRig.visible = false;
-  root.add(geoRig);
+  // NOT added to the scene until geometric mode — keeps it out of
+  // updateMatrixWorld / raycast / render lists while idle or after close.
   const geoApi = geoRig.userData.api;
   geoApi?.applyEnvironment?.(geoEnvTex);
-  // Rebuild rays after parenting so matrixWorld includes host scale.
-  try { geoApi?.updateRays?.(); } catch { /* ignore */ }
+  // Temporary parent so first matrix/ray bake has host scale; then detach.
+  root.add(geoRig);
+  try {
+    geoRig.updateWorldMatrix?.(true, true);
+    geoApi?.updateRays?.();
+  } catch { /* ignore */ }
+  root.remove(geoRig);
+  let geoAttached = false;
 
-  function freezeMatrixTree(group, frozen) {
-    if (!group) return;
-    group.traverse((object) => {
-      object.matrixAutoUpdate = !frozen;
-      if (frozen) object.updateMatrix();
-    });
-  }
-  // Dense geometric island stays frozen until that mode is selected.
-  freezeMatrixTree(geoRig, true);
+  // geoFrozen tracks "not the active mode" for bookkeeping only.
+  // Detach/attach is the cost model — never freeze-walk this island.
   let geoFrozen = true;
+  /** Geometric GPU warm (declared early — setMode / open paths close over these). */
+  let geoGpuReady = false;
+  let geoWarmGen = 0;
+  /** @type {Promise<boolean>|null} */
+  let geoWarmPromise = null;
 
+  /**
+   * @param {boolean} on
+   * @param {{ visible?: boolean }} [opts]
+   *   visible=false keeps the island parented for compileAsync but OUT of the
+   *   render list — first draw of uncompiled MeshPhysical freezes the whole tab.
+   */
+  function attachGeometricIsland(on, opts = {}) {
+    if (on) {
+      if (!geoAttached) {
+        root.add(geoRig);
+        geoAttached = true;
+      }
+      // Default: visible only when GPU warm is already done.
+      const wantVisible = opts.visible != null ? !!opts.visible : true;
+      geoRig.visible = wantVisible;
+      return;
+    }
+    geoRig.visible = false;
+    if (geoAttached) {
+      root.remove(geoRig);
+      geoAttached = false;
+    }
+  }
+
+  // Decor on the far-right back corner — clear of the front control strip.
   const decorBeakers = [];
   [
-    { o: shared.makeBeaker(0.1, 0.03, 0xaaddff), p: [5.5, 0.93, -2.5] },
-    { o: shared.makeBeaker(0.09, 0.028, 0xffe8aa), p: [5.7, 0.93, -2.7] },
+    { o: shared.makeBeaker(0.1, 0.03, 0xaaddff), p: [5.55, 0.93, -3.25] },
+    { o: shared.makeBeaker(0.09, 0.028, 0xffe8aa), p: [5.75, 0.93, -3.35] },
   ].forEach(({ o, p }) => {
     o.position.set(...p);
     root.add(o);
@@ -607,23 +648,52 @@ export function createStationEquipment(ctx) {
   let activeMode = 'idle';
 
   /**
-   * Visibility-only mode switch on the call stack.
-   * freezeMatrixTree on the dense geometric island is deferred / chunked so
-   * look/WASD keep animation frames during experiment switch and × close.
+   * Mode switch.
    *
    * mode:
    *  - 'geometric' | experiment id → geometric island
    *  - 'diffraction' | 'idle' → multi-slit showcase
    *  - 'off' | null → hide all (close path — no idle showcase flash)
+   *
+   * Geometric island is DETACHED from the scene graph when not active (not merely
+   * visible=false). That is the only reliable way to stop residual cost after ×.
    */
-  function setMode(mode) {
+  /**
+   * @param {string|null|undefined} mode
+   * @param {{ gpuReady?: boolean }} [opts]
+   *   gpuReady=false → attach geometric island but keep it invisible until
+   *   ensureGeometricReady() finishes (prevents whole-tab shader compile hitch).
+   */
+  function setMode(mode, opts = {}) {
     const m = mode == null ? 'off' : mode;
     activeMode = m;
     const off = m === 'off' || m === 'none' || m === 'hidden';
     const geo = !off && (m === 'geometric' || isGeometricOpticsExp(m));
     const showDiff = !off && !geo;
+    const gpuReady = opts.gpuReady != null ? !!opts.gpuReady : geoGpuReady;
 
-    geoRig.visible = geo;
+    // Drop in-flight ray rebuilds / fringe paints when leaving a mode.
+    if (!geo) {
+      geoWarmGen += 1; // cancel in-flight warm
+      try { geoApi?.cancelDeferredRays?.(); } catch { /* ignore */ }
+      try { geoApi?.setActive?.(false); } catch { /* ignore */ }
+      // Detach is O(1). Never freeze-walk the geometric island on open/close.
+      attachGeometricIsland(false);
+      geoFrozen = true;
+      labFrameScheduler.cancel?.('optics:unfreeze');
+      labFrameScheduler.cancel?.('optics:freeze');
+    } else {
+      // Parent for compile, but hide from present until shaders are ready.
+      attachGeometricIsland(true, { visible: gpuReady });
+      try { geoApi?.setActive?.(true); } catch { /* ignore */ }
+      geoFrozen = false;
+      // World matrix once on the root only — no tree freeze walk.
+      try { geoRig.updateWorldMatrix?.(true, true); } catch { /* ignore */ }
+    }
+    if (!showDiff) {
+      optics.userData.cancelDeferredDiffraction?.();
+    }
+
     // Hide host diffraction showcase + decor when geometric island is active
     // or when fully off (× close must not re-show diffraction for a frame).
     optics.visible = showDiff;
@@ -636,46 +706,6 @@ export function createStationEquipment(ctx) {
       if (optics.userData.diffractionGroup) {
         optics.userData.diffractionGroup.visible = false;
       }
-    }
-
-    // Defer freeze/unfreeze of the geometric island (large mesh tree).
-    // Use scheduleCoop to walk the tree in slices — a full traverse freezes look.
-    const wantFrozen = !geo;
-    if (geoFrozen === wantFrozen) return;
-
-    if (!wantFrozen && geoFrozen) {
-      // Unfreeze is needed for live animation; still defer off the click frame.
-      labFrameScheduler.schedule?.('optics:unfreeze', () => {
-        if (!geoRig.visible || !geoFrozen) return;
-        freezeMatrixTree(geoRig, false);
-        geoFrozen = false;
-      }, { priority: 35 });
-      return;
-    }
-
-    if (wantFrozen && !geoFrozen) {
-      // Chunked freeze after hide — camera keeps frames while we walk meshes.
-      const list = [];
-      geoRig.traverse((object) => { list.push(object); });
-      let i = 0;
-      const batch = 80;
-      labFrameScheduler.scheduleCoop?.('optics:freeze', () => {
-        if (geoRig.visible) {
-          // Mode became geometric again — abort freeze.
-          return false;
-        }
-        const end = Math.min(i + batch, list.length);
-        for (; i < end; i += 1) {
-          const object = list[i];
-          object.matrixAutoUpdate = false;
-          object.updateMatrix();
-        }
-        if (i >= list.length) {
-          geoFrozen = true;
-          return false;
-        }
-        return true;
-      }, { priority: 30, sliceMs: 2.5, restFrames: 1, maxPulses: 40 });
     }
   }
 
@@ -696,8 +726,9 @@ export function createStationEquipment(ctx) {
 
   /**
    * @param {object} data
-   * @param {{ force?: boolean, defer?: boolean, deferRays?: boolean }} [opts]
+   * @param {{ force?: boolean, defer?: boolean, deferRays?: boolean, keepRays?: boolean }} [opts]
    *   defer / deferRays: mesh now, full trace on next animator tick (experiment switch).
+   *   keepRays: live drag — leave previous beams until progressive rebuild.
    */
   function updateGeometric(data, opts = {}) {
     if (!data || !geoApi) return geoApi?.snapshot?.() || null;
@@ -705,18 +736,19 @@ export function createStationEquipment(ctx) {
     return geoApi.applyParams(geoParamsFromData(data), {
       force: !!opts.force,
       deferRays,
+      keepRays: !!opts.keepRays,
     });
   }
 
   function flushDeferredGeometry() {
-    if (!geoRig.visible || !geoApi) return null;
+    if (!geoAttached || !geoRig.visible || !geoApi) return null;
     if (!geoApi.raysPending) return geoApi.snapshot?.() || null;
     return geoApi.flushDeferredRays?.() || null;
   }
 
   /** One beam; returns true if more remain. For scheduleCoop. */
   function stepDeferredGeometry() {
-    if (!geoRig.visible || !geoApi) return false;
+    if (!geoAttached || !geoRig.visible || !geoApi) return false;
     if (typeof geoApi.stepRayBuild === 'function') {
       if (!geoApi.raysPending) return false;
       return !!geoApi.stepRayBuild();
@@ -735,13 +767,163 @@ export function createStationEquipment(ctx) {
   }
 
   optics.userData.interactive = true;
+
+  /**
+   * GPU warm gate for geometric optics.
+   * Shaders compile while the island is parented but NOT rendered (visible=false).
+   * Revealing only after warm means the next present does not sync-compile and
+   * freeze the whole browser tab.
+   */
+  function revealGeometricIsland() {
+    if (!geoAttached) attachGeometricIsland(true, { visible: true });
+    else geoRig.visible = true;
+    try { geoApi?.setActive?.(true); } catch { /* ignore */ }
+  }
+
+  /**
+   * @param {{ onReady?: (ok: boolean) => void, force?: boolean }} [opts]
+   * @returns {Promise<boolean>}
+   */
+  function ensureGeometricReady(opts = {}) {
+    const t0 = performance.now();
+    console.log(`[open-trace] ensureGeometricReady begin ready=${geoGpuReady}`);
+    const onReady = typeof opts.onReady === 'function' ? opts.onReady : null;
+    // Boot prewarm calls this once for each default geometric experiment. A
+    // single global ready flag cannot certify mirror/prism/lens variants.
+    if (opts.force) {
+      geoWarmGen += 1;
+      geoWarmPromise = null;
+      geoGpuReady = false;
+    }
+    if (geoGpuReady) {
+      revealGeometricIsland();
+      onReady?.(true);
+      return Promise.resolve(true);
+    }
+    if (geoWarmPromise) {
+      return geoWarmPromise.then((ok) => {
+        if (ok) revealGeometricIsland();
+        onReady?.(!!ok);
+        return ok;
+      });
+    }
+
+    const gen = (geoWarmGen += 1);
+    // Parent + hide: compile can see the graph; present will not draw it.
+    attachGeometricIsland(true, { visible: false });
+    geoFrozen = false;
+    try { geoRig.updateWorldMatrix?.(true, true); } catch { /* ignore */ }
+
+    const finish = (ok) => {
+      if (gen !== geoWarmGen) return false;
+      geoWarmPromise = null;
+      console.log(`[open-trace] ensureGeometricReady finish ok=${ok} +${(performance.now() - t0).toFixed(1)}ms`);
+      if (ok) {
+        geoGpuReady = true;
+        revealGeometricIsland();
+      }
+      onReady?.(!!ok);
+      return !!ok;
+    };
+
+    const renderer = ctx.renderer;
+    if (!renderer || !geoRig) {
+      return Promise.resolve(finish(false));
+    }
+
+    // Double-rAF so the current click frame paints HUD/toast first.
+    geoWarmPromise = new Promise((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (gen !== geoWarmGen) {
+            resolve(false);
+            return;
+          }
+          const runSyncCompile = () => {
+            const tC = performance.now();
+            console.log(`[open-trace] renderer.compile SYNC begin`);
+            try {
+              // Yield once more after a long compile so chrome can composite.
+              renderer.compile(geoRig, ctx.camera, ctx.scene);
+              console.log(`[open-trace] renderer.compile SYNC end dt=${(performance.now() - tC).toFixed(1)}ms`);
+              resolve(finish(true));
+            } catch (err) {
+              console.log(`[open-trace] renderer.compile SYNC fail`, err);
+              resolve(finish(false));
+            }
+          };
+
+          if (typeof renderer.compileAsync === 'function') {
+            try {
+              console.log(`[open-trace] renderer.compileAsync begin`);
+              const tA = performance.now();
+              const p = renderer.compileAsync(geoRig, ctx.camera, ctx.scene);
+              if (p && typeof p.then === 'function') {
+                p.then(() => {
+                  console.log(`[open-trace] renderer.compileAsync ok dt=${(performance.now() - tA).toFixed(1)}ms`);
+                  resolve(finish(true));
+                }).catch((err) => {
+                  console.log(`[open-trace] renderer.compileAsync fail`, err);
+                  // Fallback sync compile on a later frame (never on the click stack).
+                  requestAnimationFrame(runSyncCompile);
+                });
+                return;
+              }
+            } catch { /* fall through */ }
+          }
+          // No compileAsync: still delay sync compile off the click frame.
+          runSyncCompile();
+        });
+      });
+    });
+
+    return geoWarmPromise;
+  }
+
+  /** @deprecated use ensureGeometricReady — kept for boot prewarm call sites */
+  function compileGeometricGpu() {
+    if (geoGpuReady) return true;
+    // Fire async warm; do not block.
+    ensureGeometricReady();
+    return geoGpuReady;
+  }
+
+  /** Museum idle: multi-slit bench lit on the table (static when station is cold). */
+  function showIdleShowcase() {
+    setMode('idle');
+    try {
+      optics.userData.updateDiffraction?.({
+        mode: 'diffraction',
+        lightOn: true,
+        lambdaNm: 550,
+        slitMm: 0.05,
+        pitchMm: 0.25,
+        N: 2,
+        distM: 1,
+        showBeam: true,
+        showWave: true,
+      }, { force: false });
+    } catch { /* ignore */ }
+  }
+
   const equipment = {
     setMode,
-    /** Instant hide for × close — no diffraction idle flash, freeze deferred. */
+    /** Hide geometric + diffraction (experiment switch only). */
     hideAll: () => setMode('off'),
+    /** Active Station Runtime: clear the tabletop while the station is idle. */
+    showcase: () => setMode('off'),
+    shutdown: () => setMode('off'),
+    suspend: () => setMode('off'),
+    resume: () => { /* experiment applyVisualDefaults picks geometric/diffraction */ },
+    compileGeometricGpu,
+    ensureGeometricReady,
+    revealGeometricIsland,
+    get geoGpuReady() { return geoGpuReady; },
+    get geoWarming() { return !!geoWarmPromise && !geoGpuReady; },
+    get geoRig() { return geoRig; },
     updateOptics: (data, opts = {}) => {
       if (data?.mode === 'geometric' || isGeometricOpticsExp(data?.expId)) {
-        setMode('geometric');
+        setMode('geometric', { gpuReady: geoGpuReady });
         return updateGeometric(data, opts);
       }
       setMode(data?.mode === 'idle' ? 'idle' : 'diffraction');
@@ -782,59 +964,55 @@ export function createStationEquipment(ctx) {
     };
   }
 
+  // Boot-only prewarm: ONE default config + one compile (not multi-shape force).
+  // Marks geoGpuReady so first user open skips compileAsync wait entirely.
   const geoPrewarm = Object.fromEntries(
     ['reflection', 'refraction', 'dispersion', 'lens'].map((id) => [id, () => {
-      setMode('geometric');
-      // Showcase each optical sample once so transmission shaders compile
-      const shapes = id === 'reflection'
-        ? ['mirror', 'mirror-convex']
-        : id === 'lens'
-          ? ['sphere', 'cylinder']
-          : id === 'dispersion'
-            ? ['prism']
-            : ['prism', 'block'];
-      shapes.forEach((shape) => {
-        geoApi?.applyParams?.({
-          shape,
-          angle: id === 'dispersion' ? 48 : 35,
-          rayCount: id === 'dispersion' ? 9 : 3,
-          dispersion: id === 'dispersion',
-          dispersionStrength: 0.85,
-          mode: shape.startsWith('mirror') ? 'mirror' : 'dielectric',
-          ior: 1.52,
-          force: true,
-        });
-      });
-      // End on this experiment's default config so a matching first open skips the trace.
+      const t0 = performance.now();
+      setMode('geometric', { gpuReady: false });
+      attachGeometricIsland(true, { visible: false });
       geoApi?.applyParams?.(geoParamsFromData(defaultGeoData(id)), { force: true });
       try {
+        geoRig.updateWorldMatrix?.(true, true);
         ctx.renderer?.compile?.(geoRig, ctx.camera, ctx.scene);
-      } catch { /* ignore */ }
-      // Keep lastSignature: hide via visibility only (do not wipe ray cache state).
-      setMode('idle');
+        geoGpuReady = true;
+        console.log(`[open-trace] boot geoPrewarm ${id} compile dt=${(performance.now() - t0).toFixed(1)}ms ready=true`);
+      } catch (err) {
+        console.log(`[open-trace] boot geoPrewarm ${id} FAIL`, err);
+      }
+      showIdleShowcase();
     }]),
   );
+
+  // Default: clear tabletop; experiment assets are mounted after selection.
+  setMode('off');
 
   return {
     root,
     equipment,
     animators: [
       (t, dt) => {
-        if (geoRig.visible) {
+        // Only animate the active apparatus family — never both, never when off.
+        if (geoAttached && geoRig.visible) {
           // Never flushDeferredGeometry on the pre-render path — full raytrace
           // freezes the camera. Flush only via labFrameScheduler (optics:ray-flush).
           geoApi?.animate?.(t);
-        } else {
+          return;
+        }
+        if (optics.visible && optics.userData.diffractionGroup?.visible) {
           optics.userData.animateDiffraction?.(t, dt);
         }
       },
     ],
     prewarm: {
-      multi_slit_diffraction: () => optics.userData.prewarmDiffraction?.(
-        ctx.renderer,
-        ctx.camera,
-        ctx.scene,
-      ),
+      multi_slit_diffraction: () => {
+        optics.userData.prewarmDiffraction?.(
+          ctx.renderer,
+          ctx.camera,
+          ctx.scene,
+        );
+        showIdleShowcase();
+      },
       ...geoPrewarm,
     },
     refs: { optics, geoRig },

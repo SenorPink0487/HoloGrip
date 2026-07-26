@@ -534,9 +534,9 @@ export const collision = {
     setFormula(
       ui.formula,
       `<strong>一维对心碰撞</strong><br/>
-       动量守恒：<code>m₁u₁ + m₂u₂ = m₁v₁ + m₂v₂</code><br/>
-       恢复系数：<code>e = (v₂−v₁)/(u₁−u₂)</code><br/>
-       动能：<code>K = ½mv²</code>；仅 <code>e=1</code> 时 <code>K</code> 守恒<br/>
+       动量守恒：<code>m₁v₁ + m₂v₂ = m₁v₁′ + m₂v₂′</code><br/>
+       恢复系数：<code>e = (v₂′−v₁′)/(v₁−v₂)</code><br/>
+       动能：<code>E_k = (1/2)mv²</code>；仅 <code>e=1</code>（弹性碰撞）时动能守恒<br/>
        <span style="opacity:.9">默认 m₁&gt;m₂：碰撞后蓝球仍向前。仅当 m₁=m₂ 且 e=1 时速度交换（入射球才停下）。</span>`
     );
 

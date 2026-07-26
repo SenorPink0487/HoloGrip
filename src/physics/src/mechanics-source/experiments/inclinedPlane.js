@@ -192,13 +192,13 @@ export const inclinedPlane = {
     setFormula(
       ui.formula,
       `<strong>斜面运动</strong><br/>
-       沿斜面向下：<code>a = g (sinθ − μ cosθ)</code><br/>
+       沿斜面向下加速度：<code>a = g(sinθ − μ cosθ)</code><br/>
        当前理论 a ≈ <strong>${formatNum(Math.max(0, a0), 2)} m/s²</strong><br/>
        临界角：<code>θ_c = arctan μ</code> ≈ <strong>${formatNum(
          (Math.atan(params.mu) * 180) / Math.PI,
          1
        )}°</strong><br/>
-       a ≤ 0 时木块保持静止`
+       当 θ ≤ θ_c（即 a ≤ 0）时木块保持静止`
     );
 
     function placeBlock(s) {

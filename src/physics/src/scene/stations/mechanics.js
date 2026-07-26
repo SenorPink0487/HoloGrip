@@ -50,6 +50,11 @@ export function createStationEquipment(ctx) {
 
   const equipment = {
     setMode,
+    /** Idle: keep last apparatus if any; null hides all (mechanics has no single museum rig). */
+    showcase: () => { /* tables stay; active experiment mesh only when hot */ },
+    shutdown: () => setMode(null, null, { reset: false, snapshot: false }),
+    suspend: () => setMode(null, null, { reset: false, snapshot: false }),
+    resume: () => { /* mode restored by experiment applyVisualDefaults */ },
     reset: (id, params) => ensure(id, params || defaultsFor(id))?.reset(params || defaultsFor(id)),
     setParam: (id, key, value) => ensure(id)?.setParam(key, value),
     setPaused: (id, paused) => ensure(id)?.setPaused(paused),
@@ -68,12 +73,13 @@ export function createStationEquipment(ctx) {
       // Build with the SAME defaults as first open, attach + compile under the
       // loader, then detach. First user switch must not hard-rebuild the source.
       const runtime = ensure(id, defaultsFor(id));
-      runtime.setVisible(true);
+      // sync freeze under the loader — do not leave coop jobs pending for boot.
+      runtime.setVisible(true, { sync: true });
       try {
         runtime.root.updateWorldMatrix?.(true, true);
         if (renderer && camera) renderer.compile?.(runtime.root, camera);
       } catch { /* full scene paint is done by warmAll */ }
-      runtime.setVisible(false);
+      runtime.setVisible(false, { sync: true });
     }]),
   );
 

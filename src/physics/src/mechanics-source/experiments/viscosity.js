@@ -1052,7 +1052,7 @@ export const viscosity = {
   name: '落球法测粘滞系数',
   meta: 'Stokes 落球 · 光电门计时 · Ladenburg 修正',
   description:
-    '经典流体力学实验：钢球在粘性液体中下落至终端速度，用光电门测速，结合 Stokes 公式与管壁修正求液体粘滞系数 η。按流程完成测径、投放、计时与数据处理。',
+    '落球法测液体黏度：钢球在黏性液体中下落至收尾速度，用光电门测速，结合斯托克斯公式与管壁修正求黏滞系数 η。按流程完成测径、投放、计时与数据处理。',
 
   setup(engine, ui, overrides = {}) {
     const params = {
@@ -1803,11 +1803,11 @@ export const viscosity = {
     function updateFormula() {
       const dMm = params.diameterMm;
       const texts = [
-        `<strong>原理 · Stokes 定律</strong><br/>
-         钢球达终端速度时：重力 = 浮力 + 粘滞阻力<br/>
-         <code>F_d = 6π η r v</code><br/>
+        `<strong>原理 · 落球法测黏度</strong><br/>
+         钢球达收尾速度时：重力 = 浮力 + 黏滞阻力<br/>
+         <code>f = 6πηrv</code>（斯托克斯公式）<br/>
          <code>η = 2r²(ρ−ρ₀)g / [9v(1+2.4r/R)]</code><br/>
-         <span style="opacity:.75">Ladenburg 管壁修正 · Re≪1</span>`,
+         <span style="opacity:.75">括号内为管壁修正；要求雷诺数很小</span>`,
         `<strong>步骤 2 · 从钢球盒取球</strong><br/>
          <span style="color:#8ec8ff">拖到量筒上方松开 → 自动下落</span><br/>
          当前 <code>d = ${formatNum(dMm, 1)} mm</code>，
@@ -1953,6 +1953,32 @@ export const viscosity = {
         canvas.style.touchAction = '';
       },
       hostAction(action) {
+        // Soft reset for host experiment switch — never fall through to
+        // dispose+build (that was a multi-second first-open freeze).
+        if (action === 'reset') {
+          try {
+            if (phase === 'falling') {
+              // Abort fall without geometry rebuild.
+              phase = 'ready';
+              vel = 0;
+            }
+            if (typeof returnBallToCase === 'function') {
+              // Prefer clean funnel-empty state when a ball was in play.
+              if (ball.visible || params._placedBallMm != null) {
+                // returnBallToCase no-ops while falling — force ready first.
+                phase = phase === 'falling' ? 'ready' : phase;
+                returnBallToCase();
+              }
+            }
+            if (typeof engine?.clearTrail === 'function' && trail) {
+              engine.clearTrail(trail);
+            }
+            if (typeof updateFormula === 'function') updateFormula();
+            return true;
+          } catch {
+            return true; // still soft — host must not hard-rebuild
+          }
+        }
         const button = buttons?.[action];
         if (!button || button.disabled) return false;
         button.click();

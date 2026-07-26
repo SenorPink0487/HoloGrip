@@ -1,8 +1,12 @@
 import * as THREE from 'three';
+import { labFrameScheduler } from '../frameBudget.js';
+import { K_COULOMB, CHARGE_UI_TO_C, formatPhysicsNumber } from '../physicsFormula.js';
 
 const WORLD_PER_SOURCE_UNIT = 0.13;
 const CHARGE_LIMIT = 12;
 const goldenAngle = Math.PI * (3 - Math.sqrt(5));
+/** SI 预因子 k·(μC→C)，场线/箭头只依赖方向与相对强弱 */
+const COULOMB_SCALE = K_COULOMB * CHARGE_UI_TO_C;
 function disposeObject(object) {
   object.traverse((child) => {
     child.geometry?.dispose?.();
@@ -10,6 +14,78 @@ function disposeObject(object) {
     else child.material?.dispose?.();
     child.material?.map?.dispose?.();
   });
+}
+
+/**
+ * Frameless billboard above the probe charge.
+ * Lines: q₀, optional r, |E|, |F| (force from F = q₀E).
+ */
+function createFloatingHudLabel({ worldScale = 1 } = {}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 280;
+  const ctx = canvas.getContext('2d');
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 2;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    opacity: 1,
+  }));
+  // Bottom-center pivot so the tag sits on top of the sphere.
+  sprite.center.set(0.5, 0);
+  const baseW = 0.40 * worldScale;
+  const heightFor = (n) => (0.055 + 0.048 * Math.max(2, n)) * worldScale;
+  sprite.scale.set(baseW, heightFor(3), 1);
+  sprite.renderOrder = 24;
+  sprite.raycast = () => {};
+  let lastKey = '';
+
+  /**
+   * @param {string} qText
+   * @param {string} eText
+   * @param {string} [accent]
+   * @param {string|null} [rText]
+   * @param {string|null} [fText]
+   */
+  function setQE(qText, eText, accent = '#fde68a', rText = null, fText = null) {
+    const key = `${accent}|${qText}|${eText}|${rText || ''}|${fText || ''}`;
+    if (key === lastKey) return;
+    lastKey = key;
+    const W = canvas.width;
+    const H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const drawLine = (text, y, size, color) => {
+      if (!text) return;
+      ctx.font = `bold ${size}px Consolas, "SF Mono", "Microsoft YaHei", sans-serif`;
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.72)';
+      ctx.strokeText(text, W / 2, y);
+      ctx.fillStyle = color;
+      ctx.fillText(text, W / 2, y);
+    };
+    const lines = [
+      { text: qText, color: accent, size: 40 },
+      rText ? { text: rText, color: '#7dd3fc', size: 36 } : null,
+      { text: eText, color: '#e2e8f0', size: 34 },
+      fText ? { text: fText, color: '#86efac', size: 34 } : null,
+    ].filter(Boolean);
+    sprite.scale.set(baseW, heightFor(lines.length), 1);
+    const top = 0.14;
+    const bottom = 0.88;
+    lines.forEach((line, i) => {
+      const y = H * (top + (bottom - top) * (lines.length === 1 ? 0.5 : i / (lines.length - 1)));
+      drawLine(line.text, y, line.size, line.color);
+    });
+    texture.needsUpdate = true;
+  }
+
+  return { sprite, setQE };
 }
 
 function sourceDirs(count) {
@@ -45,7 +121,8 @@ function fieldAtInto(charges, point, out) {
     );
     const r2 = _delta.lengthSq();
     if (r2 < 0.04 ** 2) continue;
-    out.addScaledVector(_delta, q / (r2 * Math.sqrt(r2)));
+    // E = kQ r̂ / r²，Q 以 μC 界面读数换算
+    out.addScaledVector(_delta, (COULOMB_SCALE * q) / (r2 * Math.sqrt(r2)));
   }
   return out;
 }
@@ -63,14 +140,15 @@ function potentialAt(charges, point) {
       point.y - Number(charge.y || 0),
       point.z - Number(charge.z || 0),
     ));
-    value += Number(charge?.q || 0) / distance;
+    value += (COULOMB_SCALE * Number(charge?.q || 0)) / distance;
   }
   return value;
 }
 
 function colorForCharge(q) {
-  if (q > 0.05) return 0xff6b6b;
-  if (q < -0.05) return 0x4dabf7;
+  // Saturated hues so field lines stay readable on the light lab bench.
+  if (q > 0.05) return 0xff3b3b;
+  if (q < -0.05) return 0x1c9bff;
   return 0xadb5bd;
 }
 
@@ -115,9 +193,10 @@ export function createElectricFieldEquipment() {
       new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.055, depthWrite: false }),
     );
     const hit = new THREE.Mesh(
-      // The source charges are visually small after the host coordinate
-      // conversion; keep a generous invisible grab volume for mouse/AR.
-      new THREE.SphereGeometry(0.32, 16, 10),
+      // Slightly larger than the outer glow only — oversized grab spheres used
+      // to extend across the floating content screen and steal aim from UI /
+      // empty space (and from the other charge).
+      new THREE.SphereGeometry(0.17, 16, 10),
       new THREE.MeshBasicMaterial({ visible: false }),
     );
     slot.add(outer, halo, core, hit);
@@ -136,17 +215,19 @@ export function createElectricFieldEquipment() {
     chargeSlots.push(slot);
   }
 
+  // Probe is smaller than source charges so it reads as a test charge, not a peer source.
   const probe = new THREE.Group();
   const probeCore = new THREE.Mesh(
-    new THREE.SphereGeometry(0.055, 20, 14),
+    new THREE.SphereGeometry(0.028, 18, 12),
     new THREE.MeshStandardMaterial({ color: 0xffd43b, emissive: 0xffb000, emissiveIntensity: 0.75 }),
   );
   const probeHalo = new THREE.Mesh(
-    new THREE.SphereGeometry(0.105, 14, 10),
+    new THREE.SphereGeometry(0.052, 14, 10),
     new THREE.MeshBasicMaterial({ color: 0xffd43b, transparent: true, opacity: 0.16, depthWrite: false }),
   );
   const probeHit = new THREE.Mesh(
-    new THREE.SphereGeometry(0.34, 16, 10),
+    // Tight grab: ~1.7× halo so aim must land near the small sphere.
+    new THREE.SphereGeometry(0.09, 14, 10),
     new THREE.MeshBasicMaterial({ visible: false }),
   );
   probe.add(probeHalo, probeCore, probeHit);
@@ -156,6 +237,9 @@ export function createElectricFieldEquipment() {
     node.userData.role = 'electric_probe';
   });
   probe.userData.hit = probeHit;
+  const probeHud = createFloatingHudLabel({ worldScale: WORLD_PER_SOURCE_UNIT * 6.8 });
+  probeHud.sprite.position.set(0, 0.085, 0);
+  probe.add(probeHud.sprite);
   probeGroup.add(probe);
 
   let forceArrow = null;
@@ -164,6 +248,10 @@ export function createElectricFieldEquipment() {
   let lastResetView = -1;
   let lastSlotMetaSignature = '';
   let pendingDecoration = false;
+  let decoJobGen = 0;
+  /** Throttle floating probe canvas while dragging (texture upload is costly). */
+  let lastHudPaintMs = 0;
+  const DECO_JOB_ID = 'electric-field:deco';
 
   function clearGroup(group) {
     while (group.children.length) {
@@ -207,7 +295,13 @@ export function createElectricFieldEquipment() {
         for (let p = 0; p < points.length; p += 1) points[p].multiplyScalar(WORLD_PER_SOURCE_UNIT);
         const line = new THREE.Line(
           new THREE.BufferGeometry().setFromPoints(points),
-          new THREE.LineBasicMaterial({ color: colorForCharge(charge.q), transparent: true, opacity: 0.5, depthWrite: false }),
+          new THREE.LineBasicMaterial({
+            color: colorForCharge(charge.q),
+            transparent: true,
+            // Was 0.5 — too washed-out against the bright desk / fog.
+            opacity: 0.92,
+            depthWrite: false,
+          }),
         );
         line.frustumCulled = false;
         disablePick(line);
@@ -231,65 +325,157 @@ export function createElectricFieldEquipment() {
       maxMagnitude = Math.max(maxMagnitude, field.length());
       return field;
     });
-    _lerpA.setHex(0x5ad4ff);
-    _lerpB.setHex(0xff8a6b);
+    _lerpA.setHex(0x22d3ee);
+    _lerpB.setHex(0xff6b4a);
     values.forEach((field, index) => {
       const magnitude = field.length();
       if (magnitude < maxMagnitude * 0.012) return;
       _arrowDir.copy(field).normalize();
       const t = THREE.MathUtils.clamp(Math.log1p(magnitude / maxMagnitude * 12) / Math.log1p(12), 0, 1);
-      // Slightly longer/thicker than the source grid so field direction stays readable
-      // after WORLD_PER_SOURCE_UNIT scaling on the lab bench.
-      const length = 0.18 + 0.48 * t;
+      // Longer/thicker after WORLD_PER_SOURCE_UNIT so direction stays readable on desk.
+      const length = 0.22 + 0.56 * t;
       _arrowOrigin.copy(samples[index]).addScaledVector(_arrowDir, -length * 0.45).multiplyScalar(WORLD_PER_SOURCE_UNIT);
       const arrow = new THREE.ArrowHelper(
         _arrowDir.clone(),
         _arrowOrigin.clone(),
         length * WORLD_PER_SOURCE_UNIT,
         _lerpA.clone().lerp(_lerpB, t).getHex(),
-        0.095 * WORLD_PER_SOURCE_UNIT,
-        0.042 * WORLD_PER_SOURCE_UNIT,
+        0.12 * WORLD_PER_SOURCE_UNIT,
+        0.055 * WORLD_PER_SOURCE_UNIT,
       );
       disablePick(arrow);
       arrowGroup.add(arrow);
     });
   }
 
+  /**
+   * Equipotential fill on the horizontal mid-plane (y = 0 in source space).
+   *
+   * Single point charge → concentric smooth circles (φ = kQ/r is radial).
+   * Color is a vivid rainbow across equipotential levels:
+   *   −φ → blue/cyan, φ≈0 → green/yellow, +φ → orange/red.
+   *
+   * Soft-quantized bands + LinearFilter keep rings circular (no LEGO stairs)
+   * while each level still reads as a distinct color (not a washed yellow slab).
+   */
   function rebuildEquipotential(charges) {
     clearGroup(equipotGroup);
     if (!charges.length) return;
-    const size = 96;
-    const data = new Uint8Array(size * size * 4);
+
+    const extent = 4.0;
+    const size = 256;
+    const rFloor = 0.22;
     const values = new Float32Array(size * size);
-    let maxAbs = 0.1;
-    for (let y = 0; y < size; y += 1) {
-      for (let x = 0; x < size; x += 1) {
-        const value = Math.asinh(potentialAt(charges, {
-          x: -4 + (8 * x) / (size - 1),
-          y: -4 + (8 * y) / (size - 1),
-          z: 0,
-        }));
-        values[y * size + x] = value;
-        maxAbs = Math.max(maxAbs, Math.abs(value));
+    let minV = Infinity;
+    let maxV = -Infinity;
+
+    for (let iy = 0; iy < size; iy += 1) {
+      for (let ix = 0; ix < size; ix += 1) {
+        // Cell centers → isotropic sampling (true circles under bilinear filter).
+        const sx = -extent + (2 * extent * (ix + 0.5)) / size;
+        const sz = -extent + (2 * extent * (iy + 0.5)) / size;
+        let phi = 0;
+        for (let c = 0; c < charges.length; c += 1) {
+          const ch = charges[c];
+          const q = Number(ch?.q || 0);
+          if (Math.abs(q) < 1e-6) continue;
+          const r = Math.max(
+            rFloor,
+            Math.hypot(sx - Number(ch.x || 0), 0 - Number(ch.y || 0), sz - Number(ch.z || 0)),
+          );
+          phi += (COULOMB_SCALE * q) / r;
+        }
+        // Mild compression; keep more mid-range contrast than pure asinh(φ·0.002).
+        const v = Math.asinh(phi * 0.008);
+        values[iy * size + ix] = v;
+        if (v < minV) minV = v;
+        if (v > maxV) maxV = v;
       }
     }
-    for (let index = 0; index < values.length; index += 1) {
-      const t = THREE.MathUtils.clamp(values[index] / maxAbs, -1, 1);
-      const positive = t >= 0;
-      const strength = Math.pow(Math.abs(t), 0.72);
-      data[index * 4] = positive ? 18 + 220 * strength : 18 + 50 * strength;
-      data[index * 4 + 1] = positive ? 24 + 70 * strength : 24 + 130 * strength;
-      data[index * 4 + 2] = positive ? 40 + 70 * strength : 40 + 210 * strength;
-      data[index * 4 + 3] = 72;
+    if (!Number.isFinite(minV) || !Number.isFinite(maxV) || maxV - minV < 1e-8) return;
+
+    // Both signs → symmetric about 0. Single sign → stretch [min,max] across a
+    // vivid half-spectrum so a lone +Q is green→yellow→orange→red (not all yellow).
+    const absMax = Math.max(Math.abs(minV), Math.abs(maxV), 1e-8);
+    const hasBothSigns = minV < -1e-4 && maxV > 1e-4;
+    const span = Math.max(maxV - minV, 1e-8);
+    const bandCount = 12;
+    const rgba = new Uint8Array(size * size * 4);
+    const colA = new THREE.Color();
+    const colB = new THREE.Color();
+    const col = new THREE.Color();
+
+    /** Vivid equipotential band color for palette u ∈ [0, 1]. */
+    function bandColor(u, out) {
+      const uu = THREE.MathUtils.clamp(u, 0, 1);
+      // Hue ~252° indigo → cyan → green → yellow → orange → red
+      const h = (1 - uu) * 0.70;
+      out.setHSL(h, 0.94, 0.50);
+      return out;
     }
-    const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+
+    /** Map compressed φ → palette coordinate u ∈ [0, 1]. */
+    function phiToU(v) {
+      if (hasBothSigns) {
+        const t = THREE.MathUtils.clamp(v / absMax, -1, 1);
+        return (t + 1) * 0.5;
+      }
+      // Single-sign field: use full local range so outer rings still change color.
+      const local = THREE.MathUtils.clamp((v - minV) / span, 0, 1);
+      if (maxV > 0 && minV >= -1e-4) {
+        // + only: green (far, low φ) → red (near, high φ)
+        return 0.32 + 0.68 * local;
+      }
+      // − only: blue (near, more negative) → cyan/green (far)
+      return 0.68 * local;
+    }
+
+    for (let i = 0; i < values.length; i += 1) {
+      const v = values[i];
+      const u = phiToU(v);
+
+      // Soft band index in continuous φ-space → circular boundaries after LinearFilter.
+      const bandF = u * (bandCount - 1);
+      const b0 = Math.floor(bandF);
+      const b1 = Math.min(bandCount - 1, b0 + 1);
+      const edge = THREE.MathUtils.smoothstep(bandF - b0, 0.12, 0.88);
+      bandColor(b0 / (bandCount - 1), colA);
+      bandColor(b1 / (bandCount - 1), colB);
+      col.copy(colA).lerp(colB, edge);
+
+      // Darken band boundaries slightly so equipotential rings read clearly.
+      const boundary = Math.exp(-((bandF - Math.round(bandF)) ** 2) / (2 * 0.06 ** 2));
+      col.multiplyScalar(1 - 0.20 * boundary);
+
+      // Outer rings stay clearly tinted (not a pale yellow wash).
+      const alpha = THREE.MathUtils.clamp(110 + 100 * u + 35 * boundary, 100, 235);
+      rgba[i * 4] = Math.round(THREE.MathUtils.clamp(col.r, 0, 1) * 255);
+      rgba[i * 4 + 1] = Math.round(THREE.MathUtils.clamp(col.g, 0, 1) * 255);
+      rgba[i * 4 + 2] = Math.round(THREE.MathUtils.clamp(col.b, 0, 1) * 255);
+      rgba[i * 4 + 3] = Math.round(alpha);
+    }
+
+    const texture = new THREE.DataTexture(rgba, size, size, THREE.RGBAFormat);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
     texture.needsUpdate = true;
+
     const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(8 * WORLD_PER_SOURCE_UNIT, 8 * WORLD_PER_SOURCE_UNIT),
-      new THREE.MeshBasicMaterial({ map: texture, transparent: true, opacity: 0.62, depthWrite: false, side: THREE.DoubleSide }),
+      new THREE.PlaneGeometry(2 * extent * WORLD_PER_SOURCE_UNIT, 2 * extent * WORLD_PER_SOURCE_UNIT),
+      new THREE.MeshBasicMaterial({
+        map: texture,
+        transparent: true,
+        opacity: 0.95,
+        depthWrite: false,
+        side: THREE.DoubleSide,
+      }),
     );
     plane.rotation.x = -Math.PI / 2;
-    plane.position.y = -0.015;
+    plane.position.y = -0.012;
+    plane.renderOrder = 2;
+    plane.frustumCulled = false;
     disablePick(plane);
     equipotGroup.add(plane);
   }
@@ -304,9 +490,43 @@ export function createElectricFieldEquipment() {
     pendingDecoration = false;
   }
 
+  /**
+   * Field-line / arrow / equipotential rebuilds dispose + reallocate hundreds of
+   * geometries. Never do that on the pre-render path (pointerup / drag end);
+   * schedule after the frame presents so charge meshes stay smooth.
+   */
+  function scheduleDecorationRebuild(charges, data, signature) {
+    pendingDecoration = true;
+    lastFieldSignature = signature;
+    const snapCharges = charges.map((c) => ({
+      id: c.id,
+      q: Number(c.q || 0),
+      x: Number(c.x || 0),
+      y: Number(c.y || 0),
+      z: Number(c.z || 0),
+    }));
+    const snapFlags = {
+      showLines: data.showLines !== false,
+      showArrows: data.showArrows !== false,
+      showEquipot: data.showEquipot === true,
+    };
+    const gen = (decoJobGen += 1);
+    // soft:false — rebuild is already post-render; do not arm soft-switch/rest
+    // cooldowns that make the lab feel sticky right after releasing a charge.
+    labFrameScheduler.schedule(DECO_JOB_ID, () => {
+      if (gen !== decoJobGen) return;
+      rebuildDecorations(snapCharges, snapFlags);
+    }, { priority: 18, soft: false });
+  }
+
+  function cancelScheduledDecoration() {
+    decoJobGen += 1;
+    labFrameScheduler.cancel?.(DECO_JOB_ID);
+  }
+
   function syncForceArrow(data, probeData) {
     const showProbe = data.showProbe !== false;
-    const forceSignature = `${Number(data.force?.x || 0).toFixed(4)}:${Number(data.force?.y || 0).toFixed(4)}:${Number(data.force?.z || 0).toFixed(4)}:${probeData.x}:${probeData.y}:${probeData.z}:${showProbe}`;
+    const forceSignature = `${Number(data.force?.x || 0).toExponential(4)}:${Number(data.force?.y || 0).toExponential(4)}:${Number(data.force?.z || 0).toExponential(4)}:${probeData.x}:${probeData.y}:${probeData.z}:${showProbe}:${Number(probeData.q0 || 0).toFixed(2)}`;
     if (forceSignature === lastForceSignature) return;
     lastForceSignature = forceSignature;
 
@@ -323,7 +543,8 @@ export function createElectricFieldEquipment() {
     const fy = Number(data.force?.y || 0);
     const fz = Number(data.force?.z || 0);
     const mag = Math.hypot(fx, fy, fz);
-    if (mag < 1e-4) {
+    // SI 下探测电荷受力约 10⁻³～10⁻¹ N；过小则不画。
+    if (mag < 1e-12) {
       if (forceArrow) {
         forceArrow.parent?.remove(forceArrow);
         disposeObject(forceArrow);
@@ -333,22 +554,42 @@ export function createElectricFieldEquipment() {
     }
 
     _forceDir.set(fx, fy, fz).multiplyScalar(1 / mag);
-    const length = Math.min(0.42, 0.12 + Math.log1p(mag) * 0.08) * WORLD_PER_SOURCE_UNIT;
+    // World-space length: log-mapped so q₀ / 距离变化肉眼可见，且不被
+    // WORLD_PER_SOURCE_UNIT 再缩成几毫米（旧实现几乎看不见）。
+    const refN = 2e-3; // ~1 μC · 2 kN/C 量级
+    const length = THREE.MathUtils.clamp(
+      0.10 + Math.log1p(mag / refN) * 0.07,
+      0.08,
+      0.38,
+    );
+    const headLen = Math.min(0.09, length * 0.32);
+    const headWidth = headLen * 0.55;
     if (!forceArrow) {
       forceArrow = new THREE.ArrowHelper(
         _forceDir.clone(),
         probe.position.clone(),
         length,
-        0x69db7c,
-        0.08 * WORLD_PER_SOURCE_UNIT,
-        0.035 * WORLD_PER_SOURCE_UNIT,
+        0x4ade80,
+        headLen,
+        headWidth,
       );
       disablePick(forceArrow);
+      // Draw above field lines / heatmap.
+      forceArrow.traverse((child) => {
+        if (child.isMesh || child.isLine) {
+          child.renderOrder = 20;
+          if (child.material) {
+            child.material.depthTest = true;
+            child.material.transparent = true;
+            child.material.opacity = 0.98;
+          }
+        }
+      });
       probeGroup.add(forceArrow);
     } else {
       forceArrow.position.copy(probe.position);
       forceArrow.setDirection(_forceDir);
-      forceArrow.setLength(length, 0.08 * WORLD_PER_SOURCE_UNIT, 0.035 * WORLD_PER_SOURCE_UNIT);
+      forceArrow.setLength(length, headLen, headWidth);
     }
   }
 
@@ -403,6 +644,39 @@ export function createElectricFieldEquipment() {
     probe.position.set(probeData.x, probeData.y, probeData.z).multiplyScalar(WORLD_PER_SOURCE_UNIT);
     probe.visible = data.showProbe !== false;
     probeHit.raycast = data.showProbe !== false ? THREE.Mesh.prototype.raycast : () => {};
+    const q0 = Number(probeData.q0 || 0);
+    const qPos = q0 >= 0;
+    probeCore.material.color.setHex(qPos ? 0xffd43b : 0x60a5fa);
+    probeCore.material.emissive.setHex(qPos ? 0xffb000 : 0x2563eb);
+    probeHalo.material.color.setHex(qPos ? 0xffd43b : 0x60a5fa);
+    const dragging = !!data.dragging;
+    // Canvas 2D + texture upload every frame while dragging is a common hitch.
+    // Keep charge/probe meshes live; paint the probe tag at ~8 Hz during drag.
+    const nowMs = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    const allowHudPaint = !dragging || (nowMs - lastHudPaintMs) >= 120;
+    if (probe.visible && allowHudPaint) {
+      lastHudPaintMs = nowMs;
+      // Single source charge → show geometric distance r (source-space meters).
+      let rText = null;
+      if (charges.length === 1) {
+        const src = charges[0];
+        const r = Math.hypot(
+          Number(probeData.x || 0) - Number(src.x || 0),
+          Number(probeData.y || 0) - Number(src.y || 0),
+          Number(probeData.z || 0) - Number(src.z || 0),
+        );
+        rText = `r=${r.toFixed(2)} m`;
+      }
+      const fText = `|F| ${formatPhysicsNumber(data.magnitudeF, { digits: 2, unit: 'N' })}`;
+      probeHud.setQE(
+        `q₀=${qPos ? '+' : ''}${q0.toFixed(1)} μC`,
+        `|E| ${formatPhysicsNumber(data.magnitudeE, { digits: 2, unit: 'N/C' })}`,
+        qPos ? '#fbbf24' : '#60a5fa',
+        rText,
+        fText,
+      );
+    }
+    // Force arrow setDirection/setLength is cheap; keep it live every frame.
     syncForceArrow(data, probeData);
 
     lineGroup.visible = data.showLines !== false;
@@ -412,19 +686,28 @@ export function createElectricFieldEquipment() {
     // Heavy field decorations (lines / arrows / equipotential) allocate and
     // dispose hundreds of geometries. Doing that on every pointermove freezes
     // the main thread — keep charge/probe meshes live during drag, leave the
-    // previous decorations in place, and rebuild once on release.
-    const dragging = !!data.dragging;
-    if (chargeSignature !== lastFieldSignature) {
-      if (dragging) {
+    // previous decorations in place, and rebuild once on release via the
+    // post-render frame budget (never on the pre-render / pointerup stack).
+    // Include visibility flags so toggling「等势」rebuilds even when charges are still.
+    const decoSignature = `${chargeSignature}|L${data.showLines !== false ? 1 : 0}|A${data.showArrows !== false ? 1 : 0}|E${data.showEquipot === true ? 1 : 0}`;
+    const forceSyncDeco = data._forceDecorations === true;
+    if (decoSignature !== lastFieldSignature) {
+      if (dragging && !forceSyncDeco) {
+        // Drop any in-flight rebuild so release does not paint a mid-drag pose.
+        cancelScheduledDecoration();
         pendingDecoration = true;
-      } else {
+      } else if (forceSyncDeco) {
+        cancelScheduledDecoration();
         rebuildDecorations(charges, data);
-        lastFieldSignature = chargeSignature;
+        lastFieldSignature = decoSignature;
+      } else {
+        scheduleDecorationRebuild(charges, data, decoSignature);
       }
     } else if (pendingDecoration && !dragging) {
-      rebuildDecorations(charges, data);
-      lastFieldSignature = chargeSignature;
-    } else {
+      scheduleDecorationRebuild(charges, data, decoSignature);
+    } else if (!dragging) {
+      // First open / empty groups: fill immediately only when nothing is scheduled.
+      // Avoids a blank field until the next drain if signature already matched prewarm.
       if (data.showLines !== false && lineGroup.children.length === 0) rebuildLines(charges);
       if (data.showArrows !== false && arrowGroup.children.length === 0) rebuildArrows(charges);
       if (data.showEquipot === true && equipotGroup.children.length === 0) rebuildEquipotential(charges);
@@ -447,11 +730,15 @@ export function createElectricFieldEquipment() {
       selectedId: 1,
       probe: { x: 2, y: 0.8, z: 0, q0: 1 },
       force: { x: 0.12, y: 0.02, z: 0 },
+      magnitudeE: 1,
+      magnitudeF: 1e-3,
       showLines: true,
       showArrows: true,
       showEquipot: true,
       showProbe: true,
       dragging: false,
+      // Synchronous rebuild so compile sees the geometries.
+      _forceDecorations: true,
     }, 0);
     renderer.compile(root, camera, scene);
     root.visible = visible;

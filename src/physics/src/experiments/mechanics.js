@@ -21,7 +21,7 @@ export const station = {
       id: 'free-fall',
       name: '自由落体',
       goal: '比较不同质量小球的下落时间，验证真空中加速度与质量无关',
-      theory: 'a = g；t = √(2h/g)；v = √(2gh)',
+      theory: 'a = g；t = √(2h/g)；v = √(2gh)（自由落体）',
       defaults: { height: 5.5, massA: 1, massB: 5, g: 9.81 },
       controls: [
         range('height', '释放高度 h', 2.5, 7, 0.5, 'm', 1),
@@ -35,7 +35,7 @@ export const station = {
       id: 'inclined-plane',
       name: '斜面运动',
       goal: '调节倾角与摩擦因数，观察下滑加速度和临界角',
-      theory: 'a = g(sinθ − μcosθ)；θc = arctan μ',
+      theory: 'a = g(sinθ − μ cosθ)；θ_c = arctan μ',
       defaults: { angleDeg: 30, mu: 0.12, mass: 2, length: 8, g: 9.81 },
       controls: [
         range('angleDeg', '倾角 θ', 5, 50, 1, '°', 0),
@@ -48,7 +48,7 @@ export const station = {
       id: 'pendulum',
       name: '单摆实验',
       goal: '观察非线性阻尼单摆并比较小角周期与大角修正',
-      theory: 'θ̈ = −(g/L)sinθ − cθ̇；T₀ = 2π√(L/g)',
+      theory: '小角近似 T = 2π√(l/g)；运动方程 α = −(g/l)sinθ',
       defaults: { length: 1.6, angleDeg: 35, mass: 0.8, g: 9.81, damping: 0.08 },
       controls: [
         range('length', '摆长 L', 0.6, 2.4, 0.05, 'm', 2),
@@ -62,7 +62,7 @@ export const station = {
       id: 'collision',
       name: '碰撞与动能',
       goal: '在气垫导轨上检验一维碰撞的动量守恒、动能变化和恢复系数',
-      theory: 'm₁u₁+m₂u₂=m₁v₁+m₂v₂；e=(v₂−v₁)/(u₁−u₂)',
+      theory: 'm₁v₁ + m₂v₂ = m₁v₁′ + m₂v₂′；e = (v₂′−v₁′)/(v₁−v₂)',
       defaults: { m1: 3, m2: 1.5, v1: 3.5, e: 1, mode: 'elastic' },
       controls: [
         select('mode', '碰撞类型', [
@@ -82,7 +82,7 @@ export const station = {
       id: 'projectile',
       name: '抛体运动',
       goal: '观察理论轨迹、频闪采样与速度分量，比较射高、射程和飞行时间',
-      theory: 'x=v₀cosθ·t；y=y₀+v₀sinθ·t−½gt²',
+      theory: 'x = v₀ cosθ · t，y = v₀ sinθ · t − (1/2)gt²',
       defaults: { v0: 10, angleDeg: 42, g: 9.81, h0: 1.2, assist: 'strobe' },
       controls: [
         range('v0', '初速度 v₀', 4, 18, 0.5, 'm/s', 1),
@@ -203,16 +203,13 @@ export function createHandlers(ctx) {
   function applyVisualDefaults(expId) {
     const definition = getDefinition(expId);
     const defaults = { ...(definition?.defaults || {}) };
-    // Visibility only on this budget pulse (attach content, hide others).
+    // O(1) setMode mount. Soft reset later only if params diverge from prewarm.
     equipment.mechanics?.setMode?.(expId, defaults, { reset: false, snapshot: false });
-    // Soft-reset on a later pulse with a camera rest frame between.
-    labFrameScheduler.rest?.(1);
     labFrameScheduler.schedule(`mech:reset:${expId}`, () => {
       if (state.expId !== expId || !state.running) return;
       const snapshot = equipment.mechanics?.reset?.(expId, defaults);
       mergeSnapshot(snapshot, false);
-      labFrameScheduler.rest?.(1);
-    }, { priority: 40 });
+    }, { priority: 35, soft: false });
   }
 
   function onUiAction(action, payload = {}) {

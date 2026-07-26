@@ -38,7 +38,7 @@ export const station = {
       id: 'multi_slit_diffraction',
       name: '单缝衍射 · 多缝干涉',
       goal: '调节波长、缝宽、缝距、缝数和屏距，用对照表与标注曲线归纳条纹规律',
-      theory: 'I/I₀=(sinβ/β)²[sin(Nγ)/(N sinγ)]²；β=πa sinθ/λ，γ=πd sinθ/λ',
+      theory: '单缝衍射中央亮纹宽度 ∝ λL/a；多缝干涉条纹间距 Δx = λL/d',
       steps: [
         {
           id: 'setup',
@@ -358,8 +358,9 @@ export function createHandlers(ctx) {
   /**
    * @param {object} data
    * @param {boolean} [refresh]
-   * @param {{ defer?: boolean, force?: boolean }} [opts]
+   * @param {{ defer?: boolean, force?: boolean, keepRays?: boolean }} [opts]
    *   defer: experiment switch — no full raytrace on the click frame
+   *   keepRays: live drag — keep previous beams while progressive rebuild runs
    */
   function syncGeometric(data, refresh = true, opts = {}) {
     data.mode = 'geometric';
@@ -381,6 +382,7 @@ export function createHandlers(ctx) {
       force: !!opts.force,
       defer: !!opts.defer,
       deferRays: !!opts.defer,
+      keepRays: !!opts.keepRays,
     };
     const snap = equipment.optics?.updateGeometric?.(data, equipOpts)
       || equipment.optics?.updateOptics?.({ ...data, mode: 'geometric', expId: state.expId }, equipOpts);
@@ -414,69 +416,87 @@ export function createHandlers(ctx) {
       state.data._opticsDirty = false;
     }
     if (isGeometricOpticsExp(expId)) {
-      // Soft multi-frame open: visibility → mesh → one-beam-at-a-time trace → HUD.
+      // Non-blocking open:
+      // 1) HUD + toast immediately (screen keeps moving)
+      // 2) Island parented but HIDDEN while compileAsync runs
+      // 3) Reveal only when shaders are ready → no whole-tab sync compile hitch
+      // 4) Progressive rays after reveal
       equipment.optics.cancelDeferred?.();
-      equipment.optics.setMode?.('geometric');
+      equipment.optics.setMode?.('geometric', { gpuReady: false });
       state.data._awaitRayFlush = false;
-      labFrameScheduler.beginSoftSwitch?.(20);
-      labFrameScheduler.rest?.(1);
-      labFrameScheduler.scheduleChain?.('optics:open-geo', [
-        () => {
-          if (!state.running || state.expId !== expId || !state.data) return;
+      state.data._gpuWarming = true;
+      applyAnalyticAngles(state.data);
+      applyVerifyFields(state.data);
+      toast('正在准备光学器材…画面可继续操作');
+      pushHud();
+
+      // Do NOT beginSoftSwitch — that freezes interaction and feels like a stuck screen.
+      const runAfterGpu = () => {
+        if (!state.running || state.expId !== expId || !state.data) return;
+        state.data._gpuWarming = false;
+        try {
           syncGeometric(state.data, false, { defer: true });
           applyAnalyticAngles(state.data);
           applyVerifyFields(state.data);
-        },
-        () => {
-          if (!state.running || state.expId !== expId || !state.data) return;
-          // Progressive raytrace: 1 beam per coop slice (~3ms) + rest frames.
-          labFrameScheduler.scheduleCoop?.('optics:rays', () => {
-            if (!state.running || state.expId !== expId) return false;
-            const more = equipment.optics?.stepDeferredGeometry?.();
-            if (more === true) return true;
-            // Finished (or nothing pending) — publish angles once.
-            const snap = equipment.optics?.snapshotGeometric?.();
-            if (snap && state.data) {
-              state.data.theta1 = snap.theta1;
-              state.data.theta2 = snap.theta2;
-              state.data.thetaReflect = snap.thetaReflect;
-              state.data.thetaRefract = snap.thetaRefract;
-              applyVerifyFields(state.data);
-            }
-            return false;
-          }, { priority: 36, sliceMs: 3, restFrames: 1 });
-        },
-        () => {
+        } catch { /* ignore */ }
+        pushHud();
+        // soft:false — open path must not pin camera-only soft-switch.
+        labFrameScheduler.scheduleCoop?.('optics:rays', () => {
+          if (!state.running || state.expId !== expId) return false;
+          const more = equipment.optics?.stepDeferredGeometry?.();
+          if (more === true) return true;
+          const snap = equipment.optics?.snapshotGeometric?.();
+          if (snap && state.data) {
+            state.data.theta1 = snap.theta1;
+            state.data.theta2 = snap.theta2;
+            state.data.thetaReflect = snap.thetaReflect;
+            state.data.thetaRefract = snap.thetaRefract;
+            applyVerifyFields(state.data);
+          }
+          return false;
+        }, { priority: 36, sliceMs: 3, restFrames: 0, maxPulses: 32, soft: false });
+        labFrameScheduler.schedule?.('optics:open-hud', () => {
           if (!state.running || state.expId !== expId) return;
           pushHud();
-        },
-      ], { priority: 42, restFrames: 1 });
+        }, { priority: 30 });
+      };
+
+      try {
+        const p = equipment.optics?.ensureGeometricReady?.({ onReady: runAfterGpu });
+        // If already ready, onReady runs sync; if promise, onReady also fires.
+        if (p && typeof p.then === 'function') {
+          p.catch?.(() => runAfterGpu());
+        }
+      } catch {
+        runAfterGpu();
+      }
       return;
     }
     equipment.optics.setMode?.('diffraction');
     if (expId === 'multi_slit_diffraction') {
       equipment.optics.cancelDeferred?.();
       state.data._awaitDiffFlush = false;
-      labFrameScheduler.beginSoftSwitch?.(20);
-      labFrameScheduler.rest?.(1);
+      // No long soft-switch — keep the lab interactive while fringes paint.
+      toast('正在绘制衍射图样…');
+      pushHud();
       labFrameScheduler.scheduleChain?.('optics:open-diff', [
         () => {
           if (!state.running || state.expId !== expId || !state.data) return;
-          // Geometry + start progressive fringe paint (never a single 640×H hitch).
           syncDiffraction(state.data, false, { force: false });
+          pushHud();
         },
         () => {
           if (!state.running || state.expId !== expId) return;
           labFrameScheduler.scheduleCoop?.('optics:fringe', () => {
             if (!state.running || state.expId !== expId) return false;
             return equipment.optics?.stepDiffractionPaint?.() === true;
-          }, { priority: 36, sliceMs: 3, restFrames: 1 });
+          }, { priority: 36, sliceMs: 3, restFrames: 0, maxPulses: 40, soft: false });
         },
         () => {
           if (!state.running || state.expId !== expId) return;
           pushHud();
         },
-      ], { priority: 42, restFrames: 1 });
+      ], { priority: 42, restFrames: 0, soft: false });
     }
   }
 
@@ -551,7 +571,15 @@ export function createHandlers(ctx) {
           : Number(data[key]) + Number(payload.delta || 0);
         data[key] = clamp(key === 'rayCount' ? Math.round(next) : next, ...ranges[key]);
         if (currentStep()?.id === 'setup') setStep('observe');
-        syncGeometric(data, payload.live !== true);
+        // Continuous live drag must not full-trace on the pointer event stack —
+        // mark dirty and let update() rebuild under the frame budget.
+        if (payload.live === true) {
+          applyAnalyticAngles(data);
+          applyVerifyFields(data);
+          data._opticsDirty = true;
+          return true;
+        }
+        syncGeometric(data, true);
         return true;
       }
       if (action === 'optics-geo-preset-ior') {
@@ -1132,11 +1160,26 @@ export function createHandlers(ctx) {
       if (data._opticsDirty) {
         data._opticsDirty = false;
         const expId = state.expId;
+        // Progressive rebuild: mesh params now, one beam per coop slice.
         labFrameScheduler.rest?.(1);
         labFrameScheduler.schedule('optics:dirty-geo', () => {
           if (!state.running || state.expId !== expId || !state.data) return;
-          syncGeometric(state.data, false);
-          labFrameScheduler.rest?.(1);
+          syncGeometric(state.data, false, { defer: true, keepRays: true });
+          labFrameScheduler.scheduleCoop?.('optics:rays', () => {
+            if (!state.running || state.expId !== expId) return false;
+            const more = equipment.optics?.stepDeferredGeometry?.();
+            if (more === true) return true;
+            const snap = equipment.optics?.snapshotGeometric?.();
+            if (snap && state.data) {
+              state.data.theta1 = snap.theta1;
+              state.data.theta2 = snap.theta2;
+              state.data.thetaReflect = snap.thetaReflect;
+              state.data.thetaRefract = snap.thetaRefract;
+              applyVerifyFields(state.data);
+              pushHud();
+            }
+            return false;
+          }, { priority: 34, sliceMs: 3, restFrames: 0, maxPulses: 24, soft: false });
         }, { priority: 38 });
       }
       data._hudThrottle = (data._hudThrottle || 0) + dt;
@@ -1201,26 +1244,35 @@ export function createHandlers(ctx) {
       state.data.dragArmed = false;
       state.data.dragging = false;
     }
-    // Abort multi-frame open chains so they cannot flush into idle.
-    labFrameScheduler.cancel?.('optics:open-geo');
-    labFrameScheduler.cancel?.('optics:open-diff');
-    labFrameScheduler.cancel?.('optics:rays');
-    labFrameScheduler.cancel?.('optics:fringe');
-    labFrameScheduler.cancel?.('optics:ray-flush');
-    labFrameScheduler.cancel?.('optics:diff-flush');
-    labFrameScheduler.cancel?.('optics:dirty-geo');
-    labFrameScheduler.cancel?.('optics:dirty-diff');
-    labFrameScheduler.cancel?.('optics:freeze');
-    // Hide both geometric + diffraction (not idle showcase). Freeze is chunked.
+    // Abort multi-frame open / dirty / freeze chains so they cannot flush into idle
+    // or keep soft-switch sessions alive after × close.
+    [
+      'optics:open-geo',
+      'optics:open-diff',
+      'optics:rays',
+      'optics:fringe',
+      'optics:ray-flush',
+      'optics:diff-flush',
+      'optics:dirty-geo',
+      'optics:dirty-diff',
+      'optics:demo-diff',
+      'optics:freeze',
+      'optics:unfreeze',
+    ].forEach((id) => labFrameScheduler.cancel?.(id));
+    // Return to idle diffraction showcase on the table (not an empty bench).
     try {
       equipment.optics?.clearIdentifyVisuals?.();
       equipment.optics?.cancelDeferred?.();
-      if (typeof equipment.optics?.hideAll === 'function') {
-        equipment.optics.hideAll();
+      if (typeof equipment.optics?.showcase === 'function') {
+        equipment.optics.showcase();
+      } else if (typeof equipment.optics?.suspend === 'function') {
+        equipment.optics.suspend();
       } else {
-        equipment.optics?.setMode?.('off');
+        equipment.optics?.setMode?.('idle');
       }
     } catch { /* ignore */ }
+    // Release camera-only soft window left by open/close chains.
+    labFrameScheduler.endSoftSwitch?.();
   }
 
   return {

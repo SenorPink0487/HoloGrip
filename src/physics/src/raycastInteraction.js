@@ -7,6 +7,28 @@ function isHierarchyVisible(object) {
   return true;
 }
 
+/**
+ * Prefer live apparatus (charge / probe / rod) over a content-screen control
+ * on the same ray when the apparatus is closer.
+ * Prevents “aiming a charge clicks the floating panel behind it”.
+ *
+ * Margin is tight: oversized grab spheres + a large behind-holo slack used to
+ * make the probe steal aim from empty space / UI beside the ball.
+ *
+ * @param {{ hit?: { distance?: number }, target?: unknown } | null} apparatusPick
+ * @param {{ hit?: { distance?: number }, target?: unknown } | null} holoControl
+ * @param {number} [margin=0.04] meters — small float slack only
+ */
+export function apparatusBeatsHolo(apparatusPick, holoControl, margin = 0.04) {
+  if (!apparatusPick?.target) return false;
+  if (!holoControl?.target) return true;
+  const appD = Number(apparatusPick.hit?.distance);
+  const holoD = Number(holoControl.hit?.distance);
+  if (!Number.isFinite(appD)) return false;
+  if (!Number.isFinite(holoD)) return true;
+  return appD <= holoD + margin;
+}
+
 function hasVisibleMaterial(object) {
   const materials = Array.isArray(object?.material)
     ? object.material

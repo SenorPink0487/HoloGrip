@@ -80,11 +80,13 @@ export function createOpticalBench() {
   const g = new THREE.Group();
   g.name = 'geo-optical-bench';
 
-  const top = box(14.5, 0.18, 3.4, wood, { roughness: 0.65, metalness: 0.02 });
+  // Narrow the tabletop crosswise to preserve a clear sitting-edge lane for
+  // the host's physical parameter panel.
+  const top = box(14.5, 0.18, 2.4, wood, { roughness: 0.65, metalness: 0.02 });
   top.position.y = -1.35;
   g.add(top);
 
-  const trim = box(14.7, 0.08, 3.55, woodDark, { roughness: 0.55 });
+  const trim = box(14.7, 0.08, 2.55, woodDark, { roughness: 0.55 });
   trim.position.y = -1.47;
   g.add(trim);
 
@@ -128,7 +130,7 @@ export function createOpticalBench() {
   g.add(stopR);
 
   const label = box(2.4, 0.04, 0.35, 0xf7f2e8);
-  label.position.set(0, -1.22, 1.55);
+  label.position.set(0, -1.22, 1.05);
   g.add(label);
 
   return g;
@@ -375,27 +377,30 @@ export function createLabAccessories() {
   const g = new THREE.Group();
   g.name = 'geo-accessories';
 
+  // Park notes / pen on the back half of the board (local −Z) so the host
+  // sitting-edge desk panel has a clear front strip on the optics table.
   const note = box(1.2, 0.04, 0.9, 0xf7f4ec, { roughness: 0.8 });
-  note.position.set(-4.5, -1.23, 1.2);
-  note.rotation.y = 0.15;
+  note.position.set(4.2, -1.23, -1.15);
+  note.rotation.y = -0.12;
   g.add(note);
 
   const noteLine = box(1.0, 0.005, 0.02, 0xd0c8b8);
-  noteLine.position.set(-4.5, -1.20, 1.35);
-  noteLine.rotation.y = 0.15;
+  noteLine.position.set(4.2, -1.20, -1.30);
+  noteLine.rotation.y = -0.12;
   g.add(noteLine);
 
   const pen = cyl(0.025, 0.025, 0.7, 8, 0x3a6a8a, { roughness: 0.4, metalness: 0.2 });
   pen.rotation.z = Math.PI / 2;
-  pen.rotation.y = 0.4;
-  pen.position.set(-3.6, -1.2, 1.15);
+  pen.rotation.y = -0.35;
+  pen.position.set(3.4, -1.2, -1.05);
   g.add(pen);
 
+  // Instrument case on the back-right — clear of the front control zone.
   const boxMesh = box(0.9, 0.35, 0.6, 0x6a8a9a, { roughness: 0.5, metalness: 0.15 });
-  boxMesh.position.set(5.2, -1.1, 1.15);
+  boxMesh.position.set(5.4, -1.1, -1.05);
   g.add(boxMesh);
   const lid = box(0.92, 0.04, 0.62, 0x5a7a8a, { roughness: 0.45 });
-  lid.position.set(5.2, -0.9, 1.15);
+  lid.position.set(5.4, -0.9, -1.05);
   g.add(lid);
 
   return g;

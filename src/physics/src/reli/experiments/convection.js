@@ -21,7 +21,7 @@ export class ConvectionExperiment extends Experiment {
       description:
         '热板加热近壁空气，密度降低后受浮力上升，形成羽流；羽流冷却后沿侧壁回流。' +
         'ΔT 越大瑞利数 Ra 越高，环流越强；对流换热 Q = h A ΔT。',
-      formula: 'Q = h A ΔT   ·   Ra = g β ΔT L³ /(ν α)   ·   Nu ∝ Raⁿ',
+      formula: 'Q = hAΔt；温差越大对流换热越强',
     };
   }
 

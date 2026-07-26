@@ -18,7 +18,7 @@ export class HeatConductionExperiment extends Experiment {
       title: '导热系数测量台',
       description:
         '两端恒温浴夹持透明试样管，管内粒子示意热载流子沿温度梯度迁移。调节端温与导热系数；读数见左侧仪器数显。',
-      formula: 'q = −k ∇T   ·   ∂T/∂t = α ∂²T/∂x²   ·   稳态时 T(x) 呈线性',
+      formula: 'Q/t ∝ kA(ΔT/Δx)；稳态时沿棒温度近似线性分布',
     };
   }
 

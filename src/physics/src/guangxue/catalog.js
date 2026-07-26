@@ -150,7 +150,7 @@ export const GEOMETRIC_EXPERIMENTS = [
     id: 'reflection',
     name: '光的反射',
     goal: '完成 1.1–1.4：现象观察、定律验证、多光束/凸面镜、镜面倾角',
-    theory: 'θᵢ = θᵣ；镜转 α ⇒ 反射光转 2α',
+    theory: '反射定律：i = i′；平面镜转 α，反射光线转 2α',
     steps: [
       {
         id: 'mod_observe',
@@ -185,7 +185,7 @@ export const GEOMETRIC_EXPERIMENTS = [
     id: 'refraction',
     name: '光的折射',
     goal: '完成 2.1–2.4：现象观察、斯涅尔定律、全反射、平板侧移',
-    theory: 'n₁ sin θ₁ = n₂ sin θ₂；sin θc = n₂/n₁',
+    theory: '折射定律 n₁ sin i = n₂ sin r；临界角 sin C = n₂/n₁',
     steps: [
       {
         id: 'mod_observe',
@@ -220,7 +220,7 @@ export const GEOMETRIC_EXPERIMENTS = [
     id: 'dispersion',
     name: '光的色散',
     goal: '观察三棱镜白光色散，理解 n(λ) 与红→紫展宽',
-    theory: 'n(λ) = A + B/λ²（Cauchy）；紫光偏折大于红光',
+    theory: '同一介质 n 随波长变化；一般紫光偏折大于红光（色散）',
     steps: [
       { id: 'setup', text: '安装等边三棱镜，开启白光色散', hint: '色散模式 + 多光束' },
       { id: 'observe', text: '在观察屏寻找红→紫光谱色带', hint: '调节色散系数与入射角' },

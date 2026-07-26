@@ -4,11 +4,65 @@ import {
   inducedEMagnitude,
   inducedESense,
 } from './electro.js';
+import { formatPhysicsNumber } from '../physicsFormula.js';
 
 const WORLD_PER_SOURCE = 0.11;
 const E_RING_RADII_NORM = [0.35, 0.55, 0.75, 1.0, 1.35, 1.75, 2.2];
-const PARTICLE_COUNT = 48;
-const B_ARROW_COUNT = 12;
+const E_MARKERS_PER_RING = 8;
+/** Source-space R max (matches desk slider R max). Lattice covers densest fill of this disk. */
+const B_R_MAX = 3.2;
+/** Faraday-style lattice spacing in source units: sparse ↔ dense vs |B|. */
+const B_SPACING_SPARSE = 1.45;
+const B_SPACING_DENSE = 0.48;
+const B_EDGE_FADE = 0.35;
+
+/** Frameless two-line billboard: q and E only, above the probe charge. */
+function createFloatingHudLabel({ worldScale = 1 } = {}) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 160;
+  const ctx = canvas.getContext('2d');
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 2;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+    opacity: 1,
+  }));
+  sprite.center.set(0.5, 0);
+  sprite.scale.set(0.42 * worldScale, 0.13 * worldScale, 1);
+  sprite.renderOrder = 24;
+  sprite.raycast = () => {};
+  let lastKey = '';
+
+  function setQE(qText, eText, accent = '#fde68a') {
+    const key = `${accent}|${qText}|${eText}`;
+    if (key === lastKey) return;
+    lastKey = key;
+    const W = canvas.width;
+    const H = canvas.height;
+    ctx.clearRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // Soft stroke for readability without a panel box.
+    const drawLine = (text, y, size, color) => {
+      ctx.font = `bold ${size}px Consolas, "SF Mono", "Microsoft YaHei", sans-serif`;
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.72)';
+      ctx.strokeText(text, W / 2, y);
+      ctx.fillStyle = color;
+      ctx.fillText(text, W / 2, y);
+    };
+    drawLine(qText, H * 0.36, 44, accent);
+    drawLine(eText, H * 0.70, 40, '#e2e8f0');
+    texture.needsUpdate = true;
+  }
+
+  return { sprite, setQE };
+}
 
 /**
  * Tabletop apparatus: cylindrical uniform-B region + concentric induced E rings.
@@ -18,15 +72,16 @@ export function createInducedElectricFieldEquipment() {
   const root = new THREE.Group();
   root.name = 'induced-electric-field-apparatus';
   root.visible = false;
-  root.position.set(0, 0.42, 0.02);
+  // Sit flush on the electro bench (same tabletop offset as Faraday), not mid-air.
+  root.position.set(0, 0.05, 0.02);
 
   const S = WORLD_PER_SOURCE;
   const fieldGroup = new THREE.Group();
   const eGroup = new THREE.Group();
-  const particleGroup = new THREE.Group();
   const probeGroup = new THREE.Group();
   const labelGroup = new THREE.Group();
-  root.add(fieldGroup, eGroup, particleGroup, probeGroup, labelGroup);
+  root.add(fieldGroup, eGroup, probeGroup, labelGroup);
+  const _tangentDir = new THREE.Vector3(1, 0, 0);
 
   // Floor disc for spatial reference.
   const floor = new THREE.Mesh(
@@ -74,38 +129,130 @@ export function createInducedElectricFieldEquipment() {
   const regionBottom = regionTop.clone();
   regionBottom.position.y = 0.01;
   fieldGroup.add(regionTop, regionBottom);
+  // No wireframe cage — the soft glass cylinder + B arrows already mark the region.
 
-  const regionWire = new THREE.LineSegments(
-    new THREE.EdgesGeometry(new THREE.CylinderGeometry(1, 1, 1.8 * S, 32, 1, true)),
-    new THREE.LineBasicMaterial({ color: 0x7dd3fc, transparent: true, opacity: 0.55 }),
-  );
-  regionWire.position.y = 0.9 * S;
-  fieldGroup.add(regionWire);
-
-  // Vertical B arrows (reused, styled in place).
+  // Vertical B arrows — Faraday-style lattice:
+  //   · length fixed at create (never setLength)
+  //   · |B| drives spacing (sparse↔dense) + opacity continuously
+  //   · soft circular mask to the current R region
+  //   · sign flips direction / color; origin shifts so tips stay above the plane
+  const B_ARROW_LEN = 1.05 * S;
+  const B_ARROW_HEAD_LEN = 0.28 * S;
+  const B_ARROW_HEAD_W = 0.14 * S;
+  const B_ARROW_MID_Y = 0.12 * S + B_ARROW_LEN * 0.5;
+  const B_NX = Math.max(3, Math.round((2 * B_R_MAX) / B_SPACING_DENSE) + 1);
+  const B_NZ = B_NX;
+  const B_HALF_IX = (B_NX - 1) * 0.5;
+  const B_HALF_IZ = (B_NZ - 1) * 0.5;
+  const B_POOL = B_NX * B_NZ;
+  const bDir = new THREE.Vector3(0, 1, 0);
   const bArrows = [];
   const bArrowGroup = new THREE.Group();
   fieldGroup.add(bArrowGroup);
-  for (let i = 0; i < B_ARROW_COUNT; i += 1) {
-    const angle = (i / B_ARROW_COUNT) * Math.PI * 2;
-    const radial = 0.35 + (i % 3) * 0.18;
-    const arrow = new THREE.ArrowHelper(
-      new THREE.Vector3(0, 1, 0),
-      new THREE.Vector3(Math.cos(angle) * radial, 0.15 * S, Math.sin(angle) * radial),
-      1.2 * S,
-      0x38bdf8,
-      0.28 * S,
-      0.14 * S,
-    );
-    arrow.line.material.transparent = true;
-    arrow.cone.material.transparent = true;
-    bArrowGroup.add(arrow);
-    bArrows.push({ arrow, radial, angle });
+  for (let ix = 0; ix < B_NX; ix += 1) {
+    for (let iz = 0; iz < B_NZ; iz += 1) {
+      const arrow = new THREE.ArrowHelper(
+        bDir,
+        new THREE.Vector3(0, B_ARROW_MID_Y - B_ARROW_LEN * 0.5, 0),
+        B_ARROW_LEN,
+        0x38bdf8,
+        B_ARROW_HEAD_LEN,
+        B_ARROW_HEAD_W,
+      );
+      arrow.userData.ix = ix;
+      arrow.userData.iz = iz;
+      arrow.line.material.transparent = true;
+      arrow.line.material.depthWrite = false;
+      arrow.line.material.depthTest = true;
+      arrow.cone.material.transparent = true;
+      arrow.cone.material.depthWrite = false;
+      arrow.cone.material.depthTest = true;
+      arrow.renderOrder = 2;
+      arrow.line.renderOrder = 2;
+      arrow.cone.renderOrder = 3;
+      arrow.visible = false;
+      bArrowGroup.add(arrow);
+      bArrows.push(arrow);
+    }
+  }
+  let bLastB = NaN;
+  let bLastSign = 0;
+  let bLastR = NaN;
+
+  /** Soft disk mask: 1 inside R, 0 outside, smooth rim (source units). */
+  function bEdgeWeight(x, z, regionR) {
+    const r = Math.hypot(x, z);
+    const outer = regionR + B_EDGE_FADE;
+    if (r >= outer) return 0;
+    if (r <= regionR) return 1;
+    return 1 - THREE.MathUtils.smoothstep(r, regionR, outer);
   }
 
-  // Concentric E rings + tangent markers.
+  function applyBFieldLayout(B, regionR) {
+    const b = Number(B || 0);
+    const absB = Math.abs(b);
+    const strength = THREE.MathUtils.clamp(absB / 2.5, 0, 1);
+    const color = b >= 0 ? 0x38bdf8 : 0xea580c;
+    const sign = b >= 0 ? 1 : -1;
+    // Skip true no-ops; any change in B or R must re-breathe the lattice.
+    if (
+      sign === bLastSign
+      && Number.isFinite(bLastB)
+      && Math.abs(b - bLastB) < 1e-5
+      && Number.isFinite(bLastR)
+      && Math.abs(regionR - bLastR) < 1e-5
+    ) {
+      return { color, strength };
+    }
+    bLastB = b;
+    bLastSign = sign;
+    bLastR = regionR;
+
+    if (absB < 0.02) {
+      for (let i = 0; i < bArrows.length; i += 1) bArrows[i].visible = false;
+      return { color, strength };
+    }
+
+    // Linear spacing vs |B|: no tier / no floor(count) — lattice breathes continuously.
+    const spacing = THREE.MathUtils.lerp(B_SPACING_SPARSE, B_SPACING_DENSE, strength);
+    bDir.set(0, sign, 0);
+    const baseLineOp = THREE.MathUtils.lerp(0.5, 0.86, strength);
+    const baseConeOp = THREE.MathUtils.lerp(0.55, 0.9, strength);
+    const originY = B_ARROW_MID_Y - sign * (B_ARROW_LEN * 0.5);
+
+    for (let i = 0; i < bArrows.length; i += 1) {
+      const arrow = bArrows[i];
+      const ix = arrow.userData.ix;
+      const iz = arrow.userData.iz;
+      // Source-space lattice root; scale to world with S.
+      const x = (ix - B_HALF_IX) * spacing;
+      const z = (iz - B_HALF_IZ) * spacing;
+      const edge = bEdgeWeight(x, z, regionR);
+      if (edge <= 0.012) {
+        arrow.visible = false;
+        continue;
+      }
+      arrow.visible = true;
+      arrow.position.set(x * S, originY, z * S);
+      arrow.setDirection(bDir);
+      // Length is created fixed — never call setLength.
+      arrow.setColor(color);
+      const lineOp = baseLineOp * edge;
+      const coneOp = baseConeOp * edge;
+      if (arrow.line?.material) {
+        arrow.line.material.color?.setHex?.(color);
+        arrow.line.material.opacity = lineOp;
+      }
+      if (arrow.cone?.material) {
+        arrow.cone.material.color?.setHex?.(color);
+        arrow.cone.material.opacity = coneOp;
+      }
+    }
+    return { color, strength };
+  }
+
+  // Concentric E rings: each ring is a group (line + tangent markers) that spins as a unit.
   const eRings = [];
-  const eMarkers = [];
   const ringGeoCache = new Map();
   function ringGeometry(segments = 64) {
     if (!ringGeoCache.has(segments)) {
@@ -122,6 +269,9 @@ export function createInducedElectricFieldEquipment() {
   }
 
   E_RING_RADII_NORM.forEach((norm, index) => {
+    const ring = new THREE.Group();
+    eGroup.add(ring);
+
     const mat = new THREE.LineBasicMaterial({
       color: index < 4 ? 0xf472b6 : 0xa78bfa,
       transparent: true,
@@ -130,45 +280,35 @@ export function createInducedElectricFieldEquipment() {
     });
     const line = new THREE.LineLoop(ringGeometry(72), mat);
     line.position.y = 0.12 * S;
-    eGroup.add(line);
-    eRings.push({ line, mat, norm });
+    ring.add(line);
 
-    for (let k = 0; k < 8; k += 1) {
+    // Tangent E markers — fixed length like Faraday B; strength → opacity only.
+    const E_ARROW_LEN = 0.22 * S;
+    const E_ARROW_HEAD_LEN = 0.1 * S;
+    const E_ARROW_HEAD_W = 0.055 * S;
+    const markers = [];
+    for (let k = 0; k < E_MARKERS_PER_RING; k += 1) {
+      const phase = (k / E_MARKERS_PER_RING) * Math.PI * 2;
       const marker = new THREE.ArrowHelper(
         new THREE.Vector3(1, 0, 0),
         new THREE.Vector3(0, 0.12 * S, 0),
-        0.22 * S,
+        E_ARROW_LEN,
         0xf472b6,
-        0.1 * S,
-        0.06 * S,
+        E_ARROW_HEAD_LEN,
+        E_ARROW_HEAD_W,
       );
       marker.line.material.transparent = true;
+      marker.line.material.depthWrite = false;
       marker.cone.material.transparent = true;
-      eGroup.add(marker);
-      eMarkers.push({ marker, norm, phase: (k / 8) * Math.PI * 2 });
+      marker.cone.material.depthWrite = false;
+      marker.renderOrder = 2;
+      marker.line.renderOrder = 2;
+      marker.cone.renderOrder = 3;
+      ring.add(marker);
+      markers.push({ marker, phase });
     }
+    eRings.push({ ring, line, mat, norm, markers });
   });
-
-  // Flow particles along E.
-  const particles = [];
-  const particleProgress = [];
-  const particleRadii = [];
-  const pCore = new THREE.SphereGeometry(0.045 * S, 12, 10);
-  for (let i = 0; i < PARTICLE_COUNT; i += 1) {
-    const mesh = new THREE.Mesh(
-      pCore,
-      new THREE.MeshBasicMaterial({
-        color: 0xf9a8d4,
-        transparent: true,
-        opacity: 0.75,
-        depthWrite: false,
-      }),
-    );
-    particleGroup.add(mesh);
-    particles.push(mesh);
-    particleProgress.push(i / PARTICLE_COUNT);
-    particleRadii.push(E_RING_RADII_NORM[i % E_RING_RADII_NORM.length]);
-  }
 
   // Probe charge.
   const probe = new THREE.Group();
@@ -195,17 +335,23 @@ export function createInducedElectricFieldEquipment() {
     new THREE.SphereGeometry(0.32 * S, 14, 10),
     new THREE.MeshBasicMaterial({ visible: false }),
   );
+  // Probe force arrow — fixed length; hide when |F|≈0 (same rule as Faraday tips).
+  const FORCE_ARROW_LEN = 0.32 * S;
   const forceArrow = new THREE.ArrowHelper(
     new THREE.Vector3(1, 0, 0),
     new THREE.Vector3(0, 0, 0),
-    0.35 * S,
+    FORCE_ARROW_LEN,
     0x4ade80,
     0.12 * S,
     0.07 * S,
   );
   forceArrow.line.material.transparent = true;
+  forceArrow.line.material.depthWrite = false;
   forceArrow.cone.material.transparent = true;
-  probe.add(probeHalo, probeCore, probeHit, forceArrow);
+  forceArrow.cone.material.depthWrite = false;
+  const probeHud = createFloatingHudLabel({ worldScale: S * 8.5 });
+  probeHud.sprite.position.set(0, 0.16 * S, 0);
+  probe.add(probeHalo, probeCore, probeHit, forceArrow, probeHud.sprite);
   [probe, probeCore, probeHalo, probeHit].forEach((node) => {
     node.userData.interactive = true;
     node.userData.role = 'induced_e_probe';
@@ -226,13 +372,7 @@ export function createInducedElectricFieldEquipment() {
   let lastSense = '';
   let lastShowB = null;
   let lastShowE = null;
-  let lastShowP = null;
   let lastShowProbe = null;
-
-  function placeOnRing(mesh, rWorld, u, y = 0.12 * S) {
-    const angle = u * Math.PI * 2;
-    mesh.position.set(Math.cos(angle) * rWorld, y, Math.sin(angle) * rWorld);
-  }
 
   root.userData.update = (data, dt = 0) => {
     const R = Math.max(0.2, Number(data?.R || 2));
@@ -244,123 +384,104 @@ export function createInducedElectricFieldEquipment() {
     const absD = Math.abs(dBdt);
     const showB = data?.showB !== false;
     const showE = data?.showE !== false;
-    const showParticles = data?.showParticles !== false;
+    const showSpin = data?.showParticles !== false;
     const showProbe = data?.showProbe !== false;
 
     if (Math.abs(rWorld - lastRegionR) > 1e-5) {
       lastRegionR = rWorld;
       region.scale.set(rWorld, 1, rWorld);
-      regionWire.scale.set(rWorld, 1, rWorld);
       regionTop.scale.set(rWorld, rWorld, 1);
       regionBottom.scale.set(rWorld, rWorld, 1);
-      bArrows.forEach((slot, i) => {
-        const radial = (0.28 + (i % 3) * 0.22) * rWorld;
-        slot.arrow.position.set(
-          Math.cos(slot.angle) * radial,
-          0.12 * S,
-          Math.sin(slot.angle) * radial,
-        );
-      });
+      // Force B lattice re-layout when the cylinder radius changes.
+      bLastR = NaN;
     }
 
-    // B styling
-    bArrowGroup.visible = showB && absB > 0.02;
-    if (showB) {
-      const up = B >= 0;
-      const color = up ? 0x38bdf8 : 0xfb923c;
-      const len = THREE.MathUtils.lerp(0.55, 1.35, THREE.MathUtils.clamp(absB / 2.5, 0, 1)) * S;
-      const opacity = THREE.MathUtils.lerp(0.35, 0.92, THREE.MathUtils.clamp(absB / 2.5, 0, 1));
-      bArrows.forEach(({ arrow }) => {
-        arrow.setDirection(new THREE.Vector3(0, up ? 1 : -1, 0));
-        arrow.setLength(len, 0.28 * S, 0.14 * S);
-        arrow.setColor(color);
-        if (arrow.line?.material) arrow.line.material.opacity = opacity;
-        if (arrow.cone?.material) arrow.cone.material.opacity = opacity;
-      });
-      const tint = up ? 0x38bdf8 : 0xfb923c;
-      regionMat.color.setHex(tint);
-      regionCapMat.color.setHex(tint);
-      regionWire.material.color.setHex(tint);
-      regionMat.opacity = 0.1 + THREE.MathUtils.clamp(absB / 2.5, 0, 1) * 0.12;
-    }
-    if (showB !== lastShowB) {
-      bArrowGroup.visible = showB && absB > 0.02;
-      lastShowB = showB;
+    // B field (Faraday): fixed length + continuous density breathing with |B|.
+    if (!showB) {
+      if (lastShowB !== false) {
+        for (let i = 0; i < bArrows.length; i += 1) bArrows[i].visible = false;
+        bArrowGroup.visible = false;
+      }
+      lastShowB = false;
+    } else {
+      bArrowGroup.visible = true;
+      if (lastShowB !== true) {
+        bLastB = NaN;
+        bLastSign = 0;
+        bLastR = NaN;
+      }
+      lastShowB = true;
+      const { color, strength } = applyBFieldLayout(B, R);
+      regionMat.color.setHex(color);
+      regionCapMat.color.setHex(color);
+      regionMat.opacity = absB < 0.02
+        ? 0.08
+        : 0.1 + strength * 0.12;
     }
 
-    // E rings
+    // E rings: style + spin; tangent arrows keep fixed length (opacity encodes |E|).
     eGroup.visible = showE;
-    particleGroup.visible = showParticles && sense !== 'none' && absD > 1e-4;
     if (showE) {
       const eColor = sense === 'ccw' ? 0xa78bfa : sense === 'cw' ? 0xf472b6 : 0x64748b;
       const eOpacityBase = sense === 'none'
         ? 0.12
         : THREE.MathUtils.lerp(0.22, 0.88, THREE.MathUtils.clamp(absD / 2.2, 0, 1));
-      eRings.forEach(({ line, mat, norm }) => {
+      const eAtR = Math.max(1e-9, inducedEMagnitude(R, R, dBdt));
+      const maxMag = Math.max(1e-6, eAtR || absD * R * 0.5);
+      // Angular rate ∝ |E|/r (constant inside B region; falls ~1/r² outside).
+      // Positive rotation.y is CCW when looking from +y.
+      const dirSign = sense === 'ccw' ? 1 : sense === 'cw' ? -1 : 0;
+      const baseAng = 0.16 + THREE.MathUtils.clamp(absD / 2.5, 0, 1) * 0.4;
+      const stepDt = Math.max(0, Number(dt || 0));
+      const canSpin = showSpin && sense !== 'none' && absD > 1e-4;
+
+      eRings.forEach(({ ring, line, mat, norm, markers }) => {
         const r = norm * rWorld;
-        // Outside rings use source radius beyond R (norm>1 → r>R).
-        const sourceR = norm <= 1 ? norm * R : R * norm;
+        const sourceR = Math.max(1e-3, norm * R);
         const mag = inducedEMagnitude(sourceR, R, dBdt);
-        const maxMag = Math.max(1e-6, inducedEMagnitude(R, R, dBdt) || absD * R * 0.5);
         line.scale.set(r, 1, r);
         mat.color.setHex(eColor);
         mat.opacity = eOpacityBase * THREE.MathUtils.clamp(0.35 + mag / maxMag, 0.25, 1);
         line.visible = mag > 1e-5 || sense === 'none';
-      });
-      eMarkers.forEach(({ marker, norm, phase }) => {
-        const sourceR = norm <= 1 ? norm * R : R * norm;
-        const mag = inducedEMagnitude(sourceR, R, dBdt);
-        if (sense === 'none' || mag < 1e-5) {
-          marker.visible = false;
-          return;
+
+        markers.forEach(({ marker, phase }) => {
+          if (sense === 'none' || mag < 1e-5) {
+            marker.visible = false;
+            return;
+          }
+          marker.visible = true;
+          // Local positions on the ring; parent spin carries them around.
+          const lx = Math.cos(phase) * r;
+          const lz = Math.sin(phase) * r;
+          marker.position.set(lx, 0.12 * S, lz);
+          // Local tangent; ring.rotation.y maps it to the correct world direction.
+          const dir = inducedEDirection(Math.cos(phase), Math.sin(phase), sense);
+          _tangentDir.set(dir.x, 0, dir.z);
+          if (_tangentDir.lengthSq() > 1e-12) marker.setDirection(_tangentDir);
+          // Length is created fixed — never call setLength.
+          const strength = THREE.MathUtils.clamp(mag / maxMag, 0, 1);
+          marker.setColor(eColor);
+          if (marker.line?.material) {
+            marker.line.material.color?.setHex?.(eColor);
+            marker.line.material.opacity = THREE.MathUtils.lerp(0.5, 0.9, strength);
+          }
+          if (marker.cone?.material) {
+            marker.cone.material.color?.setHex?.(eColor);
+            marker.cone.material.opacity = THREE.MathUtils.lerp(0.55, 0.92, strength);
+          }
+        });
+
+        if (canSpin) {
+          const angRel = (mag / sourceR) / (eAtR / R);
+          const angSpeed = baseAng * THREE.MathUtils.clamp(angRel, 0, 1.25);
+          // angSpeed is revolutions/s (same units as the old particle progress rate).
+          ring.rotation.y += dirSign * angSpeed * stepDt * Math.PI * 2;
         }
-        marker.visible = true;
-        const r = norm * rWorld;
-        const x = Math.cos(phase) * r;
-        const z = Math.sin(phase) * r;
-        const dir = inducedEDirection(x / S, z / S, sense);
-        const maxMag = Math.max(1e-6, inducedEMagnitude(R, R, dBdt));
-        const len = THREE.MathUtils.lerp(0.12, 0.32, THREE.MathUtils.clamp(mag / maxMag, 0, 1)) * S;
-        marker.position.set(x, 0.12 * S, z);
-        marker.setDirection(new THREE.Vector3(dir.x, 0, dir.z));
-        marker.setLength(len, 0.1 * S, 0.055 * S);
-        marker.setColor(eColor);
-        if (marker.line?.material) marker.line.material.opacity = 0.55 + 0.4 * (mag / maxMag);
-        if (marker.cone?.material) marker.cone.material.opacity = 0.6 + 0.35 * (mag / maxMag);
       });
     }
     if (showE !== lastShowE) {
       eGroup.visible = showE;
       lastShowE = showE;
-    }
-    if (showParticles !== lastShowP) {
-      particleGroup.visible = showParticles;
-      lastShowP = showParticles;
-    }
-
-    // Particles flow with E: tangential speed ∝ |E|, so angular rate ∝ |E|/r
-    // (constant inside the B region where E∝r; falls ~1/r² outside).
-    if (particleGroup.visible) {
-      const dirSign = sense === 'ccw' ? 1 : -1;
-      const baseAng = 0.16 + THREE.MathUtils.clamp(absD / 2.5, 0, 1) * 0.4;
-      const eAtR = Math.max(1e-9, inducedEMagnitude(R, R, dBdt));
-      const color = sense === 'ccw' ? 0xc4b5fd : 0xf9a8d4;
-      const stepDt = Math.max(0, Number(dt || 0));
-      particles.forEach((mesh, i) => {
-        const norm = particleRadii[i];
-        const sourceR = Math.max(1e-3, norm * R);
-        const mag = inducedEMagnitude(sourceR, R, dBdt);
-        // Angular rate relative to the boundary: (E/r) / (E_R/R)
-        const angRel = (mag / sourceR) / (eAtR / R);
-        const angSpeed = baseAng * THREE.MathUtils.clamp(angRel, 0, 1.25);
-        particleProgress[i] = ((particleProgress[i] + dirSign * angSpeed * stepDt) % 1 + 1) % 1;
-        const r = norm * rWorld;
-        placeOnRing(mesh, r, particleProgress[i], 0.14 * S + (i % 3) * 0.02 * S);
-        mesh.material.color.setHex(color);
-        const strength = THREE.MathUtils.clamp(mag / eAtR, 0, 1);
-        mesh.material.opacity = 0.28 + 0.55 * strength + 0.1 * (1 - (i % 6) / 8);
-        mesh.scale.setScalar(0.7 + 0.55 * strength);
-      });
     }
     lastSense = sense;
 
@@ -376,15 +497,23 @@ export function createInducedElectricFieldEquipment() {
       probeCore.material.emissive.setHex(qPos ? 0xffb000 : 0x2563eb);
       probeHalo.material.color.setHex(qPos ? 0xffd43b : 0x60a5fa);
 
+      probeHud.setQE(
+        `q₀=${qPos ? '+' : ''}${q0.toFixed(1)} μC`,
+        `|E| ${formatPhysicsNumber(data?.magnitudeE, { digits: 2, unit: 'N/C' })}`,
+        qPos ? '#fbbf24' : '#60a5fa',
+      );
+
       const fx = Number(data?.force?.x || 0);
       const fz = Number(data?.force?.z || 0);
       const fMag = Math.hypot(fx, fz);
       if (fMag > 1e-5) {
         forceArrow.visible = true;
         forceArrow.setDirection(new THREE.Vector3(fx / fMag, 0, fz / fMag));
-        const flen = THREE.MathUtils.clamp(0.18 + fMag * 0.35, 0.18, 0.7) * S;
-        forceArrow.setLength(flen, 0.12 * S, 0.07 * S);
-        forceArrow.setColor(qPos ? 0x4ade80 : 0x38bdf8);
+        // Length is created fixed — never call setLength.
+        const fColor = qPos ? 0x4ade80 : 0x38bdf8;
+        forceArrow.setColor(fColor);
+        if (forceArrow.line?.material) forceArrow.line.material.color?.setHex?.(fColor);
+        if (forceArrow.cone?.material) forceArrow.cone.material.color?.setHex?.(fColor);
       } else {
         forceArrow.visible = false;
       }

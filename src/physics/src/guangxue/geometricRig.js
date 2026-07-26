@@ -45,6 +45,12 @@ function clearGroup(g) {
   }
 }
 
+function moveChildren(from, to) {
+  while (from.children.length) {
+    to.add(from.children[0]);
+  }
+}
+
 /**
  * Create a complete geometric optics rig in source coordinates.
  * @param {{ renderer?: THREE.WebGLRenderer, getEnvironment?: () => THREE.Texture|null }} [opts]
@@ -59,12 +65,10 @@ export function createGeometricOpticsRig(opts = {}) {
   root.add(createLabAccessories());
   root.add(createDeskLamp());
 
-  // Soft local fill only (no second “room” of lights). Host sun/hemi stay primary.
-  const amb = new THREE.AmbientLight(0xfff6ec, 0.28);
+  // Soft local fill only — no second directional (host sun/hemi stay primary).
+  // Extra DirectionalLight doubled shadow/lighting cost for a small island.
+  const amb = new THREE.AmbientLight(0xfff6ec, 0.42);
   root.add(amb);
-  const fill = new THREE.DirectionalLight(0xfff0e0, 0.35);
-  fill.position.set(2, 6, 3);
-  root.add(fill);
 
   const rayBox = createRayBox();
   rayBox.position.x = POS.source;
@@ -82,8 +86,9 @@ export function createGeometricOpticsRig(opts = {}) {
   screenRig.position.x = POS.screen;
   root.add(screenRig);
 
-  // Source glow at ray-box slit (follows beam height)
-  const sourceGlow = new THREE.PointLight(0xffc070, 0.85, 8, 2);
+  // Source glow at ray-box slit (follows beam height). Short range — not a room light.
+  const sourceGlow = new THREE.PointLight(0xffc070, 0.55, 3.5, 2);
+  sourceGlow.castShadow = false;
   root.add(sourceGlow);
 
   // Soft aura at aperture (source emissive slit is small; host FOV is wide)
@@ -104,30 +109,33 @@ export function createGeometricOpticsRig(opts = {}) {
   apertureHalo.renderOrder = 3;
   root.add(apertureHalo);
 
+  /**
+   * CRITICAL GPU NOTE (Three r170):
+   * MeshPhysicalMaterial.transmission forces an extra full-scene refraction
+   * pass every frame while any transmitting mesh is visible. That alone made
+   * geometric optics unusable and left residual cost if the island stayed in
+   * the graph. We keep a glass *look* with transparent + envMap + clearcoat
+   * and NO transmission pass.
+   */
   const glassMat = new THREE.MeshPhysicalMaterial({
-    color: 0xf0f9ff,
-    metalness: 0,
-    roughness: 0.02,
-    transmission: 0.95,
-    thickness: 1.4,
-    ior: 1.52,
+    color: 0xc8e8ff,
+    metalness: 0.05,
+    roughness: 0.08,
+    transmission: 0,
     transparent: true,
-    opacity: 1,
-    envMapIntensity: 1.0,
-    clearcoat: 1,
-    clearcoatRoughness: 0.04,
-    attenuationColor: new THREE.Color(0xe0f0ff),
-    attenuationDistance: 3.5,
+    opacity: 0.48,
+    depthWrite: false,
+    envMapIntensity: 1.35,
+    clearcoat: 0.85,
+    clearcoatRoughness: 0.08,
     side: THREE.DoubleSide,
   });
 
-  const mirrorMat = new THREE.MeshPhysicalMaterial({
+  const mirrorMat = new THREE.MeshStandardMaterial({
     color: 0xd8e0e8,
-    metalness: 1,
-    roughness: 0.06,
-    envMapIntensity: 1.6,
-    clearcoat: 1,
-    clearcoatRoughness: 0.05,
+    metalness: 0.95,
+    roughness: 0.12,
+    envMapIntensity: 1.35,
     side: THREE.DoubleSide,
   });
 
@@ -141,9 +149,13 @@ export function createGeometricOpticsRig(opts = {}) {
   opticGroup.position.set(POS.sample, -0.42, 0);
   root.add(opticGroup);
 
-  let opticMesh = new THREE.Mesh(createGeometry('mirror'), mirrorMat);
-  opticMesh.castShadow = true;
-  opticMesh.receiveShadow = true;
+  const shapeGeometryCache = new Map();
+  const initialOpticGeometry = createGeometry('mirror');
+  shapeGeometryCache.set('mirror', initialOpticGeometry);
+  let opticMesh = new THREE.Mesh(initialOpticGeometry, mirrorMat);
+  // Shadows on transmission samples double the fill cost; optics are self-lit.
+  opticMesh.castShadow = false;
+  opticMesh.receiveShadow = false;
   opticMesh.userData.interactive = true;
   opticMesh.userData.role = 'geo_optic';
   opticGroup.add(opticMesh);
@@ -188,6 +200,77 @@ export function createGeometricOpticsRig(opts = {}) {
   let envTexture = null;
   /** When true, mesh/params changed but ray segments are not rebuilt yet. */
   let raysPending = false;
+  // Boot rehearsal visits every default optical experiment. Keep the completed
+  // visual trees resident so the real first open only reparents already-uploaded
+  // objects instead of recreating and re-uploading hundreds of GPU resources.
+  // The bound also prevents live parameter edits from growing VRAM indefinitely.
+  const MAX_RAY_VISUAL_CACHE = 8;
+  const rayVisualCache = new Map();
+
+  function paramsSignature() {
+    return [
+      params.shape, params.angle, params.height, params.rayCount, params.ior,
+      params.dispersion, params.dispersionStrength, params.rotate, params.showReflect, params.mode,
+    ].join('|');
+  }
+
+  function disposeVisualEntry(entry) {
+    if (!entry) return;
+    clearGroup(entry.rays);
+    clearGroup(entry.spots);
+    clearGroup(entry.normals);
+  }
+
+  function parkCompletedRays() {
+    if (rayBuild || raysPending || !lastSignature) return false;
+    const hasVisuals = rayGroup.children.length
+      || spotGroup.children.length
+      || normalGroup.children.length;
+    if (!hasVisuals) return false;
+
+    const previous = rayVisualCache.get(lastSignature);
+    if (previous) disposeVisualEntry(previous);
+    const entry = {
+      rays: new THREE.Group(),
+      spots: new THREE.Group(),
+      normals: new THREE.Group(),
+      theta1: lastIncident,
+      thetaRefract: lastRefract,
+      thetaReflect: lastReflect,
+    };
+    moveChildren(rayGroup, entry.rays);
+    moveChildren(spotGroup, entry.spots);
+    moveChildren(normalGroup, entry.normals);
+    rayVisualCache.delete(lastSignature);
+    rayVisualCache.set(lastSignature, entry);
+
+    while (rayVisualCache.size > MAX_RAY_VISUAL_CACHE) {
+      const oldestKey = rayVisualCache.keys().next().value;
+      const oldest = rayVisualCache.get(oldestKey);
+      rayVisualCache.delete(oldestKey);
+      disposeVisualEntry(oldest);
+    }
+    return true;
+  }
+
+  function restoreParkedRays(signature) {
+    const entry = rayVisualCache.get(signature);
+    if (!entry) return false;
+    rayVisualCache.delete(signature);
+    clearGroup(rayGroup);
+    clearGroup(spotGroup);
+    clearGroup(normalGroup);
+    moveChildren(entry.rays, rayGroup);
+    moveChildren(entry.spots, spotGroup);
+    moveChildren(entry.normals, normalGroup);
+    lastIncident = entry.theta1;
+    lastRefract = entry.thetaRefract;
+    lastReflect = entry.thetaReflect;
+    lastSignature = signature;
+    rayBuild = null;
+    raysPending = false;
+    return true;
+  }
 
   function applyEnvironment(tex) {
     envTexture = tex || null;
@@ -227,7 +310,7 @@ export function createGeometricOpticsRig(opts = {}) {
     if (kind === 'mirror') {
       mirrorBack = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.42, 1.22), mirrorBackMat);
       mirrorBack.position.x = 0.06;
-      mirrorBack.castShadow = true;
+      mirrorBack.castShadow = false;
       opticGroup.add(mirrorBack);
     }
   }
@@ -254,8 +337,12 @@ export function createGeometricOpticsRig(opts = {}) {
 
   function setShape(kind) {
     params.shape = kind;
-    opticMesh.geometry.dispose();
-    opticMesh.geometry = createGeometry(kind);
+    let geometry = shapeGeometryCache.get(kind);
+    if (!geometry) {
+      geometry = createGeometry(kind);
+      shapeGeometryCache.set(kind, geometry);
+    }
+    opticMesh.geometry = geometry;
     opticMesh.rotation.set(0, 0, 0);
     if (isMirrorShape(kind)) params.mode = 'mirror';
     else if (params.mode === 'mirror') params.mode = 'dielectric';
@@ -284,8 +371,8 @@ export function createGeometricOpticsRig(opts = {}) {
     return line;
   }
 
-  /** Source volumetric beam + slightly thicker host glow shell (presentation only). */
-  function makeBeamMesh(seg, radius) {
+  /** Source volumetric beam (+ optional soft shell when ray count is low). */
+  function makeBeamMesh(seg, radius, withShell = true) {
     const dir = new THREE.Vector3().subVectors(seg.end, seg.start);
     const len = dir.length();
     if (len < 1e-5) return null;
@@ -297,7 +384,7 @@ export function createGeometricOpticsRig(opts = {}) {
         : seg.kind === 'incident' ? 0.32 : 0.36) * seg.intensity
     );
 
-    function tube(r, opacity, segs = 8) {
+    function tube(r, opacity, segs = 6) {
       const geom = new THREE.CylinderGeometry(r, r * 0.92, len, segs, 1, true);
       geom.translate(0, len / 2, 0);
       geom.rotateX(Math.PI / 2);
@@ -314,11 +401,13 @@ export function createGeometricOpticsRig(opts = {}) {
       mesh.position.copy(seg.start);
       mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.clone().normalize());
       mesh.renderOrder = 3;
+      mesh.frustumCulled = true;
       return mesh;
     }
 
-    group.add(tube(radius, baseOp, 6));
-    group.add(tube(radius * 2.2, baseOp * 0.35, 8));
+    // Multi-beam / dispersion: core only (shell × N was a large additive fill cost).
+    group.add(tube(radius, baseOp, 5));
+    if (withShell) group.add(tube(radius * 2.0, baseOp * 0.32, 6));
     return group;
   }
 
@@ -478,16 +567,20 @@ export function createGeometricOpticsRig(opts = {}) {
       }
     }
 
+    const multiBeam = build.count > 3;
     result.segments.forEach((segWorld) => {
       const local = toLocalSeg(segWorld, invRoot);
       if (markDispersed && segWorld.kind === 'refracted') local.kind = 'dispersed';
       const clipped = clipSegmentToScreen(local);
       if (clipped.start.distanceTo(clipped.end) < 1e-4) return;
       rayGroup.add(makeRayLine(clipped));
+      // Skip volumetric tubes on weak reflected limbs when many beams already fill.
+      if (multiBeam && clipped.kind === 'reflected' && clipped.intensity < 0.2) return;
       if (params.mode === 'mirror' || clipped.kind !== 'reflected') {
         const beam = makeBeamMesh(
           clipped,
           params.mode === 'mirror' ? 0.022 : 0.018,
+          !multiBeam,
         );
         if (beam) rayGroup.add(beam);
       }
@@ -631,13 +724,18 @@ export function createGeometricOpticsRig(opts = {}) {
   /**
    * Apply optical sample + beam parameters.
    * @param {object} next
-   * @param {{ force?: boolean, deferRays?: boolean }} [applyOpts]
+   * @param {{ force?: boolean, deferRays?: boolean, keepRays?: boolean }} [applyOpts]
    *   - force: rebuild rays even if signature unchanged
    *   - deferRays: update mesh/material now, schedule full trace for later (switch path)
+   *   - keepRays: with deferRays, leave previous beams until rebuild (live drag)
    */
   function applyParams(next = {}, applyOpts = {}) {
     const force = !!(applyOpts.force || next.force);
     const deferRays = !!(applyOpts.deferRays || next.deferRays);
+    const keepRays = !!(applyOpts.keepRays || next.keepRays);
+    // Preserve the last complete visual before mutating params. During boot this
+    // fills the default-signature cache; during use it makes returning instant.
+    parkCompletedRays();
     const shapeChanged = next.shape != null && next.shape !== params.shape;
     if (next.angle != null) params.angle = Number(next.angle);
     if (next.height != null) params.height = Number(next.height);
@@ -664,25 +762,28 @@ export function createGeometricOpticsRig(opts = {}) {
       }
     }
 
-    const signature = [
-      params.shape, params.angle, params.height, params.rayCount, params.ior,
-      params.dispersion, params.dispersionStrength, params.rotate, params.showReflect, params.mode,
-    ].join('|');
-    if (!force && signature === lastSignature) {
-      raysPending = false;
+    const signature = paramsSignature();
+    if (!force && restoreParkedRays(signature)) {
       return snapshot();
+    }
+    if (force && rayVisualCache.has(signature)) {
+      disposeVisualEntry(rayVisualCache.get(signature));
+      rayVisualCache.delete(signature);
     }
 
     if (!edgeLines) rebuildEdges();
 
-    // Switch / first-paint path: show correct sample immediately, defer O(tris×rays) trace.
+    // Defer O(tris×rays) trace. Switch path clears stale beams; live drag keeps
+    // them until beginRayBuild so the view does not flicker empty.
     if (deferRays && !force) {
       lastSignature = ''; // force a real rebuild when flush happens
       raysPending = true;
-      // Hide stale beams from a previous experiment so we don't flash wrong rays.
-      clearGroup(rayGroup);
-      clearGroup(spotGroup);
-      clearGroup(normalGroup);
+      rayBuild = null;
+      if (!keepRays) {
+        clearGroup(rayGroup);
+        clearGroup(spotGroup);
+        clearGroup(normalGroup);
+      }
       return snapshot();
     }
 
@@ -699,10 +800,7 @@ export function createGeometricOpticsRig(opts = {}) {
    */
   function flushDeferredRays() {
     if (!raysPending && !rayBuild) return snapshot();
-    const signature = [
-      params.shape, params.angle, params.height, params.rayCount, params.ior,
-      params.dispersion, params.dispersionStrength, params.rotate, params.showReflect, params.mode,
-    ].join('|');
+    const signature = paramsSignature();
     lastSignature = signature;
     if (!edgeLines) rebuildEdges();
     if (!rayBuild) beginRayBuild();
@@ -712,8 +810,12 @@ export function createGeometricOpticsRig(opts = {}) {
     return snapshot();
   }
 
-  /** Drop a deferred rebuild without tracing (experiment exit / mode leave). */
+  /**
+   * Drop a deferred rebuild without tracing. A completed visual is parked rather
+   * than disposed so a boot-rehearsed experiment remains genuinely prewarmed.
+   */
   function cancelDeferredRays() {
+    if (!rayBuild && !raysPending && parkCompletedRays()) return;
     raysPending = false;
     rayBuild = null;
     lastSignature = '';
@@ -745,7 +847,33 @@ export function createGeometricOpticsRig(opts = {}) {
     };
   }
 
+  function setActive(active) {
+    const on = !!active;
+    root.visible = on;
+    sourceGlow.visible = on;
+    sourceGlow.intensity = on ? 0.55 : 0;
+    amb.intensity = on ? 0.42 : 0;
+    if (!on) {
+      cancelDeferredRays();
+    }
+  }
+
+  /** Strip shadows on the whole island (host room already shadows the table). */
+  function disableIslandShadows() {
+    root.traverse((obj) => {
+      if (obj.isLight) {
+        obj.castShadow = false;
+      }
+      if (obj.isMesh) {
+        obj.castShadow = false;
+        obj.receiveShadow = false;
+      }
+    });
+  }
+  disableIslandShadows();
+
   function animate(t) {
+    if (!root.visible) return;
     const slit = rayBox.userData.slit;
     if (slit && slit.material instanceof THREE.MeshStandardMaterial) {
       slit.material.emissiveIntensity = 1.2 + Math.sin(t * 3) * 0.22;
@@ -754,7 +882,7 @@ export function createGeometricOpticsRig(opts = {}) {
       apertureHalo.material.opacity = 0.28 + Math.sin(t * 3) * 0.08;
     }
     // Subtle source glow pulse
-    sourceGlow.intensity = 0.75 + Math.sin(t * 2.4) * 0.12;
+    sourceGlow.intensity = 0.5 + Math.sin(t * 2.4) * 0.08;
   }
 
   // Initial sample (local only; world matrices correct once parented)
@@ -773,12 +901,14 @@ export function createGeometricOpticsRig(opts = {}) {
     cancelDeferredRays,
     clearRays,
     setShape,
+    setActive,
     animate,
     applyEnvironment,
     get params() { return { ...params }; },
     get raysPending() { return raysPending || !!rayBuild; },
     get opticMesh() { return opticMesh; },
     get rayBox() { return rayBox; },
+    get rayCacheSize() { return rayVisualCache.size; },
   };
 
   const parts = [
@@ -803,6 +933,6 @@ export function createGeometricOpticsRig(opts = {}) {
 
 /**
  * Host scale for ~14.5-unit source bench.
- * 0.20 ≈ 2.9 host units — fills the optics station table while remaining readable.
+ * 0.19 ≈ 2.76 host units — leaves a sitting-edge strip for the desk param panel.
  */
-export const GEO_HOST_SCALE = 0.20;
+export const GEO_HOST_SCALE = 0.19;

@@ -4,16 +4,6 @@ import { ConvectionExperiment } from '../../reli/experiments/convection.js';
 import { HeatConductionExperiment } from '../../reli/experiments/heatConduction.js';
 import { IdealGasExperiment } from '../../reli/experiments/idealGas.js';
 import { ThermalExpansionExperiment } from '../../reli/experiments/thermalExpansion.js';
-import { labFrameScheduler } from '../../frameBudget.js';
-
-/** Hidden source rigs still walk matrixAutoUpdate every frame — freeze them. */
-function freezeMatrixTree(root, frozen) {
-  if (!root) return;
-  root.traverse((object) => {
-    object.matrixAutoUpdate = !frozen;
-    if (frozen) object.updateMatrix();
-  });
-}
 
 /**
  * Host room already has a key light + shadow map. Source casters (thermal-expansion
@@ -32,6 +22,21 @@ function stripSourceShadowCasters(root) {
   });
 }
 
+/**
+ * O(1) mount/unmount — never freeze-walk thermo source trees on open.
+ * Detached rigs are free for updateMatrixWorld and picking.
+ */
+function mountRig(parent, rig, on) {
+  if (!parent || !rig) return;
+  if (on) {
+    if (!rig.parent) parent.add(rig);
+    rig.visible = true;
+  } else {
+    rig.visible = false;
+    if (rig.parent) rig.parent.remove(rig);
+  }
+}
+
 export function createStationEquipment(ctx) {
   const { THREE, renderer, camera } = ctx;
   const root = new THREE.Group();
@@ -40,7 +45,8 @@ export function createStationEquipment(ctx) {
   // the complete source model uniformly; no geometry is substituted.
   // Keep the source bench-top height after uniform scaling (source rigs use
   // local y≈0.88, while the host tabletop is y≈0.93).
-  root.position.set(4.2, 0.60, 2.6);
+  // Nudge toward table center (−Z from sitting edge) so desk sliders on z≈3.13 stay clear.
+  root.position.set(4.2, 0.60, 2.45);
   root.scale.setScalar(0.38);
 
   const sourceCanvas = document.createElement('canvas');
@@ -57,8 +63,6 @@ export function createStationEquipment(ctx) {
   const experiments = {};
   const animators = [];
   const lastParamSignatures = new Map();
-  /** @type {Record<string, boolean>} */
-  const frozen = {};
   /** @type {string | null} */
   let activeId = null;
 
@@ -86,51 +90,19 @@ export function createStationEquipment(ctx) {
       experiment.rig.userData.interactive = true;
       experiment.rig.userData.role = `thermo_${id}`;
     }
-    root.add(experiment.rig);
-    // All five source benches live under the host; freeze idle trees so matrix
-    // walks do not cost like five concurrent standalone labs.
-    freezeMatrixTree(experiment.rig, true);
-    frozen[id] = true;
+    // Park detached — first open is O(1) parent.add, not a freeze walk.
     experiments[id] = experiment;
   }
 
   function setMode(expId) {
     const next = expId && experiments[expId] ? expId : null;
     if (activeId === next) return;
-    const prev = activeId;
+    if (activeId && experiments[activeId]) {
+      mountRig(root, experiments[activeId].rig, false);
+    }
     activeId = next;
-    // Phase 1: visibility only (camera-safe).
-    if (prev && experiments[prev] && prev !== next) {
-      experiments[prev].rig.visible = false;
-    }
     if (next && experiments[next]) {
-      experiments[next].rig.visible = true;
-    }
-    // Phase 2: matrix freeze/unfreeze on later frames with rest gaps.
-    const steps = [];
-    if (prev && experiments[prev] && prev !== next && !frozen[prev]) {
-      steps.push(() => {
-        if (activeId === prev) return;
-        if (frozen[prev]) return;
-        freezeMatrixTree(experiments[prev].rig, true);
-        frozen[prev] = true;
-      });
-    }
-    if (next && experiments[next] && frozen[next]) {
-      steps.push(() => {
-        if (activeId !== next) return;
-        if (!frozen[next]) return;
-        freezeMatrixTree(experiments[next].rig, false);
-        frozen[next] = false;
-      });
-    }
-    if (steps.length && labFrameScheduler?.scheduleChain) {
-      labFrameScheduler.scheduleChain('thermo:freeze', steps, {
-        priority: 48,
-        restFrames: 1,
-      });
-    } else {
-      steps.forEach((fn) => { try { fn(); } catch { /* ignore */ } });
+      mountRig(root, experiments[next].rig, true);
     }
   }
 
@@ -269,6 +241,10 @@ export function createStationEquipment(ctx) {
 
   const equipment = {
     setMode,
+    showcase: () => setMode(null),
+    shutdown: () => setMode(null),
+    suspend: () => setMode(null),
+    resume: () => { /* mode restored by experiment applyVisualDefaults */ },
     updateState,
     updateSource,
     pour: (kind) => {
@@ -316,13 +292,8 @@ export function createStationEquipment(ctx) {
     Object.keys(experiments).map((id) => [id, () => {
       const exp = experiments[id];
       if (!exp?.rig) return;
-      const wasVisible = exp.rig.visible;
-      const wasFrozen = !!frozen[id];
-      exp.rig.visible = true;
-      if (wasFrozen) {
-        freezeMatrixTree(exp.rig, false);
-        frozen[id] = false;
-      }
+      // Temporarily mount for compile, then park again (O(1)).
+      mountRig(root, exp.rig, true);
       try {
         // Seed one visual tick so emissive/coil materials match first-open state
         // (thermal-expansion heater especially) before compile.
@@ -333,11 +304,8 @@ export function createStationEquipment(ctx) {
         exp.rig.updateWorldMatrix?.(true, true);
         if (renderer && camera) renderer.compile?.(exp.rig, camera);
       } catch { /* full scene paint is done by warmAll */ }
-      exp.rig.visible = wasVisible;
-      if (wasFrozen || !wasVisible) {
-        freezeMatrixTree(exp.rig, true);
-        frozen[id] = true;
-      }
+      // Leave only the active experiment mounted.
+      if (activeId !== id) mountRig(root, exp.rig, false);
     }]),
   );
 

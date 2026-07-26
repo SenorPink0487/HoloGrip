@@ -1,6 +1,20 @@
 import { labFrameScheduler } from '../frameBudget.js';
+import {
+  K_COULOMB,
+  EPSILON_0,
+  chargeUiToCoulomb,
+  coulombFieldContribution,
+  coulombPotentialContribution,
+} from '../physicsFormula.js';
+
+export { K_COULOMB, EPSILON_0, chargeUiToCoulomb };
+
 /**
  * 电磁学实验台 — 霍尔效应测磁
+ *
+ * 静电场 / 高斯定理采用人教版 SI 写法：
+ *   E = kQ/r²，φ = kQ/r，F = qE，Φ_E = Q内/ε₀
+ *   k = 9.0×10⁹ N·m²/C²；界面电荷读数单位为 μC；位置单位为 m。
  */
 
 export const station = {
@@ -11,68 +25,72 @@ export const station = {
     {
       id: 'faraday_induction',
       name: '法拉第电磁感应',
-      goal: '拖动导轨上的铜棒或改变均匀磁场，观察磁通量变化、感应电动势与楞次定律方向。',
-      theory: 'Φ = B·A，A = (x − x₀)L；ε = −dΦ/dt',
+      goal: '设定 B 或铜棒位置 x 的目标值与变化时长，播放动态过程，观察磁通量变化、感应电动势与楞次定律方向。',
+      theory: 'Φ = BS，S = (x − x₀)L；E = nΔΦ/Δt（方向由楞次定律判定）',
       steps: [
-        { id: 'motion', text: '拖动铜棒，测量动生电动势', hint: '按住铜棒沿导轨移动，松开后查看 Δx、Δt、ε 与电流方向。' },
-        { id: 'field', text: '改变磁场，测量感生电动势', hint: '使用全息屏上的 B−、B+ 或反向按钮，观察磁通量变化。' },
-        { id: 'conclude', text: '完成法拉第定律验证', hint: '比较 ε = −B L Δx/Δt 与 ε = −A ΔB/Δt 的结果。' },
+        { id: 'motion', text: '设定目标 x 并播放，测量动生电动势', hint: '模式选「动生·x」，设目标位置与时长，点「播放变化」；也可手拖铜棒。' },
+        { id: 'field', text: '设定目标 B 并播放，测量感生电动势', hint: '模式选「感生·B」，设目标磁场与时长，点「播放变化」；或点「反向 B」快速演示。' },
+        { id: 'conclude', text: '完成法拉第定律验证', hint: '比较 E = BLΔx/Δt 与 E = S·ΔB/Δt 的结果，并用楞次定律判定方向。' },
       ],
     },
     {
       id: 'induced_electric_field',
       name: '感生电场',
       goal: '手动调节 B 与 dB/dt，观察涡旋感生电场：面内 E∝r，面外 E∝1/r，方向由楞次定律判定。',
-      theory: '∮ E·dl = −dΦ_B/dt；r≤R 时 E=(r/2)|dB/dt|，r>R 时 E=(R²/(2r))|dB/dt|',
+      theory: 'E·2πr = ΔΦ/Δt；r≤R 时 E=(r/2)|ΔB/Δt|，r>R 时 E=(R²/(2r))|ΔB/Δt|',
       steps: [
         { id: 'observe', text: '观察圆柱形磁场区与同心涡旋 E 线', hint: '感生电场是闭合涡旋线，不是静电场的起止线。默认手动设定 B 与 dB/dt。' },
-        { id: 'probe', text: '拖动试探电荷，比较面内/面外 E 的大小', hint: '面内 |E| 随 r 增大，面外随 r 减小。' },
-        { id: 'lenz', text: '调节 dB/dt 或反转变化趋势，观察 E 的环绕方向', hint: '拖动 dB/dt 滑块或点「反转 dB/dt」；需要连续交变时可开「自动振荡」。' },
-        { id: 'conclude', text: '完成感生电场规律归纳', hint: '对照全息屏公式与 E–r 曲线后点击完成。' },
+        { id: 'probe', text: '拖动探测电荷，比较面内/面外 E 的大小', hint: '面内 |E| 随 r 增大，面外随 r 减小。' },
+        { id: 'lenz', text: '调节 dB/dt 或反转变化趋势，观察 E 的环绕方向', hint: '在桌右侧滑条拖 dB/dt，或点「反转 dB/dt」；需要连续交变时可开「自动振荡」。' },
+        { id: 'conclude', text: '完成感生电场规律归纳', hint: '对照全息屏公式与 E–r 曲线归纳规律。' },
       ],
     },
     {
       id: 'electric_field',
       name: '静电场探索',
-      goal: '拖动正负点电荷与试探电荷，观察叠加电场、受力与电势的空间分布',
-      theory: 'E = Σ(qᵢ r̂ᵢ / rᵢ²)；F = q₀ E；V = Σ(qᵢ / rᵢ)（归一化单位 K=1）',
+      goal: '拖动正负点电荷与探测电荷，观察叠加电场、受力与电势的空间分布',
+      theory: 'E=F/q；E=kQ/r²；F=qE；k=9.0×10⁹ N·m²/C²（电荷以 μC 计，位置以 m 计）',
       steps: [
-        { id: 'explore', text: '自由探索静电场与试探电荷', hint: '拖动电荷或探针；使用全息屏控件进行精细调整。' },
+        {
+          id: 'explore',
+          text: '自由探索静电场与探测电荷',
+          hint: '拖动调 X/Y；滚轮或 Shift+拖 调 Z；内容屏可锁轴；电荷量在桌侧滑条。',
+        },
       ],
     },
     {
       id: 'hall_effect',
       name: '霍尔效应测磁',
       goal: '调节励磁与霍尔电流，扫描探头位置并比较亥姆霍兹线圈和长螺线管的磁场分布',
-      theory: 'V_H = K_H I_s B；轴线上 B 随探头位置、线圈间距与螺线管匝数变化',
+      theory: 'U_H = K_H I_s B；由霍尔电压测磁感应强度 B',
       steps: [
         { id: 'identify', text: '认识器材：线圈、霍尔探头与 HCC-2 测磁仪', hint: '按 01→04 顺序瞄准 3D 器材按 E 确认；选对/选错均有提示' },
         { id: 'configure', text: '选择测量对象并确认电流方向', hint: '在全息屏选择亥姆霍兹线圈或长螺线管' },
-        { id: 'energize', text: '设置励磁电流 Im 与霍尔电流 Is', hint: '使用全息参数卡片的 − / + 按钮调节电流' },
-        { id: 'scan', text: '移动探头并记录至少 3 组 B–X 数据', hint: '调节 X 后点击「记录当前读数」，系统由 VH 换算 B' },
+        { id: 'energize', text: '设置励磁电流 Im 与霍尔电流 Is', hint: '在桌右侧滑条调节 Im / Is' },
+        { id: 'scan', text: '移动探头并记录至少 3 组 B–X 数据', hint: '调节 X 后在桌面控制面板点击「记录当前读数」，系统由 VH 换算 B' },
         { id: 'compare', text: '切换测量对象，比较磁场分布', hint: '切换线圈并继续记录，观察曲线形状变化' },
-        { id: 'conclude', text: '根据数据归纳霍尔电压与磁场的关系', hint: '点击「完成实验」生成结论' },
+        { id: 'conclude', text: '根据数据归纳霍尔电压与磁场的关系', hint: '记录多组数据并对照曲线归纳结论' },
       ],
     },
     {
       id: 'hall_carrier_demo',
       name: '霍尔效应原理',
       goal: '观察电流、磁场、载流子浓度、样品厚度与载流子类型如何共同改变载流子的三维运动和霍尔电压极性。',
-      theory: '演示关系：Vₕ ∝ I·B/(n·d)；n 型与 p 型载流子的霍尔电压极性相反。界面数值为相对演示量。',
+      theory: '霍尔电压 U_H = R_H·I·B/d；n 型与 p 型载流子的霍尔电压极性相反（演示量为相对值）。',
       steps: [
-        { id: 'observe', text: '自由调节参数并观察载流子运动', hint: '使用全息屏按钮调节 I、B、n、d，切换 n/p 型或反转磁场方向。' },
+        { id: 'observe', text: '自由调节参数并观察载流子运动', hint: '在桌右侧滑条调节 I、B、n、d，内容屏可切换 n/p 型。' },
       ],
     },
     {
       id: 'gauss_theorem',
       name: '高斯定理 · 电通量',
       goal: '拖动正负点电荷进出闭合高斯面，验证总电通量只由面内净电荷决定。',
-      theory: '∯S E·dA = Q内/ε₀；改变球面半径会改变面平均场强，但只要包围的净电荷不变，总通量就不变。',
+      theory: 'Φ_E=Q内/ε₀；ε₀=1/(4πk)；改变球面半径会改变面平均场强，但 Q内 不变则总通量不变。',
       steps: [
         { id: 'observe', text: '观察球形高斯面、电荷、电场线与通量粒子', hint: '瞄准电荷按住拖动，滚轮可沿深度方向微调。' },
-        { id: 'cross', text: '让电荷跨过高斯面并比较 Q内 与 ΦE', hint: '也可在内容屏用 X/Y/Z 按钮精确移动。' },
+        { id: 'cross', text: '让电荷跨过高斯面并比较 Q内 与 Φ_E', hint: '拖动电荷进出高斯面；半径与电荷量在桌右侧滑条调节。' },
         { id: 'compare', text: '改变球面半径或加入异号电荷', hint: '比较同一 Q内 下半径变化对平均场强与总通量的不同影响。' },
-        { id: 'conclude', text: '完成验证并归纳高斯定理', hint: '确认“外部电荷不改变闭合面的净通量”后点击完成。' },
+        { id: 'conclude', text: '完成验证并归纳高斯定理', hint: '确认“外部电荷不改变闭合面的净通量”。' },
       ],
     },
   ],
@@ -89,24 +107,15 @@ export function gaussEnclosedCharge(charges = [], radius = 2.4) {
   }, 0);
 }
 
-export function gaussFlux(charges = [], radius = 2.4, epsilon0 = 1) {
-  return gaussEnclosedCharge(charges, radius) / Number(epsilon0 || 1);
+/** Φ_E = Q内/ε₀（Q 由界面 μC 换算为 C） */
+export function gaussFlux(charges = [], radius = 2.4, epsilon0 = EPSILON_0) {
+  const qC = chargeUiToCoulomb(gaussEnclosedCharge(charges, radius));
+  return qC / Number(epsilon0 || EPSILON_0);
 }
 
-export function gaussFieldAt(charges = [], point = {}) {
-  const field = { x: 0, y: 0, z: 0 };
-  for (const charge of charges) {
-    const dx = Number(point.x || 0) - Number(charge?.x || 0);
-    const dy = Number(point.y || 0) - Number(charge?.y || 0);
-    const dz = Number(point.z || 0) - Number(charge?.z || 0);
-    const r2 = dx * dx + dy * dy + dz * dz;
-    if (r2 < 1e-5 || Math.abs(Number(charge?.q || 0)) < 1e-6) continue;
-    const scale = Number(charge.q) / (r2 * Math.sqrt(r2));
-    field.x += dx * scale;
-    field.y += dy * scale;
-    field.z += dz * scale;
-  }
-  return field;
+/** 与 electricFieldAt 相同：E = kQ r̂ / r² */
+export function gaussFieldAt(charges = [], point = {}, options = {}) {
+  return electricFieldAt(charges, point, options);
 }
 
 export function gaussMeanNormalField(charges = [], radius = 2.4) {
@@ -115,7 +124,8 @@ export function gaussMeanNormalField(charges = [], radius = 2.4) {
     const charge = charges[0];
     const distance = Math.hypot(Number(charge.x || 0), Number(charge.y || 0), Number(charge.z || 0));
     if (distance < 0.12 && distance < r && Math.abs(Number(charge.q || 0)) > 0.01) {
-      return Math.abs(Number(charge.q)) / (4 * Math.PI * r * r);
+      // 球心点电荷：E = k|Q|/R²
+      return (K_COULOMB * Math.abs(chargeUiToCoulomb(charge.q))) / (r * r);
     }
   }
   const sampleCount = 40;
@@ -173,10 +183,11 @@ export function gaussFluxParticleRadiusNorm(density, progress, options = {}) {
 /** Advection speed for a flux tracer; stronger |E·n| streams move faster. */
 export function gaussFluxParticleSpeed(density, options = {}) {
   const abs = Math.abs(Number(density) || 0);
+  const ref = Number(options.refAbs ?? K_COULOMB * 1e-6); // ~9×10³ N/C
   const base = Number(options.base ?? 0.38);
   const gain = Number(options.gain ?? 0.72);
   const maxExtra = Number(options.maxExtra ?? 1.15);
-  return base + Math.min(maxExtra, abs * gain);
+  return base + Math.min(maxExtra, (abs / ref) * gain);
 }
 
 /**
@@ -185,13 +196,18 @@ export function gaussFluxParticleSpeed(density, options = {}) {
  */
 export function gaussFluxParticleEmphasis(density, radiusNorm, options = {}) {
   const abs = Math.abs(Number(density) || 0);
-  const strength = 0.42 + 0.58 * Math.min(1, abs / Number(options.refAbs || 0.35));
+  // SI 下 |E| 约 10³ N/C 量级（1 μC、米级距离）
+  const refAbs = Number(options.refAbs ?? K_COULOMB * 1e-6 * 0.15);
+  const strength = 0.42 + 0.58 * Math.min(1, abs / refAbs);
   const near = Math.abs(Number(radiusNorm) - 1);
   const surfaceBoost = 0.72 + 0.38 * Math.exp(-(near * near) / Number(options.surfaceWidth || 0.07));
   return strength * surfaceBoost;
 }
 
-/** Normalized electrostatic field used by the static-field experiment. */
+/**
+ * 静电场强 E = Σ kQᵢ r̂ᵢ / rᵢ²（SI，N/C）
+ * charges[].q 为界面 μC 读数；point 坐标单位 m。
+ */
 export function electricFieldAt(charges = [], point = {}, options = {}) {
   const minRadius = Math.max(1e-4, Number(options.minRadius ?? 0.04));
   const field = { x: 0, y: 0, z: 0 };
@@ -199,16 +215,15 @@ export function electricFieldAt(charges = [], point = {}, options = {}) {
     const dx = Number(point.x || 0) - Number(charge?.x || 0);
     const dy = Number(point.y || 0) - Number(charge?.y || 0);
     const dz = Number(point.z || 0) - Number(charge?.z || 0);
-    const r2 = dx * dx + dy * dy + dz * dz;
-    if (Math.abs(Number(charge?.q || 0)) < 1e-8 || r2 < minRadius * minRadius) continue;
-    const scale = Number(charge.q) / (r2 * Math.sqrt(r2));
-    field.x += dx * scale;
-    field.y += dy * scale;
-    field.z += dz * scale;
+    const dE = coulombFieldContribution(charge?.q, dx, dy, dz, minRadius);
+    field.x += dE.x;
+    field.y += dE.y;
+    field.z += dE.z;
   }
   return field;
 }
 
+/** 电势 φ = Σ kQᵢ / rᵢ（V，取无穷远处为零） */
 export function electricPotentialAt(charges = [], point = {}, options = {}) {
   const minRadius = Math.max(1e-4, Number(options.minRadius ?? 0.04));
   let potential = 0;
@@ -216,14 +231,19 @@ export function electricPotentialAt(charges = [], point = {}, options = {}) {
     const dx = Number(point.x || 0) - Number(charge?.x || 0);
     const dy = Number(point.y || 0) - Number(charge?.y || 0);
     const dz = Number(point.z || 0) - Number(charge?.z || 0);
-    potential += Number(charge?.q || 0) / Math.max(minRadius, Math.hypot(dx, dy, dz));
+    potential += coulombPotentialContribution(
+      charge?.q,
+      Math.hypot(dx, dy, dz),
+      minRadius,
+    );
   }
   return potential;
 }
 
+/** 探测电荷受力 F = qE（N）；q0 为界面 μC 读数 */
 export function electricForceAt(charges = [], point = {}, q0 = 1, options = {}) {
   const field = electricFieldAt(charges, point, options);
-  const q = Number(q0 || 0);
+  const q = chargeUiToCoulomb(q0);
   return { x: field.x * q, y: field.y * q, z: field.z * q };
 }
 
@@ -471,10 +491,21 @@ export function createHandlers(ctx) {
         flux: faradayFlux(-1, 4.5),
         currentSense: 'none',
         measureMode: null,
+        // Preset-then-play: set target + duration, then animate smoothly.
+        animChannel: 'B', // 'B' | 'x'
+        targetB: 1.5,
+        targetX: 6.5,
+        animDuration: 1.5,
+        pendingAnim: null,
+        liveEmf: 0,
+        animProgress: 0,
+        /** Keep current-flow arrows visible briefly after a change ends. */
+        currentLinger: 0,
+        lingerSense: 'none',
         dragging: false,
         motionStart: null,
         inductionStart: null,
-        pendingB: null,
+        pendingB: null, // legacy alias cleared; animations use pendingAnim
         sliderDragging: false,
         sliderStart: null,
         lastMotion: null,
@@ -547,33 +578,43 @@ export function createHandlers(ctx) {
         dragging: false,
         completed: false,
         qEnclosed: 1,
-        flux: 1,
-        meanField: 1 / (4 * Math.PI * 2.4 ** 2),
+        // Φ_E = Q/ε₀，Q = 1 μC；E = kQ/R²
+        flux: chargeUiToCoulomb(1) / EPSILON_0,
+        meanField: (K_COULOMB * chargeUiToCoulomb(1)) / (2.4 ** 2),
         _hudThrottle: 0,
       };
     }
     if (expId === 'electric_field') {
+      const probe = { x: 2, y: 0.8, z: 0, q0: 1 };
+      const charges = [{ id: 1, q: 1, x: 0, y: 0, z: 0 }];
+      const field = electricFieldAt(charges, probe);
+      const force = electricForceAt(charges, probe, probe.q0);
       return {
-        charges: [{ id: 1, q: 1, x: 0, y: 0, z: 0 }],
+        charges,
         selectedId: 1,
         nextChargeId: 2,
-        probe: { x: 2, y: 0.8, z: 0, q0: 1 },
+        probe,
         showLines: true,
         showArrows: true,
         showEquipot: false,
         showProbe: true,
         autoRotate: false,
         formulaTab: 'def',
+        /**
+         * Axis locks for mouse drag. true = that world axis is frozen.
+         * Position is drag-only (no coordinate desk sliders).
+         */
+        axisLock: { x: false, y: false, z: false },
         dragging: false,
         dragTarget: null,
         dragMouseX: 0,
         dragMouseY: 0,
         dragStart: null,
-        field: { x: 0, y: 0, z: 0 },
-        force: { x: 0, y: 0, z: 0 },
-        magnitudeE: 0,
-        magnitudeF: 0,
-        potential: 0,
+        field,
+        force,
+        magnitudeE: Math.hypot(field.x, field.y, field.z),
+        magnitudeF: Math.hypot(force.x, force.y, force.z),
+        potential: electricPotentialAt(charges, probe),
         completed: false,
         _hudThrottle: 0,
       };
@@ -669,30 +710,125 @@ export function createHandlers(ctx) {
     };
   }
 
-  /** Apply screen-space drag deltas to the armed electric-field target. */
-  function applyElectricDragDelta(data, dx, dy, dt = 0) {
+  function electricAxisLock(data) {
+    const lock = data?.axisLock || {};
+    return {
+      x: lock.x === true,
+      y: lock.y === true,
+      z: lock.z === true,
+    };
+  }
+
+  /** Human-readable free/locked axes for toasts and HUD. */
+  function electricAxisLockSummary(data) {
+    const lock = electricAxisLock(data);
+    const locked = ['x', 'y', 'z'].filter((a) => lock[a]).map((a) => a.toUpperCase());
+    if (!locked.length) return '拖动 X/Y · 滚轮或 Shift+拖 调 Z';
+    if (locked.length === 3) return 'X/Y/Z 已全部锁定';
+    const free = ['x', 'y', 'z'].filter((a) => !lock[a]).map((a) => a.toUpperCase());
+    if (free.includes('Z') && !free.includes('Y') && !free.includes('X')) {
+      return `已锁 ${locked.join('/')} · 任意拖动或滚轮调 Z（范围 ±4.5 m）`;
+    }
+    if (free.includes('Z') && !free.includes('Y')) {
+      return `已锁 ${locked.join('/')} · 拖动/滚轮调 Z（范围 ±4.5 m）`;
+    }
+    if (free.includes('Z')) {
+      return `已锁 ${locked.join('/')} · 可动 ${free.join('/')}（Z：滚轮或 Shift+拖）`;
+    }
+    return `已锁 ${locked.join('/')} · 可动 ${free.join('/')}`;
+  }
+
+  function electricDragWantsShiftZ(data) {
+    // Prefer explicit context flag, then mouseDrag facade (desktop / pointer-lock).
+    return !!(
+      data?._dragShiftZ
+      || equipment.electro?.mouseDrag?.shiftKey
+    );
+  }
+
+  /**
+   * Map screen drag → world Δ on free axes only.
+   * - Mouse X → world X (if free)
+   * - Mouse Y → world Y if free
+   * - Shift + mouse Y → world Z when both Y and Z free
+   * - When Y is locked (only Z free for vertical): any screen drag drives Z
+   *   (vertical preferred; horizontal still works so “前后/左右”都能推 Z)
+   * Wheel (separate) also nudges Z when free.
+   */
+  function electricDragOffsets(data, dx, dy) {
+    const lock = electricAxisLock(data);
+    const freeX = !lock.x;
+    const freeY = !lock.y;
+    const freeZ = !lock.z;
+    const scale = 0.025;
+    const zScale = 0.035; // slightly more sensitive for depth-only edits
+    const shiftZ = electricDragWantsShiftZ(data);
+    let ox = 0;
+    let oy = 0;
+    let oz = 0;
+    if (freeX) ox = dx * scale;
+    if (freeY && freeZ && shiftZ) {
+      // Explicit depth chord while Y remains free.
+      oz = -dy * zScale;
+    } else if (freeY) {
+      oy = -dy * scale;
+    } else if (freeZ) {
+      // X/Y locked (or Y locked): whole pointer plane → Z.
+      // Prefer vertical; if the gesture is mostly horizontal, still move Z so
+      // users are not stuck when they drag “sideways” expecting depth change.
+      const useVertical = Math.abs(dy) >= Math.abs(dx) * 0.45;
+      const drive = useVertical ? dy : -dx;
+      oz = -drive * zScale;
+    }
+    return { ox, oy, oz, freeX, freeY, freeZ, lock };
+  }
+
+  /**
+   * Apply screen-space drag deltas to the armed electric-field target.
+   * Position only — visuals / E·F / decorations run once per animation frame
+   * in update(). Calling sync here from every pointermove freezes the UI.
+   */
+  function applyElectricDragDelta(data, dx, dy, _dt = 0) {
     if (!data?.dragStart) return false;
+    const { ox, oy, oz, freeX, freeY, freeZ } = electricDragOffsets(data, dx, dy);
+    if (!freeX && !freeY && !freeZ) return false;
+
+    const applyAxis = (obj, axis, free, start, delta, lo, hi) => {
+      if (!free) {
+        obj[axis] = start;
+        return;
+      }
+      obj[axis] = clamp(start + delta, lo, hi);
+    };
+
     if (data.dragTarget === 'probe') {
-      data.probe.x = clamp(data.dragStart.x + dx * 0.025, -5, 5);
-      data.probe.y = clamp(data.dragStart.y - dy * 0.025, -5, 5);
+      const p = data.probe;
+      const s = data.dragStart;
+      applyAxis(p, 'x', freeX, s.x, ox, -5, 5);
+      applyAxis(p, 'y', freeY, s.y, oy, -5, 5);
+      applyAxis(p, 'z', freeZ, s.z, oz, -5, 5);
     } else {
       const charge = selectedElectricCharge(data);
       if (!charge) return false;
-      charge.x = clamp(data.dragStart.x + dx * 0.025, -4.5, 4.5);
-      charge.y = clamp(data.dragStart.y - dy * 0.025, -4.5, 4.5);
+      const s = data.dragStart;
+      applyAxis(charge, 'x', freeX, s.x, ox, -4.5, 4.5);
+      applyAxis(charge, 'y', freeY, s.y, oy, -4.5, 4.5);
+      applyAxis(charge, 'z', freeZ, s.z, oz, -4.5, 4.5);
     }
-    syncElectricField(data, false, dt);
     return true;
   }
 
-  function applyGaussDragDelta(data, dx, dy, dt = 0) {
+  /**
+   * Gauss charge drag: write X/Y only. Field-line rebuild + flux particles are
+   * owned by the per-frame syncGauss in update() (and once more on release).
+   */
+  function applyGaussDragDelta(data, dx, dy, _dt = 0) {
     const charge = selectedGaussCharge(data);
     if (!charge || !data?.dragArmed) return false;
     data.dragging = true;
     charge.x = clamp(Number(data.dragStartX || 0) + dx * 0.025, -5, 5);
     charge.y = clamp(Number(data.dragStartY || 0) - dy * 0.025, -5, 5);
     if (state.stepIndex < 1 && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) setStep('cross');
-    syncGauss(data, false, dt);
     return true;
   }
 
@@ -832,6 +968,10 @@ export function createHandlers(ctx) {
     return data;
   }
 
+  function faradayBusy(data) {
+    return !!(data?.dragging || data?.sliderDragging || data?.pendingAnim);
+  }
+
   function finishFaradayMotion(data) {
     if (!data.motionStart) return false;
     const start = data.motionStart;
@@ -852,55 +992,160 @@ export function createHandlers(ctx) {
     data.dragging = false;
     data.measureMode = null;
     data.currentSense = 'none';
+    data.liveEmf = 0;
+    data.animProgress = 0;
+    data.currentLinger = 0;
+    data.lingerSense = 'none';
     if (state.stepIndex < 1 && Math.abs(dx) > 1e-4) setStep('field');
-    toast(`动生测量完成：ε = ${emf.toFixed(4)}，${faradaySenseLabel(sense)}`);
+    toast(`动生测量完成：E = ${emf.toFixed(4)}，${faradaySenseLabel(sense)}`);
     return true;
   }
 
-  function startFaradayBChange(data, target, duration = 0.35) {
-    if (data.dragging || data.pendingB || data.sliderDragging) return false;
-    const from = Number(data.B || 0);
-    const to = clamp(Number(target || 0), -3, 3);
-    if (Math.abs(to - from) < 1e-8) return false;
-    data.pendingB = {
-      from, to, t0: data._time, duration: Math.max(0.05, duration),
+  /**
+   * Animate B or x from the current value to a target over `duration` seconds.
+   * Used by “播放变化” and by reverse-B preset.
+   */
+  function startFaradayAnim(data, opts = {}) {
+    if (faradayBusy(data)) return false;
+    const channel = opts.channel === 'x' || opts.channel === 'B'
+      ? opts.channel
+      : (data.animChannel === 'x' ? 'x' : 'B');
+    const duration = clamp(
+      Number(opts.duration ?? data.animDuration ?? 1.5),
+      0.3,
+      6,
+    );
+    let from;
+    let to;
+    if (channel === 'x') {
+      from = Number(data.x || 0);
+      to = clamp(
+        Number(opts.to ?? data.targetX ?? from),
+        FARADAY_X_MIN,
+        FARADAY_X_MAX,
+      );
+    } else {
+      from = Number(data.B || 0);
+      to = clamp(Number(opts.to ?? data.targetB ?? from), -3, 3);
+    }
+    if (Math.abs(to - from) < 1e-8) {
+      toast('目标与当前值相同，请先调整目标');
+      return false;
+    }
+    data.animChannel = channel;
+    // Steady dΦ/dt for the whole play (linear ramp) so current arrows stay on.
+    const dValDt = (to - from) / Math.max(1e-6, duration);
+    let dFluxDt0 = 0;
+    if (channel === 'x') {
+      dFluxDt0 = Number(data.B || 0) * Number(data.rodLength || FARADAY_ROD_LENGTH) * dValDt;
+    } else {
+      dFluxDt0 = faradayArea(data.x, data.rodLength, data.xEnd) * dValDt;
+    }
+    data.pendingAnim = {
+      channel,
+      from,
+      to,
+      t0: data._time,
+      duration,
+      dValDt,
+      dFluxDt: dFluxDt0,
+      B0: Number(data.B || 0),
+      x0: Number(data.x || 0),
       area0: faradayArea(data.x, data.rodLength, data.xEnd),
-      flux0: faradayFlux(from, data.x, data.rodLength, data.xEnd),
+      flux0: faradayFlux(data.B, data.x, data.rodLength, data.xEnd),
     };
-    data.inductionStart = data.pendingB;
-    data.measureMode = 'induction';
-    data.currentSense = 'none';
+    data.inductionStart = channel === 'B' ? data.pendingAnim : null;
+    data.measureMode = channel === 'x' ? 'motion' : 'induction';
+    data.currentSense = faradaySense(dFluxDt0);
+    data.lingerSense = 'none';
+    data.liveEmf = -dFluxDt0;
+    data.animProgress = 0;
+    data.currentLinger = 0;
+    data.pendingB = null;
     return true;
   }
 
-  function finishFaradayBChange(data) {
-    const pending = data.pendingB;
+  function startFaradayBChange(data, target, duration = 0.6) {
+    return startFaradayAnim(data, { channel: 'B', to: target, duration });
+  }
+
+  function finishFaradayAnim(data) {
+    const pending = data.pendingAnim;
     if (!pending) return false;
-    data.B = pending.to;
+    if (pending.channel === 'x') data.x = pending.to;
+    else data.B = pending.to;
     const dt = Math.max(1e-6, data._time - pending.t0, pending.duration);
     const flux1 = faradayFlux(data.B, data.x, data.rodLength, data.xEnd);
     const dFlux = flux1 - pending.flux0;
-    const dB = data.B - pending.from;
     const emf = faradayEmfFromDelta(dFlux, dt);
     const sense = faradaySense(dFlux / dt);
-    data.lastInduction = {
-      B0: pending.from, B1: data.B, dB, dt,
-      area: pending.area0, flux0: pending.flux0, flux1, dFlux, emf, sense,
-      senseLabel: faradaySenseLabel(sense),
-    };
-    data.records.push({ type: 'induction', ...data.lastInduction });
+    if (pending.channel === 'x') {
+      const dx = data.x - pending.x0;
+      data.lastMotion = {
+        x0: pending.x0,
+        x1: data.x,
+        dx,
+        dt,
+        B: pending.B0,
+        flux0: pending.flux0,
+        flux1,
+        dFlux,
+        emf,
+        sense,
+        senseLabel: faradaySenseLabel(sense),
+      };
+      data.records.push({ type: 'motion', ...data.lastMotion });
+      if (state.stepIndex < 1 && Math.abs(dx) > 1e-4) setStep('field');
+      toast(`动生测量完成：E = ${emf.toFixed(4)}，${faradaySenseLabel(sense)}`);
+    } else {
+      const dB = data.B - pending.from;
+      data.lastInduction = {
+        B0: pending.from,
+        B1: data.B,
+        dB,
+        dt,
+        area: pending.area0,
+        flux0: pending.flux0,
+        flux1,
+        dFlux,
+        emf,
+        sense,
+        senseLabel: faradaySenseLabel(sense),
+      };
+      data.records.push({ type: 'induction', ...data.lastInduction });
+      if (state.stepIndex < 2 && Math.abs(dB) > 1e-6) setStep('conclude');
+      toast(`感生测量完成：E = ${emf.toFixed(4)}，${faradaySenseLabel(sense)}`);
+    }
     data.records = data.records.slice(-12);
+    data.pendingAnim = null;
     data.pendingB = null;
     data.inductionStart = null;
     data.measureMode = null;
+    // Stop current flow as soon as the change ends (no linger).
     data.currentSense = 'none';
-    if (state.stepIndex < 2 && Math.abs(dB) > 1e-6) setStep('conclude');
-    toast(`感生测量完成：ε = ${emf.toFixed(4)}，${faradaySenseLabel(sense)}`);
+    data.lingerSense = 'none';
+    data.liveEmf = 0;
+    data.animProgress = 0;
+    data.currentLinger = 0;
     return true;
   }
 
+  /** Stop early: treat current value as the endpoint and record the partial change. */
+  function stopFaradayAnim(data) {
+    const pending = data.pendingAnim;
+    if (!pending) return false;
+    pending.to = pending.channel === 'x' ? Number(data.x) : Number(data.B);
+    pending.duration = Math.max(1e-3, data._time - pending.t0);
+    return finishFaradayAnim(data);
+  }
+
+  // Back-compat alias used by reverse-B path.
+  function finishFaradayBChange(data) {
+    return finishFaradayAnim(data);
+  }
+
   function beginFaradaySlider(data) {
-    if (data.dragging || data.pendingB || data.sliderDragging) return false;
+    if (faradayBusy(data)) return false;
     data.sliderDragging = true;
     data.measureMode = 'induction';
     data.currentSense = 'none';
@@ -915,12 +1160,16 @@ export function createHandlers(ctx) {
     return true;
   }
 
-  /** Map a content-screen faraday-b-slider hit (with canvas px) → B. */
+  /** Map a faraday-b-slider hit (desk 3D value or content-screen px) → B. */
   function faradayBFromPick(pick) {
-    if (!pick || pick.action !== 'faraday-b-slider' || !Number.isFinite(pick.px)) return null;
+    if (!pick || pick.action !== 'faraday-b-slider') return null;
     const min = Number(pick.min ?? -3);
     const max = Number(pick.max ?? 3);
-    const u = clamp((Number(pick.px) - Number(pick.x || 0)) / Math.max(1, Number(pick.w || 1)), 0, 1);
+    if (Number.isFinite(pick.value)) return clamp(Number(pick.value), min, max);
+    if (!Number.isFinite(pick.px)) return null;
+    const trackX = Number.isFinite(pick.trackX) ? Number(pick.trackX) : Number(pick.x || 0);
+    const trackW = Math.max(1, Number.isFinite(pick.trackW) ? Number(pick.trackW) : Number(pick.w || 1));
+    const u = clamp((Number(pick.px) - trackX) / trackW, 0, 1);
     return min + u * (max - min);
   }
 
@@ -964,38 +1213,63 @@ export function createHandlers(ctx) {
     data.sliderStart = null;
     data.measureMode = null;
     data.currentSense = 'none';
+    data.lingerSense = 'none';
+    data.currentLinger = 0;
+    data.liveEmf = 0;
     if (state.stepIndex < 2 && Math.abs(dB) > 1e-6) setStep('conclude');
-    toast(`磁场滑块测量完成：ε = ${emf.toFixed(4)}，${faradaySenseLabel(sense)}`);
+    toast(`磁场滑块测量完成：E = ${emf.toFixed(4)}，${faradaySenseLabel(sense)}`);
     return true;
   }
 
   function updateFaraday(data, dt = 0) {
     const step = Math.max(0, Number(dt || 0));
     data._time += step;
-    if (data.pendingB) {
-      const p = data.pendingB;
-      const u = clamp((data._time - p.t0) / p.duration, 0, 1);
-      const s = u * u * (3 - 2 * u);
-      data.B = p.from + (p.to - p.from) * s;
-      if (u >= 1) finishFaradayBChange(data);
-    }
-    if (data.dragging && data.motionStart) {
+    if (data.pendingAnim) {
+      const p = data.pendingAnim;
+      const u = clamp((data._time - p.t0) / Math.max(1e-6, p.duration), 0, 1);
+      // Linear ramp → constant dΦ/dt for the whole play (current arrows stay lit).
+      const val = p.from + (p.to - p.from) * u;
+      data.animProgress = u;
+      // Prefer frame velocity for x (matches manual rod); planned rate for B.
+      if (p.channel === 'x') {
+        data.x = val;
+        const v = step > 1e-8 ? (data.x - data._prevX) / step : Number(p.dValDt || 0);
+        const dFluxDt = Number(data.B || 0) * Number(data.rodLength || FARADAY_ROD_LENGTH) * v;
+        // Fallback planned rate if this frame's dx is 0 (first tick).
+        const rate = Math.abs(dFluxDt) > 1e-8 ? dFluxDt : Number(p.dFluxDt || 0);
+        data.currentSense = faradaySense(rate);
+        data.liveEmf = -rate;
+      } else {
+        data.B = val;
+        const dFluxDt = Number(p.dFluxDt);
+        data.currentSense = faradaySense(dFluxDt);
+        data.liveEmf = -dFluxDt;
+      }
+      if (u >= 1) finishFaradayAnim(data);
+    } else if (data.dragging && data.motionStart) {
       const v = step > 1e-8 ? (data.x - data._prevX) / step : 0;
-      data.currentSense = faradaySense(data.B * data.rodLength * v);
+      const dFluxDt = data.B * data.rodLength * v;
+      data.currentSense = faradaySense(dFluxDt);
+      data.liveEmf = -dFluxDt;
     } else if (data.sliderDragging && data.sliderStart) {
       const elapsed = Math.max(step, data._time - data.sliderStart.t0);
-      data.currentSense = faradaySense(
-        data.sliderStart.area * (data.B - data.sliderStart.B0) / elapsed,
-      );
-    } else if (!data.pendingB) {
+      const dFluxDt = data.sliderStart.area * (data.B - data.sliderStart.B0) / elapsed;
+      data.currentSense = faradaySense(dFluxDt);
+      data.liveEmf = -dFluxDt;
+    } else {
       data.currentSense = 'none';
+      data.liveEmf = 0;
+      data.animProgress = 0;
+      data.currentLinger = 0;
+      data.lingerSense = 'none';
     }
     data._prevX = data.x;
     syncFaraday(data, false, step);
     data._hudThrottle += step;
-    // Slider drag needs a slightly livelier content-screen readout; keep it
-    // well under a full repaint-per-pointermove (which previously froze the UI).
-    const hudInterval = data.sliderDragging || data.dragging ? 0.1 : 0.22;
+    // Anim / drag needs livelier readout; keep well under full paint every frame.
+    const hudInterval = data.pendingAnim || data.sliderDragging || data.dragging
+      ? 0.08
+      : 0.22;
     if (data._hudThrottle > hudInterval) {
       data._hudThrottle = 0;
       pushHud();
@@ -1185,14 +1459,14 @@ export function createHandlers(ctx) {
     }
     if (!kind) return;
     state.data._awaitElectroSync = kind;
-    // After setMode (visibility) leave a camera frame, then field rebuild.
-    labFrameScheduler.rest?.(1);
-    labFrameScheduler.schedule('electro:sync', () => {
+    state.data._electroDetailsPending = true;
+    // setMode is O(1) mount. Field sync is deferred and usually a signature no-op
+    // after boot prewarm — never soft-switch the lab for it.
+    labFrameScheduler.schedule('electro:sync-detail', () => {
       if (!state.running || state.expId !== expId) return;
-      if (flushDeferredElectroSync()) pushHud();
-      // Field rebuild is often heavy — next frame is locomotion-only.
-      labFrameScheduler.rest?.(1);
-    }, { priority: 40 });
+      // Flush without forcing a HUD repaint when nothing visual changed.
+      flushDeferredElectroSync();
+    }, { priority: 35, soft: true });
   }
 
   function flushDeferredElectroSync() {
@@ -1208,6 +1482,7 @@ export function createHandlers(ctx) {
     else if (kind === 'gauss') syncGauss(state.data, false);
     else if (kind === 'electric-field') syncElectricField(state.data, false);
     else return false;
+    state.data._electroDetailsPending = false;
     return true;
   }
 
@@ -1343,6 +1618,7 @@ export function createHandlers(ctx) {
       if (action === 'faraday-b-set') {
         // Live slider drags fire this every pointermove — never full-HUD refresh
         // here (updateFaraday throttles the content-screen paint).
+        if (data.pendingAnim) return true;
         if (!data.sliderDragging && !beginFaradaySlider(data)) return true;
         setFaradaySliderAbsolute(data, payload.value ?? data.B, 0);
         syncFaraday(data, false);
@@ -1351,6 +1627,7 @@ export function createHandlers(ctx) {
       if (action === 'faraday-b-slider') {
         // Content-screen hit region action id (not a discrete button). Arm the
         // drag; optional px / value jump the thumb to the aim position.
+        if (data.pendingAnim) return true;
         if (!data.sliderDragging && !beginFaradaySlider(data)) return true;
         const fromPick = faradayBFromPick(payload);
         const value = Number.isFinite(payload?.value) ? Number(payload.value) : fromPick;
@@ -1360,11 +1637,98 @@ export function createHandlers(ctx) {
         syncFaraday(data, false);
         return true;
       }
+      if (action === 'faraday-set') {
+        // B / x: live desk (or content) drags arm measurement so current arrows
+        // light while Φ changes. target* / animDuration are setup-only.
+        // Non-live sets (preset before play, tests) snap values without a gesture.
+        if (data.pendingAnim) return true;
+        const key = payload.key;
+        let value = Number(payload.value);
+        if (!Number.isFinite(value) && Number.isFinite(payload.px)) {
+          const trackX = Number.isFinite(payload.trackX) ? Number(payload.trackX) : Number(payload.x || 0);
+          const trackW = Math.max(1, Number.isFinite(payload.trackW) ? Number(payload.trackW) : Number(payload.w || 1));
+          const min = Number(payload.min);
+          const max = Number(payload.max);
+          if (Number.isFinite(min) && Number.isFinite(max)) {
+            const u = clamp((Number(payload.px) - trackX) / trackW, 0, 1);
+            value = min + u * (max - min);
+          }
+        }
+        if (!Number.isFinite(value)) return true;
+        const live = payload.live === true;
+        if (key === 'B') {
+          const next = clamp(value, -3, 3);
+          if (live) {
+            // Don't interleave with rod / x-slider motion.
+            if (data.dragging) return true;
+            if (!data.sliderDragging && !beginFaradaySlider(data)) return true;
+            setFaradaySliderAbsolute(data, next, 0);
+          } else if (data.sliderDragging) {
+            setFaradaySliderAbsolute(data, next, 0);
+          } else {
+            data.B = next;
+          }
+        } else if (key === 'x') {
+          const next = clamp(value, FARADAY_X_MIN, FARADAY_X_MAX);
+          if (live) {
+            // Don't interleave with B-slider induction measurement.
+            if (data.sliderDragging) return true;
+            if (!data.dragging) {
+              data.dragging = true;
+              data.measureMode = 'motion';
+              data.motionStart = {
+                t0: data._time,
+                x0: data.x,
+                B: data.B,
+                flux0: faradayFlux(data.B, data.x, data.rodLength, data.xEnd),
+              };
+              data._prevX = data.x;
+              data.currentSense = 'none';
+              data.liveEmf = 0;
+            }
+            data.x = next;
+          } else {
+            data.x = next;
+          }
+        } else if (key === 'targetB') data.targetB = clamp(value, -3, 3);
+        else if (key === 'targetX') data.targetX = clamp(value, FARADAY_X_MIN, FARADAY_X_MAX);
+        else if (key === 'animDuration') data.animDuration = clamp(value, 0.3, 6);
+        else return false;
+        // Live drag: light sync; updateFaraday owns sense/E each frame.
+        // Release / non-live setup gets a full HUD refresh.
+        syncFaraday(data, !live);
+        return true;
+      }
+      if (action === 'faraday-channel') {
+        const ch = payload.channel === 'x' ? 'x' : 'B';
+        data.animChannel = ch;
+        syncFaraday(data);
+        return true;
+      }
+      if (action === 'faraday-play') {
+        const ok = startFaradayAnim(data, {
+          channel: payload.channel || data.animChannel,
+          to: payload.to,
+          duration: payload.duration,
+        });
+        if (ok) {
+          toast(data.pendingAnim?.channel === 'x'
+            ? '动生：铜棒位置动态变化中…'
+            : '感生：磁场动态变化中…');
+        }
+        syncFaraday(data);
+        return true;
+      }
+      if (action === 'faraday-stop') {
+        if (data.pendingAnim) stopFaradayAnim(data);
+        syncFaraday(data);
+        return true;
+      }
       if (action === 'faraday-b-step') {
         const delta = Number(payload.delta || 0.2);
-        startFaradayBChange(data, data.B + delta, 0.35);
+        startFaradayBChange(data, data.B + delta, 0.5);
       } else if (action === 'faraday-reverse') {
-        startFaradayBChange(data, -data.B, 0.6);
+        startFaradayBChange(data, -data.B, Math.max(0.5, Number(data.animDuration || 1.2) * 0.6));
       } else if (action === 'faraday-toggle-field') {
         data.showField = !data.showField;
       } else if (action === 'faraday-reset') {
@@ -1450,6 +1814,19 @@ export function createHandlers(ctx) {
           lines: 'showLines', arrows: 'showArrows', equipot: 'showEquipot', probe: 'showProbe',
         }[payload.key];
         if (key) data[key] = !data[key];
+      } else if (action === 'electric-axis-lock') {
+        const axis = String(payload.axis || payload.key || '').toLowerCase();
+        if (!['x', 'y', 'z'].includes(axis)) return true;
+        if (!data.axisLock || typeof data.axisLock !== 'object') {
+          data.axisLock = { x: false, y: false, z: false };
+        }
+        // Explicit value (desk / tests) or toggle on each click.
+        if (payload.locked === true || payload.locked === false) {
+          data.axisLock[axis] = payload.locked;
+        } else {
+          data.axisLock[axis] = !data.axisLock[axis];
+        }
+        toast(electricAxisLockSummary(data));
       } else if (action === 'electric-formula') {
         data.formulaTab = ['def', 'force', 'point', 'super', 'dipole'].includes(payload.key)
           ? payload.key
@@ -1536,7 +1913,7 @@ export function createHandlers(ctx) {
       } else if (action === 'gauss-complete') {
         data.completed = true;
         state.stepIndex = 3;
-        toast('高斯定理验证完成：ΦE = Q内/ε₀');
+        toast('高斯定理验证完成：Φ_E = Q内/ε₀');
       } else {
         return false;
       }
@@ -1762,7 +2139,7 @@ export function createHandlers(ctx) {
         };
         data.dragMouseX = Number(equipment.electro?.mouseDrag?.movementX || 0);
         data.dragMouseY = Number(equipment.electro?.mouseDrag?.movementY || 0);
-        toast('已抓住试探电荷：在水平面拖动改变 r，观察 E∝r / E∝1/r');
+        toast('已抓住探测电荷：在水平面拖动改变 r，观察 E∝r / E∝1/r');
         if (state.stepIndex < 1) setStep('probe');
         syncInducedElectric(data);
         return true;
@@ -1773,7 +2150,7 @@ export function createHandlers(ctx) {
     if (state.expId === 'faraday_induction') {
       if (target?.userData?.role === 'faraday_rod') {
         const data = state.data;
-        if (data.pendingB || data.sliderDragging) return true;
+        if (data.pendingAnim || data.sliderDragging) return true;
         data.dragging = true;
         data.measureMode = 'motion';
         data.motionStart = {
@@ -1805,7 +2182,7 @@ export function createHandlers(ctx) {
         data.dragMouseX = Number(equipment.electro?.mouseDrag?.movementX || 0);
         data.dragMouseY = Number(equipment.electro?.mouseDrag?.movementY || 0);
         syncElectricField(data);
-        toast(`已选中 Q${data.charges.findIndex((item) => item.id === id) + 1}；拖动修改 X/Y，滚轮微调 Z`);
+        toast(`已选中 Q${data.charges.findIndex((item) => item.id === id) + 1}；${electricAxisLockSummary(data)}`);
         return true;
       }
       if (target?.userData?.role === 'electric_probe') {
@@ -1814,7 +2191,7 @@ export function createHandlers(ctx) {
         data.dragStart = { ...data.probe };
         data.dragMouseX = Number(equipment.electro?.mouseDrag?.movementX || 0);
         data.dragMouseY = Number(equipment.electro?.mouseDrag?.movementY || 0);
-        toast('已选中试探电荷 q₀；拖动修改位置，滚轮微调 Z');
+        toast(`已选中探测电荷 q₀；${electricAxisLockSummary(data)}`);
         return true;
       }
       if (target?.userData?.role === 'ui_action') return onUiAction('electric-complete');
@@ -1933,6 +2310,10 @@ export function createHandlers(ctx) {
     if (state.expId === 'electric_field') {
       if (code === 'KeyR') return onUiAction('electric-reset');
       if (code === 'KeyF') return onUiAction('electric-complete');
+      // X / Y / Z toggle axis locks for single-axis mouse drag.
+      if (code === 'KeyX') return onUiAction('electric-axis-lock', { axis: 'x' });
+      if (code === 'KeyY') return onUiAction('electric-axis-lock', { axis: 'y' });
+      if (code === 'KeyZ') return onUiAction('electric-axis-lock', { axis: 'z' });
       return false;
     }
     if (state.expId === 'gauss_theorem') {
@@ -1976,11 +2357,32 @@ export function createHandlers(ctx) {
       return false;
     }
     if (state.expId === 'electric_field') {
+      // Wheel → world Z when unlocked (X/Y stay on drag).
+      if (electricAxisLock(state.data).z) return false;
+      const step = delta > 0 ? -0.2 : 0.2;
       const role = target?.userData?.role;
-      if (role === 'electric_probe') return onUiAction('electric-probe-move', { axis: 'z', delta: delta > 0 ? -0.15 : 0.15 });
+      // Prefer the live drag target, then aim role, then last selection.
+      if (state.data.dragging && state.data.dragTarget === 'probe') {
+        return onUiAction('electric-probe-move', { axis: 'z', delta: step });
+      }
+      if (state.data.dragging && state.data.dragTarget === 'charge') {
+        return onUiAction('electric-move', { axis: 'z', delta: step });
+      }
+      if (role === 'electric_probe') {
+        return onUiAction('electric-probe-move', { axis: 'z', delta: step });
+      }
       const chargeId = Number(target?.userData?.chargeId ?? state.data.selectedId);
-      if (state.data.charges.some((charge) => charge.id === chargeId)) state.data.selectedId = chargeId;
-      return onUiAction('electric-move', { axis: 'z', delta: delta > 0 ? -0.15 : 0.15 });
+      if (state.data.charges.some((charge) => charge.id === chargeId)) {
+        state.data.selectedId = chargeId;
+        return onUiAction('electric-move', { axis: 'z', delta: step });
+      }
+      if (state.data.selectedId != null || state.data.dragTarget === 'probe') {
+        // Slight aim miss while still focused on last probe/charge.
+        if (state.data.dragTarget === 'probe' || role === 'electric_probe') {
+          return onUiAction('electric-probe-move', { axis: 'z', delta: step });
+        }
+      }
+      return false;
     }
     if (state.expId === 'gauss_theorem') {
       const chargeId = Number(target?.userData?.chargeId ?? state.data.selectedId);
@@ -2077,6 +2479,8 @@ export function createHandlers(ctx) {
       const data = state.data;
       if (holding && data.dragging && data.dragStart) {
         const { dx, dy } = mouseDragDelta(data);
+        data._dragShiftZ = !!equipment.electro?.mouseDrag?.shiftKey;
+        // Position only; update() owns the single per-frame visual sync.
         applyElectricDragDelta(data, dx, dy, dt);
         return;
       }
@@ -2084,6 +2488,8 @@ export function createHandlers(ctx) {
         data.dragging = false;
         data.dragTarget = null;
         data.dragStart = null;
+        data._dragShiftZ = false;
+        // Release rebuilds field decorations (deferred inside equipment).
         syncElectricField(data);
       }
       return;
@@ -2092,6 +2498,7 @@ export function createHandlers(ctx) {
       const data = state.data;
       if (holding && data.dragArmed) {
         const { dx, dy } = mouseDragDelta(data);
+        // Position only; update() owns the single per-frame visual sync.
         applyGaussDragDelta(data, dx, dy, dt);
         return;
       }
@@ -2375,6 +2782,7 @@ export function createHandlers(ctx) {
       )) {
         const dx = Number.isFinite(context.totalX) ? Number(context.totalX) : Number(context.dx || 0);
         const dy = Number.isFinite(context.totalY) ? Number(context.totalY) : Number(context.dy || 0);
+        data._dragShiftZ = !!(context.shiftKey || equipment.electro?.mouseDrag?.shiftKey);
         applyElectricDragDelta(data, dx, dy, context.dt || 0);
         return true;
       }
@@ -2522,7 +2930,12 @@ export function createHandlers(ctx) {
     if (state.data) state.data._awaitElectroSync = null;
     equipment.electro?.clearHallIdentifyVisuals?.();
     equipment.electro?.cancelHallWirePreview?.();
-    equipment.electro?.setMode?.('hall');
+    // Idle Hall showcase stays on the table; animators only run while electro is hot.
+    try {
+      if (typeof equipment.electro?.showcase === 'function') equipment.electro.showcase();
+      else if (typeof equipment.electro?.suspend === 'function') equipment.electro.suspend();
+      else equipment.electro?.setMode?.('hall');
+    } catch { /* ignore */ }
   }
 
   return {

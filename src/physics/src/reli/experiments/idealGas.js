@@ -19,7 +19,7 @@ export class IdealGasExperiment extends Experiment {
       title: '真空气室 · 分子动理论',
       description:
         '固定高度的视窗气缸，活塞在腔内上下移动改变体积。调节温度观察分子热运动，读数见左侧仪器数显。',
-      formula: 'PV = nRT   ·   ⟨½mv²⟩ = ³⁄₂ kT   ·   壁面碰撞频率 ∝ 压强',
+      formula: 'pV = nRT；分子平均动能 Ē_k = (3/2)kT',
     };
   }
 

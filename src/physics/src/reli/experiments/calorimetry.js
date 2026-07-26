@@ -18,7 +18,7 @@ export class CalorimetryExperiment extends Experiment {
       title: '混合量热实验台',
       description:
         '拖动烧杯到量热杯旁松开倒入。两侧都倒入后温度弛豫到平衡。左键拖动 · 松开倒入。',
-      formula: 'Q = mcΔT   ·   T_f = (m_h T_h + m_c T_c)/(m_h+m_c)   ·   温差越大弛豫越快',
+      formula: 'Q = cmΔt；热平衡时 Q放 = Q吸',
     };
   }
 

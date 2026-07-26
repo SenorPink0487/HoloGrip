@@ -638,11 +638,11 @@ export const pendulum = {
 
     setFormula(
       ui.formula,
-      `<strong>单摆运动方程</strong><br/>
-       <code>θ̈ = −(g/L) sinθ − c·θ̇</code><br/>
-       小角周期：<code>T₀ = 2π√(L/g)</code> ≈ <strong>${formatNum(T0, 3)} s</strong><br/>
-       大角修正：≈ <strong>${formatNum(Tlarge, 3)} s</strong><br/>
-       <span style="opacity:.85">实测周期取多次过零平均</span>`
+      `<strong>单摆</strong><br/>
+       小角度近似：<code>T = 2π√(l/g)</code> ≈ <strong>${formatNum(T0, 3)} s</strong><br/>
+       角加速度：<code>α = −(g/l) sinθ</code>（回复力矩）<br/>
+       大角度时周期略大：≈ <strong>${formatNum(Tlarge, 3)} s</strong><br/>
+       <span style="opacity:.85">实测周期取多次过平衡位置平均</span>`
     );
 
     function bobPosition(th) {

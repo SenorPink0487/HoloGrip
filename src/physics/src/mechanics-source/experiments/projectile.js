@@ -735,14 +735,14 @@ export const projectile = {
 
     setFormula(
       ui.formula,
-      `<strong>弹道分析台</strong><br/>
-       轨迹方程：<code>y = y₀ + x tanθ − g x² / (2 v₀² cos²θ)</code><br/>
+      `<strong>平抛 / 斜抛运动</strong><br/>
+       轨迹方程：<code>y = x tanθ − g x² / (2 v₀² cos²θ)</code><br/>
        分运动：水平 <code>x = v₀ cosθ · t</code>（匀速）；
-       竖直 <code>y = y₀ + v₀ sinθ · t − ½gt²</code><br/>
+       竖直 <code>y = v₀ sinθ · t − (1/2)gt²</code>（匀变速）<br/>
        最大高度 H ≈ <strong>${formatNum(H, 2)} m</strong> ·
        水平射程 R ≈ <strong>${formatNum(R, 2)} m</strong> ·
        飞行时间 T ≈ <strong>${formatNum(Tflight, 2)} s</strong><br/>
-       <span style="opacity:.75">互补角 θ 与 90°−θ 在同高落地时射程相同（h₀=0 时最明显）</span>`
+       <span style="opacity:.75">互补角 θ 与 90°−θ 在同一水平面落地时射程相同（抛出点与落点等高时最明显）</span>`
     );
 
     let released = false;

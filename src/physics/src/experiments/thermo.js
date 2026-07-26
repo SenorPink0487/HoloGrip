@@ -26,7 +26,7 @@ export const station = {
       id: 'calorimetry',
       name: '混合量热',
       goal: '拖动热、冷水烧杯到量热杯，观察混合平衡温度',
-      theory: 'Q = mcΔT；Tₑq = (mₕTₕ + m𝚌T𝚌)/(mₕ + m𝚌)',
+      theory: 'Q = cmΔt；热平衡时 Q放 = Q吸',
       steps: [
         { id: 'pour_hot', text: '将热水烧杯倒入量热杯', hint: '瞄准红色烧杯按 E，或点击“倒入热水”' },
         { id: 'pour_cold', text: '将冷水烧杯倒入量热杯', hint: '再倒入蓝色烧杯，混合后温度自动趋于平衡' },
@@ -38,7 +38,7 @@ export const station = {
       id: 'convection',
       name: '自然对流',
       goal: '改变热板温度，观察封闭腔体内的浮力驱动流动',
-      theory: 'Q = hAΔT；Ra = 10⁸ΔTL³；Nu = 0.15Ra^(1/3)',
+      theory: '对流换热 Q = hAΔt；温差越大，对流越强',
       steps: [
         { id: 'set_plate', text: '设置热板与环境温度', hint: '拖动温度滑块，建立温差' },
         { id: 'observe', text: '观察热羽流和回流', hint: '开启“流动”后，粒子颜色表示温度' },
@@ -49,7 +49,7 @@ export const station = {
       id: 'heat-conduction',
       name: '热传导',
       goal: '比较导热系数对温度场和热流密度的影响',
-      theory: 'q = −k∇T；稳态一维温度场在两端之间近似线性',
+      theory: 'Q/t ∝ kA(ΔT/Δx)；稳态时棒上温度沿长度近似线性分布',
       steps: [
         { id: 'set_boundary', text: '设置热端、冷端和导热系数', hint: '拖动三个参数滑块' },
         { id: 'observe', text: '观察试样管内温度梯度', hint: '开启采集后等待温度场趋于稳定' },
@@ -60,7 +60,7 @@ export const station = {
       id: 'ideal-gas',
       name: '理想气体定律',
       goal: '移动活塞并调节温度，验证 PV = nRT',
-      theory: 'PV = nRT；分子平均速率与 √T 成正比',
+      theory: 'pV = nRT；分子平均动能与热力学温度 T 成正比',
       steps: [
         { id: 'set_volume', text: '改变活塞位置（体积）', hint: '拖动体积滑块，观察活塞和压强' },
         { id: 'set_temperature', text: '改变气体温度', hint: '温度越高，分子运动越快' },
@@ -71,7 +71,7 @@ export const station = {
       id: 'thermal-expansion',
       name: '固体热膨胀',
       goal: '加热金属棒并比较不同材料的线膨胀系数',
-      theory: 'ΔL = αL₀ΔT；L(T) = L₀(1 + αΔT)',
+      theory: 'Δl = α l₀ Δt；l = l₀(1 + αΔt)',
       steps: [
         { id: 'set_material', text: '选择试样材料和初始长度', hint: '选择铝、铜、钢或殷钢' },
         { id: 'heat', text: '升高试样温度', hint: '观察自由端相对零点的位移' },
@@ -447,20 +447,18 @@ export function createHandlers(ctx) {
   let heatNextTemps = null;
 
   function applyVisualDefaults(expId) {
-    // Visibility only (this function itself runs on the frame budget).
-    // Heavy source reset is a *second* budget job — never stack with setMode.
+    // O(1) mount only on this pulse. Soft-sync later; never hard-reset on open
+    // (hard reset was multi-frame particle thrash). cleanup() still hard-resets.
     equipment.thermo?.setMode?.(expId);
     state.data._awaitThermoReset = null;
-    labFrameScheduler.rest?.(1);
     labFrameScheduler.schedule(`thermo:reset:${expId}`, () => {
       if (!state.running || state.expId !== expId || !state.data) return;
       try {
-        // 固体热膨胀 is pure parametric geometry. Hard reset + material/geometry
-        // thrash on every open was a first-switch hitch; soft-sync host state.
-        // (cleanup() still hard-resets so re-entry stays clean.)
+        const d = state.data;
+        // Soft-sync host defaults onto the already-built source rig.
+        // forceVisual:false when signature likely matches boot seed.
         if (expId === 'thermal-expansion') {
           const src = equipment.thermo?.sourceExperiments?.['thermal-expansion'];
-          const d = state.data;
           if (src?.params && d) {
             src.params.temperature = d.temperature;
             src.params.length0 = d.length0;
@@ -469,14 +467,12 @@ export function createHandlers(ctx) {
             src._updateGeometry?.(true);
           }
           equipment.thermo?.updateState?.(expId, d, { forceVisual: false });
-          labFrameScheduler.rest?.(1);
-          return;
+        } else {
+          // forceVisual only if params diverged; boot seed matches defaults.
+          equipment.thermo?.updateState?.(expId, d, { forceVisual: false });
         }
-        equipment.thermo?.reset?.(expId);
-        equipment.thermo?.updateState?.(expId, state.data, { forceVisual: true });
-        labFrameScheduler.rest?.(1);
       } catch { /* ignore */ }
-    }, { priority: expId === 'thermal-expansion' ? 38 : 40 });
+    }, { priority: 35, soft: false });
   }
 
   /**
