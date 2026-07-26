@@ -70,6 +70,8 @@
                     <button type="button" id="online-copy" class="online-mini-btn" title="复制房间号">复制</button>
                   </div>
                   <p id="online-turn" class="online-turn">等待对手…</p>
+                  <p id="online-match" class="online-match" aria-live="polite">开球后决定花色</p>
+                  <button type="button" id="online-rematch" class="hud-btn hud-btn-accent hidden">准备再来一局</button>
                   <button type="button" id="online-leave" class="hud-btn hud-btn-ghost">离开房间</button>
                 </div>
               </div>
@@ -156,6 +158,24 @@
           </div>
         </div>
       </div>
+
+      <aside id="match-hud" class="match-hud hidden" aria-label="联机比分">
+        <div class="match-hud-head">
+          <span id="match-hud-title">八球对战</span>
+          <span id="match-hud-game">第 1 局</span>
+        </div>
+        <div class="match-score-row is-me">
+          <span class="match-score-name">你</span>
+          <span id="match-score-you-group" class="match-score-group">花色未定</span>
+          <strong id="match-score-you-value" class="match-score-value">—</strong>
+        </div>
+        <div class="match-score-row">
+          <span class="match-score-name">对方</span>
+          <span id="match-score-opponent-group" class="match-score-group">花色未定</span>
+          <strong id="match-score-opponent-value" class="match-score-value">—</strong>
+        </div>
+      </aside>
+      <div id="match-event" class="match-event hidden" aria-live="assertive" aria-atomic="true"></div>
 
       <div id="toast" class="toast hidden"></div>
     </div>

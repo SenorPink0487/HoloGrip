@@ -20,11 +20,17 @@ export class PoolNet {
     this.roomCode = null;
     this.role = null; // 'host' | 'guest'
     this.seat = null;
+    this.rejoinToken = null;
     this._handlers = {
       welcome: [],
       room: [],
       peer: [],
       state: [],
+      match_state: [],
+      shot_result: [],
+      match_end: [],
+      rematch_ready: [],
+      reconnecting: [],
       shot_request: [],
       reset: [],
       error: [],
@@ -97,11 +103,15 @@ export class PoolNet {
           this.roomCode = msg.roomCode;
           this.role = msg.role;
           this.seat = msg.seat;
+          this.rejoinToken = msg.rejoinToken || this.rejoinToken;
+          this._persistSession();
           this._emit('welcome', msg);
           return;
         }
-        if (msg.type === 'room') {
+        if (['room', 'match_state', 'shot_result', 'match_end', 'rematch_ready', 'reconnecting'].includes(msg.type)) {
+          if (msg.version != null && Number.isFinite(Number(msg.version))) this._persistSession();
           this._emit('room', msg);
+          if (msg.type !== 'room') this._emit(msg.type, msg);
           return;
         }
         if (msg.type === 'peer') {
@@ -143,6 +153,10 @@ export class PoolNet {
     return this.send({ type: 'join', create: true, name: name || undefined });
   }
 
+  rejoinRoom(roomCode, rejoinToken) {
+    return this.send({ type: 'rejoin', roomCode, rejoinToken });
+  }
+
   joinRoom(roomCode, name) {
     return this.send({
       type: 'join',
@@ -174,7 +188,27 @@ export class PoolNet {
     );
   }
 
-  close() {
+  sendMatchState(payload) { return this.send({ type: 'match_state', ...payload }); }
+  sendShotResult(payload) { return this.send({ type: 'shot_result', ...payload }); }
+  sendRematchReady() { return this.send({ type: 'rematch_ready' }); }
+  sendForfeit() { return this.send({ type: 'forfeit' }); }
+
+  _persistSession() {
+    if (typeof sessionStorage === 'undefined' || !this.roomCode || !this.rejoinToken) return;
+    sessionStorage.setItem('holopool-session', JSON.stringify({
+      roomCode: this.roomCode, rejoinToken: this.rejoinToken, seat: this.seat,
+    }));
+  }
+
+  static savedSession() {
+    try { return JSON.parse(sessionStorage.getItem('holopool-session') || 'null'); } catch { return null; }
+  }
+
+  static clearSavedSession() {
+    try { sessionStorage.removeItem('holopool-session'); } catch { /* ignore */ }
+  }
+
+  close({ keepSession = false } = {}) {
     if (this.ws) {
       try {
         this.ws.close();
@@ -188,6 +222,8 @@ export class PoolNet {
     this.roomCode = null;
     this.role = null;
     this.seat = null;
+    this.rejoinToken = null;
+    if (!keepSession) PoolNet.clearSavedSession();
   }
 }
 
@@ -234,10 +270,13 @@ export function serializeBalls(balls) {
  * Apply serialized balls onto local ball objects (guest).
  * @param {Array} balls
  * @param {Array} snapshot
- * @param {{ world?: object, wake?: boolean }} opts
+ * @param {{ world?: object, wake?: boolean|'moving', correction?: number }} opts
  */
 export function applyBallSnapshot(balls, snapshot, opts = {}) {
   if (!Array.isArray(snapshot)) return;
+  // Guests run the ball simulation locally.  Authority snapshots therefore
+  // nudge the prediction back instead of teleporting it every network tick.
+  const correction = Math.max(0, Math.min(1, Number(opts.correction ?? 1)));
   const byId = new Map(balls.map((b) => [b.id, b]));
   for (const s of snapshot) {
     const ball = byId.get(s.id);
@@ -265,13 +304,28 @@ export function applyBallSnapshot(balls, snapshot, opts = {}) {
       }
     }
 
-    ball.body.position.set(s.x, s.y, s.z);
-    if (s.qx != null) {
+    const blend = (current, next) => current + (next - current) * correction;
+    ball.body.position.set(
+      blend(ball.body.position.x, s.x),
+      blend(ball.body.position.y, s.y),
+      blend(ball.body.position.z, s.z),
+    );
+    // Keep locally simulated rolling rotation between correction packets.
+    if (s.qx != null && correction === 1) {
       ball.body.quaternion.set(s.qx, s.qy, s.qz, s.qw);
     }
-    ball.body.velocity.set(s.vx || 0, s.vy || 0, s.vz || 0);
-    ball.body.angularVelocity.set(s.wx || 0, s.wy || 0, s.wz || 0);
-    if (opts.wake !== false) {
+    ball.body.velocity.set(
+      blend(ball.body.velocity.x, s.vx || 0),
+      blend(ball.body.velocity.y, s.vy || 0),
+      blend(ball.body.velocity.z, s.vz || 0),
+    );
+    ball.body.angularVelocity.set(
+      blend(ball.body.angularVelocity.x, s.wx || 0),
+      blend(ball.body.angularVelocity.y, s.wy || 0),
+      blend(ball.body.angularVelocity.z, s.wz || 0),
+    );
+    const snapshotMoving = Math.hypot(s.vx || 0, s.vy || 0, s.vz || 0) > 0.002;
+    if (opts.wake !== false && (opts.wake !== 'moving' || snapshotMoving)) {
       ball.body.wakeUp?.();
       ball.body.sleepState = 0;
     }

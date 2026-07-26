@@ -20,6 +20,14 @@ pub struct Config {
     pub upstream_base_url: String,
     pub upstream_api_key: String,
 
+    /// HoloChem 的自然语言成分/反应解析使用的 DeepSeek 密钥。未配置时仅化学 AI
+    /// 接口返回 503，不影响门户、用户及 Gemini 代理服务启动。
+    #[serde(default)]
+    pub deepseek_api_key: String,
+
+    #[serde(default = "default_deepseek_model")]
+    pub deepseek_model: String,
+
     // ── CORS / 限制 ───────────────────────────────────────────────
     #[serde(default = "default_cors")]
     pub cors_allowed_origins: String,
@@ -113,6 +121,9 @@ fn default_max_body() -> usize {
 }
 fn default_timeout() -> u64 {
     120
+}
+fn default_deepseek_model() -> String {
+    "deepseek-v4-flash".into()
 }
 fn default_token_quota() -> u64 {
     100

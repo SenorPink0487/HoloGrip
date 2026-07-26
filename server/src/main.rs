@@ -18,6 +18,7 @@
 mod admin;
 mod auth;
 mod class;
+mod chem;
 mod config;
 mod db;
 mod lesson;
@@ -103,6 +104,8 @@ async fn main() -> Result<()> {
         http,
         token_svc,
         issue_allowed_origins: Arc::new(cfg.auth_issue_allowed_origins.clone()),
+        deepseek_api_key: Arc::new(cfg.deepseek_api_key.clone()),
+        deepseek_model: Arc::new(cfg.deepseek_model.clone()),
     };
 
     let user_state = UserAuthState {
@@ -276,6 +279,8 @@ async fn main() -> Result<()> {
     let app = Router::new()
         .route("/healthz", get(health))
         .route("/api/auth/issue", post(proxy::issue_token))
+        .route("/api/resolve-molecule", post(chem::resolve_molecule))
+        .route("/api/resolve-reaction", post(chem::resolve_reaction))
         .nest("/api/gemini", gemini_routes)
         .nest("/api/user", user_routes)
         .nest("/api/class", class_routes)

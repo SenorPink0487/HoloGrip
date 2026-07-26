@@ -310,19 +310,20 @@ export function computeStrokeWidth(
   }
 
   if (sample.pointerType === 'pen') {
-    // Pressure contribution: dominant factor
-    const pressureFactor = 0.3 + sample.pressure * 1.1;
+    // Restrained pressure keeps mathematical handwriting legible instead of
+    // turning natural grip changes into a calligraphy effect.
+    const pressureFactor = 0.72 + sample.pressure * 0.45;
 
     // Tilt contribution: slight broadening when tilted (侧锋)
-    const tiltFactor = 1.0 + sample.tilt * 0.45;
+    const tiltFactor = 1.0 + sample.tilt * 0.12;
 
     // Speed contribution: faster → thinner (like real ink)
     const speedFactor = clamp(1.0 - velocity * SPEED_SENSITIVITY, MIN_WIDTH_RATIO, MAX_WIDTH_RATIO);
 
     return clamp(
       baseThickness * pressureFactor * tiltFactor * speedFactor,
-      baseThickness * 0.15,
-      baseThickness * 2.5,
+      baseThickness * 0.65,
+      baseThickness * 1.35,
     );
   }
 
@@ -333,14 +334,8 @@ export function computeStrokeWidth(
 
 // ─── Stroke Builder ─────────────────────────────────────────────────────────
 
-/** How many initial points get taper (起笔锥形) */
-const TAPER_IN_POINTS = 5;
-
-/** How many trailing points get taper (收笔锥形) */
-const TAPER_OUT_POINTS = 6;
-
 /** Minimum distance² to accept a new sample (dedup) */
-const MIN_SAMPLE_DIST_SQ = 1.5;
+const MIN_SAMPLE_DIST_SQ = 0.35;
 
 interface ProcessedPoint extends Vec2 {
   width: number;
@@ -378,14 +373,15 @@ export class StrokeBuilder {
     this.baseThickness = baseThickness;
     this.isEraser = isEraser;
 
-    // Apple Pencil runs at ~240Hz, but coalesced events come at ~120Hz effective
-    // Lower minCutoff = more smoothing; higher beta = less lag at speed
+    // Keep handwriting stable at slow speed without making the ink trail the tip.
+    // The previous 1Hz cutoff looked smooth in a demo, but added noticeable lag
+    // during normal-sized Chinese characters and equations.
     const freq = 120;
-    const minCutoff = isEraser ? 2.0 : 1.0;
-    const beta = isEraser ? 0.0 : 0.007;
+    const minCutoff = isEraser ? 6.0 : 4.0;
+    const beta = isEraser ? 0.0 : 0.018;
     this.filterX = new OneEuroFilter(freq, minCutoff, beta);
     this.filterY = new OneEuroFilter(freq, minCutoff, beta);
-    this.filterW = new OneEuroFilter(freq, 0.8, 0.002);
+    this.filterW = new OneEuroFilter(freq, 5.0, 0.01);
   }
 
   /**
@@ -431,7 +427,9 @@ export class StrokeBuilder {
 
     this.points.push({ x: fx, y: fy, width: fw, timestamp: t });
 
-    // Need at least 4 points for Catmull-Rom
+    // Start emitting after the third point. Duplicating the first control point
+    // gives the stroke a clean rounded start and avoids the visible "ink gap"
+    // that the old four-point window produced.
     return this.emitNewSegments();
   }
 
@@ -441,25 +439,8 @@ export class StrokeBuilder {
   finish(): BezierSegment[] {
     if (this.points.length < 2) return [];
 
-    // Apply taper-out to last N points
-    const n = this.points.length;
-    const taperCount = Math.min(TAPER_OUT_POINTS, Math.floor(n * 0.4));
-    for (let i = 0; i < taperCount; i++) {
-      const idx = n - 1 - i;
-      const ratio = i / taperCount; // 0 at end, approaches 1
-      // Cubic ease-in for natural taper
-      const taper = ratio * ratio * ratio;
-      this.points[idx].width *= taper;
-    }
-
     // Emit any remaining segments
     const segments = this.emitNewSegments(true);
-
-    // If we have fewer than 4 points, fall back to line segments
-    if (this.points.length >= 2 && this.points.length < 4) {
-      const fallback = this.buildFallbackSegments();
-      segments.push(...fallback);
-    }
 
     return segments;
   }
@@ -477,47 +458,25 @@ export class StrokeBuilder {
     const pts = this.points;
     const segments: BezierSegment[] = [];
 
-    // Apply taper-in to early points
-    const taperInCount = Math.min(TAPER_IN_POINTS, Math.floor(pts.length * 0.4));
-    for (let i = 0; i < taperInCount; i++) {
-      // Cubic ease-out for natural taper
-      const ratio = (i + 1) / (taperInCount + 1);
-      const taper = 1 - Math.pow(1 - ratio, 3);
-      // Don't modify original — compute effective width inline
-      // We'll handle this in the segment generation below
-    }
-
     // Catmull-Rom needs window of 4 points: p[i-1], p[i], p[i+1], p[i+2]
     // Emit segment for the curve between p[i] and p[i+1]
     const limit = flush ? pts.length - 1 : pts.length - 2;
 
-    for (let i = Math.max(1, this.emittedUpTo); i < limit; i++) {
-      const p0 = pts[i - 1];
+    for (let i = Math.max(0, this.emittedUpTo); i < limit; i++) {
+      const p0 = pts[Math.max(0, i - 1)];
       const p1 = pts[i];
       const p2 = pts[Math.min(i + 1, pts.length - 1)];
       const p3 = pts[Math.min(i + 2, pts.length - 1)];
 
       const { cp1, cp2 } = catmullToBezier(p0, p1, p2, p3);
 
-      // Effective widths with taper-in applied
-      let w1 = p1.width;
-      let w2 = p2.width;
-      if (i < taperInCount) {
-        const ratio = (i + 1) / (taperInCount + 1);
-        w1 *= 1 - Math.pow(1 - ratio, 3);
-      }
-      if (i + 1 < taperInCount) {
-        const ratio = (i + 2) / (taperInCount + 1);
-        w2 *= 1 - Math.pow(1 - ratio, 3);
-      }
-
       segments.push({
         p0: p1,
         cp1,
         cp2,
         p3: p2,
-        w0: w1,
-        w3: w2,
+        w0: p1.width,
+        w3: p2.width,
       });
     }
 

@@ -5,6 +5,12 @@ import type { AIVertex } from './lib/gemini';
 export type MathShape = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'pyramid';
 export type AppTab = 'launcher' | 'whiteboard' | 'function' | 'calculator3d' | 'ar_3d' | 'physics' | 'chem' | 'rocket' | 'pool';
 
+// `holomath.html` 始终保持为原有数学白板入口；启动器使用独立的
+// `launcher.html` 入口，避免桌面壳替代原应用页面。
+const isLauncherEntry =
+  typeof window !== 'undefined' &&
+  window.location.pathname.endsWith('/launcher.html');
+
 export interface UserProfile {
   name: string;
   avatar: string;
@@ -253,7 +259,7 @@ export const useARStore = create<ARState>((set) => ({
   isAnalyzing: false,
   modelScale: 2.5,
 
-  activeTab: 'launcher',
+  activeTab: isLauncherEntry ? 'launcher' : 'whiteboard',
 
   isModelPanelOpen: false,
   isPenPanelOpen: false,

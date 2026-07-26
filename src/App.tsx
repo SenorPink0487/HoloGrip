@@ -55,6 +55,9 @@ function todayString() {
 const WHITEBOARD_WIDTH = 1920;
 const WHITEBOARD_HEIGHT = 1080;
 const IS_IPAD_STANDALONE = import.meta.env.HOLO_TARGET === 'ipad';
+const IS_LAUNCHER_ENTRY =
+  typeof window !== 'undefined' &&
+  window.location.pathname.endsWith('/launcher.html');
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -816,9 +819,9 @@ export default function App() {
       {/* 7. 全新底部苹果 Dock 菜单 (启动器页面与 AR 3D 模式下隐藏) */}
       {activeTab !== 'ar_3d' && activeTab !== 'launcher' && <AppleDock />}
 
-      {/* 8. macOS 冷启动启动页 Splash Screen 与登录/锁屏卡片 */}
-      <SplashScreen />
-      <LoginModal />
+      {/* 8. 冷启动动画属于独立启动器；原 HoloMath 入口不加载该覆盖层。 */}
+      {IS_LAUNCHER_ENTRY && !IS_IPAD_STANDALONE && <SplashScreen />}
+      {!IS_IPAD_STANDALONE && <LoginModal />}
 
       </div>
 

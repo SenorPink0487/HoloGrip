@@ -441,6 +441,95 @@ body,
   color: var(--accent);
 }
 
+.online-match {
+  margin: 0;
+  min-height: 1.4em;
+  color: rgba(232, 244, 255, 0.78);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* Compact always-on match progress for online 8-ball. */
+.match-hud {
+  position: fixed;
+  top: 16px;
+  left: 18px;
+  z-index: 11;
+  width: min(248px, calc(100vw - 36px));
+  padding: 11px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: rgba(8, 12, 16, 0.76);
+  box-shadow: var(--shadow);
+  backdrop-filter: blur(14px);
+  pointer-events: none;
+}
+
+.match-hud.hidden,
+.match-event.hidden { display: none; }
+
+.match-hud-head,
+.match-score-row {
+  display: grid;
+  grid-template-columns: 42px 1fr auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.match-hud-head {
+  grid-template-columns: 1fr auto;
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 760;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.match-hud-head #match-hud-title { color: var(--text); }
+
+.match-score-row {
+  min-height: 31px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 13px;
+}
+
+.match-score-row.is-me .match-score-name { color: var(--accent); }
+.match-score-name { font-weight: 760; }
+.match-score-group { color: var(--muted); }
+.match-score-value { font-size: 15px; font-variant-numeric: tabular-nums; }
+
+.match-event {
+  position: fixed;
+  top: 9%;
+  left: 50%;
+  z-index: 20;
+  max-width: min(88vw, 480px);
+  padding: 13px 22px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  background: rgba(7, 12, 16, 0.88);
+  box-shadow: 0 14px 44px rgba(0, 0, 0, 0.5);
+  color: var(--text);
+  font-size: clamp(16px, 2vw, 23px);
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-align: center;
+  pointer-events: none;
+  transform: translateX(-50%);
+  animation: match-event-in 0.22s ease-out both;
+}
+
+.match-event.is-good { border-color: rgba(61, 214, 140, 0.72); color: #8af0bc; }
+.match-event.is-bad { border-color: rgba(255, 107, 107, 0.72); color: #ffb3b3; }
+.match-event.is-win { border-color: rgba(212, 175, 55, 0.82); color: #f4dd88; }
+
+@keyframes match-event-in {
+  from { opacity: 0; transform: translate(-50%, -10px) scale(0.96); }
+  to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+}
+
+#online-rematch.hidden { display: none; }
+
 #online-toggle.is-active {
   border-color: rgba(61, 214, 140, 0.55);
   color: var(--accent);

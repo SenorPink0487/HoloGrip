@@ -275,9 +275,9 @@ export function WhiteboardCanvas() {
     }
 
     if (sample.pointerType === 'pen') {
-      const pressureWidth = penThickness * (0.35 + sample.pressure * 1.25);
-      const tiltBoost = penThickness * sample.tilt * 0.35;
-      return clamp(pressureWidth + tiltBoost, penThickness * 0.35, penThickness * 1.9);
+      const pressureFactor = 0.72 + sample.pressure * 0.45;
+      const tiltFactor = 1 + sample.tilt * 0.12;
+      return clamp(penThickness * pressureFactor * tiltFactor, penThickness * 0.65, penThickness * 1.35);
     }
 
     return penThickness;
@@ -290,7 +290,8 @@ export function WhiteboardCanvas() {
     const strokeColor = (!isDark && penColor === '#09090b') ? '#ffffff' : penColor;
 
     // Initialize builder on first sample of stroke
-    if (!strokeBuilderRef.current) {
+    const isFirstSample = !strokeBuilderRef.current;
+    if (isFirstSample) {
       strokeBuilderRef.current = new StrokeBuilder(penThickness, isEraser);
     }
 
@@ -302,6 +303,18 @@ export function WhiteboardCanvas() {
       timestamp: sample.timestamp,
       pointerType: sample.pointerType,
     };
+
+    // Show ink at contact immediately. The spline catches up with it after the
+    // next samples arrive; without this dot, taps and the first part of a fast
+    // stroke look as if the pen starts late.
+    if (isFirstSample) {
+      const width = getStrokeWidth(sample);
+      ctx.beginPath();
+      ctx.arc(sample.x, sample.y, width / 2, 0, Math.PI * 2);
+      ctx.globalCompositeOperation = isEraser ? 'destination-out' : 'source-over';
+      if (!isEraser) ctx.fillStyle = strokeColor;
+      ctx.fill();
+    }
 
     const segments = strokeBuilderRef.current.addSample(point);
     if (segments.length > 0) {
@@ -338,7 +351,10 @@ export function WhiteboardCanvas() {
 
   const shouldAcceptPointerEvent = useCallback((e: PointerEvent) => {
     if (interactMode === 'interact') return false;
-    if (isIPadOS && (e.pointerType === 'pen' || e.pointerType === 'touch')) return false;
+    // iPadOS exposes Pencil samples as PointerEvents in current WKWebView and
+    // Safari. This route carries pressure, tilt and coalesced high-rate points.
+    // TouchEvents below remain a fallback for older WebViews only.
+    if (isIPadOS) return e.pointerType === 'pen';
     if (activePointerId.current !== null) {
       return e.pointerId === activePointerId.current || (e.type === 'pointerdown' && e.pointerType === 'pen');
     }
@@ -417,7 +433,8 @@ export function WhiteboardCanvas() {
       const touch = touches[i] as AppleTouch;
       if (touch.touchType === 'stylus') return touch;
     }
-    return touches[0] as AppleTouch | undefined;
+    // Pencil-only mode: a finger or palm must never begin an ink stroke.
+    return undefined;
   }, []);
 
   const startDrawingFromTouch = useCallback((touch: AppleTouch) => {
@@ -480,6 +497,9 @@ export function WhiteboardCanvas() {
     if (!canvas) return;
 
     const handleTouchStart = (e: TouchEvent) => {
+      // Pointer Events win whenever the WebView provides them for Pencil. This
+      // prevents Safari from starting the same stroke through both APIs.
+      if (activePointerId.current !== null || Date.now() - lastPenInputAt.current < 100) return;
       const touch = pickDrawingTouch(e.changedTouches);
       if (!touch || !startDrawingFromTouch(touch)) return;
       e.preventDefault();

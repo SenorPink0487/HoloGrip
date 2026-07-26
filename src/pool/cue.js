@@ -1,6 +1,11 @@
 import * as THREE from 'three';
 import { BALL_R, CUE_LENGTH, MAX_POWER, MIN_POWER } from './constants.js';
 
+/** Convert the game's aim angle to its world-space shot direction. */
+export function getAimDirection(aimAngle, target = new THREE.Vector3()) {
+  return target.set(Math.cos(aimAngle), 0, Math.sin(aimAngle));
+}
+
 /**
  * Cue stick controller.
  * - Aiming / charging: tip near cue ball
@@ -221,7 +226,7 @@ export class CueController {
   }
 
   getShotDirection() {
-    return new THREE.Vector3(Math.cos(this.aimAngle), 0, Math.sin(this.aimAngle));
+    return getAimDirection(this.aimAngle);
   }
 
   getImpulse(power01) {

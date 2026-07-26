@@ -83,10 +83,10 @@ export function LauncherPortal() {
   ];
 
   return (
-    <div className="w-full h-full overflow-hidden relative bg-[#f8fafc] text-slate-800 flex flex-col justify-center items-center select-none p-6 font-sans antialiased">
+    <div className="w-full h-full overflow-hidden relative bg-[#f8fafc] text-slate-800 flex flex-col justify-center items-center select-none p-4 sm:p-6 font-sans antialiased">
       
       {/* 顶部账号 / 登录工具栏 */}
-      <header className="absolute top-6 left-8 right-8 z-30 flex items-center justify-between pointer-events-auto">
+      <header className="absolute top-4 left-4 right-4 sm:top-6 sm:left-8 sm:right-8 z-30 flex items-center justify-between pointer-events-auto">
         <div className="flex items-center gap-2">
           <span className="text-sm font-bold text-slate-800 tracking-tight">HoloGrip OS</span>
           <span className="text-[10px] font-mono font-medium px-2 py-0.5 rounded-full bg-cyan-100/80 text-cyan-800">
@@ -129,7 +129,7 @@ export function LauncherPortal() {
       </div>
 
       {/* 纯粹极简无边框 (Borderless) 5 大应用启动入口卡片 */}
-      <main className="relative z-20 w-full max-w-7xl mx-auto px-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-6">
+      <main className="relative z-20 w-full max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4 lg:gap-5 xl:gap-6">
         {apps.map((app, index) => (
           <motion.div
             key={app.id}
@@ -137,7 +137,7 @@ export function LauncherPortal() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.35, delay: index * 0.05 }}
             onClick={() => setActiveTab(app.tab)}
-            className="group relative rounded-3xl bg-white/70 hover:bg-white p-7 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:-translate-y-2 shadow-[0_8px_30px_rgb(0,0,0,0.03)] hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] h-[380px] overflow-hidden border-none"
+            className="group relative rounded-2xl sm:rounded-3xl bg-white/70 hover:bg-white p-4 sm:p-5 lg:p-6 xl:p-7 flex flex-col justify-between cursor-pointer transition-all duration-300 hover:-translate-y-2 shadow-[0_8px_30px_rgb(0,0,0,0.03)] hover:shadow-[0_20px_40px_rgb(0,0,0,0.08)] h-[220px] sm:h-[245px] md:h-[280px] lg:h-[320px] xl:h-[380px] overflow-hidden border-none"
           >
             {/* 悬停浅发光渲染 */}
             <div 
@@ -154,18 +154,18 @@ export function LauncherPortal() {
 
             {/* 图标与文字 */}
             <div className="relative z-10 my-auto flex flex-col items-center text-center">
-              <div className="w-20 h-20 rounded-2xl bg-slate-100/80 group-hover:bg-slate-50 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-inner">
+              <div className="w-14 h-14 sm:w-16 sm:h-16 lg:w-18 lg:h-18 xl:w-20 xl:h-20 rounded-xl sm:rounded-2xl bg-slate-100/80 group-hover:bg-slate-50 flex items-center justify-center group-hover:scale-110 transition-transform duration-300 shadow-inner">
                 {app.icon}
               </div>
 
-              <div className="mt-5 space-y-1">
-                <h3 className="text-xl font-extrabold text-slate-900 group-hover:text-cyan-600 transition-colors tracking-tight">
+              <div className="mt-3 sm:mt-4 lg:mt-5 space-y-1">
+                <h3 className="text-base sm:text-lg lg:text-xl font-extrabold text-slate-900 group-hover:text-cyan-600 transition-colors tracking-tight">
                   {app.name}
                 </h3>
                 <div className="text-[9px] font-mono font-bold text-slate-400 uppercase tracking-[0.2em]">
                   {app.enName}
                 </div>
-                <p className="text-xs text-slate-500 font-normal line-clamp-2 pt-1.5 leading-relaxed px-1">
+                <p className="text-[11px] sm:text-xs text-slate-500 font-normal line-clamp-2 pt-1 leading-relaxed px-1">
                   {app.tagline}
                 </p>
               </div>

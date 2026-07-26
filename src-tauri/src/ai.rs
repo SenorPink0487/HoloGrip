@@ -4,9 +4,11 @@
 //! 系统提示词一起送给模型，让其返回符合预设 JSON Schema 的几何结构。
 //!
 //! 配置通过环境变量读取：
-//!  - `GEMAI_API_KEY` 或 `VITE_GEMINI_API_KEY`：直连上游时使用
-//!  - `GEMAI_BASE_URL` 或 `VITE_GEMINI_BASE_URL`：默认 `https://hologrip.cn/api/gemini`
-//!  - `GEMAI_MODEL`   或 `VITE_GEMINI_MODEL`：默认 `[福利]gemini-3.5-flash`
+//!  - `HOLOGRIP_API_ORIGIN`：服务器反代入口，默认 `https://hologrip.cn`
+//!  - `GEMAI_MODEL`：模型名，默认 `[福利]gemini-3.5-flash`
+//!
+//! 桌面端绝不读取 API key 或直连上游；所有 AI 调用都经由与网页版相同的
+//! `/api/gemini` 反向代理，由服务器注入真实凭据。
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -16,7 +18,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-const DEFAULT_BASE_URL: &str = "https://hologrip.cn/api/gemini";
+const DEFAULT_API_ORIGIN: &str = "https://hologrip.cn";
 const DEFAULT_MODEL: &str = "[福利]gemini-3.5-flash";
 
 const SYSTEM_PROMPT: &str = r#"你是一个精通中国高中立体几何的数学专家。你的任务是分析数学题目截图中的立体几何图形，输出精确的三维模型数据。
@@ -80,20 +82,15 @@ pub fn load_env_from_workspace() -> Result<()> {
     Ok(())
 }
 
-fn read_config() -> (Option<String>, String, String) {
-    let api_key = std::env::var("GEMAI_API_KEY")
-        .or_else(|_| std::env::var("VITE_GEMINI_API_KEY"))
+fn read_config() -> (String, String) {
+    let api_origin = std::env::var("HOLOGRIP_API_ORIGIN")
+        .or_else(|_| std::env::var("VITE_API_ORIGIN"))
         .ok()
-        .filter(|s| !s.trim().is_empty() && s.trim() != "proxied-by-server")
-        .map(|s| s.trim().to_string());
-
-    let base_url = std::env::var("GEMAI_BASE_URL")
-        .or_else(|_| std::env::var("VITE_GEMINI_BASE_URL"))
-        .ok()
-        .filter(|s| !s.trim().is_empty() && !s.trim().starts_with('/'))
-        .unwrap_or_else(|| DEFAULT_BASE_URL.to_string())
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_API_ORIGIN.to_string())
         .trim_end_matches('/')
         .to_string();
+    let base_url = format!("{api_origin}/api/gemini");
 
     let model = std::env::var("GEMAI_MODEL")
         .or_else(|_| std::env::var("VITE_GEMINI_MODEL"))
@@ -101,7 +98,7 @@ fn read_config() -> (Option<String>, String, String) {
         .filter(|s| !s.trim().is_empty())
         .unwrap_or_else(|| DEFAULT_MODEL.to_string());
 
-    (api_key, base_url, model)
+    (base_url, model)
 }
 
 /// 给 Gemini 的 responseSchema：从 API 层强约束 JSON 结构，避免解析失败。
@@ -145,7 +142,7 @@ fn geometry_schema() -> Value {
 
 /// 发起一次几何识别请求并解析返回的 JSON。
 pub async fn parse_geometry_image(image_base64: &str, mime_type: &str) -> Result<Value> {
-    let (api_key, base_url, model) = read_config();
+    let (base_url, model) = read_config();
 
     let endpoint = format!(
         "{base_url}/v1beta/models/{}:generateContent",
@@ -188,11 +185,7 @@ pub async fn parse_geometry_image(image_base64: &str, mime_type: &str) -> Result
         .build()
         .context("构建 HTTP 客户端失败")?;
 
-    let bearer = if is_proxy_base_url(&base_url) {
-        issue_proxy_token(&client, &base_url).await?
-    } else {
-        api_key.ok_or_else(|| anyhow!("GEMAI_API_KEY 为空"))?
-    };
+    let bearer = issue_proxy_token(&client, &base_url).await?;
 
     let resp = client
         .post(&endpoint)
@@ -269,10 +262,6 @@ async fn issue_proxy_token(client: &Client, proxy_base_url: &str) -> Result<Stri
         return Err(anyhow!("token 签发响应缺少 token"));
     }
     Ok(issued.token)
-}
-
-fn is_proxy_base_url(base_url: &str) -> bool {
-    base_url.contains("/api/gemini")
 }
 
 fn proxy_issue_url(proxy_base_url: &str) -> Result<String> {

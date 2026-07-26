@@ -2,9 +2,9 @@
  * 几何识别 API 客户端。
  *
  * 支持两种模式,由 `VITE_GEMINI_BASE_URL` 自动判定:
- *   1. 直连模式(BASE_URL 是 https:// 开头的绝对地址,如 dev / Tauri 桌面端):
+ *   1. 直连模式(BASE_URL 是 https:// 开头的绝对地址,仅本地开发):
  *        前端必须带 `Authorization: Bearer ${VITE_GEMINI_API_KEY}`。
- *        密钥会被打进 bundle,对外公开,仅适合本地或桌面端。
+ *        密钥会被打进 bundle,对外公开，仅限隔离的本地开发。
  *   2. 反代模式(BASE_URL 是 `/api/gemini` 这类相对路径,Web 服务器部署):
  *        前端先调 `/api/auth/issue` 拿短期 token,后续请求带
  *        `Authorization: Bearer <token>`,真实 key 由服务端反代注入。
@@ -15,15 +15,19 @@
  */
 
 import { getProxyToken, invalidateProxyToken } from './auth';
-import { isTauriRuntime } from './platform';
+import { apiUrl } from './apiOrigin';
 
 const RAW_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
 const RAW_BASE_URL = (import.meta.env.VITE_GEMINI_BASE_URL || 'https://api.gemai.cc').replace(/\/+$/, '');
 const RAW_MODEL = import.meta.env.VITE_GEMINI_MODEL || '[福利]gemini-3.5-flash';
-const IS_IPAD_STANDALONE = import.meta.env.HOLO_TARGET === 'ipad';
 
-/** 是否走自家反代(BASE_URL 以 / 开头视为同源相对路径) */
-const IS_PROXY_MODE = RAW_BASE_URL.startsWith('/');
+/**
+ * Packaged desktop/iPad clients use the same hosted `/api/gemini` reverse
+ * proxy as the web build. In a normal website build this stays relative.
+ */
+const PROXY_BASE_URL = apiUrl('/api/gemini');
+const IS_PROXY_MODE = PROXY_BASE_URL !== '/api/gemini' || RAW_BASE_URL.startsWith('/');
+const API_BASE_URL = IS_PROXY_MODE ? PROXY_BASE_URL : RAW_BASE_URL;
 
 /**
  * AI 返回的顶点数据结构
@@ -136,15 +140,11 @@ export async function parseGeometryImage(
   mimeType: string,
   options: ParseGeometryImageOptions = {},
 ): Promise<AIGeometryResult> {
-  if (isTauriRuntime || IS_IPAD_STANDALONE) {
-    return parseGeometryImageWithTauri(imageBase64, mimeType, options);
-  }
-
   if (!IS_PROXY_MODE && !RAW_API_KEY) {
     throw new Error('未配置 VITE_GEMINI_API_KEY(直连模式必填)');
   }
 
-  const endpoint = `${RAW_BASE_URL}/v1beta/models/${encodeURIComponent(RAW_MODEL)}:generateContent`;
+  const endpoint = `${API_BASE_URL}/v1beta/models/${encodeURIComponent(RAW_MODEL)}:generateContent`;
   const mime = mimeType || 'image/png';
 
   const body = {
@@ -269,33 +269,6 @@ export async function parseGeometryImage(
   return result;
 }
 
-async function parseGeometryImageWithTauri(
-  imageBase64: string,
-  mimeType: string,
-  options: ParseGeometryImageOptions,
-): Promise<AIGeometryResult> {
-  const timeout = createTimeoutSignal(options.signal, options.timeoutMs ?? 45_000);
-  try {
-    const { invoke } = await import('@tauri-apps/api/core');
-    const result = await Promise.race([
-      invoke<AIGeometryResult>('parse_geometry_image', {
-        imageBase64,
-        mimeType: mimeType || 'image/png',
-      }),
-      rejectWhenAborted(timeout.signal),
-    ]);
-    validateGeometryResult(result);
-    return result;
-  } catch (error) {
-    if (isAbortError(error)) {
-      throw new Error('AI 解析超时或已取消，请稍后重试。');
-    }
-    throw error instanceof Error ? error : new Error(String(error));
-  } finally {
-    timeout.cleanup();
-  }
-}
-
 function createTimeoutSignal(parentSignal: AbortSignal | undefined, timeoutMs: number) {
   const controller = new AbortController();
   let timeoutId: number | undefined;
@@ -320,20 +293,6 @@ function createTimeoutSignal(parentSignal: AbortSignal | undefined, timeoutMs: n
 
 function isAbortError(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
-}
-
-function rejectWhenAborted(signal: AbortSignal): Promise<never> {
-  return new Promise((_, reject) => {
-    if (signal.aborted) {
-      reject(new DOMException('Aborted', 'AbortError'));
-      return;
-    }
-    signal.addEventListener(
-      'abort',
-      () => reject(new DOMException('Aborted', 'AbortError')),
-      { once: true },
-    );
-  });
 }
 
 function validateGeometryResult(result: AIGeometryResult) {

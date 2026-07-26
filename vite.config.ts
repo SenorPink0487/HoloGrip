@@ -35,6 +35,7 @@ function htmlIndexForPublicDirs(names: string[]): Plugin {
  *  - index.html     → HoloGrip 门户（静态展示页）
  *  - portfolio.html → 作品矩阵
  *  - profile.html   → 关于我们
+ *  - launcher.html  → HoloGrip 桌面启动器（React）
  *  - holomath.html  → HoloMath 空间几何画板（React）
  *  - physics.html   → HoloPhysics 三维物理实验室（Three.js）
  *  - chem.html      → HoloChem 3D 分子结构观象台（3Dmol + PubChem）
@@ -53,6 +54,7 @@ export default defineConfig(({ mode }) => {
     login:     path.resolve(__dirname, 'login.html'),
     dashboard: path.resolve(__dirname, 'dashboard.html'),
     admin:     path.resolve(__dirname, 'admin.html'),
+    launcher:  path.resolve(__dirname, 'launcher.html'),
     holomath:  path.resolve(__dirname, 'holomath.html'),
     physics:   path.resolve(__dirname, 'physics.html'),
     chem:      path.resolve(__dirname, 'chem.html'),
@@ -61,6 +63,7 @@ export default defineConfig(({ mode }) => {
   };
   const targetInputs: Record<string, Record<string, string>> = {
     ipad: {
+      launcher: entries.launcher,
       holomath: entries.holomath,
     },
     all: entries,

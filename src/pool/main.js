@@ -11,7 +11,7 @@ import {
 } from './constants.js';
 import { createTable, getPocketPositions } from './table.js';
 import { createBallMaterial, createBalls, resetBalls, respotCueBall } from './balls.js';
-import { CueController } from './cue.js';
+import { CueController, getAimDirection } from './cue.js';
 import { clampAimDepth, getAimBodyOffset, PoolPlayer } from './player.js';
 import { PoolAudio } from './audio.js';
 import { createPoolHall } from './environment.js';
@@ -24,6 +24,7 @@ import { PredictView } from './predict/predict-view.js';
 import { TeachLab } from './predict/teach-lab.js';
 import { buildFormulaBoard, buildLandingRows } from './predict/formula-board.js';
 import { createMultiplayer } from './net/multiplayer.js';
+import { ballGroup, createMatchState, resolveShot } from './net/eight-ball-rules.js';
 
 // ---------- DOM ----------
 const canvas = document.getElementById('game');
@@ -53,6 +54,18 @@ const onlineRoomCode = document.getElementById('online-room-code');
 const onlineCopy = document.getElementById('online-copy');
 const onlineTurn = document.getElementById('online-turn');
 const onlineLeave = document.getElementById('online-leave');
+const onlineMatch = document.getElementById('online-match');
+const onlineRematch = document.getElementById('online-rematch');
+const matchHud = document.getElementById('match-hud');
+const matchHudTitle = document.getElementById('match-hud-title');
+const matchHudGame = document.getElementById('match-hud-game');
+const matchScoreYouGroup = document.getElementById('match-score-you-group');
+const matchScoreOpponentGroup = document.getElementById('match-score-opponent-group');
+const matchScoreYouValue = document.getElementById('match-score-you-value');
+const matchScoreOpponentValue = document.getElementById('match-score-opponent-value');
+const matchEvent = document.getElementById('match-event');
+let matchEventTimer = 0;
+let lastMatchAnnouncementVersion = 0;
 
 /** Arc geometry (matches SVG path: M 24 104 A 96 96 0 0 1 216 104) */
 const POWER_ARC = {
@@ -331,6 +344,16 @@ const ballMaterial = createBallMaterial(world);
 const balls = createBalls(scene, world, ballMaterial, table.clothMaterial, table.cushionMaterial);
 const physics = new PoolPhysics(world, balls);
 const cueBall = balls.find((b) => b.isCue);
+let shotEvents = null;
+function beginShotEvents() {
+  shotEvents = { firstContactId: null, pocketedIds: [], cueScratch: false };
+}
+cueBall.body.addEventListener('collide', (event) => {
+  const id = event.body?.userData?.id;
+  if (shotEvents && shotEvents.firstContactId == null && Number.isInteger(id) && id !== cueBall.id) {
+    shotEvents.firstContactId = id;
+  }
+});
 const cue = new CueController(scene);
 const player = new PoolPlayer(scene, { floorY: hall.floorY });
 cue.setStickVisible(false); // avatar holds the cue stick
@@ -372,9 +395,70 @@ const remotePose = {
   aimDepth: 0,
   pull: 0,
   hasData: false,
+  receivedAt: 0,
 };
+const remoteAimAnchor = new THREE.Vector3();
+let remoteAimAnchorReady = false;
+// Guest-side physics begins from the same shot input as the host.  Network
+// snapshots then reconcile that prediction instead of animating the balls.
+let guestPredictionActive = false;
 /** Local avatar visual state for network (walk/aim/…, not FSM only) */
 let lastVisualState = 'idle';
+
+function groupName(group) {
+  return group === 'solids' ? '全色' : group === 'stripes' ? '花色' : '花色未定';
+}
+
+function groupScore(group) {
+  if (!group) return '—';
+  const pocketed = balls.filter((ball) => ball.pocketed && ballGroup(ball.id) === group).length;
+  return `${pocketed} / 7`;
+}
+
+function renderMatchHud(info, match) {
+  const visible = !!info.active && info.mode !== 'local' && !!match;
+  matchHud?.classList.toggle('hidden', !visible);
+  if (!visible) return;
+
+  const mine = match.groups?.[info.seat] ?? null;
+  const theirs = match.groups?.[1 - info.seat] ?? null;
+  if (matchHudTitle) matchHudTitle.textContent = match.phase === 'ended' ? '本局结束' : '八球对战';
+  if (matchHudGame) matchHudGame.textContent = `第 ${match.gameNumber || 1} 局`;
+  if (matchScoreYouGroup) matchScoreYouGroup.textContent = groupName(mine);
+  if (matchScoreOpponentGroup) matchScoreOpponentGroup.textContent = groupName(theirs);
+  if (matchScoreYouValue) matchScoreYouValue.textContent = groupScore(mine);
+  if (matchScoreOpponentValue) matchScoreOpponentValue.textContent = groupScore(theirs);
+}
+
+function showMatchEvent(message, tone = '') {
+  if (!matchEvent || !message) return;
+  matchEvent.textContent = message;
+  matchEvent.className = `match-event ${tone ? `is-${tone}` : ''}`.trim();
+  clearTimeout(matchEventTimer);
+  matchEventTimer = window.setTimeout(() => matchEvent.classList.add('hidden'), 2600);
+}
+
+function announceShotResult(info, match) {
+  const result = info.shotResult;
+  const version = Number(info.version) || 0;
+  if (!result || !version || version <= lastMatchAnnouncementVersion) return;
+  lastMatchAnnouncementVersion = version;
+
+  const shooterIsMe = result.shooterSeat == null || result.shooterSeat === info.seat;
+  if (match?.phase === 'ended') {
+    showMatchEvent(match.winnerSeat === info.seat ? '胜利！' : '本局结束', 'win');
+  } else if (result.foul) {
+    showMatchEvent(
+      shooterIsMe ? `犯规：${match?.reason || '交换回合'}` : '对方犯规 — 你获得自由球',
+      'bad',
+    );
+  } else if (result.pocketed?.length) {
+    const labels = result.pocketed.map((id) => id === 8 ? '8号球' : `${id}号球`).join('、');
+    showMatchEvent(shooterIsMe ? `进球！${labels}` : `对方进球：${labels}`, 'good');
+  } else {
+    showMatchEvent(match?.reason || '交换回合');
+  }
+}
 
 function updateOnlineUi(info) {
   if (!info) return;
@@ -382,6 +466,10 @@ function updateOnlineUi(info) {
   onlineLobby?.classList.toggle('hidden', inSession);
   onlineSession?.classList.toggle('hidden', !inSession);
   onlineToggle?.classList.toggle('is-active', inSession || !onlinePanel?.classList.contains('hidden'));
+  if (!inSession) {
+    matchHud?.classList.add('hidden');
+    lastMatchAnnouncementVersion = 0;
+  }
 
   if (inSession && onlineRoomCode) {
     onlineRoomCode.textContent = info.roomCode || '------';
@@ -395,7 +483,25 @@ function updateOnlineUi(info) {
     return;
   }
 
-  if (info.phase === 'waiting') {
+  const match = info.match;
+  renderMatchHud(info, match);
+  announceShotResult(info, match);
+  if (onlineMatch) {
+    if (match?.phase === 'ended') {
+      onlineMatch.textContent = match.winnerSeat === info.seat ? `你获胜：${match.reason || '本局结束'}` : `对手获胜：${match.reason || '本局结束'}`;
+    } else if (info.phase === 'reconnecting') {
+      onlineMatch.textContent = '对手断线，正在等待 3 分钟内重连…';
+    } else if (match?.groups?.[info.seat]) {
+      const mine = match.groups[info.seat] === 'solids' ? '全色' : '花色';
+      const theirs = match.groups[1 - info.seat] === 'solids' ? '全色' : '花色';
+      onlineMatch.textContent = `你：${mine} · 对手：${theirs}${match.ballInHandSeat === info.seat ? ' · 你获得自由球' : ''}`;
+    } else {
+      onlineMatch.textContent = match?.phase === 'break' ? '开球中：首个合法进球决定花色' : (match?.reason || '等待比赛状态');
+    }
+  }
+  onlineRematch?.classList.toggle('hidden', match?.phase !== 'ended');
+
+  if (info.phase === 'waiting' || info.phase === 'reconnecting') {
     onlineTurn.textContent = info.mode === 'host' ? '等待对手加入…' : '已加入 · 等待开局';
     onlineTurn.dataset.turn = 'wait';
     if (onlineStatus) {
@@ -444,6 +550,7 @@ const multiplayer = createMultiplayer({
     if (typeof msg.aimDepth === 'number') remotePose.aimDepth = msg.aimDepth;
     if (typeof msg.pull === 'number') remotePose.pull = msg.pull;
     remotePose.hasData = true;
+    remotePose.receivedAt = performance.now();
   },
   onShotRequest: (msg) => {
     // Host executes guest's shot with authoritative physics
@@ -461,12 +568,14 @@ const multiplayer = createMultiplayer({
     }
     const event = msg.event;
     if (event === 'shot' || event === 'sim') {
+      guestPredictionActive = true;
       if (state !== State.SIMULATING && state !== State.STRIKING) {
         state = State.SIMULATING;
         freeRoamAfterShot = true;
         setStatus('击球中 — 同步球局中');
       }
     } else if (event === 'settled') {
+      guestPredictionActive = false;
       settleFrames = 0;
       // Guest: finish like afterShotSettled but without advancing turn (host owns turn)
       guestAfterSettled();
@@ -474,6 +583,11 @@ const multiplayer = createMultiplayer({
   },
   onReset: () => {
     applyLocalReset({ fromNetwork: true });
+  },
+  onRematch: () => {
+    applyLocalReset({ fromNetwork: true });
+    if (multiplayer.isHost()) multiplayer.broadcastState({ event: 'settled' });
+    toast(multiplayer.isMyTurn() ? '新一局开始 — 你先开球' : '新一局开始 — 对手开球', 2400);
   },
   onUi: updateOnlineUi,
   toast: (msg, ms) => toast(msg, ms),
@@ -538,8 +652,21 @@ onlineCopy?.addEventListener('click', async (e) => {
 onlineLeave?.addEventListener('click', (e) => {
   e.preventDefault();
   e.stopPropagation();
-  multiplayer.leave();
+  multiplayer.forfeit();
 });
+
+onlineRematch?.addEventListener('click', (e) => {
+  e.preventDefault();
+  multiplayer.readyRematch();
+  onlineRematch.disabled = true;
+  toast('已准备，等待对手确认', 1600);
+  window.setTimeout(() => { if (onlineRematch) onlineRematch.disabled = false; }, 1200);
+});
+
+window.addEventListener('online', () => {
+  if (!multiplayer.isOnline()) multiplayer.resume().catch(() => {});
+});
+window.setTimeout(() => multiplayer.resume().catch(() => {}), 250);
 
 // ---------- Game state ----------
 const State = {
@@ -1284,9 +1411,8 @@ function movePlayerOnFloor(delta) {
  */
 function executeAuthoritativeShot(aimAngle, shotPower) {
   cue.aimAngle = aimAngle;
-  const dirX = Math.sin(aimAngle);
-  const dirZ = -Math.cos(aimAngle);
-  const velocity = cueVelocityFromAim(dirX, dirZ, shotPower);
+  const shotDirection = getAimDirection(aimAngle);
+  const velocity = cueVelocityFromAim(shotDirection.x, shotDirection.z, shotPower);
   if (teachLab.isActive()) teachLab.setActive(false);
   teachLab.setAimReady(false);
   predictView.setVisible(false);
@@ -1295,6 +1421,7 @@ function executeAuthoritativeShot(aimAngle, shotPower) {
   buttDragging = false;
   canvas.style.cursor = '';
   cue.setGuidesVisible(false);
+  if (multiplayer.isHost() && multiplayer.isOnline()) beginShotEvents();
   physics.strikeCenter(cueBall, velocity);
   cueFreezePos.set(cueBall.mesh.position.x, BALL_Y, cueBall.mesh.position.z);
   audio.playCueStrike(shotPower);
@@ -1338,7 +1465,14 @@ function fireCue(p) {
       power: shotPower,
       aimDepth: aimDepthOffset,
     });
-    // After stroke anim, wait for host state (no tip contact physics)
+    // Predict immediately from the same input sent to the host. The host's
+    // first shot snapshot establishes the authority point, then later packets
+    // only smooth out collision/floating-point drift.
+    const localDirection = cue.getShotDirection();
+    const localVelocity = cueVelocityFromAim(localDirection.x, localDirection.z, shotPower);
+    physics.strikeCenter(cueBall, localVelocity);
+    guestPredictionActive = true;
+    // After stroke anim, the UI enters the normal shot-watching state.
     pendingShot = null;
     setStatus('出杆中 — 等待同步…');
     // Transition to simulating shortly so avatar finishes stroke
@@ -1444,6 +1578,7 @@ function updateCueStrikeContact() {
     state = State.SIMULATING;
     setStatus('击球中 — WASD 可移动 · 等待球停');
     if (multiplayer.isHost() && multiplayer.isOnline()) {
+      beginShotEvents();
       multiplayer.onHostShotStarted({
         aimAngle: cue.aimAngle,
         power: struckPower,
@@ -1619,6 +1754,7 @@ function applyLocalReset(opts = {}) {
   }
   resetBalls(balls);
   physics.reset();
+  guestPredictionActive = false;
   aimDepthOffset = 0;
   pendingShot = null;
   if (teachLab.isActive()) teachLab.setActive(false);
@@ -1649,6 +1785,7 @@ function doReset() {
 
 /** Guest-side settle after host broadcasts event:settled */
 function guestAfterSettled() {
+  guestPredictionActive = false;
   if (cueBall.pocketed) {
     if (!cueBall.body.world) world.addBody(cueBall.body);
     respotCueBall(cueBall, world);
@@ -1706,6 +1843,10 @@ function pocketBall(ball) {
   ball.body.velocity.set(0, 0, 0);
   ball.body.angularVelocity.set(0, 0, 0);
   world.removeBody(ball.body);
+  if (shotEvents) {
+    shotEvents.pocketedIds.push(ball.id);
+    if (ball.isCue) shotEvents.cueScratch = true;
+  }
   audio.playPocket();
 
   if (ball.isCue) {
@@ -1719,6 +1860,7 @@ function afterShotSettled() {
   // Guest settle is driven by host state broadcast
   if (multiplayer.isGuest()) return;
 
+  const pocketedBeforeRespot = balls.filter((b) => b.pocketed).map((b) => b.id);
   if (cueBall.pocketed) {
     if (!cueBall.body.world) world.addBody(cueBall.body);
     respotCueBall(cueBall, world);
@@ -1746,7 +1888,21 @@ function afterShotSettled() {
   setPowerUI(0);
 
   if (multiplayer.isHost() && multiplayer.isOnline()) {
-    multiplayer.onHostSettled();
+    const match = multiplayer.match || createMatchState({ breakerSeat: multiplayer.turnSeat });
+    const shooterSeat = multiplayer.turnSeat;
+    const result = resolveShot(match, shotEvents || { firstContactId: null, pocketedIds: [] }, pocketedBeforeRespot);
+    shotEvents = null;
+    const shotResult = { foul: result.foul, pocketed: result.pocketed, shooterSeat };
+    multiplayer.sendShotResult({ shotResult });
+    multiplayer.broadcastMatchState({ match: result.match, shotResult });
+    if (result.match.phase === 'ended') {
+      state = State.FREE;
+      toast(result.match.winnerSeat === multiplayer.net.seat ? '你赢得本局！' : '本局结束，对手获胜', 3200);
+      setStatus(result.match.reason || '本局结束');
+      multiplayer.broadcastState({ event: 'settled' });
+      return;
+    }
+    multiplayer.onHostSettled(result.match.turnSeat);
     setStatus(
       remaining === 0
         ? '清台完成 — 按 R 再来一局'
@@ -1983,12 +2139,13 @@ function animate() {
 
   const guestOnline = multiplayer.isGuest() && multiplayer.isOnline();
 
-  // Guest does not run local physics — host snapshots own the table
-  if (!guestOnline) {
+  // Guests predict the same shot locally. The host remains authoritative for
+  // pockets/rules and periodically reconciles the simulated positions.
+  if (!guestOnline || guestPredictionActive) {
     physics.step(dt, {
       beforeWorldStep: () => probe.cacheVelocities(),
     });
-    checkPockets();
+    if (!guestOnline) checkPockets();
 
     for (const ball of balls) {
       if (ball.pocketed) continue;
@@ -2030,21 +2187,47 @@ function animate() {
     const lz = THREE.MathUtils.damp(remote.position.z, remotePose.z, 14, dt);
     remote.setPosition(lx, lz);
     remote.setYaw(remotePose.yaw, false, dt);
-    const vs = remotePose.visualState || 'idle';
-    const aimingRemote = ['aim', 'charge', 'stroke', 'simulating'].includes(vs);
+    // `simulating` lasts for the entire ball roll. Keep the peer in its
+    // post-stroke watch pose, but never solve the rig against the moving ball.
+    const freshPose = performance.now() - remotePose.receivedAt < 750;
+    const wireState = freshPose ? remotePose.visualState : 'idle';
+    const vs = wireState === 'simulating'
+      ? 'watch'
+      : ['walk', 'snap', 'aim', 'charge', 'stroke'].includes(wireState)
+        ? wireState
+        : 'idle';
+    const aimingRemote = ['aim', 'charge', 'stroke', 'watch'].includes(vs);
+    if (aimingRemote) {
+      if (vs === 'aim' || vs === 'charge') {
+        // Cache the cue-ball position while the peer is aiming. Once the shot
+        // starts the ball moves, while the avatar/cue must stay at contact.
+        remoteAimAnchor.copy(cueBall.mesh.position);
+        remoteAimAnchorReady = true;
+      } else if (!remoteAimAnchorReady) {
+        const fallbackDirection = getAimDirection(remotePose.aimAngle);
+        remoteAimAnchor.set(
+          remote.position.x + fallbackDirection.x * 0.62,
+          hall.floorY + BALL_Y,
+          remote.position.z + fallbackDirection.z * 0.62,
+        );
+        remoteAimAnchorReady = true;
+      }
+    } else {
+      // Do not carry a previous shot's contact point into a later session or
+      // into a packet sequence where the initial aim sample was missed.
+      remoteAimAnchorReady = false;
+    }
+    const remoteShotDirection = aimingRemote
+      ? getAimDirection(remotePose.aimAngle)
+      : null;
     remote.update({
       dt,
       state: vs,
       moveSpeed: vs === 'walk' ? WALK_SPEED : vs === 'snap' ? SNAP_SPEED : 0,
-      pull: remotePose.pull || remotePose.power || 0,
-      ballPos: aimingRemote ? cueBall.mesh.position : null,
-      shotDirection: aimingRemote
-        ? {
-          x: Math.sin(remotePose.aimAngle || 0),
-          z: -Math.cos(remotePose.aimAngle || 0),
-        }
-        : null,
-      aimDepth: remotePose.aimDepth || 0,
+      pull: vs === 'charge' || vs === 'stroke' ? (remotePose.pull || remotePose.power || 0) : 0,
+      ballPos: aimingRemote ? remoteAimAnchor : null,
+      shotDirection: remoteShotDirection,
+      aimDepth: aimingRemote ? remotePose.aimDepth || 0 : 0,
     });
   }
 

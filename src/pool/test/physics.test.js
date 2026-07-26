@@ -19,6 +19,7 @@ import {
   getAimBodyOffset,
 } from '../player.js';
 import { isInsideBlock, resolveFloorMovement } from '../navigation.js';
+import { getAimDirection } from '../cue.js';
 
 function makeBody() {
   return new CANNON.Body({
@@ -216,4 +217,18 @@ test('changing aim stance keeps the cue at a fixed physical length', () => {
   assert.ok(Math.abs(before - after) < 1e-10);
   assert.deepEqual(avatar.cueGroup.scale.toArray(), [1, 1, 1]);
   avatar.dispose();
+});
+
+test('network aim angles use the same direction as the local cue', () => {
+  const cases = [
+    [0, [1, 0, 0]],
+    [Math.PI / 2, [0, 0, 1]],
+    [Math.PI, [-1, 0, 0]],
+    [-Math.PI / 2, [0, 0, -1]],
+  ];
+
+  for (const [angle, expected] of cases) {
+    const actual = getAimDirection(angle);
+    assert.ok(actual.distanceTo(new THREE.Vector3(...expected)) < 1e-10);
+  }
 });

@@ -117,6 +117,20 @@ describe('serializeBalls / applyBallSnapshot', () => {
     assert.equal(target[0].pocketed, true);
     assert.equal(target[0].mesh.visible, false);
   });
+
+  it('blends prediction corrections instead of teleporting balls', () => {
+    const target = [makeFakeBall(0, { x: 0, z: 0, vx: 1 })];
+    applyBallSnapshot(target, [{
+      id: 0, x: 1, y: 0.028, z: 0.5,
+      vx: 0, vy: 0, vz: 1, wx: 0, wy: 0, wz: 0,
+      pocketed: false,
+    }], { correction: 0.2, wake: false });
+
+    assert.equal(target[0].body.position.x, 0.2);
+    assert.equal(target[0].body.position.z, 0.1);
+    assert.equal(target[0].body.velocity.x, 0.8);
+    assert.equal(target[0].body.velocity.z, 0.2);
+  });
 });
 
 describe('turn gate logic', () => {

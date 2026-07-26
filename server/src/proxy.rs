@@ -31,6 +31,8 @@ pub struct AppState {
     pub http: Client,
     pub token_svc: TokenService,
     pub issue_allowed_origins: Arc<String>,
+    pub deepseek_api_key: Arc<String>,
+    pub deepseek_model: Arc<String>,
 }
 
 // ── header 白名单 ────────────────────────────────────────────────────

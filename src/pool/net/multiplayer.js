@@ -1,6 +1,7 @@
 /**
  * HoloPool multiplayer session orchestrator.
- * Host runs physics; guest applies state snapshots; turn-based shooting.
+ * Host owns rules and authoritative corrections; both peers simulate ball
+ * motion locally between snapshots for smooth turn-based shooting.
  */
 
 import { PoolPlayer } from '../player.js';
@@ -13,7 +14,9 @@ import {
 } from './pool-net.js';
 
 const PLAYER_SEND_HZ = 12;
-const STATE_SEND_HZ = 20;
+// Local prediction keeps the motion smooth; the host only sends authority
+// corrections, so this does not need to run at visual-frame frequency.
+const STATE_SEND_HZ = 10;
 
 /**
  * @param {object} deps
@@ -24,7 +27,7 @@ const STATE_SEND_HZ = 20;
  * @param {() => object} deps.getLocalPlayer  // { x, z, yaw, visualState, aimAngle, power, aimDepth }
  * @param {(snapshot: object) => void} deps.onRemotePlayer
  * @param {(msg: object) => void} deps.onShotRequest  // host only
- * @param {(msg: object) => void} deps.onState        // guest applies balls; both update turn
+ * @param {(msg: object) => void} deps.onState        // reacts to authority state / turn changes
  * @param {() => void} deps.onReset
  * @param {(info: object) => void} deps.onUi
  * @param {(msg: string, ms?: number) => void} deps.toast
@@ -39,6 +42,8 @@ export function createMultiplayer(deps) {
   let stateSendAcc = 0;
   let lastStateSeq = 0;
   let stateSeq = 0;
+  let stateVersion = 0;
+  let match = null;
   /** @type {'local'|'host'|'guest'} */
   let mode = 'local';
   let unsubs = [];
@@ -102,6 +107,8 @@ export function createMultiplayer(deps) {
       phase,
       isMyTurn: isMyTurn(),
       playerId: net.playerId,
+      match,
+      version: stateVersion,
       ...extra,
     });
   }
@@ -128,9 +135,14 @@ export function createMultiplayer(deps) {
 
     unsubs.push(
       net.on('room', (msg) => {
+        if (msg.type !== 'room') return;
         const wasWaiting = phase === 'waiting' || phase === 'idle';
         turnSeat = typeof msg.turnSeat === 'number' ? msg.turnSeat : turnSeat;
         phase = msg.phase || phase;
+        if (msg.match) {
+          match = msg.match;
+          if (match.turnSeat != null) turnSeat = match.turnSeat;
+        }
         if (phase === 'playing' && wasWaiting) {
           deps.toast?.(
             isMyTurn() ? '对局开始 — 你的回合' : '对局开始 — 对方先手',
@@ -144,6 +156,36 @@ export function createMultiplayer(deps) {
         emitUi({ players: msg.players });
       }),
     );
+
+    unsubs.push(net.on('match_state', (msg) => {
+      if (Number.isFinite(Number(msg.version)) && Number(msg.version) < stateVersion) return;
+      stateVersion = Number(msg.version) || stateVersion;
+      match = msg.match || match;
+      if (match?.turnSeat != null) turnSeat = match.turnSeat;
+      if (match?.phase === 'ended') phase = 'ended';
+      else if (match) phase = 'playing';
+      emitUi({ shotResult: msg.shotResult });
+    }));
+    unsubs.push(net.on('match_end', (msg) => {
+      if (Number(msg.version) < stateVersion) return;
+      stateVersion = Number(msg.version) || stateVersion;
+      match = msg.match || match;
+      phase = 'ended';
+      emitUi({ matchEnded: true, reason: msg.reason });
+    }));
+    unsubs.push(net.on('reconnecting', (msg) => {
+      phase = 'reconnecting';
+      emitUi({ reconnecting: msg });
+    }));
+    unsubs.push(net.on('rematch_ready', (msg) => {
+      if (msg.start) {
+        match = msg.match || match;
+        if (match?.turnSeat != null) turnSeat = match.turnSeat;
+        phase = 'playing';
+        deps.onRematch?.(msg);
+      }
+      emitUi({ rematch: msg });
+    }));
 
     unsubs.push(
       net.on('peer', (msg) => {
@@ -162,7 +204,12 @@ export function createMultiplayer(deps) {
         }
         // Host already has authority; still update turn UI
         if (isGuest() && Array.isArray(msg.balls)) {
-          applyBallSnapshot(deps.balls, msg.balls, { world: deps.world });
+          const isBoundary = msg.event === 'shot' || msg.event === 'settled';
+          applyBallSnapshot(deps.balls, msg.balls, {
+            world: deps.world,
+            correction: isBoundary ? 1 : 0.18,
+            wake: isBoundary ? true : 'moving',
+          });
         }
         deps.onState?.(msg);
         emitUi();
@@ -190,8 +237,8 @@ export function createMultiplayer(deps) {
         const code = msg.code || '';
         deps.toast?.(msg.message || code || '联机错误', 2800);
         if (code === 'room_closed' || code === 'peer_left') {
-          if (code === 'room_closed') {
-            leave({ silent: true });
+          if (code === 'room_closed' || code === 'rejoin_expired') {
+            leave({ silent: true, keepSession: false });
           } else {
             phase = 'waiting';
             emitUi();
@@ -205,7 +252,8 @@ export function createMultiplayer(deps) {
       net.on('close', () => {
         if (active) {
           deps.toast?.('联机连接已断开', 2200);
-          leave({ silent: true });
+          leave({ silent: true, keepSession: true });
+          window.setTimeout(() => resume().catch(() => {}), 1000);
         }
       }),
     );
@@ -223,6 +271,15 @@ export function createMultiplayer(deps) {
     net.joinRoom(code, name);
   }
 
+  async function resume() {
+    const saved = PoolNet.savedSession();
+    if (!saved?.roomCode || !saved?.rejoinToken) return false;
+    await net.connect();
+    bindNet();
+    net.rejoinRoom(saved.roomCode, saved.rejoinToken);
+    return true;
+  }
+
   function leave(opts = {}) {
     active = false;
     mode = 'local';
@@ -230,10 +287,12 @@ export function createMultiplayer(deps) {
     turnSeat = 0;
     lastStateSeq = 0;
     stateSeq = 0;
+    stateVersion = 0;
+    match = null;
     removeRemoteAvatar();
     unsubs.forEach((u) => u());
     unsubs = [];
-    net.close();
+    net.close({ keepSession: !!opts.keepSession });
     if (!opts.silent) deps.toast?.('已离开房间', 1600);
     emitUi();
   }
@@ -271,10 +330,29 @@ export function createMultiplayer(deps) {
     return net.sendReset();
   }
 
+  function broadcastMatchState(payload) {
+    if (!isHost() || !active) return false;
+    match = payload.match || match;
+    if (match?.turnSeat != null) turnSeat = match.turnSeat;
+    return net.sendMatchState(payload);
+  }
+
+  function sendShotResult(payload) {
+    if (!isHost() || !active) return false;
+    return net.sendShotResult(payload);
+  }
+
+  function readyRematch() { return net.sendRematchReady(); }
+
+  function forfeit() {
+    net.sendForfeit();
+    leave({ silent: true, keepSession: false });
+  }
+
   /** Call after balls settle on host — advance turn and push state */
-  function onHostSettled() {
+  function onHostSettled(nextTurn = null) {
     if (!isHost() || phase !== 'playing') return;
-    turnSeat = 1 - turnSeat;
+    turnSeat = nextTurn == null ? 1 - turnSeat : nextTurn;
     net.sendTurn(turnSeat);
     broadcastState({ event: 'settled' });
     emitUi();
@@ -327,6 +405,7 @@ export function createMultiplayer(deps) {
     net,
     createRoom,
     joinRoom,
+    resume,
     leave,
     tick,
     isOnline,
@@ -338,6 +417,10 @@ export function createMultiplayer(deps) {
     requestShot,
     broadcastState,
     broadcastReset,
+    broadcastMatchState,
+    sendShotResult,
+    readyRematch,
+    forfeit,
     onHostSettled,
     onHostShotStarted,
     getRemotePlayer,
@@ -353,6 +436,7 @@ export function createMultiplayer(deps) {
     get roomCode() {
       return net.roomCode;
     },
+    get match() { return match; },
     emitUi,
   };
 }

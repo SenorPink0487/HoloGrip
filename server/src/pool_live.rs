@@ -32,6 +32,7 @@ const ROOM_CODE_LEN: usize = 6;
 const ROOM_ALPHABET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const MAX_SEATS: usize = 2;
 const ROOM_IDLE_TTL: Duration = Duration::from_secs(30 * 60);
+const REJOIN_TTL: Duration = Duration::from_secs(3 * 60);
 const BROADCAST_CAP: usize = 256;
 
 #[derive(Clone, Default)]
@@ -51,6 +52,9 @@ struct PoolRoom {
     turn_seat: u8,
     /// playing once 2 players connected; waiting while alone
     phase: RoomPhase,
+    version: u64,
+    match_state: Value,
+    rematch_ready: [bool; MAX_SEATS],
     tx: broadcast::Sender<String>,
     last_active: Instant,
 }
@@ -59,13 +63,17 @@ struct PoolRoom {
 enum RoomPhase {
     Waiting,
     Playing,
+    Reconnecting,
+    Ended,
 }
 
 struct PlayerSlot {
     id: Uuid,
     name: String,
+    rejoin_token: String,
     /// Outbound channel to this player's WS writer task
     out: mpsc::UnboundedSender<String>,
+    disconnected_at: Option<Instant>,
 }
 
 #[derive(Deserialize)]
@@ -78,6 +86,8 @@ struct ClientMsg {
     room_code: Option<String>,
     #[serde(default)]
     name: Option<String>,
+    #[serde(default, rename = "rejoinToken")]
+    rejoin_token: Option<String>,
     #[serde(flatten)]
     rest: HashMap<String, Value>,
 }
@@ -92,6 +102,8 @@ struct WelcomeMsg<'a> {
     #[serde(rename = "playerId")]
     player_id: String,
     seat: u8,
+    #[serde(rename = "rejoinToken")]
+    rejoin_token: String,
 }
 
 pub async fn live_ws(State(state): State<PoolLiveState>, ws: WebSocketUpgrade) -> Response {
@@ -126,7 +138,7 @@ async fn handle_socket(state: PoolLiveState, socket: WebSocket) {
         }
     });
 
-    let player_id = Uuid::new_v4();
+    let mut player_id = Uuid::new_v4();
     let mut room_code: Option<String> = None;
     let mut seat: Option<u8> = None;
     let mut broadcast_forward: Option<tokio::task::JoinHandle<()>> = None;
@@ -152,7 +164,7 @@ async fn handle_socket(state: PoolLiveState, socket: WebSocket) {
             }
         };
 
-        if parsed.kind != "join" {
+        if parsed.kind != "join" && parsed.kind != "rejoin" {
             let _ = out_tx.send(error_json("need_join", "first message must be join"));
             continue;
         }
@@ -165,7 +177,14 @@ async fn handle_socket(state: PoolLiveState, socket: WebSocket) {
             .map(|s| s.chars().take(24).collect::<String>())
             .unwrap_or_else(|| format!("P{}", &player_id.to_string()[..4]));
 
-        let join_result = if parsed.create {
+        let join_result = if parsed.kind == "rejoin" {
+            let code = parsed.room_code.as_deref().map(normalize_code).filter(|c| !c.is_empty());
+            let token = parsed.rejoin_token.as_deref().unwrap_or("");
+            match code {
+                Some(code) => rejoin_room(&state, &code, token, out_tx.clone()).await,
+                None => Err(("bad_code", "roomCode required".to_string())),
+            }
+        } else if parsed.create {
             create_room(&state, player_id, name, out_tx.clone()).await
         } else {
             let code = parsed
@@ -180,7 +199,8 @@ async fn handle_socket(state: PoolLiveState, socket: WebSocket) {
         };
 
         match join_result {
-            Ok((code, role, seat_n, mut rx)) => {
+            Ok((code, role, seat_n, mut rx, restored_id)) => {
+                player_id = restored_id;
                 room_code = Some(code.clone());
                 seat = Some(seat_n);
 
@@ -190,6 +210,7 @@ async fn handle_socket(state: PoolLiveState, socket: WebSocket) {
                     role,
                     player_id: player_id.to_string(),
                     seat: seat_n,
+                    rejoin_token: room_token(&state, &code, seat_n).await.unwrap_or_default(),
                 };
                 if let Ok(s) = serde_json::to_string(&welcome) {
                     let _ = out_tx.send(s);
@@ -343,6 +364,60 @@ async fn handle_socket(state: PoolLiveState, socket: WebSocket) {
                     broadcast_raw(&state, &code, &s).await;
                 }
             }
+            "match_state" | "shot_result" => {
+                let is_host = with_room(&state, &code, |room| room.host_id == player_id)
+                    .await
+                    .unwrap_or(false);
+                if !is_host {
+                    let _ = out_tx.send(error_json("not_host", "only host can resolve the match"));
+                    continue;
+                }
+                let message_type = parsed.kind.clone();
+                let payload = with_room_mut(&state, &code, |room| {
+                    room.version += 1;
+                    if let Some(m) = parsed.rest.get("match") { room.match_state = m.clone(); }
+                    if room.match_state.get("phase").and_then(Value::as_str) == Some("ended") {
+                        room.phase = RoomPhase::Ended;
+                    }
+                    json!({"type":message_type, "match":room.match_state, "version":room.version,
+                        "shotResult":parsed.rest.get("shotResult"), "reason":parsed.rest.get("reason")})
+                }).await;
+                if let Some(payload) = payload {
+                    if let Ok(s) = serde_json::to_string(&payload) { broadcast_raw(&state, &code, &s).await; }
+                    if message_type == "match_state" && payload.get("match").and_then(|m| m.get("phase")).and_then(Value::as_str) == Some("ended") {
+                        let mut end = payload.clone();
+                        end["type"] = Value::String("match_end".into());
+                        if let Ok(s) = serde_json::to_string(&end) { broadcast_raw(&state, &code, &s).await; }
+                    }
+                }
+            }
+            "rematch_ready" => {
+                let payload = with_room_mut(&state, &code, |room| {
+                    room.rematch_ready[my_seat as usize] = true;
+                    room.version += 1;
+                    let both = room.rematch_ready.iter().all(|ready| *ready);
+                    if both {
+                        room.rematch_ready = [false; MAX_SEATS];
+                        room.phase = RoomPhase::Playing;
+                        room.turn_seat = 1 - room.turn_seat;
+                        room.match_state = json!({"phase":"break","breakerSeat":room.turn_seat,"turnSeat":room.turn_seat,"groups":[null,null],"ballInHandSeat":null});
+                    }
+                    json!({"type":"rematch_ready","ready":room.rematch_ready,"start":both,"match":room.match_state,"version":room.version})
+                }).await;
+                if let Some(payload) = payload { if let Ok(s) = serde_json::to_string(&payload) { broadcast_raw(&state, &code, &s).await; } }
+            }
+            "forfeit" => {
+                let payload = with_room_mut(&state, &code, |room| {
+                    room.version += 1;
+                    room.phase = RoomPhase::Ended;
+                    room.match_state["phase"] = Value::String("ended".into());
+                    room.match_state["winnerSeat"] = json!(1 - my_seat);
+                    room.match_state["reason"] = Value::String("对手离开对局".into());
+                    json!({"type":"match_end","match":room.match_state,"reason":"对手离开对局","version":room.version})
+                }).await;
+                if let Some(payload) = payload { if let Ok(s) = serde_json::to_string(&payload) { broadcast_raw(&state, &code, &s).await; } }
+                break;
+            }
             "reset" => {
                 let is_host = with_room(&state, &code, |room| room.host_id == player_id)
                     .await
@@ -412,7 +487,7 @@ async fn create_room(
     player_id: Uuid,
     name: String,
     out: mpsc::UnboundedSender<String>,
-) -> Result<(String, &'static str, u8, broadcast::Receiver<String>), (&'static str, String)> {
+) -> Result<(String, &'static str, u8, broadcast::Receiver<String>, Uuid), (&'static str, String)> {
     let mut hub = state.inner.lock().await;
     gc_rooms(&mut hub);
 
@@ -422,7 +497,9 @@ async fn create_room(
     seats[0] = Some(PlayerSlot {
         id: player_id,
         name,
+        rejoin_token: Uuid::new_v4().to_string(),
         out,
+        disconnected_at: None,
     });
 
     hub.rooms.insert(
@@ -433,12 +510,15 @@ async fn create_room(
             seats,
             turn_seat: 0,
             phase: RoomPhase::Waiting,
+            version: 1,
+            match_state: json!({"phase":"break","breakerSeat":0,"turnSeat":0,"groups":[null,null],"ballInHandSeat":null}),
+            rematch_ready: [false; MAX_SEATS],
             tx,
             last_active: Instant::now(),
         },
     );
 
-    Ok((code, "host", 0, rx))
+    Ok((code, "host", 0, rx, player_id))
 }
 
 async fn join_room(
@@ -447,7 +527,7 @@ async fn join_room(
     player_id: Uuid,
     name: String,
     out: mpsc::UnboundedSender<String>,
-) -> Result<(String, &'static str, u8, broadcast::Receiver<String>), (&'static str, String)> {
+) -> Result<(String, &'static str, u8, broadcast::Receiver<String>, Uuid), (&'static str, String)> {
     let mut hub = state.inner.lock().await;
     gc_rooms(&mut hub);
 
@@ -466,7 +546,9 @@ async fn join_room(
     room.seats[free] = Some(PlayerSlot {
         id: player_id,
         name,
+        rejoin_token: Uuid::new_v4().to_string(),
         out,
+        disconnected_at: None,
     });
     room.last_active = Instant::now();
     if free == 1 || room.seats.iter().filter(|s| s.is_some()).count() >= 2 {
@@ -475,7 +557,38 @@ async fn join_room(
 
     let rx = room.tx.subscribe();
     let role = if free == 0 { "host" } else { "guest" };
-    Ok((code.to_string(), role, free as u8, rx))
+    room.version += 1;
+    Ok((code.to_string(), role, free as u8, rx, player_id))
+}
+
+async fn rejoin_room(
+    state: &PoolLiveState,
+    code: &str,
+    token: &str,
+    out: mpsc::UnboundedSender<String>,
+) -> Result<(String, &'static str, u8, broadcast::Receiver<String>, Uuid), (&'static str, String)> {
+    let mut hub = state.inner.lock().await;
+    let room = hub.rooms.get_mut(code).ok_or(("not_found", "房间不存在".to_string()))?;
+    let (seat, player_id) = room.seats.iter_mut().enumerate().find_map(|(seat, slot)| {
+        let player = slot.as_mut()?;
+        (player.rejoin_token == token && player.disconnected_at.is_some()).then(|| {
+            player.out = out.clone();
+            player.disconnected_at = None;
+            (seat, player.id)
+        })
+    }).ok_or(("rejoin_expired", "重连令牌无效或已过期".to_string()))?;
+    if room.seats.iter().all(|slot| slot.as_ref().map(|p| p.disconnected_at.is_none()).unwrap_or(false)) {
+        room.phase = RoomPhase::Playing;
+    }
+    room.version += 1;
+    room.last_active = Instant::now();
+    let role = if room.host_id == player_id { "host" } else { "guest" };
+    Ok((code.to_string(), role, seat as u8, room.tx.subscribe(), player_id))
+}
+
+async fn room_token(state: &PoolLiveState, code: &str, seat: u8) -> Option<String> {
+    let hub = state.inner.lock().await;
+    hub.rooms.get(code)?.seats.get(seat as usize)?.as_ref().map(|p| p.rejoin_token.clone())
 }
 
 async fn cleanup_player(state: &PoolLiveState, code: Option<&str>, player_id: Uuid) {
@@ -485,51 +598,18 @@ async fn cleanup_player(state: &PoolLiveState, code: Option<&str>, player_id: Uu
         return;
     };
 
-    let was_host = room.host_id == player_id;
-    for slot in room.seats.iter_mut() {
-        if slot.as_ref().map(|p| p.id == player_id).unwrap_or(false) {
-            *slot = None;
-        }
-    }
+    let seat = room.seats.iter_mut().enumerate().find_map(|(seat, slot)| {
+        let player = slot.as_mut()?;
+        (player.id == player_id).then(|| { player.disconnected_at = Some(Instant::now()); seat })
+    });
+    let Some(seat) = seat else { return };
     room.last_active = Instant::now();
-
-    let remaining: Vec<_> = room
-        .seats
-        .iter()
-        .flatten()
-        .map(|p| (p.id, p.out.clone()))
-        .collect();
-
-    if was_host || remaining.is_empty() {
-        // MVP: host leave or empty → dissolve
-        let dissolve = json!({
-            "type": "error",
-            "code": "room_closed",
-            "message": if was_host { "房主已离开，房间已解散" } else { "房间已关闭" },
-        });
-        if let Ok(s) = serde_json::to_string(&dissolve) {
-            let _ = room.tx.send(s.clone());
-            for (_, out) in &remaining {
-                let _ = out.send(s.clone());
-            }
-        }
-        hub.rooms.remove(code);
-        return;
-    }
-
-    // Guest left — back to waiting
-    room.phase = RoomPhase::Waiting;
-    room.turn_seat = 0;
+    room.phase = RoomPhase::Reconnecting;
+    room.version += 1;
+    let payload = json!({"type":"reconnecting", "seat":seat, "deadlineSeconds":REJOIN_TTL.as_secs(), "version":room.version});
+    if let Ok(s) = serde_json::to_string(&payload) { let _ = room.tx.send(s); }
     drop(hub);
     broadcast_room_snapshot(state, code).await;
-    let notice = json!({
-        "type": "error",
-        "code": "peer_left",
-        "message": "对手已离开",
-    });
-    if let Ok(s) = serde_json::to_string(&notice) {
-        broadcast_raw(state, code, &s).await;
-    }
 }
 
 async fn broadcast_room_snapshot(state: &PoolLiveState, code: &str) {
@@ -547,6 +627,7 @@ async fn broadcast_room_snapshot(state: &PoolLiveState, code: &str) {
                     "id": p.id.to_string(),
                     "name": p.name,
                     "seat": i,
+                    "connected": p.disconnected_at.is_none(),
                 })
             })
         })
@@ -554,6 +635,8 @@ async fn broadcast_room_snapshot(state: &PoolLiveState, code: &str) {
     let phase = match room.phase {
         RoomPhase::Waiting => "waiting",
         RoomPhase::Playing => "playing",
+        RoomPhase::Reconnecting => "reconnecting",
+        RoomPhase::Ended => "ended",
     };
     let payload = json!({
         "type": "room",
@@ -562,6 +645,8 @@ async fn broadcast_room_snapshot(state: &PoolLiveState, code: &str) {
         "turnSeat": room.turn_seat,
         "phase": phase,
         "hostId": room.host_id.to_string(),
+        "version": room.version,
+        "match": room.match_state,
     });
     if let Ok(s) = serde_json::to_string(&payload) {
         let _ = room.tx.send(s);

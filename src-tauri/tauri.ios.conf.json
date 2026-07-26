@@ -10,8 +10,8 @@
     "windows": [
       {
         "label": "main",
-        "title": "HoloMath",
-        "url": "holomath.html",
+        "title": "HoloGrip",
+        "url": "launcher.html",
         "fullscreen": true,
         "decorations": false,
         "transparent": false

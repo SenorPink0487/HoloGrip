@@ -1,15 +1,8 @@
 /**
  * DeepSeek 解析日常用语 → 成分清单（含百分比）
- * - Tauri 桌面：invoke Rust 命令（密钥只在后端）
- * - 纯 Web：走 Vite 代理 /api/resolve-molecule
+ * - 桌面与 Web：统一走 HoloGrip 服务器反代；密钥只保留在服务器。
  */
-
-function isTauri() {
-  return (
-    typeof window !== 'undefined' &&
-    ('__TAURI_INTERNALS__' in window || '__TAURI__' in window)
-  )
-}
+import { apiUrl } from '../../lib/apiOrigin.ts'
 
 /**
  * @param {string[]} reactants
@@ -17,9 +10,7 @@ function isTauri() {
  */
 export async function resolveReactionWithDeepSeek(reactants, condition) {
   const payload = { reactants, condition }
-  const data = isTauri()
-    ? await invokeReaction(payload)
-    : await requestReaction(payload)
+  const data = await requestReaction(payload)
   if (!data?.ok) throw new Error(data?.reason || 'AI 无法判定该反应。')
   return data
 }
@@ -28,9 +19,7 @@ export async function resolveReactionWithDeepSeek(reactants, condition) {
  * @param {string} query
  */
 export async function resolveWithDeepSeek(query) {
-  const data = isTauri()
-    ? await resolveViaTauri(query)
-    : await resolveViaWebProxy(query)
+  const data = await resolveViaWebProxy(query)
 
   if (!data.ok) {
     throw new Error(data.reason || '无法将输入对应到具体分子')
@@ -52,24 +41,11 @@ export async function resolveWithDeepSeek(query) {
 /**
  * @param {string} query
  */
-async function resolveViaTauri(query) {
-  const { invoke } = await import('@tauri-apps/api/core')
-  try {
-    return await invoke('resolve_molecule', { query })
-  } catch (err) {
-    const msg =
-      typeof err === 'string'
-        ? err
-        : err?.message || err?.toString?.() || 'AI 解析失败'
-    throw new Error(msg)
-  }
-}
-
 /**
  * @param {string} query
  */
 async function resolveViaWebProxy(query) {
-  const res = await fetch('/api/resolve-molecule', {
+  const res = await fetch(apiUrl('/api/resolve-molecule'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query }),
@@ -82,17 +58,8 @@ async function resolveViaWebProxy(query) {
   return data
 }
 
-async function invokeReaction(payload) {
-  const { invoke } = await import('@tauri-apps/api/core')
-  try {
-    return await invoke('resolve_reaction', payload)
-  } catch (err) {
-    throw new Error(typeof err === 'string' ? err : err?.message || 'AI 反应判定失败')
-  }
-}
-
 async function requestReaction(payload) {
-  const res = await fetch('/api/resolve-reaction', {
+  const res = await fetch(apiUrl('/api/resolve-reaction'), {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
   })
   const data = await res.json().catch(() => ({}))
