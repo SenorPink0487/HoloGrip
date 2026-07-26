@@ -25,9 +25,13 @@ interface DockItem {
   icon: React.ReactNode;
 }
 
+const MATH_TABS: AppTab[] = ['whiteboard', 'function', 'calculator3d'];
+
 export function AppleDock() {
   const activeTab = useARStore(state => state.activeTab);
-  if (activeTab === 'launcher' || activeTab === 'ar_3d') return null;
+  // 除了数学板块，其它板块不应该有 Dock 栏
+  if (!MATH_TABS.includes(activeTab)) return null;
+
   const setActiveTab = useARStore(state => state.setActiveTab);
   const clearCanvas = useARStore(state => state.clearCanvas);
   const clearModelLines = useARStore(state => state.clearModelLines);
@@ -110,10 +114,6 @@ export function AppleDock() {
     { tab: 'function', label: '📈 函数探究', icon: <TrendingUp className="w-6 h-6" /> },
     { tab: 'calculator3d', label: '📦 3D计算器', icon: <Box className="w-6 h-6" /> },
     { tab: 'ar_3d', label: '🧭 空间AR', icon: <Compass className="w-6 h-6" /> },
-    { tab: 'physics', label: '⚡ 物理实验室', icon: <Atom className="w-6 h-6" /> },
-    { tab: 'chem', label: '🧪 化学观象台', icon: <FlaskConical className="w-6 h-6" /> },
-    { tab: 'rocket', label: '🚀 航天仿真', icon: <Rocket className="w-6 h-6" /> },
-    { tab: 'pool', label: '🎱 三维台球', icon: <CircleDot className="w-6 h-6" /> },
   ];
 
   const getIsActive = (tab: AppTab) => {

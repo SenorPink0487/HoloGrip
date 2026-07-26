@@ -76,10 +76,10 @@ export function TitleBar() {
     <div
       data-tauri-drag-region
       className={[
-        'h-9 w-full flex items-center justify-between select-none px-3',
-        'border-b border-white/5 shadow-sm',
-        'transition-colors duration-300 z-50',
-        isAR
+        'h-9 w-full flex items-center justify-between select-none px-3 border-none transition-colors duration-300 z-50',
+        activeTab === 'launcher'
+          ? 'bg-[#f8fafc] text-slate-800'
+          : isAR
           ? 'bg-zinc-950/40 backdrop-blur-sm text-zinc-300/80'
           : 'bg-zinc-950/90 backdrop-blur-xl text-zinc-200',
       ].join(' ')}
@@ -87,52 +87,15 @@ export function TitleBar() {
         WebkitAppRegion: 'drag',
       } as React.CSSProperties}
     >
-      {/* 左侧：macOS 经典红黄绿红绿灯 Traffic Lights */}
-      <div className="flex items-center gap-2 group cursor-pointer" data-tauri-drag-region>
-        <button
-          onClick={handleClose}
-          className="w-3 h-3 rounded-full bg-red-500 hover:bg-red-600 flex items-center justify-center text-zinc-950 font-bold transition-all shadow-sm cursor-pointer"
-          title="关闭窗口"
-        >
-          <X className="w-2 h-2 opacity-0 group-hover:opacity-100 transition-opacity" />
-        </button>
-        <button
-          onClick={handleMinimize}
-          className="w-3 h-3 rounded-full bg-amber-500 hover:bg-amber-600 flex items-center justify-center text-zinc-950 font-bold transition-all shadow-sm cursor-pointer"
-          title="最小化"
-        >
-          <Minus className="w-2 h-2 opacity-0 group-hover:opacity-100 transition-opacity" />
-        </button>
-        <button
-          onClick={handleToggleMaximize}
-          className="w-3 h-3 rounded-full bg-emerald-500 hover:bg-emerald-600 flex items-center justify-center text-zinc-950 font-bold transition-all shadow-sm cursor-pointer"
-          title="全屏/还原"
-        >
-          <PlusIcon className="w-2 h-2 opacity-0 group-hover:opacity-100 transition-opacity" />
-        </button>
+      {/* 左侧空拖拽区 */}
+      <div className="flex items-center gap-2" data-tauri-drag-region />
 
-        <span className="ml-3 text-xs font-semibold tracking-wide text-zinc-300 flex items-center gap-1.5">
-          <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-          <span>HoloGrip Desktop</span>
-        </span>
-      </div>
-
-      {/* 中间：当前学科与模式标题 */}
-      <div
-        data-tauri-drag-region
-        className="text-xs font-medium text-zinc-400 tracking-wide pointer-events-none flex items-center gap-2"
-      >
-        <span className="px-2 py-0.5 rounded-full bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 text-[11px]">
-          {SUBJECT_TITLES[activeTab] || '五大学科空间实验室'}
-        </span>
-      </div>
-
-      {/* 右侧：返回启动器按钮、用户状态与锁定按钮 */}
+      {/* 右侧：返回启动器按钮与窗口控制 */}
       <div className="flex items-center gap-2">
         {activeTab !== 'launcher' && (
           <button
             onClick={() => setActiveTab('launcher')}
-            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-gradient-to-r from-cyan-500/20 to-blue-600/20 hover:from-cyan-500/30 hover:to-blue-600/30 border border-cyan-400/40 text-cyan-300 text-xs font-semibold shadow-md active:scale-95 transition-all cursor-pointer"
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-xs font-semibold shadow-md active:scale-95 transition-all cursor-pointer"
             title="返回启动器大厅"
           >
             <LayoutGrid className="w-3.5 h-3.5" />
@@ -140,35 +103,26 @@ export function TitleBar() {
           </button>
         )}
 
-        <button
-          onClick={lockScreen}
-          className="flex items-center gap-1.5 text-xs text-zinc-400 hover:text-cyan-400 px-2 py-1 rounded-lg hover:bg-white/5 transition-all cursor-pointer"
-          title="锁屏"
-        >
-          <Lock className="w-3.5 h-3.5" />
-          <span className="text-[11px] hidden sm:inline">{currentUser?.name || '用户'}</span>
-        </button>
-
         {/* 标准窗口操作控制（针对 Windows/Linux 窗口） */}
-        <div className="flex items-center border-l border-white/10 pl-2 space-x-1">
+        <div className="flex items-center pl-2 space-x-1">
           <button
             type="button"
             onClick={handleMinimize}
-            className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            className={['p-1 rounded transition-colors cursor-pointer', activeTab === 'launcher' ? 'hover:bg-slate-200/70 text-slate-600 hover:text-slate-900' : 'hover:bg-white/10 text-zinc-400 hover:text-white'].join(' ')}
           >
             <Minus size={12} />
           </button>
           <button
             type="button"
             onClick={handleToggleMaximize}
-            className="p-1 hover:bg-white/10 rounded text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            className={['p-1 rounded transition-colors cursor-pointer', activeTab === 'launcher' ? 'hover:bg-slate-200/70 text-slate-600 hover:text-slate-900' : 'hover:bg-white/10 text-zinc-400 hover:text-white'].join(' ')}
           >
             {maximized ? <Copy size={11} /> : <Square size={11} />}
           </button>
           <button
             type="button"
             onClick={handleClose}
-            className="p-1 hover:bg-red-500/80 rounded text-zinc-400 hover:text-white transition-colors cursor-pointer"
+            className="p-1 hover:bg-red-500/80 hover:text-white rounded text-slate-500 transition-colors cursor-pointer"
           >
             <X size={12} />
           </button>
