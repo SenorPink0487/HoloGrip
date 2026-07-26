@@ -1,0 +1,249 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ATOMLAB · 原子观象台</title>
+  <meta name="description" content="AI 驱动的沉浸式 3D 分子结构观象台" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=Noto+Sans+SC:wght@300;400;500;600;700&family=Noto+Serif+SC:wght@400;600;700&display=swap" rel="stylesheet" />
+</head>
+<body>
+  <div class="atmosphere" aria-hidden="true">
+    <div class="orb orb-a"></div>
+    <div class="orb orb-b"></div>
+    <div class="orb orb-c"></div>
+    <div class="grid-floor"></div>
+    <div class="grain"></div>
+    <div class="vignette"></div>
+  </div>
+
+  <div class="app">
+    <main class="stage" id="stage">
+      <div id="viewport" class="viewport"></div>
+      <div class="stage-glow" aria-hidden="true"></div>
+      <div class="orbit-ring ring-1" aria-hidden="true"></div>
+      <div class="orbit-ring ring-2" aria-hidden="true"></div>
+    </main>
+
+    <section class="search-dock">
+      <div class="search-shell">
+        <div class="search-label">
+          <span id="search-label-text">输入反应物、化学式或 SMILES</span>
+        </div>
+        <div class="search-row" id="search-row" data-mode="single">
+          <div class="search-operands" id="search-operands">
+            <div class="search-field" data-slot="a">
+              <span class="search-tag">A</span>
+              <input
+                id="query-a"
+                class="chem-input"
+                type="text"
+                placeholder=""
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </div>
+          </div>
+
+          <div class="blend-controls">
+            <button
+              type="button"
+              id="btn-blend-add"
+              class="btn-plus"
+              title="增加一项物质 (+)"
+              aria-label="增加一项物质"
+            >
+              <span class="btn-plus-icon">+</span>
+            </button>
+          </div>
+
+          <button id="btn-search" class="btn-reveal" type="button">
+            <span class="btn-text">开始反应</span>
+            <span class="btn-arrow" aria-hidden="true">→</span>
+          </button>
+        </div>
+        <label class="reaction-condition" for="reaction-condition">
+          <span>反应条件</span>
+          <select id="reaction-condition">
+            <option value="">未指定</option>
+            <option value="水溶液">水溶液</option>
+            <option value="加热">加热</option>
+            <option value="点燃">点燃</option>
+          </select>
+        </label>
+        <p class="search-hint" id="search-hint">
+          化学表达式完整显示 · 点 <strong>+</strong> 可添加多种物质进行混合
+        </p>
+      </div>
+    </section>
+
+    <!-- 左侧：显像 + 视图 + 分子档案 -->
+    <aside class="panel panel-left glass">
+      <div class="hud-card">
+        <span class="hud-kicker" id="hud-kicker">就绪</span>
+        <h2 class="hud-name" id="hud-name">尚未查询</h2>
+        <p class="hud-formula" id="hud-formula">在上方输入后开始</p>
+      </div>
+
+      <div class="panel-scroll-body">
+        <div class="panel-divider"></div>
+
+        <div class="panel-head compact">
+          <span class="panel-kicker">01 · 视角控制</span>
+          <h2 class="panel-title">视图控制</h2>
+        </div>
+        <div class="controls">
+          <label class="switch">
+            <input type="checkbox" id="auto-rotate" checked />
+            <span class="switch-ui"></span>
+            <span class="switch-text">自动旋转</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="show-labels" />
+            <span class="switch-ui"></span>
+            <span class="switch-text">原子标签</span>
+          </label>
+          <button type="button" id="btn-reset" class="btn-ghost">
+            <span>重置视角</span>
+            <kbd>R</kbd>
+          </button>
+        </div>
+
+        <section class="dossier" id="mol-info" hidden>
+          <div class="panel-divider"></div>
+          <div class="panel-head compact">
+            <span class="panel-kicker">02 · 分子档案</span>
+            <h2 class="panel-title">分子档案</h2>
+          </div>
+          <dl class="info-list" id="info-list"></dl>
+        </section>
+      </div>
+    </aside>
+
+    <!-- 右侧：仅成分圆环 -->
+    <aside class="panel panel-right glass" id="panel-composition">
+      <div id="composition-root" class="composition-root composition-empty">
+        <div class="comp-empty">
+          <span class="panel-kicker">成分构成</span>
+          <h2 class="panel-title">成分圆环</h2>
+          <p>查询后在此显示<strong>圆形占比</strong>，点击扇区切换 3D 模型。</p>
+        </div>
+      </div>
+    </aside>
+
+    <footer class="bottom-hud">
+      <div class="hud-right">
+        <div class="coord">
+          <span>拖拽</span>
+          <strong>旋转</strong>
+        </div>
+        <div class="coord">
+          <span>滚轮</span>
+          <strong>缩放</strong>
+        </div>
+        <div class="coord">
+          化学表达式完整显示 · 点 <strong>+</strong> 可添加多种物质进行混合
+        </p>
+      </div>
+    </section>
+
+    <!-- 左侧：显像 + 视图 + 分子档案 -->
+    <aside class="panel panel-left glass">
+      <div class="hud-card">
+        <span class="hud-kicker" id="hud-kicker">就绪</span>
+        <h2 class="hud-name" id="hud-name">尚未查询</h2>
+        <p class="hud-formula" id="hud-formula">在上方输入后开始</p>
+      </div>
+
+      <div class="panel-scroll-body">
+        <div class="panel-divider"></div>
+
+        <div class="panel-head compact">
+          <span class="panel-kicker">01 · 视角控制</span>
+          <h2 class="panel-title">视图控制</h2>
+        </div>
+        <div class="controls">
+          <label class="switch">
+            <input type="checkbox" id="auto-rotate" checked />
+            <span class="switch-ui"></span>
+            <span class="switch-text">自动旋转</span>
+          </label>
+          <label class="switch">
+            <input type="checkbox" id="show-labels" />
+            <span class="switch-ui"></span>
+            <span class="switch-text">原子标签</span>
+          </label>
+          <button type="button" id="btn-reset" class="btn-ghost">
+            <span>重置视角</span>
+            <kbd>R</kbd>
+          </button>
+        </div>
+
+        <section class="dossier" id="mol-info" hidden>
+          <div class="panel-divider"></div>
+          <div class="panel-head compact">
+            <span class="panel-kicker">02 · 分子档案</span>
+            <h2 class="panel-title">分子档案</h2>
+          </div>
+          <dl class="info-list" id="info-list"></dl>
+        </section>
+      </div>
+    </aside>
+
+    <!-- 右侧：仅成分圆环 -->
+    <aside class="panel panel-right glass" id="panel-composition">
+      <div id="composition-root" class="composition-root composition-empty">
+        <div class="comp-empty">
+          <span class="panel-kicker">成分构成</span>
+          <h2 class="panel-title">成分圆环</h2>
+          <p>查询后在此显示<strong>圆形占比</strong>，点击扇区切换 3D 模型。</p>
+        </div>
+      </div>
+    </aside>
+
+    <footer class="bottom-hud">
+      <div class="hud-right">
+        <div class="coord">
+          <span>拖拽</span>
+          <strong>旋转</strong>
+        </div>
+        <div class="coord">
+          <span>滚轮</span>
+          <strong>缩放</strong>
+        </div>
+        <div class="coord">
+          <span>右键</span>
+          <strong>平移</strong>
+        </div>
+      </div>
+    </footer>
+
+    <div class="overlay hidden" id="overlay">
+      <div class="overlay-card glass">
+        <button type="button" class="btn-overlay-close" id="btn-overlay-close" title="关闭弹窗" aria-label="关闭">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        </button>
+        <div class="atom-loader" aria-hidden="true">
+          <span class="nucleus"></span>
+          <span class="e e1"></span>
+          <span class="e e2"></span>
+          <span class="e e3"></span>
+          <svg class="loader-orbit" viewBox="0 0 80 80">
+            <ellipse cx="40" cy="40" rx="28" ry="12" />
+            <ellipse cx="40" cy="40" rx="28" ry="12" transform="rotate(60 40 40)" />
+            <ellipse cx="40" cy="40" rx="28" ry="12" transform="rotate(120 40 40)" />
+          </svg>
+        </div>
+        <p class="overlay-kicker" id="overlay-kicker">处理中</p>
+        <h2 id="overlay-title">处理中…</h2>
+        <p id="overlay-desc"></p>
+        <button type="button" class="btn-overlay-confirm" id="btn-overlay-confirm">我知道了</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/src/chem/src/main.js"></script>
+</body>
+</html>

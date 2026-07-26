@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-resolve-molecule"
+description = "允许调用 DeepSeek 解析分子成分（resolve_molecule）"
+commands.allow = ["resolve_molecule", "resolve_reaction"]

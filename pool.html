@@ -22,6 +22,15 @@
             <div class="action-rail" id="action-rail">
               <button
                 type="button"
+                id="online-toggle"
+                class="hud-btn hud-btn-ghost"
+                aria-expanded="false"
+                aria-controls="online-panel"
+              >
+                联机
+              </button>
+              <button
+                type="button"
                 id="help-toggle"
                 class="hud-btn hud-btn-ghost"
                 aria-expanded="false"
@@ -29,6 +38,41 @@
               >
                 操作说明
               </button>
+            </div>
+
+            <div id="online-panel" class="float-panel online-panel hidden" role="region" aria-label="联机对战">
+              <div class="float-panel-head">
+                <span class="float-panel-title">联机对战</span>
+                <button type="button" id="online-close" class="icon-btn" aria-label="关闭联机面板">×</button>
+              </div>
+              <div class="online-body">
+                <p id="online-status" class="online-status">创建房间号 1v1 轮流击球 · 无需登录</p>
+                <div id="online-lobby" class="online-lobby">
+                  <button type="button" id="online-create" class="hud-btn hud-btn-accent">创建房间</button>
+                  <div class="online-join-row">
+                    <input
+                      id="online-code-input"
+                      class="online-code-input"
+                      type="text"
+                      maxlength="6"
+                      placeholder="房间号"
+                      autocomplete="off"
+                      spellcheck="false"
+                      aria-label="房间号"
+                    />
+                    <button type="button" id="online-join" class="hud-btn">加入</button>
+                  </div>
+                </div>
+                <div id="online-session" class="online-session hidden">
+                  <div class="online-room-row">
+                    <span class="online-label">房间</span>
+                    <code id="online-room-code" class="online-room-code">------</code>
+                    <button type="button" id="online-copy" class="online-mini-btn" title="复制房间号">复制</button>
+                  </div>
+                  <p id="online-turn" class="online-turn">等待对手…</p>
+                  <button type="button" id="online-leave" class="hud-btn hud-btn-ghost">离开房间</button>
+                </div>
+              </div>
             </div>
 
             <div id="help-panel" class="float-panel help-panel hidden" role="region" aria-label="操作说明">
@@ -47,6 +91,7 @@
                 <div class="help-row"><kbd>公式推演</kbd><span>俯视落点 + 公式</span></div>
                 <div class="help-row"><kbd>R</kbd><span>重新摆球</span></div>
                 <div class="help-row"><kbd>H</kbd><span>隐藏界面</span></div>
+                <div class="help-row"><kbd>联机</kbd><span>房间号 1v1 对战</span></div>
               </div>
             </div>
           </div>

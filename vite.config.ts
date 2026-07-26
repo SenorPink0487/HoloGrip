@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
 import { defineConfig, loadEnv, type Plugin } from 'vite';
+import { deepseekPlugin } from './src/chem/server/deepseekPlugin.js';
 
 /**
  * Multi-page entry HTML files (e.g. pool.html) can collide with a same-named
@@ -36,6 +37,7 @@ function htmlIndexForPublicDirs(names: string[]): Plugin {
  *  - profile.html   → 关于我们
  *  - holomath.html  → HoloMath 空间几何画板（React）
  *  - physics.html   → HoloPhysics 三维物理实验室（Three.js）
+ *  - chem.html      → HoloChem 3D 分子结构观象台（3Dmol + PubChem）
  *  - rocket.html    → HoloRocket 火箭发射仿真（Three.js）
  *  - pool.html      → HoloPool 三维台球室（Three.js + cannon-es）
  */
@@ -53,6 +55,7 @@ export default defineConfig(({ mode }) => {
     admin:     path.resolve(__dirname, 'admin.html'),
     holomath:  path.resolve(__dirname, 'holomath.html'),
     physics:   path.resolve(__dirname, 'physics.html'),
+    chem:      path.resolve(__dirname, 'chem.html'),
     rocket:    path.resolve(__dirname, 'rocket.html'),
     pool:      path.resolve(__dirname, 'pool.html'),
   };
@@ -64,7 +67,16 @@ export default defineConfig(({ mode }) => {
   };
 
   return {
-    plugins: [react(), tailwindcss(), htmlIndexForPublicDirs(['pool'])],
+    plugins: [
+      react(),
+      tailwindcss(),
+      htmlIndexForPublicDirs(['pool']),
+      // HoloChem: 自然语言 → 分子成分（密钥仅在 dev/preview 服务端）
+      deepseekPlugin({
+        apiKey: env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || '',
+        model: env.DEEPSEEK_MODEL || process.env.DEEPSEEK_MODEL || 'deepseek-v4-flash',
+      }),
+    ],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'import.meta.env.HOLO_TARGET': JSON.stringify(target),

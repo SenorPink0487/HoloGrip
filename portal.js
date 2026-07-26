@@ -358,19 +358,20 @@ const projectDetails = {
         `,
     },
     chemistry: {
-        title: '03 / HoloChemistry 空间化学分子沙盒',
-        tag: 'CHEMISTRY // V0.0.1-ALPHA',
+        title: '03 / HoloChem 原子观象台',
+        tag: 'CHEMISTRY // HOLOCHEM V1.0',
         desc:
-            'HoloChemistry 致力于将三维空间手势与微观化学分子动力学仿真相结合，目前正处于早期预研阶段。用户将能够在空气中自由抓取和拼接基本粒子，构建出杂化轨道（如 sp³、sp²）、水分子模型乃至复杂的 DNA 螺旋结构。系统支持实时计算共价键角、模拟电子云概率密度分布以及观察无机反应的化学键断裂历程，以极富视觉张力的方式呈现微观分子结构。',
+            'HoloChem 是 AI 驱动的沉浸式 3D 分子结构观象台。支持日常物品描述、化学式、中英文名与 SMILES 检索；DeepSeek 自动拆解混合物成分，PubChem 拉取真实 3D 结构，球棍模型可旋转缩放，成分圆环可切换各组分分子。',
         specs: {
-            engine: 'Three.js Orbit Hybrid Render',
-            perf: 'Electronic Cloud Compute: ~30k points',
-            algorithm: 'Valence Shell Electron Pair Repulsion (VSEPR)',
-            version: 'v0.0.1-alpha (Under Dev)',
+            engine: '3Dmol.js + PubChem REST',
+            perf: 'WebGL Molecule Viewer + AI Resolve',
+            algorithm: 'Mixture → Pure Molecule Decomposition',
+            version: 'v1.0.0',
         },
         demoColor: 'var(--accent-purple)',
         visualClass: 'chemistry-modal-demo',
-        canLaunch: false,
+        canLaunch: true,
+        launchUrl: 'chem.html',
         demoHtml: `
             <div class="chemistry-molecule-simulation" style="transform: scale(1.15); width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; position: relative;">
                 <div class="chemistry-molecule-demo">

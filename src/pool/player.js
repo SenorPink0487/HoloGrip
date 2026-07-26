@@ -47,7 +47,7 @@ export class PoolPlayer {
     this.strokeFinished = false;
 
     this.skin = new THREE.MeshPhysicalMaterial({
-      color: 0xfaf9f6,
+      color: opts.skinColor ?? 0xfaf9f6,
       roughness: 0.68,
       metalness: 0,
       clearcoat: 0.06,
@@ -57,7 +57,7 @@ export class PoolPlayer {
     });
 
     this.root = new THREE.Group();
-    this.root.name = 'poolPlayer';
+    this.root.name = opts.name ?? 'poolPlayer';
     this.root.position.set(-1.8, this.floorY, 1.15);
     scene.add(this.root);
 

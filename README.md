@@ -49,8 +49,13 @@
 - **高精度刚体物理**：基于 Cannon-es 与自定义物理引擎，精准模拟双球碰撞、库边反弹、摩擦力衰减与旋转动量传导。
 - **裸眼手势控杆**：手势控制球杆击球角度与击球力度，实时预测击球碰撞轨迹。
 
-### 5. 🌐 统一门户与多端响应式体验
-- **Portal 交互中枢**：包含控制面板 (Dashboard)、物理/火箭/台球独立场景导航、管理后台 (Admin)、个人中心 (Profile) 与项目展示 (Portfolio)。
+### 5. 🧪 HoloChem 原子观象台
+- **3D 分子结构**：基于 3Dmol.js 渲染球棍/空间填充等模型，支持旋转、缩放与原子标签。
+- **PubChem + AI 拆解**：化学式 / SMILES / 中英文名直查；日常物品由 DeepSeek 拆为可检索纯分子并估算占比。
+- **成分圆环**：多组分产品可点击扇区切换对应分子结构；支持 A+B 质量比混合。
+
+### 6. 🌐 统一门户与多端响应式体验
+- **Portal 交互中枢**：包含控制面板 (Dashboard)、物理/化学/火箭/台球独立场景导航、管理后台 (Admin)、个人中心 (Profile) 与项目展示 (Portfolio)。
 
 ---
 
@@ -181,6 +186,7 @@ HoloGrip/
 ├── src/                    # Web 与应用核心源码
 │   ├── components/         # React UI 组件 (GeometryBoard, Calculator3D, FunctionExplorer 等)
 │   ├── physics/            # 物理实验室核心引擎 (电磁、光学、热学、力学、Worker)
+│   ├── chem/               # HoloChem 分子观象台 (3Dmol / PubChem / DeepSeek)
 │   ├── pool/               # HoloPool 3D 台球物理碰撞引擎与测试
 │   ├── rocket/             # 航天动力学、飞船工坊与深空轨道仿真
 │   ├── hooks/ & lib/       # 通用 React Hooks 与工具库
@@ -188,8 +194,10 @@ HoloGrip/
 ├── server/                 # Rust (Axum/Tokio) 独立安全代理后端
 ├── src-tauri/              # Tauri v2 桌面客户端配置与 Rust 原生绑定
 ├── scripts/                # 架构生成、代码行统计与资产构建工具链
-├── index.html              # HoloMath 全息数学主页面
+├── index.html              # HoloGrip 门户首页
+├── holomath.html           # HoloMath 全息数学入口
 ├── physics.html            # 高级物理实验室入口
+├── chem.html               # HoloChem 原子观象台入口
 ├── rocket.html             # 火箭沙盒入口
 ├── pool.html               # HoloPool 台球实验室入口
 ├── dashboard.html          # 平台控制面板

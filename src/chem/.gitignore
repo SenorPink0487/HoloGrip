@@ -1,0 +1,21 @@
+# Node
+node_modules
+dist
+.DS_Store
+*.local
+.vite
+
+# Env / secrets
+.env
+.env.*.local
+
+# Tauri / Rust
+src-tauri/target
+src-tauri/gen/schemas
+*.pdb
+
+# OS / IDE
+Thumbs.db
+.idea
+.vscode/*
+!.vscode/extensions.json

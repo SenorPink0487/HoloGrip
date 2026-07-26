@@ -22,6 +22,7 @@ mod config;
 mod db;
 mod lesson;
 mod metrics;
+mod pool_live;
 mod proxy;
 mod user_auth;
 mod whiteboard;
@@ -55,6 +56,7 @@ use crate::config::Config;
 use crate::metrics::Metrics;
 use crate::proxy::AppState;
 use crate::user_auth::{MailConfig, UserAuthState};
+use crate::pool_live::PoolLiveState;
 use crate::whiteboard_live::{WhiteboardLiveAppState, WhiteboardLiveState};
 
 #[tokio::main]
@@ -124,6 +126,7 @@ async fn main() -> Result<()> {
         info!("admin bootstrap invite seeded");
     }
     let live_state = WhiteboardLiveState::default();
+    let pool_live_state = PoolLiveState::default();
 
     // CORS:浏览器 preflight 必须放行 Authorization
     let cors = build_cors(&cfg.cors_allowed_origins);
@@ -213,6 +216,10 @@ async fn main() -> Result<()> {
             live: live_state,
         });
 
+    let pool_live_routes = Router::new()
+        .route("/api/pool/live", get(pool_live::live_ws))
+        .with_state(pool_live_state);
+
     let admin_public_routes = Router::new()
         .route("/invites/redeem", post(admin::redeem_invite))
         .route_layer(middleware::from_fn_with_state(
@@ -276,6 +283,7 @@ async fn main() -> Result<()> {
         .merge(whiteboard_routes)
         .merge(lesson_routes)
         .merge(whiteboard_live_routes)
+        .merge(pool_live_routes)
         .with_state(state)
         // 层序:最先 .layer() 的最靠内,最后 .layer() 的最外层。
         // GovernorLayer 必须紧贴 Router,因为它要求下游响应体是 axum::body::Body。

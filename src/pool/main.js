@@ -23,6 +23,7 @@ import { ShotPredictor, cueVelocityFromAim } from './predict/shot-predictor.js';
 import { PredictView } from './predict/predict-view.js';
 import { TeachLab } from './predict/teach-lab.js';
 import { buildFormulaBoard, buildLandingRows } from './predict/formula-board.js';
+import { createMultiplayer } from './net/multiplayer.js';
 
 // ---------- DOM ----------
 const canvas = document.getElementById('game');
@@ -39,6 +40,19 @@ const helpToggle = document.getElementById('help-toggle');
 const helpPanel = document.getElementById('help-panel');
 const helpClose = document.getElementById('help-close');
 const actionRail = document.getElementById('action-rail');
+const onlineToggle = document.getElementById('online-toggle');
+const onlinePanel = document.getElementById('online-panel');
+const onlineClose = document.getElementById('online-close');
+const onlineStatus = document.getElementById('online-status');
+const onlineLobby = document.getElementById('online-lobby');
+const onlineSession = document.getElementById('online-session');
+const onlineCreate = document.getElementById('online-create');
+const onlineJoin = document.getElementById('online-join');
+const onlineCodeInput = document.getElementById('online-code-input');
+const onlineRoomCode = document.getElementById('online-room-code');
+const onlineCopy = document.getElementById('online-copy');
+const onlineTurn = document.getElementById('online-turn');
+const onlineLeave = document.getElementById('online-leave');
 
 /** Arc geometry (matches SVG path: M 24 104 A 96 96 0 0 1 216 104) */
 const POWER_ARC = {
@@ -225,6 +239,29 @@ helpClose?.addEventListener('click', (e) => {
 helpPanel?.addEventListener('pointerdown', (e) => e.stopPropagation());
 helpToggle?.addEventListener('pointerdown', (e) => e.stopPropagation());
 
+function setOnlineOpen(open) {
+  if (!onlinePanel || !onlineToggle) return;
+  onlinePanel.classList.toggle('hidden', !open);
+  onlineToggle.classList.toggle('is-active', open);
+  onlineToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) setHelpOpen(false);
+}
+
+onlineToggle?.addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  setOnlineOpen(onlinePanel.classList.contains('hidden'));
+});
+onlineClose?.addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  setOnlineOpen(false);
+});
+onlinePanel?.addEventListener('pointerdown', (e) => e.stopPropagation());
+onlineToggle?.addEventListener('pointerdown', (e) => e.stopPropagation());
+onlineCodeInput?.addEventListener('pointerdown', (e) => e.stopPropagation());
+onlineCodeInput?.addEventListener('keydown', (e) => e.stopPropagation());
+
 // ---------- Renderer / Scene ----------
 const renderer = new THREE.WebGLRenderer({
   canvas,
@@ -321,6 +358,187 @@ const teachLab = new TeachLab(actionRail || document.getElementById('hud'), {
     lastTeachKey = ''; // force recompute
     updateTeachPrediction(0, true);
   },
+});
+
+// ---------- Multiplayer ----------
+/** Latest remote avatar sample for interpolation */
+const remotePose = {
+  x: 1.8,
+  z: 1.15,
+  yaw: Math.PI,
+  visualState: 'idle',
+  aimAngle: 0,
+  power: 0,
+  aimDepth: 0,
+  pull: 0,
+  hasData: false,
+};
+/** Local avatar visual state for network (walk/aim/…, not FSM only) */
+let lastVisualState = 'idle';
+
+function updateOnlineUi(info) {
+  if (!info) return;
+  const inSession = !!info.active && info.mode !== 'local';
+  onlineLobby?.classList.toggle('hidden', inSession);
+  onlineSession?.classList.toggle('hidden', !inSession);
+  onlineToggle?.classList.toggle('is-active', inSession || !onlinePanel?.classList.contains('hidden'));
+
+  if (inSession && onlineRoomCode) {
+    onlineRoomCode.textContent = info.roomCode || '------';
+  }
+
+  if (!onlineTurn) return;
+  if (!inSession) {
+    onlineTurn.textContent = '等待连接…';
+    onlineTurn.dataset.turn = 'wait';
+    if (onlineStatus) onlineStatus.textContent = '创建房间号 1v1 轮流击球 · 无需登录';
+    return;
+  }
+
+  if (info.phase === 'waiting') {
+    onlineTurn.textContent = info.mode === 'host' ? '等待对手加入…' : '已加入 · 等待开局';
+    onlineTurn.dataset.turn = 'wait';
+    if (onlineStatus) {
+      onlineStatus.textContent =
+        info.mode === 'host'
+          ? `你是房主 · 房间 ${info.roomCode}`
+          : `你是客机 · 房间 ${info.roomCode}`;
+    }
+    return;
+  }
+
+  if (info.isMyTurn) {
+    onlineTurn.textContent = '你的回合 — 靠近球桌按 E 击球';
+    onlineTurn.dataset.turn = 'mine';
+  } else {
+    onlineTurn.textContent = '对方回合 — 可自由走动观战';
+    onlineTurn.dataset.turn = 'theirs';
+  }
+  if (onlineStatus) {
+    onlineStatus.textContent = `${info.mode === 'host' ? '房主' : '客机'} · 房间 ${info.roomCode}`;
+  }
+}
+
+const multiplayer = createMultiplayer({
+  scene,
+  floorY: hall.floorY,
+  balls,
+  world,
+  getLocalPlayer: () => ({
+    x: player.position.x,
+    z: player.position.z,
+    yaw: player.yaw,
+    visualState: lastVisualState,
+    aimAngle: cue.aimAngle,
+    power,
+    aimDepth: aimDepthOffset,
+    pull: state === State.CHARGING ? power : 0,
+  }),
+  onRemotePlayer: (msg) => {
+    if (typeof msg.x === 'number') remotePose.x = msg.x;
+    if (typeof msg.z === 'number') remotePose.z = msg.z;
+    if (typeof msg.yaw === 'number') remotePose.yaw = msg.yaw;
+    if (msg.visualState) remotePose.visualState = msg.visualState;
+    if (typeof msg.aimAngle === 'number') remotePose.aimAngle = msg.aimAngle;
+    if (typeof msg.power === 'number') remotePose.power = msg.power;
+    if (typeof msg.aimDepth === 'number') remotePose.aimDepth = msg.aimDepth;
+    if (typeof msg.pull === 'number') remotePose.pull = msg.pull;
+    remotePose.hasData = true;
+  },
+  onShotRequest: (msg) => {
+    // Host executes guest's shot with authoritative physics
+    if (!multiplayer.isHost()) return;
+    if (state === State.SIMULATING || state === State.STRIKING) return;
+    const aimAngle = Number(msg.aimAngle) || 0;
+    const shotPower = THREE.MathUtils.clamp(Number(msg.power) || 0, 0, 1);
+    if (shotPower < 0.04) return;
+    executeAuthoritativeShot(aimAngle, shotPower);
+  },
+  onState: (msg) => {
+    if (!multiplayer.isGuest()) {
+      // Host only needs turn UI from room; state is local
+      return;
+    }
+    const event = msg.event;
+    if (event === 'shot' || event === 'sim') {
+      if (state !== State.SIMULATING && state !== State.STRIKING) {
+        state = State.SIMULATING;
+        freeRoamAfterShot = true;
+        setStatus('击球中 — 同步球局中');
+      }
+    } else if (event === 'settled') {
+      settleFrames = 0;
+      // Guest: finish like afterShotSettled but without advancing turn (host owns turn)
+      guestAfterSettled();
+    }
+  },
+  onReset: () => {
+    applyLocalReset({ fromNetwork: true });
+  },
+  onUi: updateOnlineUi,
+  toast: (msg, ms) => toast(msg, ms),
+});
+
+onlineCreate?.addEventListener('click', async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  try {
+    onlineCreate.disabled = true;
+    if (onlineStatus) onlineStatus.textContent = '正在创建房间…';
+    await multiplayer.createRoom();
+  } catch (err) {
+    toast('无法连接联机服务 — 请确认后端已启动', 3200);
+    if (onlineStatus) onlineStatus.textContent = '连接失败 · 请检查服务端';
+    console.warn(err);
+  } finally {
+    onlineCreate.disabled = false;
+  }
+});
+
+onlineJoin?.addEventListener('click', async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  const code = (onlineCodeInput?.value || '').trim();
+  if (code.length < 4) {
+    toast('请输入房间号', 1600);
+    return;
+  }
+  try {
+    onlineJoin.disabled = true;
+    if (onlineStatus) onlineStatus.textContent = '正在加入…';
+    await multiplayer.joinRoom(code);
+  } catch (err) {
+    toast('无法连接联机服务 — 请确认后端已启动', 3200);
+    console.warn(err);
+  } finally {
+    onlineJoin.disabled = false;
+  }
+});
+
+onlineCodeInput?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    onlineJoin?.click();
+  }
+});
+
+onlineCopy?.addEventListener('click', async (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  const code = multiplayer.roomCode || onlineRoomCode?.textContent || '';
+  if (!code || code === '------') return;
+  try {
+    await navigator.clipboard.writeText(code);
+    toast('房间号已复制', 1400);
+  } catch {
+    toast(`房间号：${code}`, 2200);
+  }
+});
+
+onlineLeave?.addEventListener('click', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  multiplayer.leave();
 });
 
 // ---------- Game state ----------
@@ -1060,9 +1278,80 @@ function movePlayerOnFloor(delta) {
   player.setPosition(next.x, next.z);
 }
 
+/**
+ * Host: apply impulse immediately (own or guest shot), skip local tip-contact.
+ * Used for network guest shots and as authority start.
+ */
+function executeAuthoritativeShot(aimAngle, shotPower) {
+  cue.aimAngle = aimAngle;
+  const dirX = Math.sin(aimAngle);
+  const dirZ = -Math.cos(aimAngle);
+  const velocity = cueVelocityFromAim(dirX, dirZ, shotPower);
+  if (teachLab.isActive()) teachLab.setActive(false);
+  teachLab.setAimReady(false);
+  predictView.setVisible(false);
+  lastTeachKey = '';
+  pendingShot = null;
+  buttDragging = false;
+  canvas.style.cursor = '';
+  cue.setGuidesVisible(false);
+  physics.strikeCenter(cueBall, velocity);
+  cueFreezePos.set(cueBall.mesh.position.x, BALL_Y, cueBall.mesh.position.z);
+  audio.playCueStrike(shotPower);
+  freeRoamAfterShot = false;
+  state = State.SIMULATING;
+  setPowerUI(0);
+  setStatus('击球中 — WASD 可移动 · 等待球停');
+  multiplayer.onHostShotStarted({
+    aimAngle,
+    power: shotPower,
+  });
+}
+
 function fireCue(p) {
   // Prefer teach-slider power if teaching is open
   const shotPower = teachLab.isActive() ? teachLab.getPower() : p;
+
+  // Online: not your turn
+  if (multiplayer.isOnline() && !multiplayer.canShoot()) {
+    toast('还没到你的回合');
+    state = State.AIMING;
+    setPowerUI(0);
+    return;
+  }
+
+  // Guest: send shot to host; play local stroke for feel only (no local impulse)
+  if (multiplayer.isGuest() && multiplayer.isMyTurn()) {
+    if (teachLab.isActive()) teachLab.setActive(false);
+    teachLab.setAimReady(false);
+    predictView.setVisible(false);
+    lastTeachKey = '';
+    cue.beginStroke();
+    player.beginStroke(shotPower);
+    freeRoamAfterShot = false;
+    state = State.STRIKING;
+    setPowerUI(0);
+    keys.delete(' ');
+    keys.delete('space');
+    multiplayer.requestShot({
+      aimAngle: cue.aimAngle,
+      power: shotPower,
+      aimDepth: aimDepthOffset,
+    });
+    // After stroke anim, wait for host state (no tip contact physics)
+    pendingShot = null;
+    setStatus('出杆中 — 等待同步…');
+    // Transition to simulating shortly so avatar finishes stroke
+    window.setTimeout(() => {
+      if (multiplayer.isGuest() && state === State.STRIKING) {
+        state = State.SIMULATING;
+        freeRoamAfterShot = true;
+        setStatus('击球中 — 同步球局中');
+      }
+    }, 400);
+    return;
+  }
+
   const dir = cue.getShotDirection();
   const velocity = cueVelocityFromAim(dir.x, dir.z, shotPower);
   pendingShot = {
@@ -1150,9 +1439,16 @@ function updateCueStrikeContact() {
     physics.strikeCenter(cueBall, pendingShot.velocity);
     cueFreezePos.set(cueBall.mesh.position.x, BALL_Y, cueBall.mesh.position.z);
     audio.playCueStrike(pendingShot.power);
+    const struckPower = pendingShot.power;
     pendingShot = null;
     state = State.SIMULATING;
     setStatus('击球中 — WASD 可移动 · 等待球停');
+    if (multiplayer.isHost() && multiplayer.isOnline()) {
+      multiplayer.onHostShotStarted({
+        aimAngle: cue.aimAngle,
+        power: struckPower,
+      });
+    }
     return;
   }
 
@@ -1180,9 +1476,18 @@ window.addEventListener('keydown', (e) => {
   if (k === 'r') {
     doReset();
   } else if (k === 'e' && !e.repeat) {
-    if (state === State.FREE) beginSnapToTable();
-    else if (state === State.AIMING || state === State.CHARGING) exitAimMode();
+    if (state === State.FREE) {
+      if (multiplayer.isOnline() && !multiplayer.canShoot()) {
+        toast('还没到你的回合');
+      } else {
+        beginSnapToTable();
+      }
+    } else if (state === State.AIMING || state === State.CHARGING) exitAimMode();
   } else if (e.code === 'Space' && state === State.AIMING && !cueBall.pocketed) {
+    if (multiplayer.isOnline() && !multiplayer.canShoot()) {
+      toast('还没到你的回合');
+      return;
+    }
     e.preventDefault();
     state = State.CHARGING;
     chargePointerStart = { button: 'space' };
@@ -1308,7 +1613,7 @@ canvas.addEventListener('pointerdown', () => ensureAudio(), { once: false });
 window.addEventListener('keydown', () => ensureAudio(), { once: false });
 
 // ---------- Game logic ----------
-function doReset() {
+function applyLocalReset(opts = {}) {
   for (const ball of balls) {
     if (!ball.body.world) world.addBody(ball.body);
   }
@@ -1327,7 +1632,48 @@ function doReset() {
   state = State.FREE;
   setPowerUI(0);
   setStatus('自由移动 — 已重新摆球 · 靠近球桌按 E');
-  toast('已重新摆球');
+  if (!opts.fromNetwork) toast('已重新摆球');
+}
+
+function doReset() {
+  if (multiplayer.isOnline() && !multiplayer.canReset()) {
+    toast('仅房主可重新摆球');
+    return;
+  }
+  applyLocalReset();
+  if (multiplayer.isHost()) {
+    multiplayer.broadcastReset();
+    multiplayer.broadcastState({ event: 'settled' });
+  }
+}
+
+/** Guest-side settle after host broadcasts event:settled */
+function guestAfterSettled() {
+  if (cueBall.pocketed) {
+    if (!cueBall.body.world) world.addBody(cueBall.body);
+    respotCueBall(cueBall, world);
+    separateCueIfNeeded();
+  }
+  const remaining = balls.filter((b) => !b.pocketed && !b.isCue).length;
+  if (teachLab.isActive()) teachLab.setActive(false);
+  teachLab.setAimReady(false);
+  predictView.setVisible(false);
+  lastTeachKey = '';
+  canvas.style.cursor = '';
+  buttDragging = false;
+  cue.setGuidesVisible(false);
+  freeRoamAfterShot = false;
+  aimDepthOffset = 0;
+  pendingShot = null;
+  state = State.FREE;
+  setPowerUI(0);
+  setStatus(
+    remaining === 0
+      ? '清台完成 — 等待房主重摆或继续'
+      : multiplayer.isMyTurn()
+        ? `你的回合 — 剩余 ${remaining} 颗 · 靠近球桌按 E`
+        : `对方回合 — 剩余 ${remaining} 颗`,
+  );
 }
 
 function checkPockets() {
@@ -1370,6 +1716,9 @@ function pocketBall(ball) {
 }
 
 function afterShotSettled() {
+  // Guest settle is driven by host state broadcast
+  if (multiplayer.isGuest()) return;
+
   if (cueBall.pocketed) {
     if (!cueBall.body.world) world.addBody(cueBall.body);
     respotCueBall(cueBall, world);
@@ -1395,6 +1744,19 @@ function afterShotSettled() {
   pendingShot = null;
   state = State.FREE;
   setPowerUI(0);
+
+  if (multiplayer.isHost() && multiplayer.isOnline()) {
+    multiplayer.onHostSettled();
+    setStatus(
+      remaining === 0
+        ? '清台完成 — 按 R 再来一局'
+        : multiplayer.isMyTurn()
+          ? `你的回合 — 剩余 ${remaining} 颗 · 靠近球桌按 E`
+          : `对方回合 — 剩余 ${remaining} 颗`,
+    );
+    return;
+  }
+
   setStatus(
     remaining === 0
       ? '清台完成 — 按 R 再来一局'
@@ -1619,15 +1981,27 @@ function animate() {
     isInsideBlock(player.position, TABLE_BLOCK_X, TABLE_BLOCK_Z),
   );
 
-  physics.step(dt, {
-    beforeWorldStep: () => probe.cacheVelocities(),
-  });
-  checkPockets();
+  const guestOnline = multiplayer.isGuest() && multiplayer.isOnline();
 
-  for (const ball of balls) {
-    if (ball.pocketed) continue;
-    ball.mesh.position.copy(ball.body.position);
-    ball.mesh.quaternion.copy(ball.body.quaternion);
+  // Guest does not run local physics — host snapshots own the table
+  if (!guestOnline) {
+    physics.step(dt, {
+      beforeWorldStep: () => probe.cacheVelocities(),
+    });
+    checkPockets();
+
+    for (const ball of balls) {
+      if (ball.pocketed) continue;
+      ball.mesh.position.copy(ball.body.position);
+      ball.mesh.quaternion.copy(ball.body.quaternion);
+    }
+  } else {
+    // Keep mesh in sync if body was written by snapshot
+    for (const ball of balls) {
+      if (ball.pocketed) continue;
+      ball.mesh.position.copy(ball.body.position);
+      ball.mesh.quaternion.copy(ball.body.quaternion);
+    }
   }
 
   probe.update(dt);
@@ -1635,7 +2009,7 @@ function animate() {
   // Recompute when aim changes during teach (slider already forces update)
   if (teachLab.isActive()) updateTeachPrediction(dt);
 
-  if (state === State.SIMULATING) {
+  if (state === State.SIMULATING && !guestOnline) {
     if (physics.allBallsSettled()) {
       settleFrames++;
       if (settleFrames > 12) {
@@ -1645,6 +2019,33 @@ function animate() {
     } else {
       settleFrames = 0;
     }
+  }
+
+  multiplayer.tick(dt, { simulating: state === State.SIMULATING && multiplayer.isHost() });
+
+  // Remote avatar
+  const remote = multiplayer.getRemotePlayer?.();
+  if (remote && remotePose.hasData) {
+    const lx = THREE.MathUtils.damp(remote.position.x, remotePose.x, 14, dt);
+    const lz = THREE.MathUtils.damp(remote.position.z, remotePose.z, 14, dt);
+    remote.setPosition(lx, lz);
+    remote.setYaw(remotePose.yaw, false, dt);
+    const vs = remotePose.visualState || 'idle';
+    const aimingRemote = ['aim', 'charge', 'stroke', 'simulating'].includes(vs);
+    remote.update({
+      dt,
+      state: vs,
+      moveSpeed: vs === 'walk' ? WALK_SPEED : vs === 'snap' ? SNAP_SPEED : 0,
+      pull: remotePose.pull || remotePose.power || 0,
+      ballPos: aimingRemote ? cueBall.mesh.position : null,
+      shotDirection: aimingRemote
+        ? {
+          x: Math.sin(remotePose.aimAngle || 0),
+          z: -Math.cos(remotePose.aimAngle || 0),
+        }
+        : null,
+      aimDepth: remotePose.aimDepth || 0,
+    });
   }
 
   const walkingKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']
@@ -1669,6 +2070,7 @@ function animate() {
         : state === State.CHARGING ? 'charge'
           : state === State.STRIKING ? 'stroke'
           : state === State.SIMULATING ? 'simulating' : 'idle';
+  lastVisualState = visualState;
   player.update({
     dt,
     state: visualState,
