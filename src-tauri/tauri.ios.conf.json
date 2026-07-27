@@ -21,7 +21,7 @@
   "bundle": {
     "targets": ["app"],
     "iOS": {
-      "bundleVersion": "2",
+      "bundleVersion": "4",
       "developmentTeam": "25BK95MGBC",
       "minimumSystemVersion": "14.0"
     }

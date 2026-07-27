@@ -65,6 +65,13 @@ export default defineConfig(({ mode }) => {
     ipad: {
       launcher: entries.launcher,
       holomath: entries.holomath,
+      // iPad is a self-contained five-subject app. The launchpad opens the
+      // four standalone labs below in an iframe, so each entry must be in
+      // the native asset bundle instead of relying on a web-server path.
+      physics: entries.physics,
+      chem: entries.chem,
+      rocket: entries.rocket,
+      pool: entries.pool,
     },
     all: entries,
   };

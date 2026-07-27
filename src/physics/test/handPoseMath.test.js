@@ -22,6 +22,7 @@ import {
   mapVirtualJoystick,
   occlusionOpacity,
   isOpenPalm,
+  selectPrimaryHandDetections,
 } from '../src/handPoseMath.js';
 
 function point(x, y = 0, z = 0) {
@@ -364,6 +365,43 @@ test('recently occluded active hand reacquires the nearest detection', () => {
     activeHand: 'Left',
     nowMs: 180,
   }), [0, -1]);
+});
+
+test('primary hand lock ignores a bystander while both owner hands are continuous', () => {
+  const tracks = [
+    { label: 'Left', lastWrist: point(0.2, 0.5), lastSeenAt: 100 },
+    { label: 'Right', lastWrist: point(0.8, 0.5), lastSeenAt: 100 },
+  ];
+  const bystander = { label: 'Left', wrist: point(0.5, 0.5) };
+  const ownerLeft = { label: 'Left', wrist: point(0.21, 0.5) };
+  const ownerRight = { label: 'Right', wrist: point(0.79, 0.5) };
+  const selection = selectPrimaryHandDetections(
+    [bystander, ownerRight, ownerLeft],
+    tracks,
+    { nowMs: 150, lastPrimarySeenAt: 100 },
+  );
+  assert.equal(selection.lockActive, true);
+  assert.deepEqual(selection.detections, [ownerLeft, ownerRight]);
+});
+
+test('primary hand lock waits for timeout before unrelated hands can take over', () => {
+  const tracks = [{ label: 'Left', lastWrist: point(0.2, 0.5), lastSeenAt: 100 }];
+  const replacement = [
+    { label: 'Left', wrist: point(0.7, 0.5) },
+    { label: 'Right', wrist: point(0.85, 0.5) },
+  ];
+  const locked = selectPrimaryHandDetections(replacement, tracks, {
+    nowMs: 300,
+    lastPrimarySeenAt: 100,
+  });
+  assert.deepEqual(locked.detections, []);
+
+  const expired = selectPrimaryHandDetections(replacement, tracks, {
+    nowMs: 1601,
+    lastPrimarySeenAt: 100,
+  });
+  assert.equal(expired.lockActive, false);
+  assert.deepEqual(expired.detections, replacement);
 });
 
 test('worker recovery policy restarts on timeout or three consecutive frame errors', () => {

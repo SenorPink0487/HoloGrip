@@ -775,6 +775,76 @@ export function assignHandTracks(tracks, detections, { activeHand = null, nowMs 
   return assignment;
 }
 
+/**
+ * Keep camera interaction attached to the first active user's hands instead
+ * of letting a bystander's hand replace a temporarily occluded hand. This is
+ * deliberately a continuity lock, not biometric/person identification.
+ */
+export function selectPrimaryHandDetections(
+  detections,
+  tracks,
+  {
+    nowMs = 0,
+    lastPrimarySeenAt = -Infinity,
+    lockTimeoutMs = 1500,
+    continuityMs = 300,
+    maxContinuityDistance = 0.32,
+  } = {},
+) {
+  const candidates = Array.isArray(detections) ? detections : [];
+  const lockActive = Number.isFinite(lastPrimarySeenAt)
+    && nowMs - lastPrimarySeenAt < lockTimeoutMs;
+
+  // No owner yet (or the previous owner has been gone long enough): the next
+  // visible pair establishes the new primary user.
+  if (!lockActive) return { detections: candidates.slice(0, 2), lockActive: false };
+
+  const selected = [];
+  const used = new Set();
+  const recentTracks = (tracks || []).filter((track) => (
+    track?.lastWrist
+    && Number.isFinite(track.lastSeenAt)
+    && nowMs - track.lastSeenAt <= continuityMs
+  ));
+
+  // First reclaim each visible primary hand by wrist continuity. A hand that
+  // does not connect to a recent primary track cannot steal control.
+  recentTracks.forEach((track) => {
+    let bestIndex = -1;
+    let bestDistance = Infinity;
+    candidates.forEach((detection, index) => {
+      if (used.has(index)) return;
+      const distance = Math.hypot(
+        detection.wrist.x - track.lastWrist.x,
+        detection.wrist.y - track.lastWrist.y,
+      );
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    });
+    if (bestIndex >= 0 && bestDistance <= maxContinuityDistance) {
+      selected.push(candidates[bestIndex]);
+      used.add(bestIndex);
+    }
+  });
+
+  // Permit the locked user's other hand to enter after one hand has already
+  // been reclaimed. This preserves normal one-hand-to-two-hand interaction,
+  // while a frame containing only unrelated hands remains ignored.
+  if (selected.length > 0 && selected.length < 2) {
+    const occupiedLabels = new Set(selected.map((detection) => detection.label));
+    const preferred = candidates.findIndex((detection, index) => (
+      !used.has(index) && detection.label && !occupiedLabels.has(detection.label)
+    ));
+    const fallback = candidates.findIndex((_, index) => !used.has(index));
+    const nextIndex = preferred >= 0 ? preferred : fallback;
+    if (nextIndex >= 0) selected.push(candidates[nextIndex]);
+  }
+
+  return { detections: selected, lockActive: true };
+}
+
 export class WorkerRecoveryPolicy {
   constructor({ frameErrorLimit = 3 } = {}) {
     this.frameErrorLimit = frameErrorLimit;

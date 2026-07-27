@@ -21,6 +21,7 @@ import {
   mapHandPointToNdc,
   mapMediaPipeToXR,
   occlusionOpacity,
+  selectPrimaryHandDetections,
 } from './handPoseMath.js';
 
 const HAND_COLORS = {
@@ -75,6 +76,7 @@ const BASE_HAND_EMISSIVE = 0.3;
 const THUMB_TIP_JOINT_INDEX = 4;
 const INDEX_TIP_JOINT_INDEX = 9;
 const SOURCE_INDEX_TIP_INDEX = 8;
+const PRIMARY_HAND_LOCK_TIMEOUT_MS = 1500;
 
 function median(values) {
   if (!values.length) return 0;
@@ -302,6 +304,10 @@ export function createHandTracking({
   let degraded = false;
   let lastVideoTime = -1;
   let lastInferenceAt = 0;
+  // This is a continuity-based owner lock, not person/biometric recognition.
+  // It keeps a bystander's hand from taking over while the active user is
+  // briefly occluded or moves one hand out of frame.
+  let lastPrimarySeenAt = -Infinity;
   let detectedHands = 0;
   let trackingFps = 0;
   let inferenceMs = 0;
@@ -814,15 +820,20 @@ export function createHandTracking({
   function processHands(hands, sampleTimestamp, receivedAt, inferenceSampleMs) {
     updateMetrics(inferenceSampleMs, receivedAt - sampleTimestamp, receivedAt);
     const seen = new Set();
-    const detections = hands
+    const allDetections = hands
       .filter((hand) => hand?.landmarks?.length === 63)
-      .slice(0, 2)
       .map((hand) => ({
         hand,
         label: hand.label === 'Left' || hand.label === 'Right' ? hand.label : null,
         score: Number(hand.score) || 0,
         wrist: { x: hand.landmarks[0], y: hand.landmarks[1] },
       }));
+    const primarySelection = selectPrimaryHandDetections(allDetections, states, {
+      nowMs: receivedAt,
+      lastPrimarySeenAt,
+      lockTimeoutMs: PRIMARY_HAND_LOCK_TIMEOUT_MS,
+    });
+    const detections = primarySelection.detections;
     const assignment = assignHandTracks(states, detections, {
       activeHand: arbiter.activeHand,
       nowMs: receivedAt,
@@ -859,6 +870,8 @@ export function createHandTracking({
       state.pendingPinchRatio = state.filteredPinchRatio;
       state.pendingRawPinchRatio = rawPinchRatio;
     });
+
+    if (seen.size > 0) lastPrimarySeenAt = receivedAt;
 
     states.forEach((state) => {
       if (!seen.has(state.label)) state.trackingVisible = false;
@@ -985,7 +998,9 @@ export function createHandTracking({
         wasmLoaderPath: workerWasmLoaderPath,
         wasmBinaryPath: workerWasmBinaryPath,
         modelPath: '/assets/mediapipe/hand_landmarker.task',
-        numHands: 2,
+        // Detect extra hands so the primary-user lock can reject bystanders
+        // deterministically instead of MediaPipe choosing an arbitrary pair.
+        numHands: 4,
       });
     });
   }
@@ -1011,7 +1026,7 @@ export function createHandTracking({
     fallbackLandmarker = await HandLandmarker.createFromOptions(vision, {
       baseOptions: { modelAssetPath: '/assets/mediapipe/hand_landmarker.task' },
       runningMode: 'VIDEO',
-      numHands: 2,
+      numHands: 4,
       minHandDetectionConfidence: 0.55,
       minHandPresenceConfidence: 0.5,
       minTrackingConfidence: 0.5,
@@ -1085,6 +1100,7 @@ export function createHandTracking({
       state.visual.group.visible = false;
     });
     arbiter.reset();
+    lastPrimarySeenAt = -Infinity;
     detectedHands = 0;
     trackingFps = 0;
     inferenceMs = 0;

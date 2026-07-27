@@ -25,6 +25,7 @@ import { TeachLab } from './predict/teach-lab.js';
 import { buildFormulaBoard, buildLandingRows } from './predict/formula-board.js';
 import { createMultiplayer } from './net/multiplayer.js';
 import { ballGroup, createMatchState, resolveShot } from './net/eight-ball-rules.js';
+import { normalizeJoystickInput, touchActionMode } from './touch-controls.js';
 
 // ---------- DOM ----------
 const canvas = document.getElementById('game');
@@ -64,6 +65,13 @@ const matchScoreOpponentGroup = document.getElementById('match-score-opponent-gr
 const matchScoreYouValue = document.getElementById('match-score-you-value');
 const matchScoreOpponentValue = document.getElementById('match-score-opponent-value');
 const matchEvent = document.getElementById('match-event');
+const touchControls = document.getElementById('touch-controls');
+const moveStick = document.getElementById('move-stick');
+const moveStickKnob = document.getElementById('move-stick-knob');
+const touchStance = document.getElementById('touch-stance');
+const touchShoot = document.getElementById('touch-shoot');
+const touchCamera = document.getElementById('touch-camera');
+const touchReset = document.getElementById('touch-reset');
 let matchEventTimer = 0;
 let lastMatchAnnouncementVersion = 0;
 
@@ -707,6 +715,164 @@ let snapTargetYaw = 0;
 let freeRoamAfterShot = false;
 let aimDepthOffset = 0;
 let pendingShot = null;
+
+// ---------- iPad virtual controls ----------
+const touchStick = { x: 0, y: 0, magnitude: 0, pointerId: null };
+let touchShootPointerId = null;
+
+function resetTouchStick() {
+  touchStick.x = 0;
+  touchStick.y = 0;
+  touchStick.magnitude = 0;
+  touchStick.pointerId = null;
+  if (moveStickKnob) moveStickKnob.style.transform = 'translate(-50%, -50%)';
+}
+
+function updateTouchStick(event) {
+  if (!moveStick) return;
+  const rect = moveStick.getBoundingClientRect();
+  const radius = rect.width * 0.34;
+  const dx = event.clientX - (rect.left + rect.width / 2);
+  const dy = event.clientY - (rect.top + rect.height / 2);
+  const input = normalizeJoystickInput(dx, dy, radius);
+  touchStick.x = input.x;
+  touchStick.y = input.y;
+  touchStick.magnitude = input.magnitude;
+
+  const visualLength = Math.min(Math.hypot(dx, dy), radius);
+  const vx = visualLength ? (dx / Math.hypot(dx, dy)) * visualLength : 0;
+  const vy = visualLength ? (dy / Math.hypot(dx, dy)) * visualLength : 0;
+  if (moveStickKnob) {
+    moveStickKnob.style.transform = `translate(calc(-50% + ${vx}px), calc(-50% + ${vy}px))`;
+  }
+}
+
+function cancelTouchCharge() {
+  if (touchShootPointerId == null) return;
+  touchShootPointerId = null;
+  if (touchShoot) touchShoot.classList.remove('is-charging');
+  if (state === State.CHARGING && chargePointerStart?.button === 'touch') {
+    chargePointerStart = null;
+    state = State.AIMING;
+    setPowerUI(0);
+    setStatus('瞄准中 — 左摇杆转向 · 按住击球蓄力');
+  }
+}
+
+function releaseTouchCharge() {
+  if (touchShootPointerId == null) return;
+  touchShootPointerId = null;
+  if (touchShoot) touchShoot.classList.remove('is-charging');
+  if (state !== State.CHARGING || chargePointerStart?.button !== 'touch') return;
+  const shotPower = power;
+  chargePointerStart = null;
+  if (shotPower < 0.05) {
+    state = State.AIMING;
+    setPowerUI(0);
+    setStatus('瞄准中 — 左摇杆转向 · 按住击球蓄力');
+  } else {
+    fireCue(shotPower);
+  }
+}
+
+function syncTouchControls() {
+  if (!touchControls) return;
+  const mode = touchActionMode(state);
+  const canShoot = !multiplayer.isOnline() || multiplayer.canShoot();
+  const isAim = state === State.AIMING || state === State.CHARGING;
+  if (touchStance) {
+    touchStance.textContent = mode === 'enter' ? '就位' : mode === 'exit' ? '退出瞄准' : '等待球停';
+    touchStance.disabled = mode === 'waiting' || (!isAim && !canShoot);
+  }
+  if (touchShoot) {
+    // Keep the pressed button enabled while charging. Disabling an active
+    // iPad button can release pointer capture and fire an unintended shot.
+    touchShoot.disabled = (state !== State.AIMING && state !== State.CHARGING) || !canShoot || cueBall.pocketed;
+    touchShoot.textContent = state === State.CHARGING ? '松开击球' : '按住蓄力';
+  }
+}
+
+function handleTouchInput(dt) {
+  if (!touchStick.magnitude || state === State.CHARGING || state === State.SNAPPING) return false;
+
+  if (state === State.FREE || state === State.SIMULATING) {
+    const forward = new THREE.Vector3(Math.sin(cameraYaw), 0, Math.cos(cameraYaw));
+    const right = new THREE.Vector3(-Math.cos(cameraYaw), 0, Math.sin(cameraYaw));
+    const direction = forward.multiplyScalar(-touchStick.y).addScaledVector(right, touchStick.x);
+    if (direction.lengthSq() > 0) {
+      direction.normalize();
+      movePlayerOnFloor(direction.multiplyScalar(WALK_SPEED * touchStick.magnitude * dt));
+      player.setYaw(Math.atan2(direction.x, direction.z), false, dt);
+      if (state === State.SIMULATING) freeRoamAfterShot = true;
+      return true;
+    }
+  } else if (state === State.AIMING) {
+    cue.aimAngle += touchStick.x * AIM_SPEED * dt;
+    aimDepthOffset = clampAimDepth(aimDepthOffset - touchStick.y * AIM_DEPTH_SPEED * dt);
+    placePlayerOnAim(true, dt);
+  }
+  return false;
+}
+
+moveStick?.addEventListener('pointerdown', (event) => {
+  if (event.pointerType === 'mouse' || touchStick.pointerId != null) return;
+  event.preventDefault();
+  event.stopPropagation();
+  ensureAudio();
+  touchStick.pointerId = event.pointerId;
+  moveStick.setPointerCapture?.(event.pointerId);
+  updateTouchStick(event);
+});
+moveStick?.addEventListener('pointermove', (event) => {
+  if (event.pointerId !== touchStick.pointerId) return;
+  event.preventDefault();
+  updateTouchStick(event);
+});
+for (const eventName of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+  moveStick?.addEventListener(eventName, (event) => {
+    if (event.pointerId === touchStick.pointerId) resetTouchStick();
+  });
+}
+
+touchStance?.addEventListener('click', (event) => {
+  event.preventDefault();
+  ensureAudio();
+  if (state === State.FREE) {
+    if (multiplayer.isOnline() && !multiplayer.canShoot()) toast('还没到你的回合');
+    else beginSnapToTable();
+  } else if (state === State.AIMING || state === State.CHARGING) {
+    cancelTouchCharge();
+    exitAimMode();
+  }
+});
+touchShoot?.addEventListener('pointerdown', (event) => {
+  if (event.pointerType === 'mouse' || state !== State.AIMING || touchShoot.disabled) return;
+  event.preventDefault();
+  event.stopPropagation();
+  ensureAudio();
+  touchShootPointerId = event.pointerId;
+  touchShoot.setPointerCapture?.(event.pointerId);
+  state = State.CHARGING;
+  chargePointerStart = { button: 'touch' };
+  setPowerUI(0.08);
+  setStatus('蓄力中 — 松开击球');
+  touchShoot.classList.add('is-charging');
+});
+for (const eventName of ['pointerup', 'lostpointercapture']) {
+  touchShoot?.addEventListener(eventName, (event) => {
+    if (event.pointerId === touchShootPointerId) releaseTouchCharge();
+  });
+}
+touchShoot?.addEventListener('pointercancel', cancelTouchCharge);
+touchCamera?.addEventListener('click', () => { resetCamera(); toast('视角已复位'); });
+touchReset?.addEventListener('click', () => {
+  if (multiplayer.isOnline()) toast('联机对局请使用原有重开流程');
+  else doReset();
+});
+window.addEventListener('blur', () => { resetTouchStick(); cancelTouchCharge(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { resetTouchStick(); cancelTouchCharge(); }
+});
 
 const pointer = new THREE.Vector2();
 const raycaster = new THREE.Raycaster();
@@ -2005,7 +2171,7 @@ function handleKeyboard(dt) {
     placePlayerOnAim(true, dt);
   } else if (state === State.CHARGING) {
     placePlayerOnAim(true, dt);
-    if (chargePointerStart?.button === 'space') {
+    if (chargePointerStart?.button === 'space' || chargePointerStart?.button === 'touch') {
       setPowerUI(power + POWER_SPEED * 0.85 * dt);
       if (teachLab.isActive()) {
         teachLab.setPower(power, { silent: true });
@@ -2129,6 +2295,8 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
 
   handleKeyboard(dt);
+  handleTouchInput(dt);
+  syncTouchControls();
   canvas.dataset.playerX = player.position.x.toFixed(3);
   canvas.dataset.playerZ = player.position.z.toFixed(3);
   canvas.dataset.playerState = state;
@@ -2233,8 +2401,9 @@ function animate() {
 
   const walkingKeys = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright']
     .some((key) => keys.has(key));
+  const isTouchWalking = touchStick.magnitude > 0 && (state === State.FREE || state === State.SIMULATING);
   // After the stroke, WASD releases the frozen aim pose so the body can walk freely.
-  if (state === State.SIMULATING && walkingKeys) freeRoamAfterShot = true;
+  if (state === State.SIMULATING && (walkingKeys || isTouchWalking)) freeRoamAfterShot = true;
   const freeAfterShot = state === State.SIMULATING && freeRoamAfterShot;
   const aiming = state === State.AIMING || state === State.CHARGING || state === State.STRIKING || state === State.SNAPPING
     || (state === State.SIMULATING && !freeAfterShot);
@@ -2247,7 +2416,7 @@ function animate() {
   if (aiming || showGuides) cue.update(ballAnchor, pull, dt);
 
   const visualState = state === State.FREE || freeAfterShot
-    ? (walkingKeys ? 'walk' : 'idle')
+    ? (walkingKeys || isTouchWalking ? 'walk' : 'idle')
     : state === State.SNAPPING ? 'snap'
       : state === State.AIMING ? 'aim'
         : state === State.CHARGING ? 'charge'
@@ -2259,7 +2428,7 @@ function animate() {
     state: visualState,
     moveSpeed: state === State.SNAPPING
       ? SNAP_SPEED
-      : walkingKeys && (state === State.FREE || state === State.SIMULATING) ? WALK_SPEED : 0,
+      : (walkingKeys || isTouchWalking) && (state === State.FREE || state === State.SIMULATING) ? WALK_SPEED : 0,
     pull,
     ballPos: freeAfterShot ? null : ballAnchor,
     shotDirection: freeAfterShot ? null : cue.getShotDirection(),

@@ -1,6 +1,6 @@
 import { lazy, Suspense, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useARStore } from './store';
-import { BookOpen, Trash2, ZoomIn, ZoomOut, Layers, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { BookOpen, Trash2, ZoomIn, ZoomOut, Layers, ChevronLeft, ChevronRight, Plus, ArrowLeft, LayoutGrid } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { Tooltip } from './components/Tooltip';
@@ -93,6 +93,7 @@ export default function App() {
   const stageRef = useRef<HTMLDivElement>(null);
 
   const activeTab = useARStore(state => state.activeTab);
+  const setActiveTab = useARStore(state => state.setActiveTab);
   const theme = useARStore(state => state.theme);
   const isDark = theme === 'dark';
 
@@ -478,6 +479,21 @@ export default function App() {
       {isDesktop && <TitleBar />}
 
       <div ref={stageRef} className="relative flex-1 min-h-0 overflow-hidden">
+      {/* iPad/Web 端没有桌面标题栏：在每个功能页保留稳定的返回入口。 */}
+      {(IS_IPAD_STANDALONE || !isDesktop) && activeTab !== 'launcher' && (
+        <motion.button
+          type="button"
+          onClick={() => setActiveTab('launcher')}
+          whileHover={{ scale: 1.03, y: -1 }}
+          whileTap={{ scale: 0.96 }}
+          className="absolute right-[calc(env(safe-area-inset-right)+1rem)] top-[calc(env(safe-area-inset-top)+1rem)] z-[100] flex h-12 items-center gap-2.5 rounded-full border border-white/15 bg-zinc-950/85 px-4 text-sm font-semibold text-white shadow-[0_8px_28px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:border-cyan-400/50 hover:bg-zinc-900/90 active:scale-95"
+          aria-label="返回大厅"
+        >
+          <ArrowLeft className="h-4 w-4 text-cyan-300" strokeWidth={2.4} />
+          <LayoutGrid className="h-4 w-4 text-zinc-300" />
+          <span>返回大厅</span>
+        </motion.button>
+      )}
       {(activeTab === 'whiteboard' || activeTab === 'function') && (
         <motion.button
           ref={menuToggleButtonRef}
