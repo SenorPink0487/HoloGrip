@@ -1,10 +1,10 @@
 {
-  "productName": "HoloMath",
+  "productName": "HoloGrip",
   "identifier": "com.hologrip.app",
   "build": {
     "devUrl": "http://localhost:3002",
     "beforeDevCommand": "npm run dev:ipad",
-    "beforeBuildCommand": "npm run build:ipad"
+    "beforeBuildCommand": "VITE_API_ORIGIN=https://hologrip.cn npm run build:ipad"
   },
   "app": {
     "windows": [
@@ -21,7 +21,9 @@
   "bundle": {
     "targets": ["app"],
     "iOS": {
-      "bundleVersion": "1"
+      "bundleVersion": "2",
+      "developmentTeam": "25BK95MGBC",
+      "minimumSystemVersion": "14.0"
     }
   }
 }

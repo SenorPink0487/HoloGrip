@@ -12,10 +12,9 @@ rust-version = "1.77.2"
 
 [lib]
 name = "app_lib"
-# This project currently targets the Windows desktop app only.  Keeping the
-# mobile-only cdylib/staticlib artifacts makes the MinGW debug linker emit an
-# oversized export table, preventing `tauri dev` from starting.
-crate-type = ["rlib"]
+# Native iPad builds require static and dynamic library artifacts in addition
+# to the desktop Rust library.
+crate-type = ["rlib", "staticlib", "cdylib"]
 
 [build-dependencies]
 tauri-build = { version = "2.5.6", features = [] }
