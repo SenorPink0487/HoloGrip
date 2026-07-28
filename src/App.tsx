@@ -479,19 +479,19 @@ export default function App() {
       {isDesktop && <TitleBar />}
 
       <div ref={stageRef} className="relative flex-1 min-h-0 overflow-hidden">
-      {/* iPad/Web 端没有桌面标题栏：在每个功能页保留稳定的返回入口。 */}
-      {(IS_IPAD_STANDALONE || !isDesktop) && activeTab !== 'launcher' && (
+      {/* iPad 独立版没有桌面标题栏；Web 端不提供桌面启动器入口。 */}
+      {IS_IPAD_STANDALONE && activeTab !== 'whiteboard' && (
         <motion.button
           type="button"
-          onClick={() => setActiveTab('launcher')}
+          onClick={() => setActiveTab('whiteboard')}
           whileHover={{ scale: 1.03, y: -1 }}
           whileTap={{ scale: 0.96 }}
           className="absolute right-[calc(env(safe-area-inset-right)+1rem)] top-[calc(env(safe-area-inset-top)+1rem)] z-[100] flex h-12 items-center gap-2.5 rounded-full border border-white/15 bg-zinc-950/85 px-4 text-sm font-semibold text-white shadow-[0_8px_28px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:border-cyan-400/50 hover:bg-zinc-900/90 active:scale-95"
-          aria-label="返回大厅"
+          aria-label="返回白板"
         >
           <ArrowLeft className="h-4 w-4 text-cyan-300" strokeWidth={2.4} />
           <LayoutGrid className="h-4 w-4 text-zinc-300" />
-          <span>返回大厅</span>
+          <span>返回白板</span>
         </motion.button>
       )}
       {(activeTab === 'whiteboard' || activeTab === 'function') && (
@@ -815,7 +815,7 @@ export default function App() {
       )}
       
       {/* 4. 启动器页面：五大学科 Launchpad 空间实验室大厅 */}
-      {activeTab === 'launcher' && <LauncherPortal />}
+      {isDesktop && activeTab === 'launcher' && <LauncherPortal />}
 
       {/* 5. 物理、化学、航天、台球等 4 大学科外部场景全景嵌入 */}
       {['physics', 'chem', 'rocket', 'pool'].includes(activeTab) && (

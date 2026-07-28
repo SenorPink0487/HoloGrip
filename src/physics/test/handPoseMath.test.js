@@ -3,9 +3,12 @@ import assert from 'node:assert/strict';
 import {
   HAND_DEPTH_MAX,
   HAND_DEPTH_MIN,
+  OCCLUSION_FADE_MS,
+  OCCLUSION_HOLD_MS,
   DynamicMotionGateVector3,
   GestureStabilizer,
   HandInteractionArbiter,
+  KalmanAimFilter2D,
   MedianFilterScalar,
   MovementRearmGate,
   OneEuroScalar,
@@ -19,6 +22,7 @@ import {
   estimateProjectedHandDepth,
   mapHandPointToNdc,
   mapMediaPipeToXR,
+  mapVideoPointToViewportNdc,
   mapVirtualJoystick,
   occlusionOpacity,
   isOpenPalm,
@@ -222,6 +226,25 @@ test('full-screen hand mapping reaches every NDC edge with balanced gain', () =>
   assert.equal(mapHandPointToNdc({ x: 0.94, y: 0.5 }).x, -1);
 });
 
+test('camera points use mirrored cover mapping instead of viewport stretching', () => {
+  const center = mapVideoPointToViewportNdc(point(0.5, 0.5), {
+    videoWidth: 640,
+    videoHeight: 480,
+    viewportWidth: 1280,
+    viewportHeight: 720,
+  });
+  assert.deepEqual(center, point(0, 0));
+
+  const upperLeft = mapVideoPointToViewportNdc(point(0.25, 0.25), {
+    videoWidth: 640,
+    videoHeight: 480,
+    viewportWidth: 1280,
+    viewportHeight: 720,
+  });
+  assert.equal(upperLeft.x, 0.5, 'mirrored camera X should align with the viewport');
+  assert.ok(Math.abs(upperLeft.y - 2 / 3) < 1e-12, 'cover crop should be reflected in Y');
+});
+
 test('One Euro filter converges without overshooting a constant input', () => {
   const filter = new OneEuroScalar({ minCutoff: 1.2, beta: 0.25 });
   assert.equal(filter.filter(0, 0), 0);
@@ -236,6 +259,24 @@ test('three-sample median rejects a single false pinch sample', () => {
   assert.equal(filter.filter(0.1), 0.45);
   assert.equal(filter.filter(0.82), 0.8);
   assert.equal(filter.filter(0.12), 0.12);
+});
+
+test('HoloMath Kalman aim filter freezes stationary sub-pixel jitter', () => {
+  const filter = new KalmanAimFilter2D();
+  const initial = filter.reset(point(0.2, -0.1), 0);
+  const next = filter.filter(point(0.2004, -0.1003), 16, 0.9);
+  assert.equal(next.x, initial.x);
+  assert.equal(next.y, initial.y);
+});
+
+test('HoloMath Kalman aim filter predicts forward across inference latency', () => {
+  const filter = new KalmanAimFilter2D();
+  filter.reset(point(0, 0), 0);
+  filter.filter(point(0.08, 0), 33, 0.9);
+  const current = filter.filter(point(0.18, 0), 66, 0.9);
+  const predicted = filter.predict(99);
+  assert.ok(predicted.x >= current.x, 'prediction should continue in the measured direction');
+  assert.ok(predicted.x - current.x <= 0.35, 'prediction must stay inside the coast bound');
 });
 
 test('dynamic motion gate rejects low-speed sensor jitter', () => {
@@ -384,20 +425,27 @@ test('primary hand lock ignores a bystander while both owner hands are continuou
   assert.deepEqual(selection.detections, [ownerLeft, ownerRight]);
 });
 
-test('primary hand lock waits for timeout before unrelated hands can take over', () => {
+test('primary hand lock reacquires fast owner movement but still rejects distant bystanders', () => {
   const tracks = [{ label: 'Left', lastWrist: point(0.2, 0.5), lastSeenAt: 100 }];
   const replacement = [
     { label: 'Left', wrist: point(0.7, 0.5) },
     { label: 'Right', wrist: point(0.85, 0.5) },
   ];
-  const locked = selectPrimaryHandDetections(replacement, tracks, {
+  const reacquired = selectPrimaryHandDetections(replacement, tracks, {
+    nowMs: 300,
+    lastPrimarySeenAt: 100,
+  });
+  assert.deepEqual(reacquired.detections, replacement);
+
+  const distantBystander = [{ label: 'Left', wrist: point(0.9, 0.5) }];
+  const locked = selectPrimaryHandDetections(distantBystander, tracks, {
     nowMs: 300,
     lastPrimarySeenAt: 100,
   });
   assert.deepEqual(locked.detections, []);
 
   const expired = selectPrimaryHandDetections(replacement, tracks, {
-    nowMs: 1601,
+    nowMs: 751,
     lastPrimarySeenAt: 100,
   });
   assert.equal(expired.lockActive, false);
@@ -431,7 +479,7 @@ test('hand arbiter keeps a primary hand while allowing dual pinches', () => {
 
 test('occlusion keeps, fades, then hides the hand', () => {
   assert.equal(occlusionOpacity(0), 1);
-  assert.equal(occlusionOpacity(180), 1);
-  assert.equal(occlusionOpacity(240), 0.5);
-  assert.equal(occlusionOpacity(300), 0);
+  assert.equal(occlusionOpacity(OCCLUSION_HOLD_MS), 1);
+  assert.equal(occlusionOpacity(OCCLUSION_HOLD_MS + OCCLUSION_FADE_MS / 2), 0.5);
+  assert.equal(occlusionOpacity(OCCLUSION_HOLD_MS + OCCLUSION_FADE_MS), 0);
 });

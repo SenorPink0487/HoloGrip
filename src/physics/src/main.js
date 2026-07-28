@@ -231,6 +231,10 @@ const controls = new PointerLockControls(camera, document.body);
 canvas.addEventListener('click', () => {
   if (document.body.classList.contains('is-loading')) return;
   if (holoFsState?.open) return; // fullscreen UI owns the mouse
+  // AR owns camera navigation and scene interaction while it is active.
+  // Entering pointer lock here would leave MediaPipe running but disable the
+  // AR interaction controller, which looks like “hands detected, no control”.
+  if (handTracking?.isActive()) return;
   // A charge can be dragged directly from the unlocked view.  Do not let the
   // click that follows that drag unexpectedly engage pointer-lock navigation.
   if (gaussPointerDrag?.suppressClick) {
@@ -240,6 +244,10 @@ canvas.addEventListener('click', () => {
   if (!controls.isLocked) controls.lock();
 });
 controls.addEventListener('lock', () => {
+  if (handTracking?.isActive()) {
+    controls.unlock();
+    return;
+  }
   document.body.classList.add('locked');
   // Pointer-lock mouse input is an explicit desktop interaction mode.  Pause
   // AR gesture callbacks while it is active so a visible hand cannot compete
@@ -258,7 +266,7 @@ const arVelocity = new THREE.Vector2();
 const SPEED = 4.5;
 const AR_SPEED = 2.2;
 /** Dual-hand pinch dolly is intentional locomotion — keep it snappier and longer-range. */
-const AR_DOLLY_SPEED = 9.5;
+const AR_DOLLY_SPEED = 6.2;
 
 document.addEventListener('keydown', (e) => {
   switch (e.code) {
@@ -4987,6 +4995,11 @@ function resolveInteractivePreferred(hits) {
  */
 function pickLiveElectroChargeHit(hits) {
   const expId = expManager?.state?.expId;
+  const identifyNext = (
+    expId === 'hall_effect'
+    && expManager.currentStep?.()?.id === 'identify'
+    && expManager.state?.data?.identifyNext
+  ) || null;
   const preferredRoles = expId === 'electric_field'
     ? ['electric_charge', 'electric_probe']
     : expId === 'gauss_theorem'
@@ -5008,16 +5021,24 @@ function pickLiveElectroChargeHit(hits) {
   // merely grazes the ray in front of the content screen).
   const roleSet = new Set(preferredRoles);
   let best = null;
+  let expected = null;
   for (let i = 0; i < hits.length; i += 1) {
     const entry = hits[i];
     const target = resolveInteractive(entry.object);
     if (!target || !isHierarchyVisible(target)) continue;
-    if (!roleSet.has(target.userData?.role)) continue;
+    const role = target.userData?.role;
+    if (!roleSet.has(role)) continue;
+    // In the sequential Hall introduction, a console hit volume can sit in
+    // front of the coils and ruler. Prefer the requested part whenever its
+    // own recognition proxy is also under the ray.
+    if (role === identifyNext && (!expected || entry.distance < expected.hit.distance)) {
+      expected = { target, hit: entry };
+    }
     if (!best || entry.distance < best.hit.distance) {
       best = { target, hit: entry };
     }
   }
-  return best;
+  return expected || best;
 }
 
 function pickLiveElectroCharge(hits) {
@@ -5161,7 +5182,11 @@ function getFocusTarget(inputRaycaster = raycaster) {
   return resolveInteractivePreferred(hits);
 }
 
-function getHandFocusInfo(inputRaycaster) {
+function getHandFocusInfo(inputRaycaster, handNdc = null) {
+  // DOM overlays are visually in front of the 3D scene. Keep their screen
+  // rectangles opaque to AR hit testing as well, otherwise a hand placed on
+  // the status card can fall through and select the yellow probe behind it.
+  if (handCursorOverUi(handNdc)) return { target: null, hit: null };
   const hits = inputRaycaster.intersectObjects(raycastSurfaces, false);
   const terminalFallback = expManager?.state?.expId === 'hall_effect'
     ? hallBench.userData.getHallTerminalTarget?.(inputRaycaster)
@@ -5191,6 +5216,18 @@ function getHandFocusInfo(inputRaycaster) {
     // resolver inside that same shallow apparatus layer so a broad station or
     // console hit box cannot swallow its button/knob/terminal controls.
     preferInteractive: resolveInteractivePreferred,
+  });
+}
+
+function handCursorOverUi(ndc) {
+  if (!ndc) return false;
+  const x = (Number(ndc.x) + 1) * 0.5 * window.innerWidth;
+  const y = (1 - Number(ndc.y)) * 0.5 * window.innerHeight;
+  if (![x, y].every(Number.isFinite)) return false;
+  return [handToggleEl, arTutorialEl, helpModalWrapEl].some((element) => {
+    if (!element || element.getClientRects().length === 0) return false;
+    const rect = element.getBoundingClientRect();
+    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
   });
 }
 
@@ -5546,12 +5583,17 @@ const helpBackdropEl = document.getElementById('help-modal-backdrop');
 let handTrackingPhase = 'off';
 let handTrackingDetail = 'AR 模式已关闭 · H';
 let arInteractionLabel = '准备';
+let arTrackingFps = 0;
+let arPipelineMs = 0;
 let arTutorialTimer = 0;
 
 function renderArStatus() {
   if (!handStatusEl) return;
+  const performanceText = arTrackingFps
+    ? ` · ${Math.round(arTrackingFps)} FPS${arPipelineMs ? ` · ${Math.round(arPipelineMs)} ms` : ''}`
+    : '';
   handStatusEl.textContent = handTrackingPhase === 'running'
-    ? arInteractionLabel
+    ? `${arInteractionLabel}${performanceText}`
     : (handTrackingDetail || 'AR 模式已关闭 · H');
 }
 
@@ -5594,6 +5636,8 @@ function updateHandTrackingStatus({
   pinchRatios = null,
   degraded = false,
 }) {
+  arTrackingFps = trackingFps;
+  arPipelineMs = pipelineMs;
   handTrackingPhase = phase;
   handTrackingDetail = detail || (phase === 'off' ? 'AR 模式已关闭 · H' : '准备');
   updateArStatus({
@@ -5643,8 +5687,8 @@ handTracking = createHandTracking({
   camera,
   scene,
   video: handVideoEl,
-  resolveTarget: (inputRaycaster) => {
-    const { target, hit } = getHandFocusInfo(inputRaycaster);
+  resolveTarget: (inputRaycaster, _handLabel, handNdc) => {
+    const { target, hit } = getHandFocusInfo(inputRaycaster, handNdc);
     const distance = THREE.MathUtils.clamp(Number(hit?.distance || 4.5), 0.35, 4.5);
     return { target, distance };
   },

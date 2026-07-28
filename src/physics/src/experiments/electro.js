@@ -2421,7 +2421,7 @@ export function createHandlers(ctx) {
     return false;
   }
 
-  function holdInteract(holding, _time, dt, target) {
+  function holdInteract(holding, _time, dt, target, raycaster = null) {
     if (state.expId === 'induced_electric_field') {
       const data = state.data;
       // Content-screen sliders: continuous path via cumulative mouse deltas.
@@ -2516,7 +2516,7 @@ export function createHandlers(ctx) {
       if (holding) {
         data.terminalSnapPort = equipment.electro?.updateHallWirePreview?.(
           data.terminalDragFrom,
-          equipment.electro?.getCamera?.(),
+          raycaster || equipment.electro?.getCamera?.(),
           hoverPortId,
         ) || null;
         return;
@@ -2810,7 +2810,13 @@ export function createHandlers(ctx) {
       return applyTableScrollDrag(context);
     }
     if (state.data.terminalDragFrom) {
-      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget);
+      holdInteract(
+        true,
+        context.time || 0,
+        context.dt || 0,
+        context.hoverTarget,
+        context.raycaster || null,
+      );
       return true;
     }
     // Camera-drag knobs / probe / coils: apply mouse totals every frame.

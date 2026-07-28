@@ -31,6 +31,29 @@ function htmlIndexForPublicDirs(names: string[]): Plugin {
 }
 
 /**
+ * 启动器是桌面应用的入口，不作为 Web 页面发布或在普通 Vite 开发服务中访问。
+ * Tauri 开发服务通过 HOLO_TARGET=desktop 显式放行该入口。
+ */
+function desktopLauncherOnly(target: string): Plugin {
+  return {
+    name: 'desktop-launcher-only',
+    configureServer(server) {
+      if (target === 'desktop') return;
+      server.middlewares.use((req, res, next) => {
+        const pathname = (req.url || '').split('?')[0];
+        if (pathname === '/launcher.html') {
+          res.statusCode = 404;
+          res.setHeader('content-type', 'text/plain; charset=utf-8');
+          res.end('Not Found');
+          return;
+        }
+        next();
+      });
+    },
+  };
+}
+
+/**
  * 多入口配置：
  *  - index.html     → HoloGrip 门户（静态展示页）
  *  - portfolio.html → 作品矩阵
@@ -54,7 +77,6 @@ export default defineConfig(({ mode }) => {
     login:     path.resolve(__dirname, 'login.html'),
     dashboard: path.resolve(__dirname, 'dashboard.html'),
     admin:     path.resolve(__dirname, 'admin.html'),
-    launcher:  path.resolve(__dirname, 'launcher.html'),
     holomath:  path.resolve(__dirname, 'holomath.html'),
     physics:   path.resolve(__dirname, 'physics.html'),
     chem:      path.resolve(__dirname, 'chem.html'),
@@ -62,8 +84,11 @@ export default defineConfig(({ mode }) => {
     pool:      path.resolve(__dirname, 'pool.html'),
   };
   const targetInputs: Record<string, Record<string, string>> = {
+    desktop: {
+      launcher: path.resolve(__dirname, 'launcher.html'),
+      ...entries,
+    },
     ipad: {
-      launcher: entries.launcher,
       holomath: entries.holomath,
       // iPad is a self-contained five-subject app. The launchpad opens the
       // four standalone labs below in an iframe, so each entry must be in
@@ -81,6 +106,7 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
       htmlIndexForPublicDirs(['pool']),
+      desktopLauncherOnly(target),
       // HoloChem: 自然语言 → 分子成分（密钥仅在 dev/preview 服务端）
       deepseekPlugin({
         apiKey: env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || '',

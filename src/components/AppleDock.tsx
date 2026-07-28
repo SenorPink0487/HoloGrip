@@ -10,12 +10,7 @@ import {
   Trash2,
   Moon,
   Sun,
-  Atom,
-  FlaskConical,
-  Rocket,
-  CircleDot,
-  Lock,
-  LayoutGrid
+  Lock
 } from 'lucide-react';
 import { motion, useMotionValue, useSpring, useTransform, AnimatePresence } from 'motion/react';
 
@@ -109,7 +104,6 @@ export function AppleDock() {
   const lockScreen = useARStore(state => state.lockScreen);
 
   const items: DockItem[] = [
-    { tab: 'launcher', label: '🚀 启动器大厅', icon: <LayoutGrid className="w-6 h-6" /> },
     { tab: 'whiteboard', label: '📐 数学 · 白板', icon: <PenTool className="w-6 h-6" /> },
     { tab: 'function', label: '📈 函数探究', icon: <TrendingUp className="w-6 h-6" /> },
     { tab: 'calculator3d', label: '📦 3D计算器', icon: <Box className="w-6 h-6" /> },

@@ -7,6 +7,7 @@ const PHASE_LABELS = {
   manipulating: '操作',
   'tracking-lost': '追踪丢失',
 };
+const DEFAULT_TRACKING_LOSS_GRACE_MS = 400;
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
@@ -33,7 +34,11 @@ export function createArInteractionController({
   onPhaseChange,
   dollyOptions = {},
   lookOptions = {},
+  trackingLossGraceMs = DEFAULT_TRACKING_LOSS_GRACE_MS,
 } = {}) {
+  // Hand landmarks are filtered before they reach this controller. A larger
+  // dead zone makes deliberate, slow two-hand spreading indistinguishable
+  // from stillness, so retain sub-pixel NDC sensitivity for dolly movement.
   const dollyGain = Number.isFinite(dollyOptions.gain) ? dollyOptions.gain : 48;
   const dollyDeadZone = Number.isFinite(dollyOptions.deadZone) ? dollyOptions.deadZone : 0.0008;
 
@@ -78,6 +83,7 @@ export function createArInteractionController({
   let lookingHand = null;
   let manipulation = null;
   let lastPhase = '';
+  let lastTrackedAt = -Infinity;
 
   function setEnabled(next) {
     enabled = !!next;
@@ -287,6 +293,10 @@ export function createArInteractionController({
     const right = getHandState?.('Right') || null;
     const leftTracked = !!(left?.visible && left?.trackingVisible);
     const rightTracked = !!(right?.visible && right?.trackingVisible);
+    if (leftTracked || rightTracked) lastTrackedAt = nowMs;
+    const trackingGraceActive = !leftTracked
+      && !rightTracked
+      && nowMs - lastTrackedAt <= trackingLossGraceMs;
 
     if (dualNavigating && bothPinching()) {
       if (!leftTracked || !rightTracked) {
@@ -324,7 +334,7 @@ export function createArInteractionController({
     if (dualNavigating) setPhase('navigating');
     else if (manipulation) setPhase('manipulating');
     else if (lookingHand) setPhase('looking');
-    else if (!leftTracked && !rightTracked) setPhase('tracking-lost');
+    else if (!leftTracked && !rightTracked && !trackingGraceActive) setPhase('tracking-lost');
     else setPhase('idle');
 
     return snapshot;

@@ -25,19 +25,24 @@ function serializeResult(result) {
   }));
 }
 
-async function initialize({ wasmLoaderPath, wasmBinaryPath, modelPath, numHands = 2 }) {
+async function initialize({
+  wasmLoaderPath,
+  wasmBinaryPath,
+  modelPath,
+  numHands = 2,
+}) {
   handLandmarker = await HandLandmarker.createFromOptions({
     wasmLoaderPath,
     wasmBinaryPath,
   }, {
-    baseOptions: { modelAssetPath: modelPath },
+    baseOptions: { modelAssetPath: modelPath, delegate: 'GPU' },
     runningMode: 'VIDEO',
     numHands,
-    minHandDetectionConfidence: 0.55,
+    minHandDetectionConfidence: 0.5,
     minHandPresenceConfidence: 0.5,
     minTrackingConfidence: 0.5,
   });
-  self.postMessage({ type: 'ready' });
+  self.postMessage({ type: 'ready', delegate: 'GPU' });
 }
 
 self.onmessage = async ({ data }) => {

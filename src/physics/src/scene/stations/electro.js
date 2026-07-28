@@ -1153,14 +1153,21 @@ export function createStationEquipment(ctx) {
       hallWirePreview.visible = true;
     };
 
-    const updateHallWirePreview = (fromPortId, cam, hoverPortId = null) => {
+    const updateHallWirePreview = (fromPortId, aimSource, hoverPortId = null) => {
       const start = terminalAnchor(fromPortId);
-      if (!start || !cam) return null;
+      if (!start || !aimSource) return null;
       let snappedPortId = hoverPortId && hoverPortId !== fromPortId ? hoverPortId : null;
       let end = snappedPortId ? terminalAnchor(snappedPortId) : null;
       if (!end) {
         hallGroup.updateMatrixWorld(true);
-        hallWireRay.setFromCamera(new THREE.Vector2(0, 0), cam);
+        // AR supplies the fingertip ray for every drag frame.  Falling back to
+        // the screen-centre camera ray made an unsnapped wire preview bend
+        // toward one fixed side, regardless of where the hand moved.
+        if (aimSource?.ray) {
+          hallWireRay.ray.copy(aimSource.ray);
+        } else if (aimSource?.isCamera) {
+          hallWireRay.setFromCamera(new THREE.Vector2(0, 0), aimSource);
+        }
         hallWirePlanePoint.set(0, 0.1, 0);
         hallGroup.localToWorld(hallWirePlanePoint);
         hallWirePlaneNormal.set(0, 1, 0).transformDirection(hallGroup.matrixWorld);
@@ -1850,6 +1857,8 @@ export function createStationEquipment(ctx) {
       hall_solenoid: addHallRecognitionTarget(hallSolenoid, 'hall_solenoid', [0.95, 0.24, 0.22], [0, 0.0, 0]),
       // Full usable ruler length (rod visual is ~1 m starting near x=0)
       hall_probe: addHallRecognitionTarget(hallProbe, 'hall_probe', [0.92, 0.07, 0.08], [0.52, 0.02, 0]),
+      // Keep this tight: a broad console proxy sits in front of the coils and
+      // can otherwise swallow AR recognition rays meant for the other parts.
       hall_console: addHallRecognitionTarget(hallGroup, 'hall_console', [0.72, 0.11, 0.22], [0, 0.06, 0.18]),
     };
     const hallRecognitionRings = {
@@ -2202,7 +2211,7 @@ export function createStationEquipment(ctx) {
     updateFaraday: (data, dt) => hallBench.userData.updateFaraday?.(data, dt),
     updateInducedElectric: (data, dt) => hallBench.userData.updateInducedElectric?.(data, dt),
     startHallWirePreview: (portId) => hallBench.userData.startHallWirePreview?.(portId),
-    updateHallWirePreview: (fromPortId, cam, hoverPortId) => hallBench.userData.updateHallWirePreview?.(fromPortId, cam, hoverPortId),
+    updateHallWirePreview: (fromPortId, aimSource, hoverPortId) => hallBench.userData.updateHallWirePreview?.(fromPortId, aimSource, hoverPortId),
     cancelHallWirePreview: () => hallBench.userData.cancelHallWirePreview?.(),
     setHallPartState: (part, mode) => hallBench.userData.setHallPartState?.(part, mode),
     clearHallIdentifyVisuals: () => hallBench.userData.clearHallIdentifyVisuals?.(),

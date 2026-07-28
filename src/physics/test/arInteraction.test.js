@@ -137,6 +137,23 @@ test('dual pinch has highest priority and maps spread/close to forward/back', ()
   assert.ok(looks.some(([dx]) => dx > 0), 'remaining hand should resume smoothed look');
 });
 
+test('dual pinch responds to slow, filtered hand separation', () => {
+  const hands = createHands();
+  const controller = createArInteractionController({
+    getHandState: (label) => hands[label],
+  });
+  controller.setEnabled(true);
+  controller.onPinchStart({ hand: 'Left', target: null });
+  controller.onPinchStart({ hand: 'Right', target: null });
+  controller.update(0);
+
+  // A one-thousandth NDC increase is a deliberate but slow movement after
+  // the hand-tracking filter; it must not be swallowed by the dolly dead zone.
+  hands.Left.ndc.x = -0.2006;
+  hands.Right.ndc.x = 0.2006;
+  assert.ok(controller.update(16).movement.forward > 0);
+});
+
 test('either hand can own empty-space look or equipment interaction', () => {
   const hands = createHands();
   let began = null;
@@ -152,6 +169,24 @@ test('either hand can own empty-space look or equipment interaction', () => {
   assert.equal(controller.onPinchStart({ hand: 'Right', target: { id: 'knob' } }), true);
   assert.equal(began, 'Right');
   assert.equal(controller.isManipulating(), true);
+});
+
+test('brief missing detections do not immediately report tracking lost', () => {
+  const hands = createHands();
+  const controller = createArInteractionController({
+    getHandState: (label) => hands[label],
+    trackingLossGraceMs: 400,
+  });
+  controller.setEnabled(true);
+  assert.equal(controller.update(0).phase, 'idle');
+
+  hands.Left.trackingVisible = false;
+  hands.Right.trackingVisible = false;
+  assert.equal(controller.update(250).phase, 'idle');
+  assert.equal(controller.update(401).phase, 'tracking-lost');
+
+  hands.Left.trackingVisible = true;
+  assert.equal(controller.update(450).phase, 'idle');
 });
 
 test('look output is continuous and directionally stable while aim moves steadily', () => {

@@ -144,6 +144,39 @@ test('Hall terminal pinch commits a wire when release is over the second port', 
   assert.deepEqual(ctx.state.data.wires, [['out_red', 'hh_red']]);
 });
 
+test('AR Hall wire preview follows the current fingertip ray and hover port', () => {
+  let previewArgs = null;
+  const ctx = createContext({
+    expId: 'hall_effect',
+    stepId: 'configure',
+    equipment: {
+      electro: {
+        startHallWirePreview: () => {},
+        updateHallWirePreview: (...args) => {
+          previewArgs = args;
+          return 'hh_red';
+        },
+        cancelHallWirePreview: () => {},
+        updateHall: () => {},
+        setHallWiring: () => {},
+      },
+    },
+  });
+  const handlers = createElectroHandlers(ctx);
+  ctx.state.data = handlers.initData('hall_effect');
+  const from = { userData: { role: 'hall_terminal_output', portId: 'out_red' } };
+  const hover = { userData: { role: 'hall_terminal_helmholtz', portId: 'hh_red' } };
+  const fingertipRay = { ray: { origin: {}, direction: {} } };
+
+  handlers.beginManipulation(from);
+  assert.equal(handlers.updateManipulation(from, {
+    hoverTarget: hover,
+    raycaster: fingertipRay,
+  }), true);
+  assert.deepEqual(previewArgs, ['out_red', fingertipRay, 'hh_red']);
+  assert.equal(ctx.state.data.terminalSnapPort, 'hh_red');
+});
+
 test('Hall console clicks do not record unless the explicit record action is used', () => {
   const ctx = createContext({
     expId: 'hall_effect',

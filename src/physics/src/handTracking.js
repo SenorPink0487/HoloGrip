@@ -4,8 +4,8 @@ import workerWasmLoaderPath from '../../../node_modules/@mediapipe/tasks-vision/
 import workerWasmBinaryPath from '../../../node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_module_internal.wasm?url';
 import {
   OCCLUSION_HOLD_MS,
-  DynamicMotionGateVector3,
   HandInteractionArbiter,
+  KalmanAimFilter2D,
   MedianFilterScalar,
   OneEuroScalar,
   OneEuroVector3,
@@ -18,7 +18,7 @@ import {
   estimateProjectedHandDepth,
   estimatePinchRatio,
   isOpenPalm,
-  mapHandPointToNdc,
+  mapVideoPointToViewportNdc,
   mapMediaPipeToXR,
   occlusionOpacity,
   selectPrimaryHandDetections,
@@ -64,19 +64,23 @@ const XR_JOINT_PREV = [
 const NORMAL_INFERENCE_INTERVAL = 1000 / 60;
 const SLOW_INFERENCE_INTERVAL = 1000 / 30;
 const FALLBACK_INFERENCE_INTERVAL = 1000 / 15;
-const RENDER_RESPONSE_PER_SECOND = 55;
+const RENDER_RESPONSE_PER_SECOND = 80;
 const DRAG_DEAD_ZONE_PX = 3;
 const MAX_DRAG_DELTA_PX = 60;
 const HOVER_SWITCH_MS = 60;
 const HOVER_HOLD_MS = 100;
 const WORKER_FRAME_TIMEOUT_MS = 750;
-const AIM_GAIN = { gainX: 1.15, gainY: 1.1 };
 const BASE_HAND_OPACITY = 0.8;
 const BASE_HAND_EMISSIVE = 0.3;
 const THUMB_TIP_JOINT_INDEX = 4;
 const INDEX_TIP_JOINT_INDEX = 9;
 const SOURCE_INDEX_TIP_INDEX = 8;
-const PRIMARY_HAND_LOCK_TIMEOUT_MS = 1500;
+// Keep owner continuity long enough to reject a crossing bystander, but do not
+// suppress the real user's reacquired hand for more than a fraction of a
+// second after a quick movement or brief occlusion.
+const PRIMARY_HAND_LOCK_TIMEOUT_MS = 650;
+const PRIMARY_HAND_CONTINUITY_MS = 500;
+const PRIMARY_HAND_REACQUIRE_DISTANCE = 0.55;
 
 function median(values) {
   if (!values.length) return 0;
@@ -231,22 +235,13 @@ export function createHandTracking({
     raycaster: new THREE.Raycaster(),
     rigTargets: Array.from({ length: 25 }, () => new THREE.Vector3()),
     poseFilters: Array.from({ length: 21 }, () => new OneEuroVector3({
-      minCutoff: 2,
-      beta: 0.4,
+      minCutoff: 3.2,
+      beta: 0.55,
       dCutoff: 1.5,
     })),
     depthFilter: new OneEuroScalar({ minCutoff: 1.5, beta: 0.25, dCutoff: 1 }),
-    aimMotionGate: new DynamicMotionGateVector3({
-      jitterRadius: 0.005,
-      slowSpeed: 0.08,
-      fastSpeed: 2.8,
-      minAllowedStep: 0.01,
-      maxAllowedStep: 0.42,
-      maxPredictionSeconds: 0.025,
-      accelerationLookaheadSeconds: 0.02,
-      maxAcceleration: 28,
-    }),
-    pinchMedian: new MedianFilterScalar(3),
+    aimFilter: new KalmanAimFilter2D(),
+    pinchMedian: new MedianFilterScalar(1),
     sampleLandmarks: Array.from({ length: 21 }, () => new THREE.Vector3()),
     sampleWorldLandmarks: Array.from({ length: 21 }, () => new THREE.Vector3()),
     poseTargets: Array.from({ length: 21 }, () => new THREE.Vector3()),
@@ -261,7 +256,13 @@ export function createHandTracking({
     // MediaPipe occasionally reports one wide thumb/index sample during an
     // otherwise held pinch. A short release dwell prevents that blip from
     // ending and restarting an AR drag (which appears as dotted writing).
-    pinch: new PinchStateMachine({ exitGraceMs: 180 }),
+    // HoloMath uses 0.045 / 0.06 in image space. Normalizing by a typical
+    // palm width maps those thresholds to roughly 0.30 / 0.40 here.
+    pinch: new PinchStateMachine({
+      enterThreshold: 0.30,
+      exitThreshold: 0.40,
+      exitGraceMs: 60,
+    }),
     poseInitialized: false,
     visible: false,
     trackingVisible: false,
@@ -301,6 +302,7 @@ export function createHandTracking({
   let capturePending = false;
   let fallbackLandmarker = null;
   let fallbackStarting = false;
+  let mainThreadInference = false;
   let degraded = false;
   let lastVideoTime = -1;
   let lastInferenceAt = 0;
@@ -314,6 +316,7 @@ export function createHandTracking({
   let pipelineMs = 0;
   let droppedFrames = 0;
   let workerRestarts = 0;
+  let workerDelegate = 'CPU';
   let dropRate = 0;
   let adaptiveInterval = NORMAL_INFERENCE_INTERVAL;
   let fastInferenceSince = 0;
@@ -333,6 +336,8 @@ export function createHandTracking({
   const frameDelta = new THREE.Quaternion();
   const targetPalmNormal = new THREE.Vector3();
   const wristAnchor = new THREE.Vector3();
+  const projectedPalmA = new THREE.Vector3();
+  const projectedPalmB = new THREE.Vector3();
 
   const notify = (phase, detail = '') => onStatus?.({
     phase,
@@ -345,6 +350,7 @@ export function createHandTracking({
     pipelineMs,
     droppedFrames,
     workerRestarts,
+    workerDelegate,
     dropRate,
     pinchRatios: Object.fromEntries(states.map((state) => [state.label, {
       raw: state.rawPinchRatio,
@@ -469,13 +475,22 @@ export function createHandTracking({
     return true;
   }
 
+  function cameraPointToNdc(landmark, output = new THREE.Vector3()) {
+    return mapVideoPointToViewportNdc(landmark, {
+      videoWidth: video.videoWidth || 1280,
+      videoHeight: video.videoHeight || 720,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+      mirrorX: true,
+    }, output);
+  }
+
   function localAtScreenPoint(landmark, depth, output = new THREE.Vector3()) {
     const halfHeight = Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) * depth;
-    const ndcX = THREE.MathUtils.clamp((1 - landmark.x * 2) * AIM_GAIN.gainX, -1, 1);
-    const ndcY = THREE.MathUtils.clamp((1 - landmark.y * 2) * AIM_GAIN.gainY, -1, 1);
+    const projected = cameraPointToNdc(landmark, projectedPalmA);
     return output.set(
-      ndcX * halfHeight * camera.aspect,
-      ndcY * halfHeight,
+      projected.x * halfHeight * camera.aspect,
+      projected.y * halfHeight,
       -depth,
     );
   }
@@ -488,7 +503,7 @@ export function createHandTracking({
       (thumbTip.y + indexTip.y) * 0.5,
       0,
     );
-    return mapHandPointToNdc(state.aimSample, AIM_GAIN, state.aimSample);
+    return cameraPointToNdc(state.aimSample, state.aimSample);
   }
 
   function resetPoseFilters(state, points, depth, aimNdc, sampleTimestamp) {
@@ -496,20 +511,22 @@ export function createHandTracking({
       filter.reset(points[index], sampleTimestamp, state.poseTargets[index]);
     });
     state.depthFilter.reset(depth, sampleTimestamp);
-    const gatedAim = state.aimMotionGate.reset(aimNdc, sampleTimestamp, state.aimSample);
+    const gatedAim = state.aimFilter.reset(aimNdc, sampleTimestamp, state.aimSample);
     state.aimTarget.set(gatedAim.x, gatedAim.y);
     state.poseInitialized = true;
   }
 
   function updatePoseSample(state, landmarks, worldLandmarks, hasWorldPose, sampleTimestamp) {
-    const dx = landmarks[5].x - landmarks[17].x;
-    const dy = landmarks[5].y - landmarks[17].y;
+    cameraPointToNdc(landmarks[5], projectedPalmA);
+    cameraPointToNdc(landmarks[17], projectedPalmB);
+    const dx = (projectedPalmA.x - projectedPalmB.x) * 0.5;
+    const dy = (projectedPalmA.y - projectedPalmB.y) * 0.5;
     const worldPalmWidth = hasWorldPose
       ? Math.max(distance3(worldLandmarks[5], worldLandmarks[17]), 0.025)
       : 0.075;
     const rawDepth = estimateProjectedHandDepth({
-      normalizedDeltaX: dx * AIM_GAIN.gainX,
-      normalizedDeltaY: dy * AIM_GAIN.gainY,
+      normalizedDeltaX: dx,
+      normalizedDeltaY: dy,
       worldPalmWidth,
       cameraAspect: camera.aspect,
       cameraFovDeg: camera.fov,
@@ -544,7 +561,12 @@ export function createHandTracking({
       state.poseFilters.forEach((filter, index) => {
         filter.filter(points[index], sampleTimestamp, state.poseTargets[index]);
       });
-      const gatedAim = state.aimMotionGate.filter(aimNdc, sampleTimestamp, state.aimSample);
+      const gatedAim = state.aimFilter.filter(
+        aimNdc,
+        sampleTimestamp,
+        state.handednessScore,
+        state.aimSample,
+      );
       state.aimTarget.set(gatedAim.x, gatedAim.y);
     }
   }
@@ -613,14 +635,6 @@ export function createHandTracking({
     return targetInfo;
   }
 
-  function updateRay(state, nowMs) {
-    state.ndc.copy(state.aimTarget);
-    state.raycaster.setFromCamera(state.ndc, camera);
-    const targetInfo = resolveTarget?.(state.raycaster, state.label) || null;
-    state.liveTarget = resolveLiveTarget(targetInfo);
-    if (!state.pinching) updateHoverTarget(state, state.liveTarget, nowMs);
-  }
-
   function updateRayFromVisualCursor(state) {
     // A pinch behaves like a mouse press at the center of the cursor the user
     // can actually see. Keep the cursor attached to the reconstructed hand;
@@ -632,13 +646,18 @@ export function createHandTracking({
       THREE.MathUtils.clamp(state.cursorWorld.x, -1, 1),
       THREE.MathUtils.clamp(state.cursorWorld.y, -1, 1),
     );
+    // AR navigation reads state.ndc for single-hand look and dual-hand dolly.
+    // Keep it synchronized with the same visible fingertip cursor used for
+    // apparatus hit testing; otherwise navigation sees a frozen aim point.
+    state.ndc.copy(state.cursorNdc);
     state.raycaster.setFromCamera(state.cursorNdc, camera);
-    const targetInfo = resolveTarget?.(state.raycaster, state.label) || null;
+    const targetInfo = resolveTarget?.(state.raycaster, state.label, state.cursorNdc) || null;
     state.liveTarget = resolveLiveTarget(targetInfo);
   }
 
   function renderTrackedState(state, nowMs) {
     if (!state.poseInitialized || !state.trackingVisible) return;
+    state.aimFilter.predict(nowMs, state.aimTarget);
     const elapsedSeconds = Number.isFinite(state.lastRenderAt)
       ? THREE.MathUtils.clamp((nowMs - state.lastRenderAt) / 1000, 0, 0.05)
       : 0;
@@ -646,11 +665,14 @@ export function createHandTracking({
       ? 1 - Math.exp(-RENDER_RESPONSE_PER_SECOND * elapsedSeconds)
       : 1;
     state.lastRenderAt = nowMs;
-    updateRay(state, nowMs);
     renderFilteredPose(state, responseAlpha);
-    // While already held, update the mouse-like ray before processing release
-    // so terminal snapping uses the visible cursor's final position.
-    if (state.pinching) updateRayFromVisualCursor(state);
+    // The rendered hand is retargeted to the XR skeleton and smoothed, so its
+    // fingertip does not always project to the raw MediaPipe aim point.  Use
+    // the visible fingertip for hover as well as pinch: users can now place
+    // the hand model directly over an apparatus instead of aiming at an
+    // invisible, offset cursor.
+    updateRayFromVisualCursor(state);
+    if (!state.pinching) updateHoverTarget(state, state.liveTarget, nowMs);
     if (Number.isFinite(state.pendingPinchRatio)) {
       updateGesture(state, state.pendingPinchRatio, state.pendingRawPinchRatio, nowMs);
       state.pendingPinchRatio = null;
@@ -802,7 +824,7 @@ export function createHandTracking({
     lastMetricStatusAt = nowMs;
     const performanceText = trackingFps ? ` · ${trackingFps} FPS` : '';
     const latencyText = pipelineMs ? ` · ${Math.round(pipelineMs)} ms` : '';
-    const degradedText = degraded ? ' · 兼容模式' : '';
+    const degradedText = degraded ? ' · 兼容模式' : ` · ${workerDelegate}`;
     const recoveryText = workerRestarts ? ` · 重启 ${workerRestarts}` : '';
     const droppedText = droppedFrames ? ` · 丢帧 ${droppedFrames}` : '';
     const pinchingCount = states.filter((state) => state.pinching).length;
@@ -832,6 +854,8 @@ export function createHandTracking({
       nowMs: receivedAt,
       lastPrimarySeenAt,
       lockTimeoutMs: PRIMARY_HAND_LOCK_TIMEOUT_MS,
+      continuityMs: PRIMARY_HAND_CONTINUITY_MS,
+      maxContinuityDistance: PRIMARY_HAND_REACQUIRE_DISTANCE,
     });
     const detections = primarySelection.detections;
     const assignment = assignHandTracks(states, detections, {
@@ -864,7 +888,7 @@ export function createHandTracking({
       state.rawPinchRatio = rawPinchRatio;
       state.filteredPinchRatio = state.pinchMedian.filter(rawPinchRatio);
       estimatePalmCenter(state.sampleLandmarks, state.palmSample);
-      mapHandPointToNdc(state.palmSample, AIM_GAIN, state.palmSample);
+      cameraPointToNdc(state.palmSample, state.palmSample);
       state.palmNdc.set(state.palmSample.x, state.palmSample.y);
       state.openPalm = isOpenPalm(state.sampleLandmarks, { minPinchRatio: 0.52 });
       state.pendingPinchRatio = state.filteredPinchRatio;
@@ -873,9 +897,10 @@ export function createHandTracking({
 
     if (seen.size > 0) lastPrimarySeenAt = receivedAt;
 
-    states.forEach((state) => {
-      if (!seen.has(state.label)) state.trackingVisible = false;
-    });
+    // Do not mark a hand lost on the first missing inference result. Webcam
+    // motion blur and worker-frame drops are common enough that doing so made
+    // the UI flicker into “tracking lost” and cancelled active pinches.
+    // updateOcclusion() changes trackingVisible only after the hold window.
     if (detectedHands !== seen.size) {
       detectedHands = seen.size;
       updateRunningStatus(receivedAt, true);
@@ -886,8 +911,10 @@ export function createHandTracking({
 
   function updateOcclusion(nowMs) {
     states.forEach((state) => {
-      if (!state.visible || state.trackingVisible) return;
+      if (!state.visible) return;
       const elapsed = nowMs - state.lastSeenAt;
+      if (elapsed <= OCCLUSION_HOLD_MS) return;
+      state.trackingVisible = false;
       if (elapsed > OCCLUSION_HOLD_MS && (state.pinching || state.suppressed)) {
         releaseState(state, { forceMachine: true });
       }
@@ -973,7 +1000,8 @@ export function createHandTracking({
         if (!settled && event.data?.type === 'ready') {
           settled = true;
           window.clearTimeout(timeout);
-          resolve();
+          workerDelegate = event.data.delegate === 'GPU' ? 'GPU' : 'CPU';
+          resolve(workerDelegate);
           return;
         }
         if (!settled && event.data?.type === 'error') {
@@ -998,9 +1026,9 @@ export function createHandTracking({
         wasmLoaderPath: workerWasmLoaderPath,
         wasmBinaryPath: workerWasmBinaryPath,
         modelPath: '/assets/mediapipe/hand_landmarker.task',
-        // Detect extra hands so the primary-user lock can reject bystanders
-        // deterministically instead of MediaPipe choosing an arbitrary pair.
-        numHands: 4,
+        // Interaction has exactly two persistent hand tracks. Asking the model
+        // for four candidates adds avoidable inference cost and latency.
+        numHands: 2,
       });
     });
   }
@@ -1019,18 +1047,51 @@ export function createHandTracking({
     capturePending = false;
   }
 
+  function errorMessage(error, fallback = '未知错误') {
+    if (typeof error === 'string' && error.trim()) return error.trim();
+    return error?.message || fallback;
+  }
+
   async function ensureFallbackLandmarker() {
-    if (fallbackLandmarker) return;
+    if (fallbackLandmarker) return workerDelegate;
     const { FilesetResolver, HandLandmarker } = await import('@mediapipe/tasks-vision');
     const vision = await FilesetResolver.forVisionTasks('/assets/mediapipe/wasm');
-    fallbackLandmarker = await HandLandmarker.createFromOptions(vision, {
-      baseOptions: { modelAssetPath: '/assets/mediapipe/hand_landmarker.task' },
-      runningMode: 'VIDEO',
-      numHands: 4,
-      minHandDetectionConfidence: 0.55,
-      minHandPresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
+    let gpuError = null;
+    for (const delegate of ['GPU', 'CPU']) {
+      try {
+        fallbackLandmarker = await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath: '/assets/mediapipe/hand_landmarker.task',
+            delegate,
+          },
+          runningMode: 'VIDEO',
+          numHands: 2,
+          minHandDetectionConfidence: 0.5,
+          minHandPresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
+        workerDelegate = delegate;
+        mainThreadInference = true;
+        if (delegate === 'CPU') {
+          degraded = true;
+          adaptiveInterval = FALLBACK_INFERENCE_INTERVAL;
+          console.warn(
+            '[Hand tracking] GPU unavailable; using CPU compatibility mode',
+            errorMessage(gpuError),
+          );
+        }
+        return delegate;
+      } catch (error) {
+        if (delegate === 'GPU') {
+          gpuError = error;
+          continue;
+        }
+        throw new Error(
+          `手部模型初始化失败：GPU ${errorMessage(gpuError)}；CPU ${errorMessage(error)}`,
+        );
+      }
+    }
+    throw new Error('手部模型初始化失败');
   }
 
   async function switchToFallback(reason = '') {
@@ -1044,7 +1105,7 @@ export function createHandTracking({
       await ensureFallbackLandmarker();
       updateRunningStatus(performance.now(), true);
     } catch (error) {
-      notify('error', error?.message || '兼容模式启动失败');
+      notify('error', errorMessage(error, '兼容模式启动失败'));
       stop(false);
     } finally {
       fallbackStarting = false;
@@ -1056,15 +1117,13 @@ export function createHandTracking({
     recoveringWorker = false;
     adaptiveInterval = NORMAL_INFERENCE_INTERVAL;
     recoveryPolicy.reset();
-    try {
-      await initializeWorker();
-    } catch (error) {
-      cleanupWorker();
-      degraded = true;
-      adaptiveInterval = FALLBACK_INFERENCE_INTERVAL;
-      await ensureFallbackLandmarker();
-      console.warn('[Hand tracking] Worker unavailable; using main-thread fallback', error);
-    }
+    // GPU delegation depends on a WebGL context. Several Chromium/macOS
+    // combinations can initialize that context in a worker but lose it on the
+    // first detectForVideo call, causing an endless worker-restart loop.
+    // HoloMath runs its GPU landmarker on the main thread; use the same stable
+    // path here while keeping the 3D scene rendering and input state separate.
+    cleanupWorker();
+    await ensureFallbackLandmarker();
   }
 
   function cleanupInference() {
@@ -1072,6 +1131,7 @@ export function createHandTracking({
     fallbackLandmarker?.close?.();
     fallbackLandmarker = null;
     fallbackStarting = false;
+    mainThreadInference = false;
   }
 
   function resetTrackingState() {
@@ -1107,6 +1167,7 @@ export function createHandTracking({
     pipelineMs = 0;
     droppedFrames = 0;
     workerRestarts = 0;
+    workerDelegate = 'CPU';
     dropRate = 0;
     inferenceSamples.length = 0;
     pipelineSamples.length = 0;
@@ -1134,8 +1195,8 @@ export function createHandTracking({
         audio: false,
         video: {
           facingMode: 'user',
-          width: { ideal: 640 },
-          height: { ideal: 480 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
           frameRate: { ideal: 60, max: 60 },
         },
       });
@@ -1156,7 +1217,7 @@ export function createHandTracking({
       resetTrackingState();
       const detail = error?.name === 'NotAllowedError'
         ? '摄像头权限被拒绝，请在系统设置中允许后重试'
-        : (error?.message || 'AR 模式启动失败');
+        : errorMessage(error, 'AR 模式启动失败');
       notify('error', detail);
       return false;
     } finally {
@@ -1241,7 +1302,7 @@ export function createHandTracking({
     if (video.currentTime === lastVideoTime || nowMs - lastInferenceAt < interval) return;
     lastVideoTime = video.currentTime;
     lastInferenceAt = nowMs;
-    if (degraded) runFallbackFrame(nowMs);
+    if (mainThreadInference || degraded) runFallbackFrame(nowMs);
     else submitWorkerFrame(nowMs);
   }
 

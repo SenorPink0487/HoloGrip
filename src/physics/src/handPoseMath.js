@@ -1,6 +1,9 @@
 export const HAND_DEPTH_MIN = 0.35;
 export const HAND_DEPTH_MAX = 1.2;
-export const OCCLUSION_HOLD_MS = 180;
+// A single webcam inference can miss a hand because of motion blur, exposure,
+// or a dropped worker frame. Keep the last valid pose briefly so that a
+// momentary miss does not cancel an in-progress AR interaction.
+export const OCCLUSION_HOLD_MS = 400;
 export const OCCLUSION_FADE_MS = 120;
 
 const TAU = Math.PI * 2;
@@ -221,6 +224,51 @@ export function mapHandPointToNdc(
 }
 
 /**
+ * Map an unmirrored MediaPipe camera point into the viewport exactly like a
+ * mirrored `object-fit: cover` video. This keeps the virtual hand projected
+ * over the user's real hand even when camera and viewport aspect ratios differ.
+ */
+export function mapVideoPointToViewportNdc(
+  { x, y },
+  {
+    videoWidth = 1280,
+    videoHeight = 720,
+    viewportWidth = 1280,
+    viewportHeight = 720,
+    mirrorX = true,
+  } = {},
+  output = null,
+) {
+  const result = output || {};
+  const safeVideoWidth = Math.max(Number(videoWidth) || 0, 1);
+  const safeVideoHeight = Math.max(Number(videoHeight) || 0, 1);
+  const safeViewportWidth = Math.max(Number(viewportWidth) || 0, 1);
+  const safeViewportHeight = Math.max(Number(viewportHeight) || 0, 1);
+  const videoAspect = safeVideoWidth / safeVideoHeight;
+  const viewportAspect = safeViewportWidth / safeViewportHeight;
+  let renderWidth = safeViewportWidth;
+  let renderHeight = safeViewportHeight;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  if (videoAspect > viewportAspect) {
+    renderWidth = safeViewportHeight * videoAspect;
+    offsetX = (renderWidth - safeViewportWidth) * 0.5;
+  } else if (videoAspect < viewportAspect) {
+    renderHeight = safeViewportWidth / videoAspect;
+    offsetY = (renderHeight - safeViewportHeight) * 0.5;
+  }
+
+  const cameraX = mirrorX ? 1 - x : x;
+  const pixelX = cameraX * renderWidth - offsetX;
+  const pixelY = y * renderHeight - offsetY;
+  result.x = clamp((pixelX / safeViewportWidth) * 2 - 1, -1, 1);
+  result.y = clamp(1 - (pixelY / safeViewportHeight) * 2, -1, 1);
+  result.z = 0;
+  return result;
+}
+
+/**
  * Convert MediaPipe's 21 points to the WebXR 25-joint layout. Segment lengths
  * come from the GLB bind pose, so noisy detections cannot stretch the mesh.
  */
@@ -434,6 +482,180 @@ export class OneEuroVector3 {
     result.x = this.x.filter(value.x, timestampMs);
     result.y = this.y.filter(value.y, timestampMs);
     result.z = this.z.filter(value.z, timestampMs);
+    return result;
+  }
+}
+
+function createKalmanAxis(value = 0) {
+  return {
+    value,
+    velocity: 0,
+    acceleration: 0,
+    pPosition: 0.1,
+    pPositionVelocity: 0,
+    pPositionAcceleration: 0,
+    pVelocity: 1,
+    pVelocityAcceleration: 0,
+    pAcceleration: 5,
+  };
+}
+
+function updateKalmanAxis(axis, measurement, dt, processNoise, measurementNoise) {
+  const predictedValue = axis.value
+    + axis.velocity * dt
+    + 0.5 * axis.acceleration * dt * dt;
+  const predictedVelocity = axis.velocity + axis.acceleration * dt;
+  const predictedAcceleration = axis.acceleration;
+  const t2 = dt * dt;
+  const t3 = t2 * dt;
+  const t4 = t3 * dt;
+  const t5 = t4 * dt;
+
+  const pPosition = axis.pPosition
+    + 2 * dt * axis.pPositionVelocity
+    + t2 * axis.pPositionAcceleration
+    + t2 * axis.pVelocity
+    + t3 * axis.pVelocityAcceleration
+    + 0.25 * t4 * axis.pAcceleration
+    + (t5 / 20) * processNoise;
+  const pPositionVelocity = axis.pPositionVelocity
+    + dt * (axis.pVelocity + axis.pPositionAcceleration)
+    + 1.5 * t2 * axis.pVelocityAcceleration
+    + 0.5 * t3 * axis.pAcceleration
+    + (t4 / 8) * processNoise;
+  const pPositionAcceleration = axis.pPositionAcceleration
+    + dt * axis.pVelocityAcceleration
+    + 0.5 * t2 * axis.pAcceleration
+    + (t3 / 6) * processNoise;
+  const pVelocity = axis.pVelocity
+    + 2 * dt * axis.pVelocityAcceleration
+    + t2 * axis.pAcceleration
+    + (t3 / 3) * processNoise;
+  const pVelocityAcceleration = axis.pVelocityAcceleration
+    + dt * axis.pAcceleration
+    + (t2 / 2) * processNoise;
+  const pAcceleration = axis.pAcceleration + dt * processNoise;
+
+  const residual = measurement - predictedValue;
+  const residualCovariance = pPosition + measurementNoise;
+  const positionGain = pPosition / residualCovariance;
+  const velocityGain = pPositionVelocity / residualCovariance;
+  const accelerationGain = pPositionAcceleration / residualCovariance;
+
+  axis.value = predictedValue + positionGain * residual;
+  axis.velocity = predictedVelocity + velocityGain * residual;
+  axis.acceleration = predictedAcceleration + accelerationGain * residual;
+  axis.pPosition = (1 - positionGain) * pPosition;
+  axis.pPositionVelocity = (1 - positionGain) * pPositionVelocity;
+  axis.pPositionAcceleration = (1 - positionGain) * pPositionAcceleration;
+  axis.pVelocity = pVelocity - velocityGain * pPositionVelocity;
+  axis.pVelocityAcceleration = pVelocityAcceleration - velocityGain * pPositionAcceleration;
+  axis.pAcceleration = pAcceleration - accelerationGain * pPositionAcceleration;
+}
+
+/**
+ * Constant-acceleration Kalman cursor used by HoloMath, adapted to the
+ * physics lab's NDC aim point. It predicts through camera/inference delay,
+ * freezes sub-pixel stationary jitter, and coasts briefly across missed frames.
+ */
+export class KalmanAimFilter2D {
+  constructor({
+    stationarySpeed = 0.12,
+    deadZone = 0.0018,
+    maxVelocity = 6,
+    processNoise = 5,
+    measurementNoise = 0.001,
+    coastDurationMs = 250,
+    maxCoastExtrapolation = 0.35,
+  } = {}) {
+    this.stationarySpeed = stationarySpeed;
+    this.deadZone = deadZone;
+    this.maxVelocity = maxVelocity;
+    this.processNoise = processNoise;
+    this.measurementNoise = measurementNoise;
+    this.coastDurationMs = coastDurationMs;
+    this.maxCoastExtrapolation = maxCoastExtrapolation;
+    this.reset();
+  }
+
+  reset(value = { x: 0, y: 0 }, timestampMs, output = null) {
+    this.x = createKalmanAxis(Number(value?.x) || 0);
+    this.y = createKalmanAxis(Number(value?.y) || 0);
+    this.accepted = this.accepted || { x: 0, y: 0, z: 0 };
+    this.accepted.x = this.x.value;
+    this.accepted.y = this.y.value;
+    this.accepted.z = 0;
+    this.timestampMs = timestampMs;
+    this.initialized = Number.isFinite(value?.x)
+      && Number.isFinite(value?.y)
+      && Number.isFinite(timestampMs);
+    return copyVector(this.accepted, output);
+  }
+
+  filter(value, timestampMs, confidence = 1, output = null) {
+    if (!Number.isFinite(value?.x) || !Number.isFinite(value?.y)) {
+      return copyVector(this.accepted, output);
+    }
+    if (!this.initialized || !Number.isFinite(this.timestampMs) || timestampMs <= this.timestampMs) {
+      return this.reset(value, timestampMs, output);
+    }
+
+    const dt = clamp((timestampMs - this.timestampMs) / 1000, 1 / 240, 0.12);
+    const speedBeforeUpdate = Math.hypot(this.x.velocity, this.y.velocity);
+    const lowSpeedFactor = speedBeforeUpdate < 0.15
+      ? (0.15 - speedBeforeUpdate) / 0.15
+      : 0;
+    const noiseScale = speedBeforeUpdate < 0.15
+      ? 1 + lowSpeedFactor * 4
+      : Math.max(0.5, 1 - (speedBeforeUpdate - 0.15) * 0.3);
+    const safeConfidence = clamp(Number(confidence) || 0.5, 0.1, 1);
+    const measurementNoise = (this.measurementNoise / safeConfidence) * noiseScale;
+    const processNoise = this.processNoise * (1 + speedBeforeUpdate * 4);
+
+    updateKalmanAxis(this.x, value.x, dt, processNoise, measurementNoise);
+    updateKalmanAxis(this.y, value.y, dt, processNoise, measurementNoise);
+    this.x.velocity = clamp(this.x.velocity, -this.maxVelocity, this.maxVelocity);
+    this.y.velocity = clamp(this.y.velocity, -this.maxVelocity, this.maxVelocity);
+
+    const estimatedSpeed = Math.hypot(this.x.velocity, this.y.velocity);
+    const estimatedDistance = Math.hypot(
+      this.x.value - this.accepted.x,
+      this.y.value - this.accepted.y,
+    );
+    if (estimatedSpeed < this.stationarySpeed && estimatedDistance < this.deadZone) {
+      this.x.velocity = 0;
+      this.y.velocity = 0;
+      this.x.acceleration = 0;
+      this.y.acceleration = 0;
+    } else {
+      this.accepted.x = this.x.value;
+      this.accepted.y = this.y.value;
+    }
+    this.timestampMs = timestampMs;
+    return copyVector(this.accepted, output);
+  }
+
+  predict(timestampMs, output = null) {
+    if (!this.initialized || !Number.isFinite(timestampMs) || timestampMs <= this.timestampMs) {
+      return copyVector(this.accepted, output);
+    }
+    const dt = Math.min((timestampMs - this.timestampMs) / 1000, this.coastDurationMs / 1000);
+    const predictedX = this.accepted.x
+      + this.x.velocity * dt
+      + 0.5 * this.x.acceleration * dt * dt;
+    const predictedY = this.accepted.y
+      + this.y.velocity * dt
+      + 0.5 * this.y.acceleration * dt * dt;
+    const dx = predictedX - this.accepted.x;
+    const dy = predictedY - this.accepted.y;
+    const distance = Math.hypot(dx, dy);
+    const scale = distance > this.maxCoastExtrapolation
+      ? this.maxCoastExtrapolation / distance
+      : 1;
+    const result = output || {};
+    result.x = this.accepted.x + dx * scale;
+    result.y = this.accepted.y + dy * scale;
+    result.z = 0;
     return result;
   }
 }
@@ -786,9 +1008,9 @@ export function selectPrimaryHandDetections(
   {
     nowMs = 0,
     lastPrimarySeenAt = -Infinity,
-    lockTimeoutMs = 1500,
-    continuityMs = 300,
-    maxContinuityDistance = 0.32,
+    lockTimeoutMs = 650,
+    continuityMs = 500,
+    maxContinuityDistance = 0.55,
   } = {},
 ) {
   const candidates = Array.isArray(detections) ? detections : [];
