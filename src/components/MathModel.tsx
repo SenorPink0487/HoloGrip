@@ -619,8 +619,20 @@ export function MathModel() {
           }
         };
 
-        if (isXYZDrawingActive && store.activeLineStart) {
-          // --- Force XYZ snap logic ---
+        // XYZ 辅助线不能吞掉模型本身的拾取。先尝试命中可见几何体表面，
+        // 这样可以直接从面上取点或将辅助线接到面上；只有射线落在模型外时
+        // 才退回到原有的 XYZ 轴向投影。
+        const surfaceHit = isXYZDrawingActive
+          ? raycaster.intersectObject(meshRef.current, false)[0]
+          : undefined;
+
+        if (surfaceHit) {
+          const invMatrix = new THREE.Matrix4().copy(meshRef.current.matrixWorld).invert();
+          closestVertLocal.copy(surfaceHit.point).applyMatrix4(invMatrix);
+          foundVertex = true;
+          matchedSnapLabel = '吸附：模型表面';
+        } else if (isXYZDrawingActive && store.activeLineStart) {
+          // --- Force XYZ snap logic (模型外的空白区域) ---
           const S = new THREE.Vector3(store.activeLineStart.x, store.activeLineStart.y, store.activeLineStart.z);
           const invMatrix = new THREE.Matrix4().copy(meshRef.current.matrixWorld).invert();
           const localRayOrigin = ray.origin.clone().applyMatrix4(invMatrix);
