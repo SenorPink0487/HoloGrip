@@ -30,28 +30,6 @@ function htmlIndexForPublicDirs(names: string[]): Plugin {
   };
 }
 
-/**
- * 启动器是桌面应用的入口，不作为 Web 页面发布或在普通 Vite 开发服务中访问。
- * Tauri 开发服务通过 HOLO_TARGET=desktop 显式放行该入口。
- */
-function desktopLauncherOnly(target: string): Plugin {
-  return {
-    name: 'desktop-launcher-only',
-    configureServer(server) {
-      if (target === 'desktop') return;
-      server.middlewares.use((req, res, next) => {
-        const pathname = (req.url || '').split('?')[0];
-        if (pathname === '/launcher.html') {
-          res.statusCode = 404;
-          res.setHeader('content-type', 'text/plain; charset=utf-8');
-          res.end('Not Found');
-          return;
-        }
-        next();
-      });
-    },
-  };
-}
 
 /**
  * 多入口配置：
@@ -84,10 +62,7 @@ export default defineConfig(({ mode }) => {
     pool:      path.resolve(__dirname, 'pool.html'),
   };
   const targetInputs: Record<string, Record<string, string>> = {
-    desktop: {
-      launcher: path.resolve(__dirname, 'launcher.html'),
-      ...entries,
-    },
+    desktop: entries,
     ipad: {
       holomath: entries.holomath,
       // iPad is a self-contained five-subject app. The launchpad opens the
@@ -106,7 +81,6 @@ export default defineConfig(({ mode }) => {
       react(),
       tailwindcss(),
       htmlIndexForPublicDirs(['pool']),
-      desktopLauncherOnly(target),
       // HoloChem: 自然语言 → 分子成分（密钥仅在 dev/preview 服务端）
       deepseekPlugin({
         apiKey: env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || '',

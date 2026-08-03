@@ -211,6 +211,7 @@ export function MathKeyboard({
           )}
           data-mathkbd
           onMouseDown={(e) => e.preventDefault()}
+          onPointerDown={(e) => e.preventDefault()}
         >
           <div className={cn(
             "mx-auto max-w-[760px] rounded-3xl backdrop-blur-3xl border shadow-2xl overflow-hidden transition-colors duration-300",
@@ -236,7 +237,7 @@ export function MathKeyboard({
               <div className="ml-auto flex items-center gap-1">
                 <button
                   type="button"
-                  onMouseDown={(e) => { e.preventDefault(); onClose(); }}
+                  onPointerDown={(e) => { e.preventDefault(); onClose(); }}
                   className={cn(
                     "w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-90 cursor-pointer",
                     isDark ? "text-zinc-400 hover:text-white hover:bg-white/10" : "text-slate-500 hover:text-slate-900 hover:bg-black/5"
@@ -255,7 +256,7 @@ export function MathKeyboard({
                     <button
                       key={cIdx}
                       type="button"
-                      onMouseDown={handleKey(k)}
+                      onPointerDown={handleKey(k)}
                       className={cn(
                         'flex-1 flex items-center justify-center rounded-xl font-mono text-sm transition-all select-none active:scale-95 border cursor-pointer',
                         ROW_HEIGHT,
@@ -307,7 +308,7 @@ function TabButton({
   return (
     <button
       type="button"
-      onMouseDown={(e) => { e.preventDefault(); onClick(); }}
+      onPointerDown={(e) => { e.preventDefault(); onClick(); }}
       className={cn(
         'px-3.5 py-1.5 rounded-full text-xs font-bold transition-all border cursor-pointer',
         active

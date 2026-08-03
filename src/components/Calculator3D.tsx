@@ -502,6 +502,18 @@ export function Calculator3D({ embedded = false, preview = false, initialState, 
 
   // Initial demo objects
   const [objects, setObjects] = useState<Geo3DObject[]>(() => {
+    if (initialState?.objects && initialState.objects.length > 0) {
+      return initialState.objects.map(obj => {
+        if (obj.kind === 'surface') {
+          return {
+            ...obj,
+            compiled: tryCompile(obj.source),
+            error: null,
+          };
+        }
+        return obj;
+      });
+    }
     const slA: Slider3D = { id: 'sl_a', kind: 'slider', name: 'a', visible: true, color: COLORS[0], value: 2, min: -5, max: 5, step: 0.1 };
     const slB: Slider3D = { id: 'sl_b', kind: 'slider', name: 'b', visible: true, color: COLORS[1], value: 1, min: -5, max: 5, step: 0.1 };
     const fSrc = 'a*cos(sqrt(x^2 + y^2)) - b';
@@ -511,6 +523,36 @@ export function Calculator3D({ embedded = false, preview = false, initialState, 
     };
     return [slA, slB, surface];
   });
+
+  const lastStateJsonRef = useRef<string>('');
+  useEffect(() => {
+    if (initialState?.objects && initialState.objects.length > 0) {
+      const json = JSON.stringify(initialState.objects);
+      if (json !== lastStateJsonRef.current) {
+        lastStateJsonRef.current = json;
+        setObjects(initialState.objects.map(obj => {
+          if (obj.kind === 'surface') {
+            return {
+              ...obj,
+              compiled: tryCompile(obj.source),
+              error: null,
+            };
+          }
+          return obj;
+        }));
+      }
+    }
+  }, [initialState]);
+
+  useEffect(() => {
+    if (!preview && onStateChange) {
+      const json = JSON.stringify(objects);
+      if (json !== lastStateJsonRef.current) {
+        lastStateJsonRef.current = json;
+        onStateChange({ objects, showAxes, showGrid, autoRotate });
+      }
+    }
+  }, [objects, showAxes, showGrid, autoRotate, onStateChange, preview]);
 
   // UI state
   const [showAxes, setShowAxes] = useState(true);
@@ -1251,13 +1293,6 @@ export function Calculator3D({ embedded = false, preview = false, initialState, 
                               value={editingValue}
                               onFocus={() => { setKeyboardTarget({ type: 'edit', id: surf.id }); setKeyboardOpen(true); }}
                               onChange={(e) => setEditingValue(e.target.value)}
-                              onBlur={(e) => {
-                                const next = e.relatedTarget as HTMLElement | null;
-                                if (next && next.closest && next.closest('[data-mathkbd]')) return;
-                                updateSurfaceSource(surf.id, editingValue);
-                                setEditingId(null);
-                                setKeyboardOpen(false);
-                              }}
                               onKeyDown={(e) => {
                                 if (e.key === 'Enter') {
                                   updateSurfaceSource(surf.id, editingValue);

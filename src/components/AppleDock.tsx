@@ -7,8 +7,7 @@ import {
   Compass, 
   Trash2,
   Moon,
-  Sun,
-  Lock
+  Sun
 } from 'lucide-react';
 import { motion, useMotionValue, useSpring, useTransform, AnimatePresence } from 'motion/react';
 
@@ -29,16 +28,12 @@ export function AppleDock() {
   const clearCanvas = useARStore(state => state.clearCanvas);
   const clearModelLines = useARStore(state => state.clearModelLines);
 
-  const isToolboxOpen = useARStore(state => state.isToolboxOpen);
-  const setToolboxOpen = useARStore(state => state.setToolboxOpen);
-
   const theme = useARStore(state => state.theme);
   const setTheme = useARStore(state => state.setTheme);
 
   const toggleTheme = (event: React.MouseEvent<HTMLButtonElement>) => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
 
-    // @ts-ignore
     if (!document.startViewTransition) {
       setTheme(nextTheme);
       return;
@@ -51,30 +46,19 @@ export function AppleDock() {
       Math.max(y, window.innerHeight - y)
     );
 
-    // @ts-ignore
     const transition = document.startViewTransition(() => {
-      document.documentElement.classList.add('no-transitions');
-      if (nextTheme === 'dark') {
-        document.documentElement.classList.add('dark');
-      } else {
-        document.documentElement.classList.remove('dark');
-      }
       flushSync(() => {
         setTheme(nextTheme);
       });
-      document.documentElement.offsetHeight;
     });
 
-    transition.finished.then(() => {
-      document.documentElement.classList.remove('no-transitions');
-    });
+    const isDarkNext = nextTheme === 'dark';
 
-    const isAppearanceTransition = nextTheme === 'light';
-    const pseudoElement = isAppearanceTransition
+    const pseudoElement = isDarkNext
       ? '::view-transition-new(root)'
       : '::view-transition-old(root)';
 
-    const clipPath = isAppearanceTransition
+    const clipPath = isDarkNext
       ? [
           `circle(0px at ${x}px ${y}px)`,
           `circle(${endRadius}px at ${x}px ${y}px)`
@@ -98,8 +82,6 @@ export function AppleDock() {
       );
     });
   };
-
-  const lockScreen = useARStore(state => state.lockScreen);
 
   const items: DockItem[] = [
     { tab: 'whiteboard', label: '数学 · 白板', icon: <PenTool className="w-6 h-6" /> },
@@ -126,14 +108,6 @@ export function AppleDock() {
             title={theme === 'dark' ? '切换亮色主题' : '切换暗色主题'}
           >
             {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
-          </button>
-
-          <button
-            onClick={lockScreen}
-            className="p-2.5 rounded-xl text-zinc-500 dark:text-zinc-400 hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10 dark:hover:bg-amber-500/20 transition-all duration-200 active:scale-90 cursor-pointer"
-            title="锁定屏幕 (macOS Lock)"
-          >
-            <Lock className="w-5 h-5" />
           </button>
 
           <button

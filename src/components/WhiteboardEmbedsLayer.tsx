@@ -55,7 +55,12 @@ export function WhiteboardEmbedsLayer() {
   useEffect(() => {
     const handleGlobalPointerDown = (e: PointerEvent) => {
       const target = e.target as HTMLElement | null;
-      if (target && !target.closest('[data-embed-card="true"]') && !target.closest('[data-embed-controls="true"]')) {
+      if (
+        target &&
+        !target.closest('[data-embed-card="true"]') &&
+        !target.closest('[data-embed-controls="true"]') &&
+        !target.closest('[data-mathkbd]')
+      ) {
         setSelectedId(null);
         setEditingId(null);
       }
@@ -165,20 +170,25 @@ export function WhiteboardEmbedsLayer() {
             }}
             onPointerDown={(e) => {
               setSelectedId(embed.id);
+              setEditingId(embed.id);
               if (interactMode === 'interact') {
                 startDrag(e, embed, 'move');
               }
             }}
-            onDoubleClick={(e) => {
+            onClick={(e) => {
               e.stopPropagation();
               setEditingId(embed.id);
             }}
           >
             {!embed.minimized && (
               <div
-                className="relative w-full h-full min-h-0"
-                onPointerDown={event => event.stopPropagation()}
-                onDoubleClick={(e) => {
+                className="relative w-full h-full min-h-0 cursor-pointer"
+                onPointerDown={event => {
+                  event.stopPropagation();
+                  setSelectedId(embed.id);
+                  setEditingId(embed.id);
+                }}
+                onClick={(e) => {
                   e.stopPropagation();
                   setEditingId(embed.id);
                 }}
@@ -213,22 +223,16 @@ export function WhiteboardEmbedsLayer() {
         return (
           <div
             data-embed-controls="true"
-            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[250] w-[920px] max-w-[96vw] h-[190px] rounded-[2rem] bg-white/85 dark:bg-zinc-950/90 backdrop-blur-3xl saturate-180 border border-white/60 dark:border-white/15 shadow-[0_25px_80px_rgba(0,0,0,0.45),0_0_0_1px_rgba(255,255,255,0.25)] flex flex-col overflow-hidden pointer-events-auto transition-all duration-300 animate-in fade-in slide-in-from-bottom-8 duration-300"
+            className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[250] w-fit max-w-[96vw] h-[220px] rounded-[2rem] bg-white/85 dark:bg-zinc-950/90 backdrop-blur-3xl saturate-180 border border-white/60 dark:border-white/15 shadow-[0_25px_80px_rgba(0,0,0,0.35),0_0_0_1px_rgba(255,255,255,0.2)] flex flex-col overflow-hidden pointer-events-auto transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] animate-in fade-in slide-in-from-bottom-8"
           >
             {/* Apple 抓手 & 顶栏 */}
-            <div className="flex flex-col shrink-0 border-b border-black/5 dark:border-white/10 bg-white/40 dark:bg-zinc-900/40 select-none">
+            <div className="flex flex-col shrink-0 border-b border-black/5 dark:border-white/10 bg-white/50 dark:bg-zinc-900/50 backdrop-blur-md select-none">
               <div className="flex h-9 items-center justify-between px-5 pt-1">
-                <div className="flex items-center gap-2.5 font-bold text-sm text-slate-800 dark:text-zinc-100 tracking-tight">
-                  <div className="w-7 h-7 rounded-xl bg-cyan-500/15 text-cyan-500 flex items-center justify-center font-black">
-                    {editingEmbed.kind === 'function' ? <Sigma className="w-4 h-4" /> : <Box className="w-4 h-4" />}
-                  </div>
-                  <span>{editingEmbed.kind === 'function' ? '函数与参数属性面板' : '3D 结构与模型面板'}</span>
-                </div>
-                <div className="flex items-center gap-2.5">
+                <div className="flex items-center gap-2 ml-auto">
                   <button
                     type="button"
                     onClick={() => removeWhiteboardEmbed(editingEmbed.id)}
-                    className="px-3 py-1.5 rounded-full text-xs font-medium text-rose-500 hover:bg-rose-500/10 active:scale-95 transition-all cursor-pointer"
+                    className="px-2.5 py-1 rounded-full text-[11px] font-medium text-rose-500 hover:bg-rose-500/10 active:scale-95 transition-all cursor-pointer"
                     title="删除对象"
                   >
                     删除
@@ -236,7 +240,7 @@ export function WhiteboardEmbedsLayer() {
                   <button
                     type="button"
                     onClick={() => setEditingId(null)}
-                    className="px-4.5 py-1.5 rounded-full bg-cyan-500 hover:bg-cyan-400 active:scale-95 text-white font-bold text-xs shadow-[0_4px_14px_rgba(6,182,212,0.35)] transition-all cursor-pointer"
+                    className="px-3.5 py-1 rounded-full bg-[#007AFF] hover:bg-[#0062CC] active:scale-[0.97] text-white font-semibold text-[11px] shadow-sm transition-all cursor-pointer"
                     title="完成编辑"
                   >
                     完成
