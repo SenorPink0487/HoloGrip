@@ -22,8 +22,8 @@ import {
 // New Apple Aesthetic tab components
 import { AppleDock } from './components/AppleDock';
 import { WhiteboardCanvas } from './components/WhiteboardCanvas';
+import { WhiteboardEmbedsLayer } from './components/WhiteboardEmbedsLayer';
 import { GeometryBoard } from './components/GeometryBoard';
-import { FunctionExplorer } from './components/FunctionExplorer';
 import { ToolboxPanel } from './components/ToolboxPanel';
 import { FloatingWindow } from './components/FloatingWindow';
 
@@ -44,10 +44,6 @@ import { LauncherPortal } from './components/desktop/LauncherPortal';
 const ARExperience = lazy(() =>
   import('./components/ARExperience').then(module => ({ default: module.ARExperience }))
 );
-const Calculator3D = lazy(() =>
-  import('./components/Calculator3D').then(module => ({ default: module.Calculator3D }))
-);
-
 function todayString() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -494,7 +490,7 @@ export default function App() {
           <span>返回白板</span>
         </motion.button>
       )}
-      {(activeTab === 'whiteboard' || activeTab === 'function') && (
+      {activeTab === 'whiteboard' && (
         <motion.button
           ref={menuToggleButtonRef}
           type="button"
@@ -547,7 +543,7 @@ export default function App() {
           </div>
         </motion.button>
       )}
-      {(activeTab === 'whiteboard' || activeTab === 'function') && classroomMenuOpen && (
+      {activeTab === 'whiteboard' && classroomMenuOpen && (
         <div
           ref={classroomMenuRef}
           className={cn(
@@ -761,7 +757,7 @@ export default function App() {
         </div>
       )}
       {/* 1. 微点底纹背景 (用于白板等 2D 教学模块，不包括函数探究) */}
-      {activeTab !== 'ar_3d' && activeTab !== 'function' && (
+      {activeTab !== 'ar_3d' && (
         <div 
           className="absolute inset-0 pointer-events-none opacity-20 transition-all duration-500" 
           style={{ 
@@ -779,19 +775,11 @@ export default function App() {
           <GeometryBoard />
         </div>
       )}
-      {activeTab === 'function' && (
-        <div className="absolute inset-0 z-[35]">
-          <FunctionExplorer />
-        </div>
-      )}
-      {activeTab === 'calculator3d' && (
-        <div className="absolute inset-0 z-[35]">
-          <Suspense fallback={null}>
-            <Calculator3D />
-          </Suspense>
-        </div>
-      )}
  
+      {activeTab === 'whiteboard' && (
+        <WhiteboardEmbedsLayer />
+      )}
+
       {activeTab === 'whiteboard' && (
         <>
           <FloatingWindow 

@@ -476,9 +476,23 @@ function buildPlane(a: number, b: number, c: number, d: number, color: string): 
 
 // ============================================================
 // Main Calculator3D Component
-// ============================================================
+export type SerializedGeo3DObject = Omit<Surface3D, 'compiled'> | Point3D | Line3D | Sphere3D | Cylinder3D | Cone3D | Plane3D | Slider3D;
 
-export function Calculator3D() {
+export interface Calculator3DState {
+  objects: SerializedGeo3DObject[];
+  showAxes: boolean;
+  showGrid: boolean;
+  autoRotate: boolean;
+}
+
+export interface Calculator3DProps {
+  embedded?: boolean;
+  preview?: boolean;
+  initialState?: Calculator3DState;
+  onStateChange?: (state: Calculator3DState) => void;
+}
+
+export function Calculator3D({ embedded = false, preview = false, initialState, onStateChange }: Calculator3DProps = {}) {
   const theme = useARStore((state) => state.theme);
   const isDark = theme === 'dark';
 
@@ -1060,19 +1074,22 @@ export function Calculator3D() {
   // Render
   // ============================================================
   return (
-    <div className="w-full h-full flex z-[35] relative select-none bg-gradient-to-br from-slate-50 to-slate-100 dark:from-zinc-950 dark:to-zinc-900 transition-colors duration-500 overflow-hidden">
+    <div data-embed-content={embedded ? 'calculator3d' : undefined} data-calculator-preview={preview ? 'true' : undefined} className={cn("w-full h-full flex z-[35] relative select-none transition-colors duration-500 overflow-hidden", embedded ? "bg-transparent text-slate-800 dark:text-white" : "bg-gradient-to-br from-slate-50 to-slate-100 dark:from-zinc-950 dark:to-zinc-900")}>
 
       {/* ===== 1. Left Sidebar ===== */}
       <div
         className={cn(
-          'h-full flex flex-col relative z-[36] select-none overflow-hidden border-r backdrop-blur-2xl transition-[width] duration-300',
+          'flex flex-col select-none overflow-hidden backdrop-blur-2xl transition-[width,opacity] duration-300',
+          embedded 
+            ? 'absolute left-4 top-4 bottom-4 z-[40] w-[360px] max-w-[calc(100%-2rem)] rounded-2xl border shadow-2xl' 
+            : 'h-full relative z-[36] border-r w-[400px]',
           isDark
-            ? 'border-white/10 bg-zinc-950/80 shadow-[10px_0_30px_rgba(0,0,0,0.5)]'
-            : 'border-slate-200/80 bg-white/80 shadow-[10px_0_30px_rgba(0,0,0,0.05)]',
-          isSidebarCollapsed ? 'w-0 border-r-0' : 'w-[400px]'
+            ? 'border-white/10 bg-zinc-950/90 text-zinc-100 shadow-[10px_0_30px_rgba(0,0,0,0.5)]'
+            : 'border-slate-200/80 bg-white/90 text-slate-800 shadow-[10px_0_30px_rgba(0,0,0,0.05)]',
+          preview ? 'hidden' : isSidebarCollapsed ? 'w-0 border-0 p-0 opacity-0 pointer-events-none' : 'opacity-100'
         )}
       >
-        <div className="w-[400px] h-full flex flex-col shrink-0">
+        <div className={cn(embedded ? "w-full" : "w-[400px]", "h-full flex flex-col shrink-0 overflow-y-auto")}>
 
           {/* --- Header tabs --- */}
           <div className="flex items-center justify-between p-4 border-b border-black/5 dark:border-white/10 shrink-0">

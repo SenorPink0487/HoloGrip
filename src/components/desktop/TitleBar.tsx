@@ -16,15 +16,15 @@ import { Minus, Square, Copy, X, Lock, Sparkles, UserCheck, LayoutGrid, ArrowLef
 import { useARStore } from '../../store';
 
 const SUBJECT_TITLES: Record<string, string> = {
-  launcher: '🚀 HoloGrip 启动器大厅 · 空间科学实验室',
-  whiteboard: '📐 数学 · 空间几何超级白板',
-  function: '📈 数学 · 三维动态函数探究',
-  calculator3d: '📦 数学 · 空间计算器与几何模型',
-  ar_3d: '🧭 数学 · 空间 AR 交互体验',
-  physics: '⚡ 物理 · 3D 经典力学与实验室',
-  chem: '🧪 化学 · 3D 分子结构观象台',
-  rocket: '🚀 航天 · 矢量轨道与推进仿真',
-  pool: '🎱 台球 · 三维碰撞物理引擎',
+  launcher: 'HoloGrip 启动器大厅 · 空间科学实验室',
+  whiteboard: '数学 · 空间几何超级白板',
+  function: '数学 · 三维动态函数探究',
+  calculator3d: '数学 · 空间计算器与几何模型',
+  ar_3d: '数学 · 空间 AR 交互体验',
+  physics: '物理 · 3D 经典力学与实验室',
+  chem: '化学 · 3D 分子结构观象台',
+  rocket: '航天 · 矢量轨道与推进仿真',
+  pool: '台球 · 三维碰撞物理引擎',
 };
 
 export function TitleBar() {

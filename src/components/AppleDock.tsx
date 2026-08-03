@@ -4,8 +4,6 @@ import { useARStore, AppTab } from '../store';
 import { cn } from '../lib/utils';
 import { 
   PenTool, 
-  TrendingUp, 
-  Box, 
   Compass, 
   Trash2,
   Moon,
@@ -20,7 +18,7 @@ interface DockItem {
   icon: React.ReactNode;
 }
 
-const MATH_TABS: AppTab[] = ['whiteboard', 'function', 'calculator3d'];
+const MATH_TABS: AppTab[] = ['whiteboard'];
 
 export function AppleDock() {
   const activeTab = useARStore(state => state.activeTab);
@@ -104,10 +102,8 @@ export function AppleDock() {
   const lockScreen = useARStore(state => state.lockScreen);
 
   const items: DockItem[] = [
-    { tab: 'whiteboard', label: '📐 数学 · 白板', icon: <PenTool className="w-6 h-6" /> },
-    { tab: 'function', label: '📈 函数探究', icon: <TrendingUp className="w-6 h-6" /> },
-    { tab: 'calculator3d', label: '📦 3D计算器', icon: <Box className="w-6 h-6" /> },
-    { tab: 'ar_3d', label: '🧭 空间AR', icon: <Compass className="w-6 h-6" /> },
+    { tab: 'whiteboard', label: '数学 · 白板', icon: <PenTool className="w-6 h-6" /> },
+    { tab: 'ar_3d', label: '空间AR', icon: <Compass className="w-6 h-6" /> },
   ];
 
   const getIsActive = (tab: AppTab) => {
@@ -122,7 +118,7 @@ export function AppleDock() {
   return (
     <>
       <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 select-none pointer-events-auto">
-        {/* Themes, Lock & Clear panel */}
+        {/* Themes & Clear panel */}
         <div className="flex items-center gap-1.5 p-2 rounded-2xl bg-white/70 dark:bg-zinc-900/60 backdrop-blur-2xl border border-black/5 dark:border-white/10 shadow-2xl transition-all duration-500">
           <button
             onClick={toggleTheme}
@@ -131,7 +127,7 @@ export function AppleDock() {
           >
             {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </button>
-          
+
           <button
             onClick={lockScreen}
             className="p-2.5 rounded-xl text-zinc-500 dark:text-zinc-400 hover:text-amber-500 dark:hover:text-amber-400 hover:bg-amber-500/10 dark:hover:bg-amber-500/20 transition-all duration-200 active:scale-90 cursor-pointer"

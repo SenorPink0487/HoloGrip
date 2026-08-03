@@ -583,9 +583,7 @@ export function WhiteboardCanvas() {
 
 
   useEffect(() => {
-    if (activeTab === 'function') {
-      setInteractMode('interact');
-    } else if (activeTab === 'whiteboard') {
+    if (activeTab === 'whiteboard') {
       setInteractMode('draw');
     }
   }, [activeTab]);
@@ -620,7 +618,7 @@ export function WhiteboardCanvas() {
   }, []);
 
 
-  if (activeTab !== 'whiteboard' && activeTab !== 'function') return null;
+  if (activeTab !== 'whiteboard') return null;
 
   return (
     <>

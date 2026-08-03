@@ -79,11 +79,26 @@ export interface PageData {
   whiteboardDataUrl: string | null;
   boardWidth?: number;
   boardHeight?: number;
+  embeds?: WhiteboardEmbed[];
   geometry: {
     points: any[];
     segments: any[];
     circles: any[];
   };
+}
+
+export type WhiteboardEmbedKind = 'function' | 'calculator3d';
+
+export interface WhiteboardEmbed {
+  id: string;
+  kind: WhiteboardEmbedKind;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  zIndex: number;
+  minimized: boolean;
+  state: Record<string, unknown>;
 }
 
 const WHITEBOARD_WIDTH = 1920;
@@ -221,6 +236,9 @@ interface ARState {
   saveCurrentPageWhiteboard: (dataUrl: string | null, size?: { width: number; height: number }) => void;
   clearPageWhiteboard: (pageIndex: number) => void;
   saveCurrentPageGeometry: (points: any[], segments: any[], circles: any[]) => void;
+  addWhiteboardEmbed: (embed: WhiteboardEmbed) => void;
+  updateWhiteboardEmbed: (id: string, patch: Partial<WhiteboardEmbed>) => void;
+  removeWhiteboardEmbed: (id: string) => void;
   restoreWhiteboardSnapshot: (pages: PageData[], currentPageIndex: number) => void;
 
   // 控制方法
@@ -264,7 +282,7 @@ export const useARStore = create<ARState>((set) => ({
   isModelPanelOpen: false,
   isPenPanelOpen: false,
   isPenActive: false,
-  penColor: '#ffffff',
+  penColor: '#09090b',
   penThickness: 3,
   isEraser: false,
   triggerClearCanvas: 0,
@@ -298,6 +316,7 @@ export const useARStore = create<ARState>((set) => ({
     whiteboardDataUrl: null,
     boardWidth: WHITEBOARD_WIDTH,
     boardHeight: WHITEBOARD_HEIGHT,
+    embeds: [],
     geometry: { points: [], segments: [], circles: [] },
   }],
   currentPageIndex: 0,
@@ -311,7 +330,7 @@ export const useARStore = create<ARState>((set) => ({
   showProtractor: false,
   showCompass: false,
 
-  theme: 'dark',
+  theme: 'light',
 
   updateHands: (left, right) => set((state) => {
     // 注意：必须返回**新的**leftHand/rightHand对象引用，否则 zustand 浅比较会认为
@@ -363,7 +382,7 @@ export const useARStore = create<ARState>((set) => ({
   setAnalyzing: (v) => set({ isAnalyzing: v }),
   setModelScale: (s) => set({ modelScale: s }),
   
-  setActiveTab: (t) => set({ activeTab: t }),
+  setActiveTab: (t) => set({ activeTab: t === 'function' || t === 'calculator3d' ? 'whiteboard' : t }),
   setModelPanelOpen: (o) => set({ isModelPanelOpen: o }),
   setPenPanelOpen: (o) => set({ isPenPanelOpen: o }),
   // 画笔与连线/剖切互斥：启用画笔时自动关闭其它 3D 绘制模式，避免捏合手势同时触发多种行为
@@ -534,6 +553,7 @@ export const useARStore = create<ARState>((set) => ({
       whiteboardDataUrl: null,
       boardWidth: WHITEBOARD_WIDTH,
       boardHeight: WHITEBOARD_HEIGHT,
+      embeds: [],
       geometry: { points: [], segments: [], circles: [] },
     };
     return {
@@ -586,6 +606,30 @@ export const useARStore = create<ARState>((set) => ({
     };
     return { pages: newPages };
   }),
+  addWhiteboardEmbed: (embed) => set((state) => {
+    const newPages = [...state.pages];
+    const page = newPages[state.currentPageIndex];
+    if (!page) return state;
+    newPages[state.currentPageIndex] = { ...page, embeds: [...(page.embeds ?? []), embed] };
+    return { pages: newPages };
+  }),
+  updateWhiteboardEmbed: (id, patch) => set((state) => {
+    const newPages = [...state.pages];
+    const page = newPages[state.currentPageIndex];
+    if (!page) return state;
+    newPages[state.currentPageIndex] = {
+      ...page,
+      embeds: (page.embeds ?? []).map(embed => embed.id === id ? { ...embed, ...patch } : embed),
+    };
+    return { pages: newPages };
+  }),
+  removeWhiteboardEmbed: (id) => set((state) => {
+    const newPages = [...state.pages];
+    const page = newPages[state.currentPageIndex];
+    if (!page) return state;
+    newPages[state.currentPageIndex] = { ...page, embeds: (page.embeds ?? []).filter(embed => embed.id !== id) };
+    return { pages: newPages };
+  }),
   restoreWhiteboardSnapshot: (pages, currentPageIndex) => set((state) => {
     const safePages = pages.length > 0
       ? pages.map((page, index) => ({
@@ -593,6 +637,19 @@ export const useARStore = create<ARState>((set) => ({
           whiteboardDataUrl: typeof page.whiteboardDataUrl === 'string' ? page.whiteboardDataUrl : null,
           boardWidth: typeof page.boardWidth === 'number' ? page.boardWidth : undefined,
           boardHeight: typeof page.boardHeight === 'number' ? page.boardHeight : undefined,
+          embeds: Array.isArray(page.embeds)
+            ? page.embeds.filter(embed => embed && typeof embed === 'object').map((embed, embedIndex) => ({
+                id: typeof embed.id === 'string' && embed.id ? embed.id : `embed_${index}_${embedIndex}`,
+                kind: (embed.kind === 'calculator3d' ? 'calculator3d' : 'function') as WhiteboardEmbedKind,
+                x: typeof embed.x === 'number' ? embed.x : 160,
+                y: typeof embed.y === 'number' ? embed.y : 140,
+                width: typeof embed.width === 'number' ? embed.width : 760,
+                height: typeof embed.height === 'number' ? embed.height : 520,
+                zIndex: typeof embed.zIndex === 'number' ? embed.zIndex : embedIndex + 1,
+                minimized: Boolean(embed.minimized),
+                state: embed.state && typeof embed.state === 'object' ? embed.state : {},
+              }))
+            : [],
           geometry: {
             points: Array.isArray(page.geometry?.points) ? page.geometry.points : [],
             segments: Array.isArray(page.geometry?.segments) ? page.geometry.segments : [],
@@ -604,6 +661,7 @@ export const useARStore = create<ARState>((set) => ({
           whiteboardDataUrl: null,
           boardWidth: WHITEBOARD_WIDTH,
           boardHeight: WHITEBOARD_HEIGHT,
+          embeds: [],
           geometry: { points: [], segments: [], circles: [] },
         }];
 

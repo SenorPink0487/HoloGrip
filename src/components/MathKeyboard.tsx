@@ -1,17 +1,17 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
+import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { useARStore } from '../store';
 import { X, Delete, ChevronLeft, ChevronRight, CornerDownLeft } from 'lucide-react';
 
 /**
- * GeoGebra 风格的浮动数学虚拟键盘
- * 
- * 用法: 在父组件中保留输入框 ref, 监听光标位置, 通过 onInsert 把文本片段
- * 插入到光标处。键盘的所有按钮都用 onMouseDown + preventDefault 来防止
- * 输入框失焦。
+ * GeoGebra 风格的苹果视效浮动数学虚拟键盘
  */
 
 interface MathKeyboardProps {
   visible: boolean;
+  position?: 'absolute' | 'fixed';
   onClose: () => void;
   onInsert: (text: string, opts?: { caretOffset?: number }) => void;
   onBackspace: () => void;
@@ -22,17 +22,11 @@ interface MathKeyboardProps {
 type Tab = 'num' | 'fn' | 'abc' | 'sym';
 
 interface KeyDef {
-  /** 显示文本 (支持 react node) */
   label: React.ReactNode;
-  /** 实际插入的字符串 */
   insert: string;
-  /** 插入后光标相对偏移 (默认插入后停在末尾;如果是 sin(),通常希望停在括号内) */
   caretOffset?: number;
-  /** 占用网格列数 */
   span?: number;
-  /** 高亮配色: 主色按钮 (运算符等) */
   variant?: 'default' | 'accent' | 'op' | 'danger';
-  /** 自定义点击 (覆盖 insert 行为) */
   onClick?: () => void;
 }
 
@@ -40,6 +34,7 @@ const ROW_HEIGHT = 'h-11';
 
 export function MathKeyboard({
   visible,
+  position = 'absolute',
   onClose,
   onInsert,
   onBackspace,
@@ -47,8 +42,9 @@ export function MathKeyboard({
   onSubmit,
 }: MathKeyboardProps) {
   const [tab, setTab] = useState<Tab>('num');
+  const theme = useARStore(state => state.theme);
+  const isDark = theme === 'dark';
 
-  // 把按钮事件挂到 mouseDown 上,并 preventDefault, 避免输入框失焦
   const handleKey = (k: KeyDef) => (e: React.MouseEvent) => {
     e.preventDefault();
     if (k.onClick) {
@@ -58,8 +54,6 @@ export function MathKeyboard({
     onInsert(k.insert, { caretOffset: k.caretOffset });
   };
 
-  // ----- 数字面板 (123) -----
-  // 仿 GeoGebra: 顶行变量 (x, y, π, e), 三列字母数字, 两列运算符, 底部 ans/逗号/括号/箭头
   const numKeys: KeyDef[][] = [
     [
       { label: <i>x</i>, insert: 'x', variant: 'accent' },
@@ -74,7 +68,7 @@ export function MathKeyboard({
     ],
     [
       { label: <span>x²</span>, insert: '^2' },
-      { label: <span>xⁿ</span>, insert: '^', },
+      { label: <span>xⁿ</span>, insert: '^' },
       { label: '√', insert: 'sqrt()', caretOffset: -1 },
       { label: <span>|x|</span>, insert: 'abs()', caretOffset: -1 },
       { label: '4', insert: '4' },
@@ -92,111 +86,104 @@ export function MathKeyboard({
       { label: '2', insert: '2' },
       { label: '3', insert: '3' },
       { label: '=', insert: '=', variant: 'op' },
-      { label: <Delete className="w-4 h-4" />, insert: '', variant: 'danger', onClick: onBackspace },
+      { label: <Delete className="w-4.5 h-4.5" />, insert: '', onClick: onBackspace, variant: 'danger' },
     ],
     [
-      { label: <i>x</i>, insert: 'x', variant: 'accent' },
+      { label: 'ans', insert: 'ans' },
       { label: ',', insert: ',' },
-      { label: '0', insert: '0' },
+      { label: '0', insert: '0', span: 2 },
       { label: '.', insert: '.' },
-      { label: <ChevronLeft className="w-4 h-4" />, insert: '', onClick: () => onArrow('left') },
-      { label: <ChevronRight className="w-4 h-4" />, insert: '', onClick: () => onArrow('right') },
-      { label: <CornerDownLeft className="w-4 h-4" />, insert: '', variant: 'accent', span: 3, onClick: onSubmit },
+      { label: <ChevronLeft className="w-4.5 h-4.5" />, insert: '', onClick: () => onArrow('left') },
+      { label: <ChevronRight className="w-4.5 h-4.5" />, insert: '', onClick: () => onArrow('right') },
+      { label: <CornerDownLeft className="w-4.5 h-4.5" />, insert: '', onClick: onSubmit, variant: 'op', span: 2 },
     ],
   ];
 
-  // ----- 函数面板 f(x) -----
   const fnKeys: KeyDef[][] = [
     [
-      { label: 'sin', insert: 'sin()', caretOffset: -1 },
-      { label: 'cos', insert: 'cos()', caretOffset: -1 },
-      { label: 'tan', insert: 'tan()', caretOffset: -1 },
-      { label: 'ln', insert: 'ln()', caretOffset: -1 },
-      { label: 'log', insert: 'log()', caretOffset: -1 },
-      { label: <span>e<sup>x</sup></span>, insert: 'exp()', caretOffset: -1 },
-      { label: <span>x<sup>n</sup></span>, insert: '^' },
-    ],
-    [
+      { label: 'sin', insert: 'sin()', caretOffset: -1, variant: 'accent' },
+      { label: 'cos', insert: 'cos()', caretOffset: -1, variant: 'accent' },
+      { label: 'tan', insert: 'tan()', caretOffset: -1, variant: 'accent' },
       { label: 'asin', insert: 'asin()', caretOffset: -1 },
       { label: 'acos', insert: 'acos()', caretOffset: -1 },
       { label: 'atan', insert: 'atan()', caretOffset: -1 },
+    ],
+    [
+      { label: 'ln', insert: 'ln()', caretOffset: -1, variant: 'accent' },
+      { label: 'log₁₀', insert: 'log()', caretOffset: -1 },
+      { label: 'eⁿ', insert: 'exp()', caretOffset: -1 },
+      { label: '10ⁿ', insert: '10^', variant: 'accent' },
+      { label: 'sec', insert: 'sec()', caretOffset: -1 },
+      { label: 'csc', insert: 'csc()', caretOffset: -1 },
+    ],
+    [
       { label: 'sinh', insert: 'sinh()', caretOffset: -1 },
       { label: 'cosh', insert: 'cosh()', caretOffset: -1 },
       { label: 'tanh', insert: 'tanh()', caretOffset: -1 },
-      { label: '√', insert: 'sqrt()', caretOffset: -1 },
+      { label: 'cot', insert: 'cot()', caretOffset: -1 },
+      { label: 'sgn', insert: 'sgn()', caretOffset: -1 },
+      { label: 'round', insert: 'round()', caretOffset: -1 },
     ],
     [
-      { label: 'abs', insert: 'abs()', caretOffset: -1 },
       { label: 'floor', insert: 'floor()', caretOffset: -1 },
       { label: 'ceil', insert: 'ceil()', caretOffset: -1 },
-      { label: 'round', insert: 'round()', caretOffset: -1 },
-      { label: 'sign', insert: 'sign()', caretOffset: -1 },
-      { label: 'max', insert: 'max(,)', caretOffset: -2 },
-      { label: 'min', insert: 'min(,)', caretOffset: -2 },
-    ],
-    [
-      { label: 'π', insert: 'pi', variant: 'accent' },
-      { label: 'e', insert: 'e', variant: 'accent' },
-      { label: '(', insert: '(' },
-      { label: ')', insert: ')' },
-      { label: <ChevronLeft className="w-4 h-4" />, insert: '', onClick: () => onArrow('left') },
-      { label: <ChevronRight className="w-4 h-4" />, insert: '', onClick: () => onArrow('right') },
-      { label: <Delete className="w-4 h-4" />, insert: '', variant: 'danger', onClick: onBackspace },
+      { label: 'min(a,b)', insert: 'min(,)', caretOffset: -2 },
+      { label: 'max(a,b)', insert: 'max(,)', caretOffset: -2 },
+      { label: <Delete className="w-4.5 h-4.5" />, insert: '', onClick: onBackspace, variant: 'danger', span: 2 },
     ],
   ];
 
-  // ----- 字母面板 ABC -----
+  const abcRows = [
+    ['q','w','e','r','t','y','u','i','o','p'],
+    ['a','s','d','f','g','h','j','k','l'],
+    ['z','x','c','v','b','n','m'],
+  ];
   const abcKeys: KeyDef[][] = [
-    'qwertyuiop'.split('').map(c => ({ label: c, insert: c })),
-    'asdfghjkl'.split('').map(c => ({ label: c, insert: c })),
-    'zxcvbnm'.split('').map(c => ({ label: c, insert: c })),
+    abcRows[0].map(ch => ({ label: ch, insert: ch })),
+    abcRows[1].map(ch => ({ label: ch, insert: ch })),
+    [
+      ...abcRows[2].map(ch => ({ label: ch, insert: ch })),
+      { label: <Delete className="w-4.5 h-4.5" />, insert: '', onClick: onBackspace, variant: 'danger', span: 2 },
+    ],
     [
       { label: 'a', insert: 'a', variant: 'accent' },
       { label: 'b', insert: 'b', variant: 'accent' },
       { label: 'c', insert: 'c', variant: 'accent' },
       { label: 'k', insert: 'k', variant: 'accent' },
-      { label: '(', insert: '(' },
-      { label: ')', insert: ')' },
-      { label: <ChevronLeft className="w-4 h-4" />, insert: '', onClick: () => onArrow('left') },
-      { label: <ChevronRight className="w-4 h-4" />, insert: '', onClick: () => onArrow('right') },
-      { label: <Delete className="w-4 h-4" />, insert: '', variant: 'danger', onClick: onBackspace },
+      { label: 'space', insert: ' ', span: 3 },
+      { label: <CornerDownLeft className="w-4.5 h-4.5" />, insert: '', onClick: onSubmit, variant: 'op', span: 2 },
     ],
   ];
 
-  // ----- 符号面板 #&¬ -----
   const symKeys: KeyDef[][] = [
     [
-      { label: '+', insert: '+', variant: 'op' },
-      { label: '−', insert: '-', variant: 'op' },
-      { label: '×', insert: '*', variant: 'op' },
-      { label: '÷', insert: '/', variant: 'op' },
-      { label: '%', insert: '%', variant: 'op' },
-      { label: '^', insert: '^', variant: 'op' },
-      { label: '=', insert: '=', variant: 'op' },
+      { label: '≤', insert: '<=' },
+      { label: '≥', insert: '>=' },
+      { label: '≠', insert: '!=' },
+      { label: '≈', insert: 'approx' },
+      { label: '∞', insert: 'infinity' },
+      { label: 'θ', insert: 'theta' },
+      { label: 'α', insert: 'alpha' },
+      { label: 'β', insert: 'beta' },
     ],
     [
-      { label: '(', insert: '(' },
-      { label: ')', insert: ')' },
-      { label: ',', insert: ',' },
-      { label: '.', insert: '.' },
-      { label: '<', insert: '<' },
-      { label: '>', insert: '>' },
+      { label: '{', insert: '{' },
+      { label: '}', insert: '}' },
+      { label: '[', insert: '[' },
+      { label: ']', insert: ']' },
+      { label: ':', insert: ':' },
+      { label: ';', insert: ';' },
+      { label: '!', insert: '!' },
+      { label: '?', insert: '?' },
+    ],
+    [
+      { label: '%', insert: '%' },
+      { label: '^', insert: '^' },
+      { label: '_', insert: '_' },
+      { label: '~', insert: '~' },
       { label: '|', insert: '|' },
-    ],
-    [
-      { label: 'π', insert: 'pi', variant: 'accent' },
-      { label: 'e', insert: 'e', variant: 'accent' },
-      { label: '∞', insert: 'inf', variant: 'accent' },
-      { label: '√', insert: 'sqrt()', caretOffset: -1 },
-      { label: 'x²', insert: '^2' },
-      { label: 'x³', insert: '^3' },
-      { label: 'xⁿ', insert: '^' },
-    ],
-    [
-      { label: <ChevronLeft className="w-4 h-4" />, insert: '', onClick: () => onArrow('left') },
-      { label: <ChevronRight className="w-4 h-4" />, insert: '', onClick: () => onArrow('right') },
-      { label: <Delete className="w-4 h-4" />, insert: '', variant: 'danger', span: 2, onClick: onBackspace },
-      { label: <CornerDownLeft className="w-4 h-4" />, insert: '', variant: 'accent', span: 3, onClick: onSubmit },
+      { label: '&', insert: '&' },
+      { label: <Delete className="w-4.5 h-4.5" />, insert: '', onClick: onBackspace, variant: 'danger', span: 2 },
     ],
   ];
 
@@ -209,92 +196,127 @@ export function MathKeyboard({
 
   const tabKeys = keysByTab[tab];
 
-  return (
-    <div
-      className={cn(
-        'absolute left-0 right-0 bottom-[108px] z-[40] transition-transform duration-300 ease-out',
-        visible ? 'translate-y-0' : 'translate-y-[calc(100%+108px)] pointer-events-none'
-      )}
-      data-mathkbd
-      // 整个键盘容器吃掉 mouseDown,避免 click outside 触发 blur
-      onMouseDown={(e) => e.preventDefault()}
-    >
-      <div className="mx-auto max-w-[760px] m-3 rounded-3xl bg-zinc-900/85 backdrop-blur-2xl border border-white/10 shadow-[0_24px_60px_rgba(0,0,0,0.6)] overflow-hidden">
-        {/* 顶部分类条 */}
-        <div className="flex items-center gap-1 px-3 pt-2.5 pb-1.5 border-b border-white/10">
-          <TabButton active={tab === 'num'} onClick={() => setTab('num')}>
-            <span className="font-mono">123</span>
-          </TabButton>
-          <TabButton active={tab === 'fn'} onClick={() => setTab('fn')}>
-            <span className="italic">f(x)</span>
-          </TabButton>
-          <TabButton active={tab === 'abc'} onClick={() => setTab('abc')}>
-            <span>ABC</span>
-          </TabButton>
-          <TabButton active={tab === 'sym'} onClick={() => setTab('sym')}>
-            <span className="font-mono">#&¬</span>
-          </TabButton>
+  const keyboardJSX = (
+    <AnimatePresence key="mathkbd-anim">
+      {visible && (
+        <motion.div
+          initial={{ y: 30, opacity: 0, scale: 0.95 }}
+          animate={{ y: 0, opacity: 1, scale: 1 }}
+          exit={{ y: 30, opacity: 0, scale: 0.95 }}
+          transition={{ type: "spring", stiffness: 420, damping: 30 }}
+          className={cn(
+            position === 'fixed'
+              ? 'fixed left-1/2 -translate-x-1/2 bottom-[215px] z-[9999] w-[740px] max-w-[95vw] pointer-events-auto'
+              : 'absolute left-0 right-0 bottom-[108px] z-[40]'
+          )}
+          data-mathkbd
+          onMouseDown={(e) => e.preventDefault()}
+        >
+          <div className={cn(
+            "mx-auto max-w-[760px] rounded-3xl backdrop-blur-3xl border shadow-2xl overflow-hidden transition-colors duration-300",
+            isDark 
+              ? "bg-zinc-950/90 border-white/15 text-white shadow-[0_30px_70px_rgba(0,0,0,0.7)]" 
+              : "bg-white/90 border-black/10 text-slate-800 shadow-[0_25px_60px_rgba(0,0,0,0.15)]",
+            position === 'absolute' && 'm-3'
+          )}>
+            <div className={cn("flex items-center gap-1 px-3 pt-2.5 pb-1.5 border-b", isDark ? "border-white/10" : "border-black/10")}>
+              <TabButton active={tab === 'num'} onClick={() => setTab('num')} isDark={isDark}>
+                <span className="font-mono">123</span>
+              </TabButton>
+              <TabButton active={tab === 'fn'} onClick={() => setTab('fn')} isDark={isDark}>
+                <span className="italic">f(x)</span>
+              </TabButton>
+              <TabButton active={tab === 'abc'} onClick={() => setTab('abc')} isDark={isDark}>
+                <span>ABC</span>
+              </TabButton>
+              <TabButton active={tab === 'sym'} onClick={() => setTab('sym')} isDark={isDark}>
+                <span className="font-mono">#&¬</span>
+              </TabButton>
 
-          <div className="ml-auto flex items-center gap-1">
-            <button
-              type="button"
-              onMouseDown={(e) => { e.preventDefault(); onClose(); }}
-              className="w-8 h-8 rounded-lg text-zinc-400 hover:text-white hover:bg-white/10 flex items-center justify-center transition-all active:scale-90"
-              title="关闭"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
-        {/* 按键区 */}
-        <div className="p-2.5 flex flex-col gap-1.5">
-          {tabKeys.map((row, rIdx) => (
-            <div
-              key={rIdx}
-              className={cn('grid gap-1.5', ROW_HEIGHT)}
-              style={{
-                gridTemplateColumns: `repeat(${row.reduce((s, k) => s + (k.span ?? 1), 0)}, minmax(0,1fr))`,
-              }}
-            >
-              {row.map((k, kIdx) => (
+              <div className="ml-auto flex items-center gap-1">
                 <button
-                  key={kIdx}
                   type="button"
-                  onMouseDown={handleKey(k)}
+                  onMouseDown={(e) => { e.preventDefault(); onClose(); }}
                   className={cn(
-                    'rounded-xl flex items-center justify-center text-sm font-medium select-none transition-all active:scale-[0.94] border',
-                    k.span && k.span > 1 ? '' : '',
-                    k.variant === 'accent' && 'bg-cyan-500/15 border-cyan-400/30 text-cyan-300 hover:bg-cyan-500/25',
-                    k.variant === 'op' && 'bg-amber-500/12 border-amber-400/25 text-amber-200 hover:bg-amber-500/22',
-                    k.variant === 'danger' && 'bg-rose-500/12 border-rose-400/25 text-rose-300 hover:bg-rose-500/22',
-                    (!k.variant || k.variant === 'default') && 'bg-white/5 border-white/10 text-zinc-200 hover:bg-white/10 hover:text-white'
+                    "w-8 h-8 rounded-xl flex items-center justify-center transition-all active:scale-90 cursor-pointer",
+                    isDark ? "text-zinc-400 hover:text-white hover:bg-white/10" : "text-slate-500 hover:text-slate-900 hover:bg-black/5"
                   )}
-                  style={k.span ? { gridColumn: `span ${k.span} / span ${k.span}` } : undefined}
+                  title="关闭键盘"
                 >
-                  {k.label}
+                  <X className="w-4 h-4" />
                 </button>
+              </div>
+            </div>
+
+            <div className="p-3">
+              {tabKeys.map((row, rIdx) => (
+                <div key={rIdx} className="flex gap-1.5 mb-1.5 last:mb-0">
+                  {row.map((k, cIdx) => (
+                    <button
+                      key={cIdx}
+                      type="button"
+                      onMouseDown={handleKey(k)}
+                      className={cn(
+                        'flex-1 flex items-center justify-center rounded-xl font-mono text-sm transition-all select-none active:scale-95 border cursor-pointer',
+                        ROW_HEIGHT,
+                        k.variant === 'accent' && (
+                          isDark 
+                            ? 'bg-cyan-500/20 border-cyan-400/30 text-cyan-200 hover:bg-cyan-500/30' 
+                            : 'bg-cyan-50 border-cyan-200 text-cyan-800 hover:bg-cyan-100 font-bold'
+                        ),
+                        k.variant === 'op' && (
+                          isDark 
+                            ? 'bg-amber-500/18 border-amber-400/30 text-amber-200 hover:bg-amber-500/28 font-bold' 
+                            : 'bg-amber-50 border-amber-200 text-amber-800 hover:bg-amber-100 font-bold'
+                        ),
+                        k.variant === 'danger' && (
+                          isDark 
+                            ? 'bg-rose-500/15 border-rose-400/25 text-rose-300 hover:bg-rose-500/25' 
+                            : 'bg-rose-50 border-rose-200 text-rose-700 hover:bg-rose-100 font-bold'
+                        ),
+                        (!k.variant || k.variant === 'default') && (
+                          isDark 
+                            ? 'bg-white/5 border-white/10 text-zinc-200 hover:bg-white/10 hover:text-white' 
+                            : 'bg-slate-100/90 border-slate-200 text-slate-800 hover:bg-slate-200 hover:text-slate-950 font-semibold'
+                        )
+                      )}
+                      style={k.span ? { flex: k.span, minWidth: `${(k.span / row.length) * 100}%` } : undefined}
+                    >
+                      {k.label}
+                    </button>
+                  ))}
+                </div>
               ))}
             </div>
-          ))}
-        </div>
-      </div>
-    </div>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
+
+  if (position === 'fixed') {
+    return createPortal(keyboardJSX, document.body);
+  }
+
+  return keyboardJSX;
 }
 
 function TabButton({
-  active, onClick, children,
-}: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  active, onClick, children, isDark,
+}: { active: boolean; onClick: () => void; children: React.ReactNode; isDark: boolean }) {
   return (
     <button
       type="button"
       onMouseDown={(e) => { e.preventDefault(); onClick(); }}
       className={cn(
-        'px-3.5 py-1.5 rounded-full text-sm font-medium transition-all border',
+        'px-3.5 py-1.5 rounded-full text-xs font-bold transition-all border cursor-pointer',
         active
-          ? 'bg-cyan-500/20 border-cyan-400/40 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.25)]'
-          : 'bg-transparent border-transparent text-zinc-400 hover:text-white hover:bg-white/5'
+          ? isDark 
+            ? 'bg-cyan-500/20 border-cyan-400/40 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.25)]' 
+            : 'bg-cyan-500/15 border-cyan-500/30 text-cyan-700 shadow-sm font-black'
+          : isDark 
+            ? 'bg-transparent border-transparent text-zinc-400 hover:text-white hover:bg-white/5' 
+            : 'bg-transparent border-transparent text-slate-500 hover:text-slate-900 hover:bg-black/5'
       )}
     >
       {children}

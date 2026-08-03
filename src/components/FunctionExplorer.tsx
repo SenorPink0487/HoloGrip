@@ -197,11 +197,60 @@ function calcGridStep(scale: number): { major: number; minor: number } {
   return { major, minor: major / 5 };
 }
 
+export type SerializedFunctionObject = Omit<FunctionObject, 'compiled'> | SliderObject | PointObject;
+
+export interface FunctionExplorerState {
+  objects: SerializedFunctionObject[];
+  scale: number;
+  origin: { x: number; y: number };
+  showLabels: boolean;
+  showFeaturePoints: boolean;
+  showTrace: boolean;
+}
+
+export interface FunctionExplorerProps {
+  embedded?: boolean;
+  preview?: boolean;
+  editorOnly?: boolean;
+  initialState?: FunctionExplorerState;
+  onStateChange?: (state: FunctionExplorerState) => void;
+}
+
 // ============================================================
 // 主组件
 // ============================================================
 
-export function FunctionExplorer() {
+function createDefaultFunctionObjects(): GeoObject[] {
+  const a: SliderObject = { id: 'sl_a', kind: 'slider', name: 'a', value: 1, min: -5, max: 5, step: 0.1, visible: true, color: SLIDER_COLORS[0] };
+  const b: SliderObject = { id: 'sl_b', kind: 'slider', name: 'b', value: 0, min: -5, max: 5, step: 0.1, visible: true, color: SLIDER_COLORS[1] };
+  const c: SliderObject = { id: 'sl_c', kind: 'slider', name: 'c', value: 0, min: -5, max: 5, step: 0.1, visible: true, color: SLIDER_COLORS[2] };
+  const fSrc = 'a*x^2 + b*x + c';
+  const f: FunctionObject = {
+    id: 'fn_f', kind: 'function', name: 'f', source: fSrc, visible: true,
+    color: NEON_PALETTE[2].color, glowColor: NEON_PALETTE[2].glow,
+    compiled: tryCompile(fSrc), error: null,
+  };
+  return [a, b, c, f];
+}
+
+function hydrateFunctionObjects(objects: SerializedFunctionObject[] | undefined): GeoObject[] {
+  if (!objects?.length) return createDefaultFunctionObjects();
+  return objects.map(object => object.kind === 'function'
+    ? { ...object, compiled: tryCompile(object.source) }
+    : { ...object });
+}
+
+function serializeFunctionObjects(objects: GeoObject[]): SerializedFunctionObject[] {
+  return objects.map(object => {
+    if (object.kind === 'function') {
+      const { compiled: _compiled, ...serializable } = object;
+      return serializable;
+    }
+    return { ...object };
+  });
+}
+
+export function FunctionExplorer({ embedded = false, preview = false, editorOnly = false, initialState, onStateChange }: FunctionExplorerProps = {}) {
   const theme = useARStore(state => state.theme);
   const isDark = theme === 'dark';
 
@@ -1148,20 +1197,218 @@ export function FunctionExplorer() {
   // ============================================================
   // 渲染
   // ============================================================
+  if (editorOnly) {
+    return (
+      <div className={cn("w-full h-full flex items-stretch p-3.5 gap-4 select-none overflow-hidden transition-colors duration-500", isDark ? "text-white" : "text-slate-800")}>
+        {/* 左侧：表达式输入框与快捷控制 (330px 宽度) */}
+        <div className={cn("w-[330px] shrink-0 flex flex-col justify-between p-3 rounded-2xl border backdrop-blur-md", isDark ? "bg-white/[0.03] border-white/10" : "bg-black/[0.02] border-black/5")}>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-cyan-500 dark:text-cyan-400">
+                <Sigma className="w-4 h-4" />
+                <span>输入表达式 / 参数</span>
+              </div>
+              <button onClick={handleReset} className="text-zinc-400 hover:text-cyan-500 flex items-center gap-1 text-[11px] font-semibold transition-colors cursor-pointer">
+                <RotateCcw className="w-3 h-3" /> 重置全部
+              </button>
+            </div>
+
+            <div className={cn(
+              'flex items-center gap-2 px-3 py-2 rounded-xl border transition-all duration-300 shadow-sm',
+              isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white/90 border-black/10',
+              inputError 
+                ? 'border-red-500/50 focus-within:ring-2 focus-within:ring-red-500/20' 
+                : 'focus-within:border-cyan-500 focus-within:ring-2 focus-within:ring-cyan-500/20'
+            )}>
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputValue}
+                onChange={(e) => { setInputValue(e.target.value); setInputError(null); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleSubmitInput(); }}
+                onFocus={() => { setKeyboardTarget('main'); setKeyboardOpen(true); }}
+                inputMode="none"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder="f(x)=sin(a*x)+b 或 a=2"
+                className={cn(
+                  "flex-1 bg-transparent outline-none text-xs font-mono tracking-tight min-w-0",
+                  isDark ? "text-white placeholder:text-zinc-500" : "text-slate-800 placeholder:text-slate-400"
+                )}
+              />
+              <button
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => { setKeyboardTarget('main'); setKeyboardOpen(v => !v); inputRef.current?.focus(); }}
+                className={cn(
+                  'shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-all active:scale-95 cursor-pointer',
+                  keyboardOpen 
+                    ? 'bg-cyan-500/30 text-cyan-200' 
+                    : isDark 
+                      ? 'bg-white/10 text-zinc-400 hover:bg-white/20' 
+                      : 'bg-black/5 text-slate-500 hover:bg-black/10'
+                )}
+                title="数学键盘"
+              >
+                <Keyboard className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleSubmitInput}
+                className="shrink-0 px-2.5 py-1.5 rounded-lg bg-cyan-500 hover:bg-cyan-400 active:scale-95 text-white font-bold text-xs shadow-md shadow-cyan-500/20 transition-all cursor-pointer flex items-center gap-1"
+                title="添加表达式"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>添加</span>
+              </button>
+            </div>
+            {inputError && (
+              <div className="flex items-center gap-1 text-[11px] text-red-500 px-1">
+                <AlertCircle className="w-3 h-3 shrink-0" />
+                <span className="truncate">{inputError}</span>
+              </div>
+            )}
+          </div>
+
+          {/* 快捷公式预设芯片 */}
+          <div className="flex items-center gap-1.5 overflow-x-auto pt-1.5 border-t border-black/5 dark:border-white/10">
+            <span className="text-[10px] font-bold text-zinc-400 shrink-0">预设:</span>
+            {[
+              { label: 'sin(a*x)', code: 'f(x)=sin(a*x)+b' },
+              { label: 'a*x^2', code: 'f(x)=a*x^2+b*x+c' },
+              { label: 'a=2', code: 'a=2' },
+            ].map(p => (
+              <button
+                key={p.label}
+                onClick={() => { setInputValue(p.code); inputRef.current?.focus(); }}
+                className={cn(
+                  "px-2 py-1 rounded-lg text-[11px] font-mono shrink-0 transition-all active:scale-95 cursor-pointer",
+                  isDark ? "bg-white/5 hover:bg-white/10 text-zinc-300" : "bg-black/5 hover:bg-black/10 text-slate-650"
+                )}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* 右侧：横向水平滚动的对象与参数卡片轨道 (Horizontal Cards Track) */}
+        <div className="flex-1 min-w-0 flex flex-col justify-center gap-1.5 overflow-hidden">
+          <div className="flex items-center justify-between px-1 text-[11px] font-bold text-zinc-400 tracking-wider uppercase shrink-0">
+            <span>控制卡片轨道 · 横向左右滑动</span>
+            <span>{objects.length} 个元素</span>
+          </div>
+
+          <div className="flex items-center gap-3 overflow-x-auto py-1 px-0.5 scrollbar-thin">
+            {/* === 函数卡片 === */}
+            {functions.map(fn => (
+              <div
+                key={fn.id}
+                className={cn(
+                  'w-[230px] shrink-0 p-3 rounded-2xl border transition-all duration-300 flex flex-col justify-between gap-2 shadow-sm',
+                  isDark ? 'bg-white/[0.04] border-white/10 hover:bg-white/[0.07]' : 'bg-black/[0.02] border-black/5 hover:bg-black/[0.04]',
+                  !fn.visible && 'opacity-50'
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] font-bold tracking-wider uppercase text-zinc-400">函数表达式</span>
+                  <button
+                    onClick={() => deleteObject(fn.id)}
+                    className="w-5 h-5 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-500/10 flex items-center justify-center transition-all cursor-pointer"
+                    title="删除"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <button
+                    onClick={() => updateObject(fn.id, { visible: !fn.visible } as Partial<FunctionObject>)}
+                    className="w-7 h-7 rounded-xl border-2 flex items-center justify-center shrink-0 active:scale-90 transition-all cursor-pointer shadow-sm"
+                    style={{ backgroundColor: fn.visible ? fn.color : 'transparent', borderColor: fn.color }}
+                  >
+                    {fn.visible ? <Eye className="w-3.5 h-3.5 text-zinc-950 stroke-[3]" /> : <EyeOff className={cn("w-3.5 h-3.5", isDark ? "text-zinc-400" : "text-slate-400")} />}
+                  </button>
+                  <div className="flex-1 font-mono text-xs font-bold truncate" style={{ color: fn.color }}>
+                    {fn.name}(x) = {prettifyExpression(fn.source)}
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {/* === 参数 Slider 卡片 === */}
+            {sliders.map(sl => (
+              <div
+                key={sl.id}
+                className={cn(
+                  'w-[230px] shrink-0 p-3 rounded-2xl border transition-all duration-300 flex flex-col justify-between gap-2 shadow-sm',
+                  isDark ? 'bg-white/[0.04] border-white/10 hover:bg-white/[0.07]' : 'bg-black/[0.02] border-black/5 hover:bg-black/[0.04]'
+                )}
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 font-mono text-xs font-bold" style={{ color: sl.color }}>
+                    <span className="w-6 h-6 rounded-lg bg-cyan-500/15 text-cyan-600 dark:text-cyan-300 flex items-center justify-center text-xs font-black shadow-inner">{sl.name}</span>
+                    <span className="text-sm font-extrabold">{formatNum(sl.value)}</span>
+                    <span className="text-[10px] text-zinc-400 font-normal">[{sl.min}, {sl.max}]</span>
+                  </div>
+                  <button
+                    onClick={() => deleteObject(sl.id)}
+                    className="w-5 h-5 rounded-md text-zinc-400 hover:text-red-500 hover:bg-red-500/10 flex items-center justify-center transition-all cursor-pointer"
+                    title="删除"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <input
+                  type="range"
+                  min={sl.min}
+                  max={sl.max}
+                  step={sl.step}
+                  value={sl.value}
+                  onChange={(e) => updateObject(sl.id, { value: parseFloat(e.target.value) } as Partial<SliderObject>)}
+                  className="w-full h-2 bg-black/10 dark:bg-white/15 rounded-lg appearance-none cursor-pointer accent-cyan-500 transition-all"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* 浮动数学键盘 (以 fixed 独立层级悬浮在编辑条上方) */}
+        <MathKeyboard
+          position="fixed"
+          visible={keyboardOpen}
+          onClose={() => { setKeyboardOpen(false); inputRef.current?.blur(); editInputRef.current?.blur(); }}
+          onInsert={insertAtCursor}
+          onBackspace={handleBackspace}
+          onArrow={handleArrow}
+          onSubmit={() => {
+            if (keyboardTarget === 'main') {
+              handleSubmitInput();
+            } else if (typeof keyboardTarget === 'object' && keyboardTarget.type === 'edit') {
+              updateFunctionSource(keyboardTarget.id, editingValue);
+              setEditingId(null);
+              setKeyboardOpen(false);
+            }
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className={cn("w-full h-full flex select-none relative overflow-hidden transition-colors duration-500", isDark ? "bg-[#0c0d0e] text-white" : "bg-[#f8fafc] text-slate-800")}>
+    <div data-embed-content={embedded ? 'function' : undefined} data-function-preview={preview ? 'true' : undefined} className={cn("w-full h-full flex select-none relative overflow-hidden transition-colors duration-500", embedded ? "bg-transparent text-slate-800 dark:text-white" : isDark ? "bg-[#0c0d0e] text-white" : "bg-[#f8fafc] text-slate-800")}>
 
       {/* ===== 1. 左侧 GeoGebra 风格代数视图 ===== */}
       <div
         className={cn(
-          'h-full flex flex-col transition-all duration-300 relative z-[35] select-none overflow-hidden border-r backdrop-blur-2xl transition-colors duration-500',
+          'flex flex-col transition-all duration-300 select-none overflow-hidden backdrop-blur-2xl transition-colors duration-500',
+          embedded
+            ? 'absolute left-4 top-4 bottom-4 z-[45] w-[360px] max-w-[calc(100%-2rem)] rounded-2xl border shadow-2xl'
+            : 'h-full relative z-[35] border-r w-[400px]',
           isDark 
-            ? 'border-white/10 bg-zinc-950/80 shadow-[10px_0_30px_rgba(0,0,0,0.5)]' 
-            : 'border-slate-200/80 bg-white/80 shadow-[10px_0_30px_rgba(0,0,0,0.05)]',
-          isSidebarCollapsed ? 'w-0 border-r-0 p-0 opacity-0 pointer-events-none' : 'w-[400px] opacity-100'
+            ? 'border-white/10 bg-zinc-950/90 text-zinc-100 shadow-[10px_0_30px_rgba(0,0,0,0.5)]' 
+            : 'border-slate-200/80 bg-white/90 text-slate-800 shadow-[10px_0_30px_rgba(0,0,0,0.08)]',
+          preview ? 'hidden' : isSidebarCollapsed ? 'w-0 border-0 p-0 opacity-0 pointer-events-none' : 'opacity-100'
         )}
       >
-        <div className="w-[400px] h-full flex flex-col shrink-0 px-6 pt-6 pb-4 gap-4">
+        <div className={cn(embedded ? "w-full" : "w-[400px]", "h-full flex flex-col shrink-0 px-6 pt-6 pb-4 gap-4 overflow-y-auto")}>
 
           {/* 标题 */}
           <div className="flex flex-col gap-1.5">
@@ -1539,7 +1786,7 @@ export function FunctionExplorer() {
           isDark 
             ? 'bg-zinc-950/90 hover:bg-zinc-900 border-white/10 text-zinc-400 hover:text-white shadow-[4px_0_15px_rgba(0,0,0,0.5)]' 
             : 'bg-white hover:bg-slate-55 border-slate-200/80 text-slate-400 hover:text-slate-800 shadow-[4px_0_15px_rgba(0,0,0,0.03)]',
-          isSidebarCollapsed ? 'left-0' : 'left-[400px]'
+          preview ? 'hidden' : isSidebarCollapsed ? 'left-0' : embedded ? 'left-[364px]' : 'left-[400px]'
         )}
         title={isSidebarCollapsed ? '展开代数视图' : '收起代数视图'}
       >
@@ -1547,17 +1794,19 @@ export function FunctionExplorer() {
       </button>
 
       {/* ===== 2. 右侧绘图视图 ===== */}
-      <div className={cn("flex-1 relative overflow-hidden z-[35] transition-colors duration-500", isDark ? "bg-[#121316]" : "bg-[#f8fafc]")}>
+      <div className={cn("flex-1 relative overflow-hidden z-[35] transition-colors duration-500", embedded ? "bg-transparent" : isDark ? "bg-[#121316]" : "bg-[#f8fafc]")}>
         {/* 数学黑板点状底纹 */}
-        <div
-          className="absolute inset-0 pointer-events-none opacity-20"
-          style={{
-            backgroundImage: isDark 
-              ? 'radial-gradient(circle, rgba(255,255,255,0.15) 1.5px, transparent 1.5px)' 
-              : 'radial-gradient(circle, rgba(0,0,0,0.08) 1.5px, transparent 1.5px)',
-            backgroundSize: '32px 32px',
-          }}
-        />
+        {!embedded && (
+          <div
+            className="absolute inset-0 pointer-events-none opacity-20"
+            style={{
+              backgroundImage: isDark 
+                ? 'radial-gradient(circle, rgba(255,255,255,0.15) 1.5px, transparent 1.5px)' 
+                : 'radial-gradient(circle, rgba(0,0,0,0.08) 1.5px, transparent 1.5px)',
+              backgroundSize: '32px 32px',
+            }}
+          />
+        )}
 
         <canvas
           ref={canvasRef}
