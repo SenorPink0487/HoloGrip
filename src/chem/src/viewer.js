@@ -11,21 +11,21 @@ function labelStyleForElement(elem) {
   const e = String(elem || '').toUpperCase()
   /** @type {Record<string, { fontColor: string, backgroundColor: string, borderColor: string }>} */
   const map = {
-    C: { fontColor: '#f8fafc', backgroundColor: '#1e293b', borderColor: '#94a3b8' },
-    N: { fontColor: '#eff6ff', backgroundColor: '#1e3a8a', borderColor: '#60a5fa' },
-    O: { fontColor: '#fff1f2', backgroundColor: '#9f1239', borderColor: '#fb7185' },
-    S: { fontColor: '#422006', backgroundColor: '#facc15', borderColor: '#fde047' },
-    P: { fontColor: '#fff7ed', backgroundColor: '#9a3412', borderColor: '#fb923c' },
-    F: { fontColor: '#ecfdf5', backgroundColor: '#065f46', borderColor: '#34d399' },
-    CL: { fontColor: '#ecfdf5', backgroundColor: '#064e3b', borderColor: '#6ee7b7' },
-    BR: { fontColor: '#fff1f2', backgroundColor: '#7f1d1d', borderColor: '#f87171' },
-    I: { fontColor: '#faf5ff', backgroundColor: '#4c1d95', borderColor: '#c4b5fd' },
+    C: { fontColor: '#1e293b', backgroundColor: '#e2e8f0', borderColor: '#64748b' },
+    N: { fontColor: '#1e3a8a', backgroundColor: '#dbeafe', borderColor: '#3b82f6' },
+    O: { fontColor: '#9f1239', backgroundColor: '#ffe4e6', borderColor: '#f43f5e' },
+    S: { fontColor: '#713f12', backgroundColor: '#fef08a', borderColor: '#eab308' },
+    P: { fontColor: '#7c2d12', backgroundColor: '#ffedd5', borderColor: '#f97316' },
+    F: { fontColor: '#064e3b', backgroundColor: '#d1fae5', borderColor: '#10b981' },
+    CL: { fontColor: '#064e3b', backgroundColor: '#ccfbf1', borderColor: '#14b8a6' },
+    BR: { fontColor: '#7f1d1d', backgroundColor: '#fee2e2', borderColor: '#ef4444' },
+    I: { fontColor: '#4c1d95', backgroundColor: '#f3e8ff', borderColor: '#a855f7' },
   }
   return (
     map[e] || {
-      fontColor: '#ecfeff',
-      backgroundColor: '#0f766e',
-      borderColor: '#5eead4',
+      fontColor: '#0f766e',
+      backgroundColor: '#ccfbf1',
+      borderColor: '#14b8a6',
     }
   )
 }
@@ -42,7 +42,7 @@ export class MoleculeViewer {
   constructor(element) {
     this.element = element
     this.viewer = $3Dmol.createViewer(element, {
-      backgroundColor: 0x03050a,
+      backgroundColor: 0xf8fafc,
       antialias: true,
       cartoonQuality: 10,
     })

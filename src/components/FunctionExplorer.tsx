@@ -1429,8 +1429,8 @@ export function FunctionExplorer({ embedded = false, preview = false, editorOnly
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2 font-mono text-xs font-bold">
                         <span className="w-5 h-5 rounded-md bg-[#007AFF]/10 text-[#007AFF] flex items-center justify-center text-xs font-bold">{sl.name}</span>
-                        <span className="text-xs font-extrabold text-slate-800 dark:text-zinc-100">{formatNum(sl.value)}</span>
-                        <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-normal">[{sl.min}, {sl.max}]</span>
+                        <span className="text-xs text-slate-400 dark:text-zinc-500 font-normal">当前值:</span>
+                        <span className="text-xs font-extrabold text-[#007AFF]">{formatNum(sl.value)}</span>
                       </div>
                       <button
                         onClick={() => deleteObject(sl.id)}
@@ -1449,6 +1449,48 @@ export function FunctionExplorer({ embedded = false, preview = false, editorOnly
                       onChange={(e) => updateObject(sl.id, { value: parseFloat(e.target.value) } as Partial<SliderObject>)}
                       className="w-full h-1.5 bg-slate-200 dark:bg-white/20 rounded-lg appearance-none cursor-pointer accent-[#007AFF] transition-all"
                     />
+                    {/* 范围微调输入框 (min ~ max) */}
+                    <div className={cn("flex items-center gap-1.5 text-xs font-medium pt-0.5", isDark ? "text-zinc-400" : "text-slate-500")}>
+                      <input
+                        type="number"
+                        value={sl.min}
+                        onChange={(e) => updateObject(sl.id, { min: parseFloat(e.target.value) || sl.min } as Partial<SliderObject>)}
+                        className={cn(
+                          "w-14 border rounded-lg px-1.5 py-0.5 text-center font-mono outline-none transition-colors text-xs font-bold",
+                          isDark 
+                            ? "bg-zinc-950/60 border-white/10 text-zinc-200 focus:border-[#007AFF]/50" 
+                            : "bg-white border-slate-300 text-slate-800 focus:border-[#007AFF]/50"
+                        )}
+                        step={0.5}
+                      />
+                      <span className={isDark ? "text-zinc-500" : "text-slate-400"}>〜</span>
+                      <input
+                        type="number"
+                        value={sl.max}
+                        onChange={(e) => updateObject(sl.id, { max: parseFloat(e.target.value) || sl.max } as Partial<SliderObject>)}
+                        className={cn(
+                          "w-14 border rounded-lg px-1.5 py-0.5 text-center font-mono outline-none transition-colors text-xs font-bold",
+                          isDark 
+                            ? "bg-zinc-950/60 border-white/10 text-zinc-200 focus:border-[#007AFF]/50" 
+                            : "bg-white border-slate-300 text-slate-800 focus:border-[#007AFF]/50"
+                        )}
+                        step={0.5}
+                      />
+                      <span className={cn("ml-auto text-[11px]", isDark ? "text-zinc-500" : "text-slate-400")}>步长</span>
+                      <input
+                        type="number"
+                        value={sl.step}
+                        onChange={(e) => updateObject(sl.id, { step: parseFloat(e.target.value) || sl.step } as Partial<SliderObject>)}
+                        className={cn(
+                          "w-12 border rounded-lg px-1 py-0.5 text-center font-mono outline-none transition-colors text-xs font-bold",
+                          isDark 
+                            ? "bg-zinc-950/60 border-white/10 text-zinc-200 focus:border-[#007AFF]/50" 
+                            : "bg-white border-slate-300 text-slate-800 focus:border-[#007AFF]/50"
+                        )}
+                        step={0.01}
+                        min={0.001}
+                      />
+                    </div>
                   </div>
                 ))
               )}
@@ -1514,7 +1556,11 @@ export function FunctionExplorer({ embedded = false, preview = false, editorOnly
                 ? 'border-red-500/50 focus-within:border-red-500/80 focus-within:shadow-[0_0_0_3px_rgba(239,68,68,0.15)]' 
                 : 'focus-within:border-cyan-500 focus-within:shadow-[0_0_0_3px_rgba(6,182,212,0.15)]'
             )}>
-              <Sigma className="w-5 h-5 text-cyan-500 dark:text-cyan-400 shrink-0" />
+              <svg className="w-5 h-5 text-cyan-500 dark:text-cyan-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="3" y1="19" x2="21" y2="19" />
+                <line x1="5" y1="3" x2="5" y2="21" />
+                <path d="M5 14C9 6 13 18 20 7" strokeWidth="2.2" />
+              </svg>
               <input
                 ref={inputRef}
                 type="text"

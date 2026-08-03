@@ -1,12 +1,13 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useARStore } from '../store';
 import { cn } from '../lib/utils';
 import { isIPadOS } from '../lib/platform';
-import { Eraser, Edit3, Move } from 'lucide-react';
-import { motion, useDragControls } from 'motion/react';
+import { Eraser, Edit3, Move, LineChart, Sigma, Box, Calculator } from 'lucide-react';
+import { motion, useDragControls, AnimatePresence } from 'motion/react';
 import { Tooltip } from './Tooltip';
 import { StrokeBuilder, renderStrokeSegments } from '../lib/strokeEngine';
 import type { StrokePoint } from '../lib/strokeEngine';
+import { createEmbed } from './WhiteboardEmbedsLayer';
 
 interface Point {
   x: number;
@@ -21,6 +22,21 @@ interface LiveStroke {
   thickness: number;
   eraser: boolean;
 }
+
+const Function2DIcon = ({ className = "w-4 h-4 text-cyan-500" }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="3" y1="19" x2="21" y2="19" />
+    <line x1="5" y1="3" x2="5" y2="21" />
+    <path d="M5 14C9 6 13 18 20 7" strokeWidth="2.2" />
+  </svg>
+);
+
+const Geometry3DIcon = ({ className = "w-4 h-4 text-violet-500" }: { className?: string }) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 3v9m0 0l-7.5 4.5M12 12l7.5 4.5" />
+    <path d="M21 8.5L12 3 3 8.5v7L12 21l9-5.5z" />
+  </svg>
+);
 
 interface StrokeSample extends Point {
   pressure: number;
@@ -95,8 +111,13 @@ export function WhiteboardCanvas() {
   const theme = useARStore(state => state.theme);
   const isDark = theme === 'dark';
 
+  const addWhiteboardEmbed = useARStore(state => state.addWhiteboardEmbed);
+  const [showGraphCalcMenu, setShowGraphCalcMenu] = useState(false);
   const pages = useARStore(state => state.pages);
   const currentPageIndex = useARStore(state => state.currentPageIndex);
+  const page = pages[currentPageIndex];
+  const embeds = page?.embeds ?? [];
+  const maxZ = useMemo(() => embeds.reduce((max, embed) => Math.max(max, embed.zIndex), 0), [embeds]);
   const whiteboardRestoreVersion = useARStore(state => state.whiteboardRestoreVersion);
   const addPage = useARStore(state => state.addPage);
   const switchPage = useARStore(state => state.switchPage);
@@ -627,6 +648,35 @@ export function WhiteboardCanvas() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [activeTab]);
+
+  // 自动根据亮暗色切换白色与黑色画笔，防止书写看不见
+  useEffect(() => {
+    if (theme === 'light' && penColor === '#ffffff') {
+      setPenColor('#09090b');
+    } else if (theme === 'dark' && penColor === '#09090b') {
+      setPenColor('#ffffff');
+    }
+  }, [theme, penColor, setPenColor]);
+
+  // 大屏快捷键或手势切换画笔/操作模式
+  useEffect(() => {
+    // 允许通过空格键快速切换书写与操作模式
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (
+        target.tagName === 'INPUT' || 
+        target.tagName === 'TEXTAREA' || 
+        target.isContentEditable
+      ) {
+        return;
+      }
+      if (e.code === 'Space') {
+        setInteractMode(useARStore.getState().interactMode === 'draw' ? 'interact' : 'draw');
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
 
@@ -855,6 +905,73 @@ export function WhiteboardCanvas() {
             )}
             <Eraser className="w-5 h-5" />
           </motion.button>
+        </Tooltip>
+
+        <div className={cn("w-full h-px transition-colors", isDark ? "bg-white/10" : "bg-black/10")} />
+
+        {/* 图形计算器 (合入左侧栏，平面函数 / 空间几何) */}
+        <Tooltip content={showGraphCalcMenu ? "" : "图形计算器"} position="right">
+          <div className="relative">
+            <motion.button
+              onClick={() => setShowGraphCalcMenu(prev => !prev)}
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              className={cn(
+                "p-2.5 rounded-xl transition-all duration-200 relative cursor-pointer flex items-center justify-center",
+                showGraphCalcMenu
+                  ? (isDark ? "text-cyan-300 bg-cyan-500/20 shadow-md ring-1 ring-cyan-400/30" : "text-cyan-600 bg-cyan-500/15 shadow-sm ring-1 ring-cyan-300/50")
+                  : (isDark ? "text-zinc-400 hover:text-white" : "text-zinc-500 hover:text-zinc-800")
+              )}
+            >
+              <Calculator className="w-5 h-5" />
+            </motion.button>
+
+            {/* Apple 极简弹出子菜单 */}
+            <AnimatePresence>
+              {showGraphCalcMenu && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9, x: -8 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, x: -8 }}
+                  transition={{ type: "spring", stiffness: 400, damping: 28 }}
+                  className={cn(
+                    "absolute left-full ml-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 p-1.5 rounded-2xl backdrop-blur-xl border shadow-xl z-50 whitespace-nowrap",
+                    isDark ? "bg-zinc-900/90 border-white/10 text-white" : "bg-white/90 border-black/10 text-slate-800"
+                  )}
+                >
+                  <button
+                    onClick={() => {
+                      addWhiteboardEmbed(createEmbed('function', maxZ + 1));
+                      setShowGraphCalcMenu(false);
+                      setInteractMode('interact');
+                    }}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+                      isDark ? "hover:bg-cyan-500/20 text-cyan-300" : "hover:bg-cyan-50 text-cyan-700"
+                    )}
+                  >
+                    <Function2DIcon className="w-4 h-4 text-cyan-500" />
+                    <span>平面函数</span>
+                  </button>
+                  <div className={cn("w-px h-4", isDark ? "bg-white/15" : "bg-black/10")} />
+                  <button
+                    onClick={() => {
+                      addWhiteboardEmbed(createEmbed('calculator3d', maxZ + 1));
+                      setShowGraphCalcMenu(false);
+                      setInteractMode('interact');
+                    }}
+                    className={cn(
+                      "flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer",
+                      isDark ? "hover:bg-violet-500/20 text-violet-300" : "hover:bg-violet-50 text-violet-700"
+                    )}
+                  >
+                    <Geometry3DIcon className="w-4 h-4 text-violet-500" />
+                    <span>空间几何</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
         </Tooltip>
 
       </motion.div>

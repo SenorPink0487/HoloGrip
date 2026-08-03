@@ -9,49 +9,171 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=SF+Pro+Display:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 </head>
 <body>
-  <!-- HoloChem 浅色调开场 3D 动画 overlay -->
-  <div id="chem-boot-loader" style="position: fixed; inset: 0; z-index: 99999; background: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.8s ease, visibility 0.8s ease;">
+  <!-- HoloChem 3D 量子分子开场动画 Overlay (Apple 浅色极简风) -->
+  <div id="chem-boot-loader">
     <style>
-      .chem-loader-box { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; font-family: 'Outfit', -apple-system, sans-serif; }
-      .chem-atom-ring-container { position: relative; width: 110px; height: 110px; display: flex; align-items: center; justify-content: center; }
-      .chem-core-glow { width: 22px; height: 22px; background: #0284c7; border-radius: 50%; box-shadow: 0 0 20px rgba(2, 132, 199, 0.6), 0 0 40px rgba(37, 99, 235, 0.4); animation: chemPulse 1.5s infinite alternate ease-in-out; }
-      .chem-orbit-ring { position: absolute; border: 2px solid rgba(2, 132, 199, 0.35); border-radius: 50%; }
-      .chem-ring-1 { width: 90px; height: 90px; transform: rotateX(65deg) rotateY(20deg); animation: chemSpin 3s linear infinite; }
-      .chem-ring-2 { width: 90px; height: 90px; transform: rotateX(65deg) rotateY(80deg); animation: chemSpin 2.2s linear infinite reverse; }
-      .chem-ring-3 { width: 90px; height: 90px; transform: rotateX(65deg) rotateY(140deg); animation: chemSpin 4s linear infinite; }
-      @keyframes chemSpin { 0% { transform: rotateX(65deg) rotateY(0deg) rotateZ(0deg); } 100% { transform: rotateX(65deg) rotateY(0deg) rotateZ(360deg); } }
-      @keyframes chemPulse { 0% { transform: scale(0.85); opacity: 0.8; } 100% { transform: scale(1.15); opacity: 1; } }
-      .chem-title { font-size: 28px; font-weight: 800; letter-spacing: 2px; margin-top: 8px; background: linear-gradient(135deg, #0284c7, #2563eb); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
-      .chem-sub { font-size: 13px; color: #64748b; font-weight: 600; letter-spacing: 1px; }
-      .chem-meter-bar { width: 200px; height: 4px; background: #e2e8f0; border-radius: 9999px; overflow: hidden; position: relative; margin-top: 8px; }
-      .chem-meter-fill { height: 100%; background: linear-gradient(90deg, #0284c7, #2563eb); width: 0%; transition: width 0.8s ease; border-radius: 9999px; }
+      #chem-boot-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 99999;
+        background: linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        font-family: 'Outfit', 'SF Pro Display', -apple-system, sans-serif;
+        transition: transform 0.8s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.8s ease, filter 0.8s ease, visibility 0.8s ease;
+      }
+      .chem-loader-bg-glow {
+        position: absolute;
+        width: 520px;
+        height: 520px;
+        background: radial-gradient(circle, rgba(2, 132, 199, 0.12) 0%, rgba(99, 102, 241, 0.08) 50%, transparent 75%);
+        filter: blur(60px);
+        animation: chemGlowPulse 4s ease-in-out infinite alternate;
+        pointer-events: none;
+      }
+      .chem-loader-box {
+        position: relative;
+        z-index: 2;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        text-align: center;
+      }
+      /* 3D 原子轨道与量子核 (Apple 浅色调) */
+      .chem-atom-stage {
+        position: relative;
+        width: 140px;
+        height: 140px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        perspective: 800px;
+        transform-style: preserve-3d;
+      }
+      .chem-core-nucleus {
+        width: 28px;
+        height: 28px;
+        border-radius: 50%;
+        background: radial-gradient(circle at 35% 35%, #38bdf8, #0284c7 65%, #0369a1);
+        box-shadow: 0 4px 20px rgba(2, 132, 199, 0.45), 0 0 35px rgba(56, 189, 248, 0.3);
+        animation: chemCorePulse 1.8s ease-in-out infinite alternate;
+      }
+      .chem-orbit-3d {
+        position: absolute;
+        width: 120px;
+        height: 120px;
+        border: 1.8px solid rgba(2, 132, 199, 0.35);
+        border-radius: 50%;
+        box-shadow: 0 0 12px rgba(2, 132, 199, 0.1);
+        transform-style: preserve-3d;
+      }
+      .chem-orbit-1 { transform: rotateX(70deg) rotateY(15deg); animation: chemSpin1 3.5s linear infinite; }
+      .chem-orbit-2 { transform: rotateX(70deg) rotateY(75deg); animation: chemSpin2 2.8s linear infinite reverse; }
+      .chem-orbit-3 { transform: rotateX(70deg) rotateY(135deg); animation: chemSpin3 4.2s linear infinite; }
+      
+      .chem-electron-dot {
+        position: absolute;
+        top: -5px;
+        left: 50%;
+        width: 9px;
+        height: 9px;
+        margin-left: -4.5px;
+        background: #0284c7;
+        border-radius: 50%;
+        box-shadow: 0 0 10px #0284c7, 0 0 18px #38bdf8;
+      }
+      @keyframes chemSpin1 { 0% { transform: rotateX(70deg) rotateY(15deg) rotateZ(0deg); } 100% { transform: rotateX(70deg) rotateY(15deg) rotateZ(360deg); } }
+      @keyframes chemSpin2 { 0% { transform: rotateX(70deg) rotateY(75deg) rotateZ(0deg); } 100% { transform: rotateX(70deg) rotateY(75deg) rotateZ(360deg); } }
+      @keyframes chemSpin3 { 0% { transform: rotateX(70deg) rotateY(135deg) rotateZ(0deg); } 100% { transform: rotateX(70deg) rotateY(135deg) rotateZ(360deg); } }
+      @keyframes chemCorePulse { 0% { transform: scale(0.88); filter: brightness(0.95); } 100% { transform: scale(1.12); filter: brightness(1.15); } }
+      @keyframes chemGlowPulse { 0% { transform: scale(0.9); opacity: 0.7; } 100% { transform: scale(1.15); opacity: 1; } }
+
+      .chem-title {
+        font-size: 32px;
+        font-weight: 800;
+        letter-spacing: 3px;
+        background: linear-gradient(135deg, #0284c7 0%, #2563eb 50%, #4f46e5 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-top: 4px;
+      }
+      .chem-sub-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 5px 14px;
+        background: rgba(255, 255, 255, 0.85);
+        border: 1px solid rgba(226, 232, 240, 0.9);
+        box-shadow: 0 4px 16px rgba(15, 23, 42, 0.04);
+        border-radius: 9999px;
+        font-size: 12px;
+        color: #475569;
+        font-weight: 600;
+        letter-spacing: 1px;
+        backdrop-filter: blur(12px);
+      }
+      .chem-status-line {
+        font-size: 11px;
+        color: #0284c7;
+        font-family: 'JetBrains Mono', monospace;
+        letter-spacing: 0.5px;
+        font-weight: 600;
+      }
+      .chem-meter-track {
+        width: 220px;
+        height: 5px;
+        background: #e2e8f0;
+        border-radius: 9999px;
+        overflow: hidden;
+        position: relative;
+        margin-top: 4px;
+      }
+      .chem-meter-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #0284c7, #38bdf8, #2563eb);
+        width: 0%;
+        transition: width 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+        border-radius: 9999px;
+        box-shadow: 0 0 10px rgba(2, 132, 199, 0.5);
+      }
     </style>
+    <div class="chem-loader-bg-glow"></div>
     <div class="chem-loader-box">
-      <div class="chem-atom-ring-container">
-        <div class="chem-core-glow"></div>
-        <div class="chem-orbit-ring chem-ring-1"></div>
-        <div class="chem-orbit-ring chem-ring-2"></div>
-        <div class="chem-orbit-ring chem-ring-3"></div>
+      <div class="chem-atom-stage">
+        <div class="chem-core-nucleus"></div>
+        <div class="chem-orbit-3d chem-orbit-1"><div class="chem-electron-dot"></div></div>
+        <div class="chem-orbit-3d chem-orbit-2"><div class="chem-electron-dot"></div></div>
+        <div class="chem-orbit-3d chem-orbit-3"><div class="chem-electron-dot"></div></div>
       </div>
       <div class="chem-title">HoloChem</div>
-      <div class="chem-sub">3D 分子结构与反应观象台</div>
-      <div class="chem-meter-bar">
+      <div class="chem-sub-badge">⚛ 3D 分子结构与反应观象台</div>
+      <div class="chem-meter-track">
         <div class="chem-meter-fill" id="chem-meter-fill"></div>
       </div>
+      <div class="chem-status-line" id="chem-status-text">INIT QUANTUM RAYS...</div>
     </div>
     <script>
       (function() {
         var fill = document.getElementById('chem-meter-fill');
+        var status = document.getElementById('chem-status-text');
         var loader = document.getElementById('chem-boot-loader');
-        if(fill) setTimeout(function(){ fill.style.width = '75%'; }, 80);
-        if(fill) setTimeout(function(){ fill.style.width = '100%'; }, 450);
+        if (fill) setTimeout(function(){ fill.style.width = '45%'; if(status) status.innerText = 'LOADING 3D MOLECULAR ENGINE...'; }, 100);
+        if (fill) setTimeout(function(){ fill.style.width = '85%'; if(status) status.innerText = 'COMPUTING REACTION FORCES...'; }, 400);
+        if (fill) setTimeout(function(){ fill.style.width = '100%'; if(status) status.innerText = 'READY'; }, 750);
         setTimeout(function(){
-          if(loader) {
+          if (loader) {
+            loader.style.transform = 'scale(1.08)';
+            loader.style.filter = 'blur(16px)';
             loader.style.opacity = '0';
             loader.style.visibility = 'hidden';
             setTimeout(function(){ if(loader.parentNode) loader.parentNode.removeChild(loader); }, 800);
           }
-        }, 900);
+        }, 950);
       })();
     </script>
   </div>
@@ -165,7 +287,7 @@
         </div>
       </div>
 
-      <div style="height: 1px; background: rgba(255,255,255,0.08); margin: 6px 0;"></div>
+      <div style="height: 1px; background: rgba(226, 232, 240, 0.9); margin: 6px 0;"></div>
 
       <div class="card-title">视角控制</div>
       <div class="control-row">
@@ -189,7 +311,7 @@
       </button>
 
       <section id="mol-info" hidden style="margin-top: 12px;">
-        <div style="height: 1px; background: rgba(255,255,255,0.08); margin: 12px 0;"></div>
+        <div style="height: 1px; background: rgba(226, 232, 240, 0.9); margin: 12px 0;"></div>
         <div class="card-title">分子档案</div>
         <dl class="info-list" id="info-list"></dl>
       </section>
@@ -224,9 +346,9 @@
     <!-- Overlay Modal -->
     <div class="overlay hidden" id="overlay">
       <div class="glass-panel" style="padding:28px;max-width:360px;text-align:center;">
-        <button id="btn-overlay-close" style="float:right;background:none;border:none;color:#fff;cursor:pointer;">✕</button>
-        <h3 id="overlay-title" style="margin-top:0;">处理中…</h3>
-        <p id="overlay-desc" style="font-size:13px;color:rgba(255,255,255,0.7);"></p>
+        <button id="btn-overlay-close" style="float:right;background:none;border:none;color:#0f172a;cursor:pointer;">✕</button>
+        <h3 id="overlay-title" style="margin-top:0;color:#0f172a;">处理中…</h3>
+        <p id="overlay-desc" style="font-size:13px;color:#64748b;"></p>
         <button id="btn-overlay-confirm" style="width:100%;height:36px;background:var(--accent-cyan);border:none;border-radius:10px;color:#fff;font-weight:600;margin-top:12px;cursor:pointer;">确定</button>
       </div>
     </div>

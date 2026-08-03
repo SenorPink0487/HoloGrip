@@ -15,7 +15,7 @@ type DragState = {
   start: WhiteboardEmbed;
 };
 
-function createEmbed(kind: WhiteboardEmbedKind, zIndex: number): WhiteboardEmbed {
+export function createEmbed(kind: WhiteboardEmbedKind, zIndex: number = 10): WhiteboardEmbed {
   return {
     id: `embed_${kind}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
     kind,
@@ -150,15 +150,6 @@ export function WhiteboardEmbedsLayer() {
       ref={stageRef}
       className={cn("absolute inset-0 pointer-events-none transition-colors duration-300", editingId ? "z-[200]" : "z-[37]")}
     >
-      <div data-embed-controls="true" className="absolute right-8 top-8 z-[80] flex items-center gap-2 rounded-2xl border border-black/5 bg-white/80 p-2 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/85 pointer-events-auto">
-        <span className={cn('px-2 text-xs font-semibold', isDark ? 'text-zinc-400' : 'text-slate-500')}>白板对象</span>
-        <button type="button" onClick={() => addEmbed('function')} className="flex h-9 items-center gap-1.5 rounded-xl bg-cyan-500/10 px-3 text-xs font-semibold text-cyan-700 transition hover:bg-cyan-500/20 dark:text-cyan-300" title="插入函数探究">
-          <Sigma className="h-4 w-4" /> 函数探究
-        </button>
-        <button type="button" onClick={() => addEmbed('calculator3d')} className="flex h-9 items-center gap-1.5 rounded-xl bg-violet-500/10 px-3 text-xs font-semibold text-violet-700 transition hover:bg-violet-500/20 dark:text-violet-300" title="插入 3D 计算器">
-          <Box className="h-4 w-4" /> 3D 计算器
-        </button>
-      </div>
 
       {embeds.map(embed => {
         const isSelected = selectedId === embed.id;
@@ -279,7 +270,7 @@ export function WhiteboardEmbedsLayer() {
               {editingEmbed.kind === 'function' ? (
                 <FunctionExplorer editorOnly initialState={state as unknown as FunctionExplorerState} onStateChange={next => updateState(editingEmbed.id, next)} />
               ) : (
-                <Calculator3D embedded preview={false} initialState={state as unknown as Calculator3DState} onStateChange={next => updateState(editingEmbed.id, next)} />
+                <Calculator3D editorOnly initialState={state as unknown as Calculator3DState} onStateChange={next => updateState(editingEmbed.id, next)} />
               )}
             </div>
           </div>

@@ -107,7 +107,7 @@ export function Tooltip({
     <div className="relative inline-flex items-center justify-center">
       {trigger}
       <AnimatePresence>
-        {isVisible && (
+        {isVisible && Boolean(content) && (
           <motion.div
             initial="hidden"
             animate="visible"

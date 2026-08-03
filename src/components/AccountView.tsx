@@ -278,12 +278,14 @@ export function AccountView() {
         {/* Top Navbar */}
         <div className="flex items-center justify-between p-4 rounded-2xl bg-white/90 backdrop-blur-md border border-slate-200 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-600 to-blue-600 flex items-center justify-center text-white font-bold text-lg shadow-sm">
-              H
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-cyan-500 via-blue-600 to-indigo-600 flex items-center justify-center text-white shadow-md shadow-blue-500/20 border border-white/20">
+              <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                <circle cx="12" cy="7" r="4" />
+              </svg>
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900">HoloGrip 个人中心</h2>
-              <p className="text-xs text-slate-500">班级管理与账户设置平台</p>
+              <h2 className="text-base font-bold text-slate-900">个人中心</h2>
             </div>
           </div>
 

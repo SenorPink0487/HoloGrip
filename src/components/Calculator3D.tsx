@@ -241,59 +241,132 @@ interface SceneRefs {
   rafId: number;
 }
 
-/** Build text sprite for axis labels (lightweight, no font loading) */
+/** Build text sprite for axis labels (high resolution, rounded badge, glowing font) */
 function makeTextSprite(text: string, color: string): THREE.Sprite {
   const canvas = document.createElement('canvas');
-  canvas.width = 128;
-  canvas.height = 128;
+  canvas.width = 256;
+  canvas.height = 256;
   const ctx = canvas.getContext('2d')!;
   ctx.fillStyle = 'rgba(0,0,0,0)';
-  ctx.fillRect(0, 0, 128, 128);
-  ctx.font = 'bold 80px system-ui, -apple-system, sans-serif';
+  ctx.fillRect(0, 0, 256, 256);
+
+  // Background pill badge for maximum visibility
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
+  ctx.beginPath();
+  if (typeof ctx.roundRect === 'function') {
+    ctx.roundRect(48, 48, 160, 160, 40);
+  } else {
+    ctx.rect(48, 48, 160, 160);
+  }
+  ctx.fill();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 10;
+  ctx.stroke();
+
+  ctx.font = '900 100px system-ui, -apple-system, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // Soft glow
-  ctx.shadowColor = color;
-  ctx.shadowBlur = 20;
   ctx.fillStyle = color;
-  ctx.fillText(text, 64, 64);
+  ctx.fillText(text, 128, 128);
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.minFilter = THREE.LinearFilter;
   tex.magFilter = THREE.LinearFilter;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false, depthWrite: false });
   const sprite = new THREE.Sprite(mat);
-  sprite.scale.set(0.7, 0.7, 1);
+  sprite.scale.set(0.9, 0.9, 1);
+  sprite.renderOrder = 1000;
   return sprite;
 }
 
-/** Build axis arrow (line + cone tip) */
-function buildAxis(direction: 'x' | 'y' | 'z', length: number, color: string): THREE.Group {
+/** Build 3D axis arrow (cylinder shaft + cone tip + negative axis + sprite label) */
+function buildAxis(axis: 'x' | 'y' | 'z', length = 6.5, color: string): THREE.Group {
   const g = new THREE.Group();
-  const dir = new THREE.Vector3(
-    direction === 'x' ? 1 : 0,
-    direction === 'y' ? 1 : 0,
-    direction === 'z' ? 1 : 0,
-  );
-  const lineGeo = new THREE.BufferGeometry().setFromPoints([
-    new THREE.Vector3(0, 0, 0),
-    dir.clone().multiplyScalar(length),
-  ]);
-  const lineMat = new THREE.LineBasicMaterial({ color });
-  const line = new THREE.Line(lineGeo, lineMat);
-  g.add(line);
 
-  // Tip
-  const coneGeo = new THREE.ConeGeometry(0.08, 0.25, 16);
-  const coneMat = new THREE.MeshBasicMaterial({ color });
+  // Math axis to Three vector mapping:
+  // Math X (right):   Three (1, 0, 0)
+  // Math Y (depth):   Three (0, 0, 1)
+  // Math Z (up):      Three (0, 1, 0)
+  const threeDir = new THREE.Vector3(
+    axis === 'x' ? 1 : 0,
+    axis === 'z' ? 1 : 0,
+    axis === 'y' ? 1 : 0
+  );
+
+  const radius = 0.045;
+  const coneHeight = 0.38;
+  const coneRadius = 0.14;
+
+  // 1. Positive axis cylinder shaft (3D thick rod)
+  const shaftGeo = new THREE.CylinderGeometry(radius, radius, length, 16);
+  const shaftMat = new THREE.MeshStandardMaterial({
+    color,
+    emissive: new THREE.Color(color),
+    emissiveIntensity: 0.45,
+    roughness: 0.2,
+    metalness: 0.5,
+    depthTest: false,
+  });
+  const shaft = new THREE.Mesh(shaftGeo, shaftMat);
+  shaft.renderOrder = 998;
+
+  // Align cylinder (default along Y) with threeDir
+  if (axis === 'x') {
+    shaft.rotation.z = -Math.PI / 2;
+    shaft.position.set(length / 2, 0, 0);
+  } else if (axis === 'y') {
+    shaft.rotation.x = Math.PI / 2;
+    shaft.position.set(0, 0, length / 2);
+  } else { // z (up)
+    shaft.position.set(0, length / 2, 0);
+  }
+  g.add(shaft);
+
+  // 2. Negative axis shaft (thinner, semi-transparent for origin context)
+  const negShaftGeo = new THREE.CylinderGeometry(radius * 0.5, radius * 0.5, length * 0.7, 12);
+  const negShaftMat = new THREE.MeshBasicMaterial({
+    color,
+    transparent: true,
+    opacity: 0.35,
+    depthTest: false,
+  });
+  const negShaft = new THREE.Mesh(negShaftGeo, negShaftMat);
+  negShaft.renderOrder = 997;
+  if (axis === 'x') {
+    negShaft.rotation.z = -Math.PI / 2;
+    negShaft.position.set(-length * 0.35, 0, 0);
+  } else if (axis === 'y') {
+    negShaft.rotation.x = Math.PI / 2;
+    negShaft.position.set(0, 0, -length * 0.35);
+  } else {
+    negShaft.position.set(0, -length * 0.35, 0);
+  }
+  g.add(negShaft);
+
+  // 3. Arrow cone tip
+  const coneGeo = new THREE.ConeGeometry(coneRadius, coneHeight, 20);
+  const coneMat = new THREE.MeshStandardMaterial({
+    color,
+    emissive: new THREE.Color(color),
+    emissiveIntensity: 0.65,
+    roughness: 0.1,
+    metalness: 0.3,
+    depthTest: false,
+  });
   const cone = new THREE.Mesh(coneGeo, coneMat);
-  cone.position.copy(dir.clone().multiplyScalar(length));
-  if (direction === 'x') cone.rotation.z = -Math.PI / 2;
-  else if (direction === 'z') cone.rotation.x = Math.PI / 2;
+  cone.renderOrder = 999;
+  const tipPos = threeDir.clone().multiplyScalar(length);
+  cone.position.copy(tipPos);
+
+  if (axis === 'x') cone.rotation.z = -Math.PI / 2;
+  else if (axis === 'y') cone.rotation.x = Math.PI / 2;
+  // axis === 'z' is already pointing UP (+Y in Three)
   g.add(cone);
 
-  // Label
-  const label = makeTextSprite(direction.toUpperCase(), color);
-  label.position.copy(dir.clone().multiplyScalar(length + 0.5));
+  // 4. Label Sprite
+  const labelText = axis.toUpperCase();
+  const label = makeTextSprite(labelText, color);
+  label.position.copy(threeDir.clone().multiplyScalar(length + 0.65));
   g.add(label);
 
   return g;
@@ -488,12 +561,14 @@ export interface Calculator3DState {
 export interface Calculator3DProps {
   embedded?: boolean;
   preview?: boolean;
+  editorOnly?: boolean;
   initialState?: Calculator3DState;
   onStateChange?: (state: Calculator3DState) => void;
 }
 
-export function Calculator3D({ embedded = false, preview = false, initialState, onStateChange }: Calculator3DProps = {}) {
+export function Calculator3D({ embedded = false, preview = false, editorOnly = false, initialState, onStateChange }: Calculator3DProps = {}) {
   const theme = useARStore((state) => state.theme);
+  const interactMode = useARStore((state) => state.interactMode);
   const isDark = theme === 'dark';
 
   // Sidebar state
@@ -882,11 +957,11 @@ export function Calculator3D({ embedded = false, preview = false, initialState, 
     fill.position.set(-8, 5, -6);
     scene.add(fill);
 
-    // Axes
+    // Axes (Bright 3D shafts, Z-up math convention, length 6.5)
     const axesGroup = new THREE.Group();
-    axesGroup.add(buildAxis('x', 5, '#ef4444'));   // red x
-    axesGroup.add(buildAxis('y', 5, '#22c55e'));   // green y
-    axesGroup.add(buildAxis('z', 5, '#3b82f6'));   // blue z
+    axesGroup.add(buildAxis('x', 6.5, '#ff3b30'));   // X轴 鲜红色 (Right)
+    axesGroup.add(buildAxis('y', 6.5, '#34c759'));   // Y轴 鲜绿色 (Depth)
+    axesGroup.add(buildAxis('z', 6.5, '#007aff'));   // Z轴 宝蓝色 (Height Up)
     scene.add(axesGroup);
 
     // Grid
@@ -1112,6 +1187,303 @@ export function Calculator3D({ embedded = false, preview = false, initialState, 
     // 但实际上用户已经点过按钮了,所以保持 userInteractedRef 当前值即可
   };
 
+  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null);
+
+  // ============================================================
+  // Render editorOnly mode (Apple-style bottom popover layout)
+  // ============================================================
+  if (editorOnly) {
+    const selectedObj = objects.find(o => o.id === selectedObjectId);
+    const activeSliders = selectedObj
+      ? selectedObj.kind === 'slider'
+        ? [selectedObj as Slider3D]
+        : (objects.filter(o => o.kind === 'slider') as Slider3D[])
+      : (objects.filter(o => o.kind === 'slider') as Slider3D[]);
+
+    return (
+      <div className={cn("w-full h-full flex items-stretch p-3 gap-3 select-none overflow-hidden transition-colors duration-500 font-sans", isDark ? "text-white" : "text-slate-800")}>
+        
+        {/* ==================== 1. 第一块：表达式与参数输入 (Apple Style) ==================== */}
+        <div className={cn("w-[280px] shrink-0 flex flex-col justify-between p-3 rounded-2xl border backdrop-blur-xl transition-all", isDark ? "bg-white/[0.03] border-white/10" : "bg-slate-900/[0.02] border-black/[0.06]")}>
+          <div className="flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-zinc-200 tracking-tight">
+                <span>输入表达式 / 参数</span>
+              </div>
+              <button onClick={resetAll} className="text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer active:scale-95">
+                <RotateCcw className="w-3 h-3" /> 重置全部
+              </button>
+            </div>
+
+            <div className={cn(
+              'flex items-center gap-2 px-2.5 py-1.5 rounded-xl border transition-all duration-200 shadow-sm',
+              isDark ? 'bg-zinc-900/80 border-white/10' : 'bg-white/90 border-black/10',
+              inputError 
+                ? 'border-rose-500/50 focus-within:ring-2 focus-within:ring-rose-500/20' 
+                : 'focus-within:border-[#007AFF] focus-within:ring-2 focus-within:ring-[#007AFF]/20'
+            )}>
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputValue}
+                onChange={(e) => { setInputValue(e.target.value); setInputError(null); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddFromInput(); }}
+                onFocus={() => { setKeyboardTarget('main'); setKeyboardOpen(true); }}
+                inputMode="none"
+                autoComplete="off"
+                spellCheck={false}
+                placeholder=""
+                className={cn(
+                  "flex-1 bg-transparent outline-none text-xs font-mono tracking-tight min-w-0",
+                  isDark ? "text-white placeholder:text-zinc-500" : "text-slate-800 placeholder:text-slate-400"
+                )}
+              />
+              <button
+                onPointerDown={(e) => { e.preventDefault(); setKeyboardTarget('main'); setKeyboardOpen(v => !v); inputRef.current?.focus(); }}
+                className={cn(
+                  'shrink-0 w-7 h-7 rounded-lg flex items-center justify-center transition-all active:scale-95 cursor-pointer',
+                  keyboardOpen 
+                    ? 'bg-[#007AFF]/20 text-[#007AFF]' 
+                    : isDark 
+                      ? 'bg-white/10 text-zinc-400 hover:bg-white/20' 
+                      : 'bg-black/5 text-slate-500 hover:bg-black/10'
+                )}
+                title="数学键盘"
+              >
+                <Keyboard className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleAddFromInput}
+                className="shrink-0 px-2.5 py-1 rounded-lg bg-[#007AFF] hover:bg-[#0062CC] active:scale-[0.97] text-white font-semibold text-xs shadow-sm transition-all cursor-pointer flex items-center gap-1"
+                title="添加表达式"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>添加</span>
+              </button>
+            </div>
+            {inputError && (
+              <div className="flex items-center gap-1 text-[11px] text-rose-500 px-1 font-medium">
+                <AlertCircle className="w-3 h-3 shrink-0" />
+                <span className="truncate">{inputError}</span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ==================== 2. 第二块：3D对象卡片列表 (Apple Style 竖向滑动, 固定 320px) ==================== */}
+        <div className={cn(
+          "w-[320px] shrink-0 flex flex-col p-2.5 rounded-2xl border backdrop-blur-xl overflow-hidden transition-all duration-300",
+          isDark ? "bg-white/[0.03] border-white/10" : "bg-slate-900/[0.02] border-black/[0.06]"
+        )}>
+          <div className="flex items-center justify-between px-1 mb-1.5 shrink-0">
+            <span className="text-xs font-bold text-slate-600 dark:text-zinc-300 tracking-tight">函数列表 ({objects.length})</span>
+          </div>
+
+          <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-2.5 scrollbar-thin">
+            {objects.length === 0 ? (
+              <div className="flex-1 flex items-center justify-center text-xs text-slate-400 dark:text-zinc-500">暂无3D函数对象</div>
+            ) : (
+              objects.map(obj => {
+                const isSelected = selectedObjectId === obj.id;
+                return (
+                  <div
+                    key={obj.id}
+                    onClick={() => setSelectedObjectId(prev => prev === obj.id ? null : obj.id)}
+                    className={cn(
+                      'p-3 rounded-xl border transition-all duration-200 flex items-center justify-between gap-3 shadow-sm cursor-pointer relative group active:scale-[0.98]',
+                      isSelected
+                        ? isDark 
+                          ? 'bg-[#007AFF]/15 border-[#007AFF]/50 shadow-[0_0_15px_rgba(0,122,255,0.15)] ring-1 ring-[#007AFF]/30' 
+                          : 'bg-blue-50/90 border-[#007AFF]/40 shadow-sm ring-1 ring-[#007AFF]/25'
+                        : isDark 
+                          ? 'bg-white/[0.04] border-white/10 hover:bg-white/[0.08]' 
+                          : 'bg-white/80 border-slate-200/80 hover:bg-white',
+                      !obj.visible && 'opacity-50'
+                    )}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="font-mono text-base font-bold truncate text-slate-800 dark:text-zinc-100 tracking-tight">
+                        <span style={{ color: obj.color }}>{obj.name}</span> = {obj.kind === 'surface' ? prettyFormula(obj.source) : obj.kind === 'slider' ? obj.value.toFixed(2) : `(${obj.kind})`}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteObject(obj.id);
+                          if (selectedObjectId === obj.id) setSelectedObjectId(null);
+                        }}
+                        className="w-6 h-6 rounded-md text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 flex items-center justify-center transition-all cursor-pointer active:scale-95"
+                        title="删除"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                      <ChevronRight className={cn("w-4 h-4 transition-transform duration-200", isSelected ? "text-[#007AFF] rotate-90 font-bold" : "text-slate-300 dark:text-zinc-600 opacity-60")} />
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+
+        {/* ==================== 3. 第三块：点击第二块函数卡片后伴随动画展开 (Apple Style Liquid Spring) ==================== */}
+        <div
+          className={cn(
+            "shrink-0 flex flex-col rounded-2xl border backdrop-blur-xl overflow-hidden shadow-sm",
+            "transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]",
+            selectedObj || activeSidebarTab === 'tools'
+              ? "w-[300px] max-w-[300px] opacity-100 scale-100 translate-x-0 p-2.5"
+              : "w-0 max-w-0 opacity-0 scale-95 -translate-x-3 p-0 border-0 pointer-events-none",
+            isDark ? "bg-white/[0.03] border-white/10" : "bg-slate-900/[0.02] border-black/[0.06]"
+          )}
+        >
+          <div className="w-[280px] shrink-0 h-full flex flex-col">
+            <div className="flex items-center justify-between px-1 mb-1.5 shrink-0">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-slate-700 dark:text-zinc-200 tracking-tight">
+                <span>{selectedObj ? `${selectedObj.name} 参数调节` : '几何工具面板'}</span>
+              </div>
+              <button
+                onClick={() => setSelectedObjectId(null)}
+                className="text-[10px] font-medium text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200 transition-colors cursor-pointer px-1.5 py-0.5 rounded-md hover:bg-black/5 dark:hover:bg-white/10 active:scale-95"
+              >
+                收起
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto pr-1 flex flex-col gap-2 scrollbar-thin">
+              {selectedObj && selectedObj.kind === 'slider' ? (
+                <div className={cn("p-2.5 rounded-xl border flex flex-col gap-2 shadow-sm", isDark ? 'bg-white/[0.04] border-white/10' : 'bg-white/90 border-slate-200/80')}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 font-mono text-xs font-bold">
+                      <span className="w-5 h-5 rounded-md bg-[#007AFF]/10 text-[#007AFF] flex items-center justify-center text-xs font-bold">{selectedObj.name}</span>
+                      <span className="text-xs text-slate-400 dark:text-zinc-500 font-normal">当前值:</span>
+                      <span className="text-xs font-extrabold text-[#007AFF]">{selectedObj.value.toFixed(2)}</span>
+                    </div>
+                  </div>
+                  <input
+                    type="range"
+                    min={selectedObj.min}
+                    max={selectedObj.max}
+                    step={selectedObj.step}
+                    value={selectedObj.value}
+                    onChange={(e) => updateObject(selectedObj.id, { value: parseFloat(e.target.value) } as Partial<Slider3D>)}
+                    className="w-full h-1.5 bg-slate-200 dark:bg-white/20 rounded-lg appearance-none cursor-pointer accent-[#007AFF] transition-all"
+                  />
+                  <div className={cn("flex items-center gap-1.5 text-xs font-medium pt-0.5", isDark ? "text-zinc-400" : "text-slate-500")}>
+                    <input
+                      type="number"
+                      value={selectedObj.min}
+                      onChange={(e) => updateObject(selectedObj.id, { min: parseFloat(e.target.value) || selectedObj.min } as Partial<Slider3D>)}
+                      className="w-12 px-1.5 py-0.5 border rounded-lg font-mono text-center bg-transparent outline-none focus:border-[#007AFF]"
+                    />
+                    <span>~</span>
+                    <input
+                      type="number"
+                      value={selectedObj.max}
+                      onChange={(e) => updateObject(selectedObj.id, { max: parseFloat(e.target.value) || selectedObj.max } as Partial<Slider3D>)}
+                      className="w-12 px-1.5 py-0.5 border rounded-lg font-mono text-center bg-transparent outline-none focus:border-[#007AFF]"
+                    />
+                    <span className="ml-auto text-[10px]">步长</span>
+                    <input
+                      type="number"
+                      value={selectedObj.step}
+                      onChange={(e) => updateObject(selectedObj.id, { step: parseFloat(e.target.value) || selectedObj.step } as Partial<Slider3D>)}
+                      className="w-12 px-1.5 py-0.5 border rounded-lg font-mono text-center bg-transparent outline-none focus:border-[#007AFF]"
+                    />
+                  </div>
+                </div>
+              ) : activeSliders.length > 0 ? (
+                activeSliders.map(sl => (
+                  <div
+                    key={sl.id}
+                    className={cn(
+                      'p-2.5 rounded-xl border transition-all duration-200 flex flex-col gap-1.5 shadow-sm',
+                      isDark ? 'bg-white/[0.04] border-white/10' : 'bg-white/90 border-slate-200/80'
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 font-mono text-xs font-bold">
+                        <span className="w-5 h-5 rounded-md bg-[#007AFF]/10 text-[#007AFF] flex items-center justify-center text-xs font-bold">{sl.name}</span>
+                        <span className="text-xs text-slate-400 dark:text-zinc-500 font-normal">当前值:</span>
+                        <span className="text-xs font-extrabold text-[#007AFF]">{sl.value.toFixed(2)}</span>
+                      </div>
+                      <button
+                        onClick={() => deleteObject(sl.id)}
+                        className="w-5 h-5 rounded-md text-slate-400 hover:text-rose-500 hover:bg-rose-500/10 flex items-center justify-center transition-all cursor-pointer active:scale-95"
+                        title="删除参数"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                    <input
+                      type="range"
+                      min={sl.min}
+                      max={sl.max}
+                      step={sl.step}
+                      value={sl.value}
+                      onChange={(e) => updateObject(sl.id, { value: parseFloat(e.target.value) } as Partial<Slider3D>)}
+                      className="w-full h-1.5 bg-slate-200 dark:bg-white/20 rounded-lg appearance-none cursor-pointer accent-[#007AFF] transition-all"
+                    />
+                    <div className={cn("flex items-center gap-1.5 text-xs font-medium pt-0.5", isDark ? "text-zinc-400" : "text-slate-500")}>
+                      <input
+                        type="number"
+                        value={sl.min}
+                        onChange={(e) => updateObject(sl.id, { min: parseFloat(e.target.value) || sl.min } as Partial<Slider3D>)}
+                        className="w-12 px-1.5 py-0.5 border rounded-lg font-mono text-center bg-transparent outline-none focus:border-[#007AFF]"
+                      />
+                      <span>~</span>
+                      <input
+                        type="number"
+                        value={sl.max}
+                        onChange={(e) => updateObject(sl.id, { max: parseFloat(e.target.value) || sl.max } as Partial<Slider3D>)}
+                        className="w-12 px-1.5 py-0.5 border rounded-lg font-mono text-center bg-transparent outline-none focus:border-[#007AFF]"
+                      />
+                      <span className="ml-auto text-[10px]">步长</span>
+                      <input
+                        type="number"
+                        value={sl.step}
+                        onChange={(e) => updateObject(sl.id, { step: parseFloat(e.target.value) || sl.step } as Partial<Slider3D>)}
+                        className="w-12 px-1.5 py-0.5 border rounded-lg font-mono text-center bg-transparent outline-none focus:border-[#007AFF]"
+                      />
+                    </div>
+                  </div>
+                ))
+              ) : activeSidebarTab === 'tools' ? (
+                <div className="grid grid-cols-2 gap-1.5 text-xs">
+                  <button onClick={addPointVisual} className="p-2 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-[#007AFF]/10 text-left font-medium cursor-pointer">＋ 添加点 (Point)</button>
+                  <button onClick={addLineVisual} className="p-2 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-[#007AFF]/10 text-left font-medium cursor-pointer">＋ 线段 (Segment)</button>
+                  <button onClick={addSphereVisual} className="p-2 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-[#007AFF]/10 text-left font-medium cursor-pointer">＋ 球面 (Sphere)</button>
+                  <button onClick={addPlaneVisual} className="p-2 rounded-xl bg-black/5 dark:bg-white/5 hover:bg-[#007AFF]/10 text-left font-medium cursor-pointer">＋ 平面 (Plane)</button>
+                </div>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center text-center p-3 text-slate-400 dark:text-zinc-500 gap-1.5">
+                  <span className="text-xs font-semibold text-slate-600 dark:text-zinc-300">暂无关联变量参数</span>
+                  <span className="text-[10px] text-slate-400 dark:text-zinc-500 leading-normal">在表达式中使用字母变量<br/>(例如 a*x^2 + b) 即可自动生成调节棒</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Math Keyboard */}
+        <MathKeyboard
+          visible={keyboardOpen}
+          onClose={() => setKeyboardOpen(false)}
+          onInsert={insertAtCursor}
+          onBackspace={handleBackspace}
+          onArrow={handleArrow}
+          onSubmit={() => {
+            if (keyboardTarget === 'main') handleAddFromInput();
+            else setEditingId(null);
+            setKeyboardOpen(false);
+          }}
+        />
+      </div>
+    );
+  }
+
   // ============================================================
   // Render
   // ============================================================
@@ -1139,7 +1511,7 @@ export function Calculator3D({ embedded = false, preview = false, initialState, 
               <button
                 onClick={() => setActiveSidebarTab('algebra')}
                 className={cn(
-                  "flex-1 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                  "flex-1 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap",
                   activeSidebarTab === 'algebra'
                     ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm"
                     : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
@@ -1151,7 +1523,7 @@ export function Calculator3D({ embedded = false, preview = false, initialState, 
               <button
                 onClick={() => setActiveSidebarTab('tools')}
                 className={cn(
-                  "flex-1 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+                  "flex-1 py-1.5 rounded-lg text-sm font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer whitespace-nowrap",
                   activeSidebarTab === 'tools'
                     ? "bg-white dark:bg-zinc-800 text-zinc-900 dark:text-white shadow-sm"
                     : "text-zinc-500 hover:text-zinc-800 dark:hover:text-zinc-200"
@@ -1178,7 +1550,10 @@ export function Calculator3D({ embedded = false, preview = false, initialState, 
                       ? 'border-red-500/50 focus-within:border-red-500/80 focus-within:shadow-[0_0_0_3px_rgba(239,68,68,0.15)]'
                       : 'focus-within:border-cyan-500 focus-within:shadow-[0_0_0_3px_rgba(6,182,212,0.15)]'
                   )}>
-                    <Sigma className="w-5 h-5 text-cyan-500 dark:text-cyan-400 shrink-0" />
+                    <svg className="w-5 h-5 text-violet-500 dark:text-violet-400 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 3v9m0 0l-7.5 4.5M12 12l7.5 4.5" />
+                      <path d="M21 8.5L12 3 3 8.5v7L12 21l9-5.5z" />
+                    </svg>
                     <input
                       ref={inputRef}
                       type="text"
@@ -1832,90 +2207,94 @@ export function Calculator3D({ embedded = false, preview = false, initialState, 
       </div>
 
       {/* ===== Sidebar collapse toggle ===== */}
-      <button
-        onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-        className={cn(
-          'absolute top-1/2 -translate-y-1/2 z-[38] w-6 h-28 flex items-center justify-center rounded-r-2xl border-y border-r transition-[left] duration-300 active:scale-y-95 cursor-pointer',
-          isDark
-            ? 'bg-zinc-950/90 hover:bg-zinc-900 border-white/10 text-zinc-400 hover:text-white shadow-[4px_0_15px_rgba(0,0,0,0.5)]'
-            : 'bg-white hover:bg-slate-100 border-slate-200/80 text-slate-400 hover:text-slate-800 shadow-[4px_0_15px_rgba(0,0,0,0.03)]',
-          isSidebarCollapsed ? 'left-0' : 'left-[400px]'
-        )}
-        title={isSidebarCollapsed ? '展开侧栏' : '收起侧栏'}
-      >
-        {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-      </button>
+      {!embedded && !preview && (
+        <button
+          onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+          className={cn(
+            'absolute top-1/2 -translate-y-1/2 z-[38] w-6 h-28 flex items-center justify-center rounded-r-2xl border-y border-r transition-[left] duration-300 active:scale-y-95 cursor-pointer',
+            isDark
+              ? 'bg-zinc-950/90 hover:bg-zinc-900 border-white/10 text-zinc-400 hover:text-white shadow-[4px_0_15px_rgba(0,0,0,0.5)]'
+              : 'bg-white hover:bg-slate-100 border-slate-200/80 text-slate-400 hover:text-slate-800 shadow-[4px_0_15px_rgba(0,0,0,0.03)]',
+            isSidebarCollapsed ? 'left-0' : 'left-[400px]'
+          )}
+          title={isSidebarCollapsed ? '展开侧栏' : '收起侧栏'}
+        >
+          {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+        </button>
+      )}
 
       {/* ===== 2. 3D Render Canvas ===== */}
       <div className="flex-1 h-full relative z-0 overflow-hidden">
         {/* Three.js mount point */}
         <div ref={containerRef} className="absolute inset-0" />
 
-        {/* Floating control bar (top right) */}
-        <div className="absolute top-6 right-6 flex items-center gap-1.5 p-1.5 rounded-2xl bg-white/70 dark:bg-zinc-900/80 border border-black/5 dark:border-white/10 shadow-lg backdrop-blur-md transition-colors duration-500 z-10">
-          {/* Preset views */}
-          <button
-            onClick={() => setView('iso')}
-            className="px-2.5 py-2 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer"
-            title="等距视图"
-          >等距</button>
-          <button
-            onClick={() => setView('top')}
-            className="px-2.5 py-2 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer"
-            title="俯视图"
-          >俯视</button>
-          <button
-            onClick={() => setView('front')}
-            className="px-2.5 py-2 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer"
-            title="正视图"
-          >正视</button>
-          <button
-            onClick={() => setView('side')}
-            className="px-2.5 py-2 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer"
-            title="侧视图"
-          >侧视</button>
+        {/* Floating control bar (top right) - 仅在非嵌入模式或操作模式(interact)下显示 */}
+        {(!embedded || interactMode === 'interact') && (
+          <div className="absolute top-6 right-6 flex items-center gap-1.5 p-1.5 rounded-2xl bg-white/70 dark:bg-zinc-900/80 border border-black/5 dark:border-white/10 shadow-lg backdrop-blur-md transition-colors duration-500 z-10 animate-in fade-in slide-in-from-top-3 duration-300">
+            {/* Preset views */}
+            <button
+              onClick={() => setView('iso')}
+              className="px-2.5 py-2 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer"
+              title="等距视图"
+            >等距</button>
+            <button
+              onClick={() => setView('top')}
+              className="px-2.5 py-2 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer"
+              title="俯视图"
+            >俯视</button>
+            <button
+              onClick={() => setView('front')}
+              className="px-2.5 py-2 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer"
+              title="正视图"
+            >正视</button>
+            <button
+              onClick={() => setView('side')}
+              className="px-2.5 py-2 rounded-xl text-xs font-bold text-zinc-600 dark:text-zinc-300 hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer"
+              title="侧视图"
+            >侧视</button>
 
-          <div className="w-[1px] h-5 bg-black/10 dark:bg-white/15 mx-1" />
+            <div className="w-[1px] h-5 bg-black/10 dark:bg-white/15 mx-1" />
 
-          <button
-            onClick={() => setShowAxes(!showAxes)}
-            className={cn(
-              "p-2.5 rounded-xl transition-all cursor-pointer border",
-              showAxes
-                ? "bg-gradient-to-tr from-cyan-600 to-blue-500 border-cyan-400/20 text-white shadow-md shadow-cyan-500/10"
-                : "bg-transparent text-zinc-400 hover:text-zinc-700 dark:hover:text-white border-transparent hover:bg-black/5 dark:hover:bg-white/10"
-            )}
-            title={showAxes ? "隐藏坐标轴" : "显示坐标轴"}
-          >
-            <Compass className="w-4 h-4" />
-          </button>
+            <button
+              onClick={() => setShowAxes(!showAxes)}
+              className={cn(
+                "p-2.5 rounded-xl transition-all cursor-pointer border",
+                showAxes
+                  ? "bg-gradient-to-tr from-cyan-600 to-blue-500 border-cyan-400/20 text-white shadow-md shadow-cyan-500/10"
+                  : "bg-transparent text-zinc-400 hover:text-zinc-700 dark:hover:text-white border-transparent hover:bg-black/5 dark:hover:bg-white/10"
+              )}
+              title={showAxes ? "隐藏坐标轴" : "显示坐标轴"}
+            >
+              <Compass className="w-4 h-4" />
+            </button>
 
-          <button
-            onClick={() => setShowGrid(!showGrid)}
-            className={cn(
-              "p-2.5 rounded-xl transition-all cursor-pointer border",
-              showGrid
-                ? "bg-gradient-to-tr from-cyan-600 to-blue-500 border-cyan-400/20 text-white shadow-md shadow-cyan-500/10"
-                : "bg-transparent text-zinc-400 hover:text-zinc-700 dark:hover:text-white border-transparent hover:bg-black/5 dark:hover:bg-white/10"
-            )}
-            title={showGrid ? "隐藏网格" : "显示网格"}
-          >
-            <Grid className="w-4 h-4" />
-          </button>
+            <button
+              onClick={() => setShowGrid(!showGrid)}
+              className={cn(
+                "p-2.5 rounded-xl transition-all cursor-pointer border",
+                showGrid
+                  ? "bg-gradient-to-tr from-cyan-600 to-blue-500 border-cyan-400/20 text-white shadow-md shadow-cyan-500/10"
+                  : "bg-transparent text-zinc-400 hover:text-zinc-700 dark:hover:text-white border-transparent hover:bg-black/5 dark:hover:bg-white/10"
+              )}
+              title={showGrid ? "隐藏网格" : "显示网格"}
+            >
+              <Grid className="w-4 h-4" />
+            </button>
 
-          <button
-            onClick={() => setAutoRotate(!autoRotate)}
-            className={cn(
-              "p-2.5 rounded-xl transition-all cursor-pointer border",
-              autoRotate
-                ? "bg-gradient-to-tr from-cyan-600 to-blue-500 border-cyan-400/20 text-white shadow-md shadow-cyan-500/10"
-                : "bg-transparent text-zinc-400 hover:text-zinc-700 dark:hover:text-white border-transparent hover:bg-black/5 dark:hover:bg-white/10"
-            )}
-            title={autoRotate ? "暂停自动旋转" : "开启自动旋转"}
-          >
-            {autoRotate ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-          </button>
-        </div>
+            <button
+              onClick={() => setAutoRotate(!autoRotate)}
+              className={cn(
+                "p-2.5 rounded-xl transition-all cursor-pointer border",
+                autoRotate
+                  ? "bg-gradient-to-tr from-cyan-600 to-blue-500 border-cyan-400/20 text-white shadow-md shadow-cyan-500/10"
+                  : "bg-transparent text-zinc-400 hover:text-zinc-700 dark:hover:text-white border-transparent hover:bg-black/5 dark:hover:bg-white/10"
+              )}
+              title={autoRotate ? "暂停自动旋转" : "开启自动旋转"}
+            >
+              {autoRotate ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ===== 3. Math Keyboard ===== */}
