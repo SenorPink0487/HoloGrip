@@ -102,69 +102,53 @@ export function bindAppleHover(element) {
  * @param {HTMLElement} element
  */
 export function animateFieldEntry(element) {
-  if (!element) return
-  if (prefersReducedMotion()) {
-    element.style.opacity = '1'
-    return
+  if (!element || prefersReducedMotion()) return
+
+  const island = element.closest('.spotlight-search-island')
+  const operands = element.closest('.search-operands-container')
+  if (operands) operands.classList.add('is-animating')
+
+  // 1. 记录外层岛屿的初始宽度
+  const startWidth = island ? island.offsetWidth : 0
+
+  // 2. 将新输入的框设为透明，防止闪烁
+  element.style.opacity = '0'
+  element.style.transform = 'scale(0.95)'
+  
+  if (island) {
+    island.style.transition = 'none'
   }
 
-  const isBlend = !!element.closest('[data-mode="blend"]')
-  const targetW = isBlend ? 160 : (element.offsetWidth || 160)
+  // 3. 强制触发浏览器重排，此时局部输入框带着它的固定宽度(220px)撑开了外层岛屿
+  void element.offsetWidth
 
-  element.style.transformOrigin = 'left center'
-  element.style.overflow = 'hidden'
-  element.style.willChange = 'width, opacity, transform'
+  if (island) {
+    // 4. 获取撑开后的目标宽度
+    const targetWidth = island.offsetWidth
 
-  const tag = element.querySelector('.search-tag')
-  const input = element.querySelector('.chem-input')
-  const removeBtn = element.querySelector('.btn-field-remove')
+    // 5. 将岛屿宽度瞬间拨回初始宽度
+    island.style.width = `${startWidth}px`
+    void island.offsetWidth // 再次触发重排
 
-  const resetStyles = () => {
-    element.style.overflow = ''
-    element.style.willChange = ''
-    element.style.width = ''
+    // 6. 开启外层岛屿的伸长动画
+    island.style.transition = 'width 400ms cubic-bezier(0.16, 1, 0.3, 1)'
+    island.style.width = `${targetWidth}px`
   }
 
-  motionTo(
-    element,
-    {
-      width: ['0px', `${targetW}px`],
-      opacity: [0, 1],
-      scale: [0.92, 1],
-    },
-    {
-      type: 'spring',
-      stiffness: 240,
-      damping: 24,
-      mass: 0.8,
-    },
-  )
-    .then(resetStyles)
-    .catch(resetStyles)
+  // 7. 局部输入框本身不进行任何 width 拉伸，只做优雅的淡入
+  element.style.transition = 'opacity 400ms cubic-bezier(0.16, 1, 0.3, 1), transform 400ms cubic-bezier(0.16, 1, 0.3, 1)'
+  element.style.opacity = '1'
+  element.style.transform = 'scale(1)'
 
-  if (tag) {
-    motionTo(
-      tag,
-      { opacity: [0, 1], scale: [0.6, 1] },
-      { delay: 0.08, ...SPRING_POP },
-    )
-  }
-
-  if (input) {
-    motionTo(
-      input,
-      { opacity: [0, 1] },
-      { delay: 0.1, duration: 0.28, ease: EASE_OUT },
-    )
-  }
-
-  if (removeBtn) {
-    motionTo(
-      removeBtn,
-      { opacity: [0, 1], scale: [0.6, 1] },
-      { delay: 0.14, ...SPRING_POP },
-    )
-  }
+  setTimeout(() => {
+    if (island) {
+      island.style.transition = ''
+      island.style.width = ''
+    }
+    element.style.transition = ''
+    element.style.transform = ''
+    if (operands) operands.classList.remove('is-animating')
+  }, 400)
 }
 
 /**
@@ -172,57 +156,56 @@ export function animateFieldEntry(element) {
  * @param {Function} [onComplete]
  */
 export function animateFieldExit(element, onComplete) {
+  let operands = element?.closest('.search-operands-container')
+  let island = element?.closest('.spotlight-search-island')
+  if (operands) operands.classList.add('is-animating')
+
   let settled = false
   const finish = () => {
     if (settled) return
     settled = true
+    if (island) {
+      island.style.transition = ''
+      island.style.width = ''
+    }
+    if (operands) operands.classList.remove('is-animating')
     onComplete?.()
   }
 
-  if (!element) {
+  if (!element || prefersReducedMotion()) {
     finish()
     return
   }
 
-  const safety = window.setTimeout(finish, 400)
+  // 1. 记录退出前岛屿的初始宽度
+  const startWidth = island ? island.offsetWidth : 0
 
-  if (prefersReducedMotion()) {
-    window.clearTimeout(safety)
-    finish()
-    return
-  }
-
-  const startW = element.offsetWidth || 160
-  element.style.flex = '0 0 auto'
-  element.style.overflow = 'hidden'
+  // 2. 将要被删除的元素标记为绝对定位脱离文档流，但不实际删除，以便测量新宽度
+  const fieldWidth = element.offsetWidth
+  element.style.position = 'absolute'
   element.style.pointerEvents = 'none'
-  element.style.width = `${startW}px`
-  element.style.minWidth = '0px'
 
-  const done = () => {
-    window.clearTimeout(safety)
-    finish()
+  // 3. 强制重排，测量抽离掉该元素后的岛屿新宽度
+  void island.offsetWidth
+  const targetWidth = island ? island.offsetWidth : 0
+
+  if (island) {
+    // 4. 将岛屿宽度拨回老宽度
+    island.style.transition = 'none'
+    island.style.width = `${startWidth}px`
+    void island.offsetWidth
+
+    // 5. 动画外层岛屿的宽度缩小
+    island.style.transition = 'width 300ms cubic-bezier(0.25, 1, 0.5, 1)'
+    island.style.width = `${targetWidth}px`
   }
 
-  motionTo(
-    element,
-    {
-      opacity: [1, 0],
-      width: [`${startW}px`, '0px'],
-      scale: [1, 0.88],
-      paddingLeft: ['14px', '0px'],
-      paddingRight: ['12px', '0px'],
-      marginRight: ['0px', '-10px'],
-    },
-    {
-      type: 'spring',
-      stiffness: 280,
-      damping: 28,
-      mass: 0.8,
-    },
-  )
-    .then(done)
-    .catch(done)
+  // 6. 局部元素原地淡出缩放，绝不拉伸变形
+  element.style.transition = 'opacity 300ms cubic-bezier(0.25, 1, 0.5, 1), transform 300ms cubic-bezier(0.25, 1, 0.5, 1)'
+  element.style.opacity = '0'
+  element.style.transform = 'scale(0.8)'
+
+  setTimeout(finish, 300)
 }
 
 /**
@@ -589,11 +572,17 @@ function bindFieldFocusGlow(container) {
     const field = e.target.closest?.('.search-field')
     if (!field) return
     field.classList.add('is-lit')
+    if (!prefersReducedMotion()) {
+      motionTo(field, { scale: [1, 1.018, 1.01], y: -2 }, { type: 'spring', stiffness: 380, damping: 22, mass: 0.7 })
+    }
   })
 
   container.addEventListener('focusout', (e) => {
     const field = e.target.closest?.('.search-field')
     if (!field) return
+    if (!prefersReducedMotion()) {
+      motionTo(field, { scale: 1, y: 0 }, { type: 'spring', stiffness: 300, damping: 24, mass: 0.8 })
+    }
     requestAnimationFrame(() => {
       if (!field.contains(document.activeElement)) {
         field.classList.remove('is-lit')
@@ -682,3 +671,58 @@ export function setRevealLoading(loading) {
     motionTo(arrow, { x: 0 }, { duration: 0.3, ease: EASE_OUT })
   }
 }
+
+/**
+ * 数学板块鼠标跟随发光与粒子拖尾动效初始化
+ */
+export function initCursorEffects() {
+  const glow = document.getElementById('cursor-glow')
+  const trailContainer = document.getElementById('trail-container')
+  if (!glow || !trailContainer) return
+
+  let mouseX = window.innerWidth / 2
+  let mouseY = window.innerHeight / 2
+  let currentX = mouseX
+  let currentY = mouseY
+
+  window.addEventListener('mousemove', (e) => {
+    mouseX = e.clientX
+    mouseY = e.clientY
+    spawnTrailParticle(e.clientX, e.clientY)
+  })
+
+  function updateGlowPosition() {
+    currentX += (mouseX - currentX) * 0.08
+    currentY += (mouseY - currentY) * 0.08
+    glow.style.left = `${currentX}px`
+    glow.style.top = `${currentY}px`
+    requestAnimationFrame(updateGlowPosition)
+  }
+  updateGlowPosition()
+
+  let lastSpawnX = 0
+  let lastSpawnY = 0
+  const minMoveDistance = 8
+
+  function spawnTrailParticle(x, y) {
+    const dx = x - lastSpawnX
+    const dy = y - lastSpawnY
+    const dist = Math.sqrt(dx * dx + dy * dy)
+    if (dist < minMoveDistance) return
+    lastSpawnX = x
+    lastSpawnY = y
+
+    const dot = document.createElement('div')
+    dot.className = 'trail-dot'
+    const offsetX = (Math.random() - 0.5) * 8
+    const offsetY = (Math.random() - 0.5) * 8
+    dot.style.left = `${x + offsetX}px`
+    dot.style.top = `${y + offsetY}px`
+    const size = Math.random() * 6 + 4
+    dot.style.width = `${size}px`
+    dot.style.height = `${size}px`
+    trailContainer.appendChild(dot)
+    dot.addEventListener('animationend', () => dot.remove())
+  }
+}
+

@@ -105,65 +105,36 @@ export function animateFieldEntry(element) {
     return
   }
 
-  const targetWidth = 156
+  const operands = element.closest('.search-operands')
+  if (operands) operands.classList.add('is-animating')
+
+  const isBlend = !!element.closest('[data-mode="blend"]')
+  const targetW = isBlend ? 160 : (element.offsetWidth || 160)
+
   element.style.transformOrigin = 'left center'
-  element.style.flex = '0 0 auto'
   element.style.overflow = 'hidden'
-  element.style.willChange = 'width, opacity'
+  element.style.willChange = 'width, opacity, transform'
+  element.style.transition = 'none'
+  element.style.width = '0px'
+  element.style.opacity = '0'
+  element.style.transform = 'scale(0.92)'
 
-  const tag = element.querySelector('.search-tag')
-  const input = element.querySelector('.chem-input')
-  const removeBtn = element.querySelector('.btn-field-remove')
+  void element.offsetWidth
 
-  const clearShell = () => {
-    element.style.flex = ''
-    element.style.width = ''
-    element.style.flexBasis = ''
+  element.style.transition = 'width 480ms cubic-bezier(0.16, 1, 0.3, 1), opacity 400ms ease-out, transform 480ms cubic-bezier(0.16, 1, 0.3, 1)'
+  element.style.width = `${targetW}px`
+  element.style.opacity = '1'
+  element.style.transform = 'scale(1)'
+
+  setTimeout(() => {
+    element.style.transition = ''
     element.style.overflow = ''
     element.style.willChange = ''
-    element.style.paddingLeft = ''
-    element.style.paddingRight = ''
+    element.style.width = ''
     element.style.opacity = ''
-  }
-
-  motionTo(
-    element,
-    {
-      width: ['0px', `${targetWidth}px`],
-      flexBasis: ['0px', `${targetWidth}px`],
-      opacity: [0, 1],
-      paddingLeft: ['0px', '14px'],
-      paddingRight: ['0px', '12px'],
-    },
-    {
-      ...SPRING_LAYOUT,
-      opacity: { duration: 0.32, ease: EASE_OUT },
-    },
-  ).then(clearShell).catch(clearShell)
-
-  if (tag) {
-    motionTo(
-      tag,
-      { opacity: [0, 1], scale: [0.7, 1] },
-      { delay: 0.12, ...SPRING_POP },
-    )
-  }
-
-  if (input) {
-    motionTo(
-      input,
-      { opacity: [0, 1] },
-      { delay: 0.16, duration: 0.34, ease: EASE_OUT },
-    )
-  }
-
-  if (removeBtn) {
-    motionTo(
-      removeBtn,
-      { opacity: [0, 1], scale: [0.75, 1] },
-      { delay: 0.2, ...SPRING_POP },
-    )
-  }
+    element.style.transform = ''
+    if (operands) operands.classList.remove('is-animating')
+  }, 480)
 }
 
 /**
@@ -171,10 +142,14 @@ export function animateFieldEntry(element) {
  * @param {Function} [onComplete]
  */
 export function animateFieldExit(element, onComplete) {
+  let operands = element?.closest('.search-operands')
+  if (operands) operands.classList.add('is-animating')
+
   let settled = false
   const finish = () => {
     if (settled) return
     settled = true
+    if (operands) operands.classList.remove('is-animating')
     onComplete?.()
   }
 
@@ -183,41 +158,29 @@ export function animateFieldExit(element, onComplete) {
     return
   }
 
-  const safety = window.setTimeout(finish, 320)
-
   if (prefersReducedMotion()) {
-    window.clearTimeout(safety)
     finish()
     return
   }
 
-  const startWidth = Math.max(element.offsetWidth || 0, 1)
-  element.style.flex = '0 0 auto'
+  const startW = element.offsetWidth || 160
+  element.style.transformOrigin = 'left center'
   element.style.overflow = 'hidden'
   element.style.pointerEvents = 'none'
-  element.style.width = `${startWidth}px`
-  element.style.minWidth = '0'
-  element.style.boxSizing = 'border-box'
+  element.style.willChange = 'width, opacity, transform'
+  element.style.transition = 'none'
+  element.style.width = `${startW}px`
+  element.style.opacity = '1'
+  element.style.transform = 'scale(1)'
 
-  const done = () => {
-    window.clearTimeout(safety)
-    finish()
-  }
+  void element.offsetWidth
 
-  motionTo(
-    element,
-    {
-      opacity: 0,
-      width: 0,
-      paddingLeft: 0,
-      paddingRight: 0,
-      marginLeft: -6,
-    },
-    {
-      duration: 0.22,
-      ease: EASE_OUT,
-    },
-  ).then(done).catch(done)
+  element.style.transition = 'width 420ms cubic-bezier(0.16, 1, 0.3, 1), opacity 350ms ease-in, transform 420ms cubic-bezier(0.16, 1, 0.3, 1)'
+  element.style.width = '0px'
+  element.style.opacity = '0'
+  element.style.transform = 'scale(0.88)'
+
+  setTimeout(finish, 420)
 }
 
 /**
@@ -582,11 +545,17 @@ function bindFieldFocusGlow(container) {
     const field = e.target.closest?.('.search-field')
     if (!field) return
     field.classList.add('is-lit')
+    if (!prefersReducedMotion()) {
+      motionTo(field, { scale: [1, 1.018, 1.01], y: -2 }, { type: 'spring', stiffness: 380, damping: 22, mass: 0.7 })
+    }
   })
 
   container.addEventListener('focusout', (e) => {
     const field = e.target.closest?.('.search-field')
     if (!field) return
+    if (!prefersReducedMotion()) {
+      motionTo(field, { scale: 1, y: 0 }, { type: 'spring', stiffness: 300, damping: 24, mass: 0.8 })
+    }
     requestAnimationFrame(() => {
       if (!field.contains(document.activeElement)) {
         field.classList.remove('is-lit')

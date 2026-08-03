@@ -1,18 +1,18 @@
 import { escapeHtml, formatFormulaHtml, formatFormulaPlain } from './chemFormat.js'
 import { toChinese } from './chemAliases.js'
 
-/** 成分圆环配色 */
+/** macOS 系统级暗色主题 Accent 配色 */
 export const COMP_COLORS = [
-  '#5eead4',
-  '#f5c26b',
-  '#c4b5fd',
-  '#fb7185',
-  '#38bdf8',
-  '#a3e635',
-  '#f472b6',
-  '#2dd4bf',
-  '#fbbf24',
-  '#818cf8',
+  '#0a84ff', // macOS Blue
+  '#30d158', // macOS Green
+  '#ff9f0a', // macOS Orange
+  '#bf5af2', // macOS Purple
+  '#ff375f', // macOS Pink / Red
+  '#64d2ff', // macOS Cyan
+  '#ffd60a', // macOS Yellow
+  '#5e5ce6', // macOS Indigo
+  '#ac8e68', // macOS Brown
+  '#98989d', // macOS Gray
 ]
 
 /**

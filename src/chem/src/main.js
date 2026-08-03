@@ -8,12 +8,18 @@ import { toChinese } from './chemAliases.js'
 import {
   initSpecularLighting,
   initSearchDockMotion,
+  initCursorEffects,
   animateStaggerIn,
   animateFieldEntry,
   animateFieldExit,
   animatePlusPulse,
   setRevealLoading,
 } from './appleMotion.js'
+
+// 初始化 Lucide 矢量图标系统
+if (typeof window !== 'undefined') {
+  setTimeout(() => window.lucide?.createIcons(), 100)
+}
 
 const $ = (sel) => document.querySelector(sel)
 
@@ -187,9 +193,9 @@ function addOperandField(initialValue = '') {
   fieldDiv.setAttribute('data-slot', tagChar.toLowerCase())
 
   fieldDiv.innerHTML = `
-    <span class="search-tag">${tagChar}</span>
+    <span class="search-tag search-slot-badge">${tagChar}</span>
     <input
-      class="chem-input"
+      class="search-input chem-input"
       type="text"
       autocomplete="off"
       spellcheck="false"
@@ -252,6 +258,7 @@ function updateOperandIndices() {
   )
   const isBlend = fields.length >= 2
 
+  container.dataset.mode = isBlend ? 'blend' : 'single'
   if (el.searchRow) {
     el.searchRow.dataset.mode = isBlend ? 'blend' : 'single'
   }
@@ -261,6 +268,11 @@ function updateOperandIndices() {
     field.setAttribute('data-slot', tagChar.toLowerCase())
     const tagEl = field.querySelector('.search-tag')
     if (tagEl) tagEl.textContent = tagChar
+
+    const inputEl = field.querySelector('.chem-input')
+    if (inputEl) {
+      inputEl.placeholder = ''
+    }
 
     let removeBtn = field.querySelector('.btn-field-remove')
     if (isBlend && !removeBtn) {
@@ -539,6 +551,42 @@ setOverlay({ hidden: true, loading: false, error: false })
 setStatus('ready', '等待输入')
 fitChemInputs()
 
-// 初始化 Apple 风格极简动效与触感 + 搜索岛编排
-initSpecularLighting()
-initSearchDockMotion()
+// 初始化自定义反应条件下拉 Popover 菜单
+function initCustomConditionDropdown() {
+  const trigger = $('#cond-trigger')
+  const menu = $('#cond-menu')
+  const label = $('#cond-trigger-label')
+  const hiddenInput = $('#reaction-condition')
+  if (!trigger || !menu || !hiddenInput) return
+
+  const toggle = (open) => {
+    const show = open ?? menu.classList.contains('hidden')
+    menu.classList.toggle('hidden', !show)
+    trigger.classList.toggle('is-open', show)
+    trigger.setAttribute('aria-expanded', show ? 'true' : 'false')
+  }
+
+  trigger.addEventListener('click', (e) => {
+    e.stopPropagation()
+    toggle()
+  })
+
+  menu.querySelectorAll('.cond-option-item').forEach((item) => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation()
+      const val = item.dataset.value || ''
+      const text = item.textContent.trim()
+      hiddenInput.value = val
+      label.textContent = text
+      
+      menu.querySelectorAll('.cond-option-item').forEach((i) => i.classList.remove('is-selected'))
+      item.classList.add('is-selected')
+      toggle(false)
+    })
+  })
+
+  document.addEventListener('click', () => toggle(false))
+}
+
+initCustomConditionDropdown()
+
