@@ -544,6 +544,11 @@ export function Calculator3D({ embedded = false, preview = false, initialState, 
     }
   }, [initialState]);
 
+  // UI state
+  const [showAxes, setShowAxes] = useState(true);
+  const [showGrid, setShowGrid] = useState(true);
+  const [autoRotate, setAutoRotate] = useState(false);
+
   useEffect(() => {
     if (!preview && onStateChange) {
       const json = JSON.stringify(objects);
@@ -553,11 +558,6 @@ export function Calculator3D({ embedded = false, preview = false, initialState, 
       }
     }
   }, [objects, showAxes, showGrid, autoRotate, onStateChange, preview]);
-
-  // UI state
-  const [showAxes, setShowAxes] = useState(true);
-  const [showGrid, setShowGrid] = useState(true);
-  const [autoRotate, setAutoRotate] = useState(false);
 
   // Inputs
   const [inputValue, setInputValue] = useState('');

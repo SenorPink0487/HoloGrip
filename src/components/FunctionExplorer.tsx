@@ -252,6 +252,7 @@ function serializeFunctionObjects(objects: GeoObject[]): SerializedFunctionObjec
 
 export function FunctionExplorer({ embedded = false, preview = false, editorOnly = false, initialState, onStateChange }: FunctionExplorerProps = {}) {
   const theme = useARStore(state => state.theme);
+  const interactMode = useARStore(state => state.interactMode);
   const isDark = theme === 'dark';
 
   // ---------- 侧栏 ----------
@@ -388,25 +389,25 @@ export function FunctionExplorer({ embedded = false, preview = false, editorOnly
   const [scale, setScale] = useState<number>(45);
   const [origin, setOrigin] = useState<{ x: number; y: number }>({ x: 300, y: 250 });
 
+  // ---------- 显示开关 ----------
+  const [showLabels, setShowLabels] = useState(true);
+  const [showFeaturePoints, setShowFeaturePoints] = useState(true);
+  const [showTrace, setShowTrace] = useState(true);
+
   // 内部状态改变回调 onStateChange (只在编辑面板模式触发)
   useEffect(() => {
     if (!preview && onStateChange) {
       const json = JSON.stringify(objects);
       if (json !== lastStateJsonRef.current) {
         lastStateJsonRef.current = json;
-        onStateChange({ objects, scale, origin });
+        onStateChange({ objects, scale, origin, showLabels, showFeaturePoints, showTrace });
       }
     }
-  }, [objects, scale, origin, onStateChange, preview]);
+  }, [objects, scale, origin, showLabels, showFeaturePoints, showTrace, onStateChange, preview]);
   const [hasInitializedOrigin, setHasInitializedOrigin] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const dragOriginStart = useRef({ x: 0, y: 0 });
-
-  // ---------- 显示开关 ----------
-  const [showLabels, setShowLabels] = useState(true);
-  const [showFeaturePoints, setShowFeaturePoints] = useState(true);
-  const [showTrace, setShowTrace] = useState(true);
 
   // ---------- 鼠标悬浮态 ----------
   const [hoveredFeature, setHoveredFeature] = useState<FeaturePoint | null>(null);
@@ -433,24 +434,18 @@ export function FunctionExplorer({ embedded = false, preview = false, editorOnly
    * 的对称扩展(允许略微越界以容纳坐标轴标签)。
    */
   const clampOrigin = useCallback((o: { x: number; y: number }, s: number, canvasW: number, canvasH: number) => {
-    // 数学单位的极限
     const L = MATH_SPACE_LIMIT;
-    // origin 的左侧最多让 -L 出现在 left=0 处 → origin.x ≥ -L*scale (即数学 0 在 -L*scale 像素位置)
-    // origin 的右侧最多让 +L 出现在 right=canvasW 处 → origin.x ≤ canvasW + L*scale ... 不对
-    // 正确做法: 屏幕可见 x ∈ [-origin.x/s, (canvasW-origin.x)/s]
-    //   要求 -L ≤ -origin.x/s  →  origin.x ≤ L*s
-    //   要求 (canvasW-origin.x)/s ≤ L  →  origin.x ≥ canvasW - L*s
     const minOx = canvasW - L * s;
     const maxOx = L * s;
     const minOy = canvasH - L * s;
     const maxOy = L * s;
-    // 当 maxOx < minOx (即 2L*s < canvasW),整个 ±L 都在屏幕里, 居中
     let nx = o.x;
     let ny = o.y;
     if (maxOx < minOx) nx = canvasW / 2;
     else nx = Math.min(maxOx, Math.max(minOx, o.x));
     if (maxOy < minOy) ny = canvasH / 2;
     else ny = Math.min(maxOy, Math.max(minOy, o.y));
+    if (nx === o.x && ny === o.y) return o;
     return { x: nx, y: ny };
   }, []);
 
@@ -1893,90 +1888,100 @@ export function FunctionExplorer({ embedded = false, preview = false, editorOnly
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           onMouseLeave={handleMouseUp}
+          onPointerDown={(e) => {
+            handleMouseDown(e as unknown as React.MouseEvent);
+          }}
+          onPointerMove={(e) => {
+            if (isDragging || draggingPointId) {
+              handleMouseMove(e as unknown as React.MouseEvent);
+            }
+          }}
+          onPointerUp={handleMouseUp}
           onWheel={handleWheel}
-          className="w-full h-full"
+          className="w-full h-full cursor-crosshair touch-none"
         />
 
-        {/* 缩放快捷条 (左下;键盘弹出时上移避让) */}
-        <div className={cn(
-          'absolute left-5 flex flex-col gap-1.5 backdrop-blur-md rounded-2xl p-1.5 select-none z-[36] transition-all duration-300 border',
-          embedded
-            ? isDark
-              ? 'bg-zinc-900/40 border-white/10 shadow-lg'
-              : 'bg-white/40 border-slate-200/50 shadow-sm'
-            : isDark 
-              ? 'bg-zinc-900/75 border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.5)]' 
-              : 'bg-white/80 border-slate-200/80 shadow-[0_10px_30px_rgba(0,0,0,0.06)]',
-          keyboardOpen ? 'bottom-[420px]' : 'bottom-5'
-        )}>
-          <button
-            onClick={() => {
-              const c = canvasRef.current;
-              if (!c) return;
-              const { w, h } = getCanvasSize();
-              const cx = w / 2;
-              const cy = h / 2;
-              const newScale = Math.min(MAX_SCALE, scale * 1.25);
-              const mathX = (cx - origin.x) / scale;
-              const mathY = (origin.y - cy) / scale;
-              setScale(newScale);
-              setOrigin(clampOrigin({ x: cx - mathX * newScale, y: cy + mathY * newScale }, newScale, w, h));
-            }}
-            className={cn(
-              "w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 cursor-pointer",
-              isDark 
-                ? "text-zinc-300 hover:text-white hover:bg-white/10" 
-                : "text-slate-650 hover:text-slate-900 hover:bg-slate-100"
-            )}
-            title="放大"
-          >
-            <span className="text-lg font-bold">+</span>
-          </button>
-          <button
-            onClick={() => {
-              const c = canvasRef.current;
-              if (!c) return;
-              const { w, h } = getCanvasSize();
-              const cx = w / 2;
-              const cy = h / 2;
-              const minScale = getMinScaleForCanvas(w, h);
-              const newScale = Math.max(minScale, scale / 1.25);
-              const mathX = (cx - origin.x) / scale;
-              const mathY = (origin.y - cy) / scale;
-              setScale(newScale);
-              setOrigin(clampOrigin({ x: cx - mathX * newScale, y: cy + mathY * newScale }, newScale, w, h));
-            }}
-            className={cn(
-              "w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 cursor-pointer",
-              isDark 
-                ? "text-zinc-300 hover:text-white hover:bg-white/10" 
-                : "text-slate-650 hover:text-slate-900 hover:bg-slate-100"
-            )}
-            title="缩小"
-          >
-            <span className="text-lg font-bold">−</span>
-          </button>
-          <div className={cn("w-full h-px my-0.5", isDark ? "bg-white/10" : "bg-slate-200")} />
-          <button
-            onClick={() => {
-              const c = canvasRef.current;
-              if (!c) return;
-              const { w, h } = getCanvasSize();
-              setScale(45);
-              setOrigin({ x: w / 2, y: h / 2 });
-            }}
-            className={cn(
-              "w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 cursor-pointer",
-              isDark 
-                ? "text-zinc-300 hover:text-white hover:bg-white/10" 
-                : "text-slate-650 hover:text-slate-900 hover:bg-slate-100"
-            )}
-            title="居中 (默认视野)"
-          >
-            <Crosshair className="w-4 h-4" />
-          </button>
-
-        </div>
+        {/* 缩放快捷条 (仅在操作模式或非嵌入模式下弹出显示) */}
+        {(!embedded || interactMode === 'interact') && (
+          <div className={cn(
+            'absolute left-5 flex flex-col gap-1.5 backdrop-blur-md rounded-2xl p-1.5 select-none z-[36] border animate-in fade-in slide-in-from-bottom-3 duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]',
+            embedded
+              ? isDark
+                ? 'bg-zinc-900/40 border-white/10 shadow-lg'
+                : 'bg-white/40 border-slate-200/50 shadow-sm'
+              : isDark 
+                ? 'bg-zinc-900/75 border-white/10 shadow-[0_10px_30px_rgba(0,0,0,0.5)]' 
+                : 'bg-white/80 border-slate-200/80 shadow-[0_10px_30px_rgba(0,0,0,0.06)]',
+            keyboardOpen ? 'bottom-[420px]' : 'bottom-5'
+          )}>
+            <button
+              onClick={() => {
+                const c = canvasRef.current;
+                if (!c) return;
+                const { w, h } = getCanvasSize();
+                const cx = w / 2;
+                const cy = h / 2;
+                const newScale = Math.min(MAX_SCALE, scale * 1.25);
+                const mathX = (cx - origin.x) / scale;
+                const mathY = (origin.y - cy) / scale;
+                setScale(newScale);
+                setOrigin(clampOrigin({ x: cx - mathX * newScale, y: cy + mathY * newScale }, newScale, w, h));
+              }}
+              className={cn(
+                "w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 cursor-pointer",
+                isDark 
+                  ? "text-zinc-300 hover:text-white hover:bg-white/10" 
+                  : "text-slate-650 hover:text-slate-900 hover:bg-slate-100"
+              )}
+              title="放大"
+            >
+              <span className="text-lg font-bold">+</span>
+            </button>
+            <button
+              onClick={() => {
+                const c = canvasRef.current;
+                if (!c) return;
+                const { w, h } = getCanvasSize();
+                const cx = w / 2;
+                const cy = h / 2;
+                const minScale = getMinScaleForCanvas(w, h);
+                const newScale = Math.max(minScale, scale / 1.25);
+                const mathX = (cx - origin.x) / scale;
+                const mathY = (origin.y - cy) / scale;
+                setScale(newScale);
+                setOrigin(clampOrigin({ x: cx - mathX * newScale, y: cy + mathY * newScale }, newScale, w, h));
+              }}
+              className={cn(
+                "w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 cursor-pointer",
+                isDark 
+                  ? "text-zinc-300 hover:text-white hover:bg-white/10" 
+                  : "text-slate-650 hover:text-slate-900 hover:bg-slate-100"
+              )}
+              title="缩小"
+            >
+              <span className="text-lg font-bold">−</span>
+            </button>
+            <div className={cn("w-full h-px my-0.5", isDark ? "bg-white/10" : "bg-slate-200")} />
+            <button
+              onClick={() => {
+                const c = canvasRef.current;
+                if (!c) return;
+                const { w, h } = getCanvasSize();
+                setScale(45);
+                setOrigin({ x: w / 2, y: h / 2 });
+              }}
+              className={cn(
+                "w-9 h-9 rounded-xl flex items-center justify-center transition-all active:scale-90 cursor-pointer",
+                isDark 
+                  ? "text-zinc-300 hover:text-white hover:bg-white/10" 
+                  : "text-slate-650 hover:text-slate-900 hover:bg-slate-100"
+              )}
+              title="居中 (默认视野)"
+            >
+              <Crosshair className="w-4 h-4" />
+            </button>
+          </div>
+        )}
 
 
       </div>

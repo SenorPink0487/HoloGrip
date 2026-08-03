@@ -41,7 +41,9 @@ export function WhiteboardEmbedsLayer() {
   const embeds = page?.embeds ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
   const dragRef = useRef<DragState | null>(null);
+  const rafRef = useRef<number | null>(null);
   const stageRef = useRef<HTMLDivElement>(null);
   const isDark = theme === 'dark';
 
@@ -80,11 +82,53 @@ export function WhiteboardEmbedsLayer() {
     setSelectedId(embed.id);
   }, [addWhiteboardEmbed, maxZ]);
 
+  const handlePointerMoveWindow = useCallback((event: PointerEvent) => {
+    const drag = dragRef.current;
+    const stage = stageRef.current;
+    if (!drag || !stage) return;
+
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+
+    rafRef.current = requestAnimationFrame(() => {
+      if (!dragRef.current || !stageRef.current) return;
+      const rect = stageRef.current.getBoundingClientRect();
+      const dx = ((clientX - drag.startClient.x) / rect.width) * BOARD_WIDTH;
+      const dy = ((clientY - drag.startClient.y) / rect.height) * BOARD_HEIGHT;
+
+      if (drag.mode === 'move') {
+        updateWhiteboardEmbed(drag.id, {
+          x: Math.max(0, Math.min(BOARD_WIDTH - drag.start.width, drag.start.x + dx)),
+          y: Math.max(0, Math.min(BOARD_HEIGHT - (drag.start.minimized ? 48 : drag.start.height), drag.start.y + dy)),
+        });
+      } else {
+        updateWhiteboardEmbed(drag.id, {
+          width: Math.max(420, Math.min(BOARD_WIDTH - drag.start.x, drag.start.width + dx)),
+          height: Math.max(260, Math.min(BOARD_HEIGHT - drag.start.y, drag.start.height + dy)),
+        });
+      }
+    });
+  }, [updateWhiteboardEmbed]);
+
+  const stopDragWindow = useCallback(() => {
+    if (rafRef.current) {
+      cancelAnimationFrame(rafRef.current);
+      rafRef.current = null;
+    }
+    dragRef.current = null;
+    setActiveDragId(null);
+    window.removeEventListener('pointermove', handlePointerMoveWindow);
+    window.removeEventListener('pointerup', stopDragWindow);
+    window.removeEventListener('pointercancel', stopDragWindow);
+  }, [handlePointerMoveWindow]);
+
   const startDrag = useCallback((event: React.PointerEvent, embed: WhiteboardEmbed, mode: DragState['mode']) => {
     if (interactMode !== 'interact') return;
     event.preventDefault();
     event.stopPropagation();
     setSelectedId(embed.id);
+    setActiveDragId(embed.id);
     bringToFront(embed.id);
     dragRef.current = {
       mode,
@@ -92,35 +136,10 @@ export function WhiteboardEmbedsLayer() {
       startClient: { x: event.clientX, y: event.clientY },
       start: embed,
     };
-    try { event.currentTarget.setPointerCapture(event.pointerId); } catch {}
-  }, [bringToFront, interactMode]);
-
-  const handleDrag = useCallback((event: React.PointerEvent) => {
-    const drag = dragRef.current;
-    const stage = stageRef.current;
-    if (!drag || !stage) return;
-    const rect = stage.getBoundingClientRect();
-    const dx = ((event.clientX - drag.startClient.x) / rect.width) * BOARD_WIDTH;
-    const dy = ((event.clientY - drag.startClient.y) / rect.height) * BOARD_HEIGHT;
-    if (drag.mode === 'move') {
-      updateWhiteboardEmbed(drag.id, {
-        x: Math.max(0, Math.min(BOARD_WIDTH - drag.start.width, drag.start.x + dx)),
-        y: Math.max(0, Math.min(BOARD_HEIGHT - (drag.start.minimized ? 48 : drag.start.height), drag.start.y + dy)),
-      });
-    } else {
-      updateWhiteboardEmbed(drag.id, {
-        width: Math.max(420, Math.min(BOARD_WIDTH - drag.start.x, drag.start.width + dx)),
-        height: Math.max(260, Math.min(BOARD_HEIGHT - drag.start.y, drag.start.height + dy)),
-      });
-    }
-  }, [updateWhiteboardEmbed]);
-
-  const stopDrag = useCallback((event?: React.PointerEvent) => {
-    if (event) {
-      try { event.currentTarget.releasePointerCapture(event.pointerId); } catch {}
-    }
-    dragRef.current = null;
-  }, []);
+    window.addEventListener('pointermove', handlePointerMoveWindow);
+    window.addEventListener('pointerup', stopDragWindow);
+    window.addEventListener('pointercancel', stopDragWindow);
+  }, [bringToFront, interactMode, handlePointerMoveWindow, stopDragWindow]);
 
   const updateState = useCallback((id: string, state: FunctionExplorerState | Calculator3DState) => {
     updateWhiteboardEmbed(id, { state: state as unknown as Record<string, unknown> });
@@ -129,10 +148,7 @@ export function WhiteboardEmbedsLayer() {
   return (
     <div
       ref={stageRef}
-      className={cn("absolute inset-0 pointer-events-none transition-all duration-300", editingId ? "z-[200]" : "z-[37]")}
-      onPointerMove={handleDrag}
-      onPointerUp={stopDrag}
-      onPointerCancel={stopDrag}
+      className={cn("absolute inset-0 pointer-events-none transition-colors duration-300", editingId ? "z-[200]" : "z-[37]")}
     >
       <div data-embed-controls="true" className="absolute right-8 top-8 z-[80] flex items-center gap-2 rounded-2xl border border-black/5 bg-white/80 p-2 shadow-xl backdrop-blur-xl dark:border-white/10 dark:bg-zinc-900/85 pointer-events-auto">
         <span className={cn('px-2 text-xs font-semibold', isDark ? 'text-zinc-400' : 'text-slate-500')}>白板对象</span>
@@ -147,13 +163,15 @@ export function WhiteboardEmbedsLayer() {
       {embeds.map(embed => {
         const isSelected = selectedId === embed.id;
         const isEditing = editingId === embed.id;
+        const isDraggingThis = activeDragId === embed.id;
         const state = embed.state;
         return (
           <div
             key={`${page?.id ?? 'page'}:${embed.id}`}
             data-embed-card="true"
             className={cn(
-              'absolute overflow-hidden transition-all duration-300',
+              'absolute overflow-hidden select-none',
+              isDraggingThis ? 'transition-none will-change-transform' : 'transition-[border-color,box-shadow,background-color] duration-300',
               interactMode === 'interact' ? 'pointer-events-auto' : 'pointer-events-none',
               isEditing
                 ? 'rounded-2xl border-2 border-cyan-400/80 ring-4 ring-cyan-400/20 bg-transparent shadow-xl'
@@ -165,31 +183,22 @@ export function WhiteboardEmbedsLayer() {
               left: `${(embed.x / BOARD_WIDTH) * 100}%`,
               top: `${(embed.y / BOARD_HEIGHT) * 100}%`,
               width: `${(embed.width / BOARD_WIDTH) * 100}%`,
-              height: embed.minimized ? '48px' : `${(embed.height / BOARD_HEIGHT) * 100}%`,
+              height: embed.minimized ? '40px' : `${(embed.height / BOARD_HEIGHT) * 100}%`,
               zIndex: embed.zIndex,
-            }}
-            onPointerDown={(e) => {
-              setSelectedId(embed.id);
-              setEditingId(embed.id);
-              if (interactMode === 'interact') {
-                startDrag(e, embed, 'move');
-              }
             }}
             onClick={(e) => {
               e.stopPropagation();
+              setSelectedId(embed.id);
               setEditingId(embed.id);
             }}
           >
+            {/* 1. 画布主体：永久 100% 填充，绝对定位，切换模式时函数图像与坐标系位置零偏移零跳动 */}
             {!embed.minimized && (
               <div
-                className="relative w-full h-full min-h-0 cursor-pointer"
+                className="absolute inset-0 overflow-hidden"
                 onPointerDown={event => {
                   event.stopPropagation();
                   setSelectedId(embed.id);
-                  setEditingId(embed.id);
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
                   setEditingId(embed.id);
                 }}
               >
@@ -201,14 +210,30 @@ export function WhiteboardEmbedsLayer() {
               </div>
             )}
 
+            {/* 2. 原版拖拽栏：absolute 浮层挂在框内顶端 (top-0)，与外框边框及圆角 100% 无缝契合，零挤压且弹出流畅 */}
+            {interactMode === 'interact' && (
+              <div
+                className="group/dragbar absolute top-0 left-0 right-0 z-50 flex h-7 items-center justify-center bg-slate-200/80 dark:bg-zinc-800/80 border-b border-black/5 dark:border-white/10 rounded-t-[inherit] cursor-grab active:cursor-grabbing select-none transition-colors hover:bg-slate-300/90 dark:hover:bg-zinc-700/90 backdrop-blur-md animate-in fade-in slide-in-from-top-full duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                title="按住顶部拖拽窗口位置"
+                onPointerDown={event => {
+                  event.stopPropagation();
+                  setSelectedId(embed.id);
+                  setEditingId(embed.id);
+                  startDrag(event, embed, 'move');
+                }}
+              >
+                <div className="w-14 h-1.5 rounded-full bg-slate-400/80 dark:bg-white/50 group-hover/dragbar:bg-cyan-500 transition-colors shadow-sm" />
+              </div>
+            )}
+
             {isSelected && interactMode === 'interact' && !embed.minimized && (
               <button
                 type="button"
                 aria-label="调整对象大小"
-                className="absolute bottom-1 right-1 z-50 flex h-6 w-6 cursor-nwse-resize items-center justify-center rounded-md bg-cyan-500 text-white shadow"
+                className="absolute bottom-1 right-1 z-50 flex h-7 w-7 touch-none cursor-nwse-resize items-center justify-center rounded-lg bg-cyan-500 text-white shadow-lg transition-transform active:scale-110"
                 onPointerDown={event => startDrag(event, embed, 'resize')}
               >
-                <Maximize2 className="h-3 w-3 rotate-90" />
+                <Maximize2 className="h-3.5 w-3.5 rotate-90" />
               </button>
             )}
           </div>
