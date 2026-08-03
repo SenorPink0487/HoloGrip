@@ -52,8 +52,14 @@ export function AppleDock() {
       return;
     }
 
-    const x = event.clientX;
-    const y = event.clientY;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = event.clientX || (rect.left + rect.width / 2);
+    const y = event.clientY || (rect.top + rect.height / 2);
+
+    // 绑定 CSS 变量，确保首帧初始化 clip-path = circle(0px) 立刻生效，防闪全黑
+    document.documentElement.style.setProperty('--click-x', `${x}px`);
+    document.documentElement.style.setProperty('--click-y', `${y}px`);
+
     const endRadius = Math.hypot(
       Math.max(x, window.innerWidth - x),
       Math.max(y, window.innerHeight - y)
@@ -87,12 +93,17 @@ export function AppleDock() {
           clipPath: clipPath,
         },
         {
-          duration: 600,
+          duration: 700,
           easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
           pseudoElement: pseudoElement,
           fill: 'forwards',
         }
       );
+    });
+
+    transition.finished.then(() => {
+      document.documentElement.style.removeProperty('--click-x');
+      document.documentElement.style.removeProperty('--click-y');
     });
   };
 
