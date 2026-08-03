@@ -142,8 +142,8 @@ test('electric-field axis locks freeze locked world axes during drag; wheel is d
   });
   assert.equal(state.data.charges[0].x, 2); // 0 + 80 * 0.025
   assert.equal(state.data.charges[0].y, 0); // Y frozen
-  // vertical→Z with zScale 0.035: 120 * 0.035 = 4.2
-  assert.equal(state.data.charges[0].z, 4.2);
+  // vertical→Z with zScale 0.035: -120 * 0.035 = -4.2 (mouse up pushes deeper)
+  assert.equal(state.data.charges[0].z, -4.2);
   handlers.endManipulation(target);
 
   // Lock X+Y: any drag drives Z (horizontal also works).
@@ -162,8 +162,8 @@ test('electric-field axis locks freeze locked world axes during drag; wheel is d
   });
   assert.equal(state.data.charges[0].x, 1);
   assert.equal(state.data.charges[0].y, 0.5);
-  // |dx| >> |dy| → drive = -dx = -100; oz = -(-100)*0.035 = 3.5
-  close(state.data.charges[0].z, 3.5, 1e-9);
+  // |dx| >> |dy| → drive = -dx = -100; oz = -100 * 0.035 = -3.5
+  close(state.data.charges[0].z, -3.5, 1e-9);
   handlers.endManipulation(target);
 
   // Lock X, free Y: only Y moves (vertical maps to Y).
@@ -199,7 +199,7 @@ test('electric-field axis locks freeze locked world axes during drag; wheel is d
     dt: 1 / 60,
   });
   assert.equal(state.data.charges[0].y, 1); // Y unchanged under Shift
-  close(state.data.charges[0].z, 1.4, 1e-9); // 0 + 40 * 0.035
+  close(state.data.charges[0].z, -1.4, 1e-9); // 0 + (-40) * 0.035 = -1.4 (mouse up pushes deeper)
   handlers.endManipulation(target);
 
   // Wheel adjusts Z when unlocked.

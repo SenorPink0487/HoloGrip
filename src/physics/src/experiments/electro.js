@@ -93,7 +93,7 @@ export const station = {
         { id: 'conclude', text: '完成验证并归纳高斯定理', hint: '确认“外部电荷不改变闭合面的净通量”。' },
       ],
     },
-  ],
+  ].filter((experiment) => experiment.id !== 'gauss_theorem'),
 };
 
 export function gaussEnclosedCharge(charges = [], radius = 2.4) {
@@ -560,7 +560,7 @@ export function createHandlers(ctx) {
         nType: true,
         paused: false,
         autoCam: false,
-        showB: true,
+        showB: false,
         vh: -1,
         force: 1,
       };
@@ -598,6 +598,11 @@ export function createHandlers(ctx) {
         showArrows: true,
         showEquipot: false,
         showProbe: true,
+        showGauss: false,
+        radius: 2.4,
+        qEnclosed: 1,
+        flux: 1 * 1e-6 / EPSILON_0,
+        meanField: 0,
         autoRotate: false,
         formulaTab: 'def',
         /**
@@ -769,7 +774,7 @@ export function createHandlers(ctx) {
     if (freeX) ox = dx * scale;
     if (freeY && freeZ && shiftZ) {
       // Explicit depth chord while Y remains free.
-      oz = -dy * zScale;
+      oz = dy * zScale;
     } else if (freeY) {
       oy = -dy * scale;
     } else if (freeZ) {
@@ -778,7 +783,7 @@ export function createHandlers(ctx) {
       // users are not stuck when they drag “sideways” expecting depth change.
       const useVertical = Math.abs(dy) >= Math.abs(dx) * 0.45;
       const drive = useVertical ? dy : -dx;
-      oz = -drive * zScale;
+      oz = drive * zScale;
     }
     return { ox, oy, oz, freeX, freeY, freeZ, lock };
   }
@@ -839,6 +844,10 @@ export function createHandlers(ctx) {
     data.magnitudeE = Math.hypot(data.field.x, data.field.y, data.field.z);
     data.magnitudeF = Math.hypot(data.force.x, data.force.y, data.force.z);
     data.potential = electricPotentialAt(data.charges, probe);
+    const radius = Number(data.radius || 2.4);
+    data.qEnclosed = gaussEnclosedCharge(data.charges, radius);
+    data.flux = gaussFlux(data.charges, radius);
+    data.meanField = gaussMeanNormalField(data.charges, radius);
     equipment.electro?.updateElectricField?.(data, dt);
     if (refresh) pushHud();
   }
@@ -1755,7 +1764,9 @@ export function createHandlers(ctx) {
         const value = Number(payload.value);
         if (!Number.isFinite(value)) return true;
         const onProbe = payload.target === 'probe';
-        if (onProbe && probe) {
+        if (key === 'radius' || key === 'R') {
+          data.radius = clamp(value, 1.2, 4.2);
+        } else if (onProbe && probe) {
           if (key === 'q0') {
             probe.q0 = Math.sign(probe.q0 || 1) * clamp(Math.abs(value), 0.2, 3);
           } else if (['x', 'y', 'z'].includes(key)) {
@@ -1811,7 +1822,7 @@ export function createHandlers(ctx) {
         probe.q0 = (Number(payload.sign) < 0 ? -1 : 1) * Math.max(0.2, Math.abs(probe.q0));
       } else if (action === 'electric-toggle') {
         const key = {
-          lines: 'showLines', arrows: 'showArrows', equipot: 'showEquipot', probe: 'showProbe',
+          lines: 'showLines', arrows: 'showArrows', equipot: 'showEquipot', probe: 'showProbe', gauss: 'showGauss',
         }[payload.key];
         if (key) data[key] = !data[key];
       } else if (action === 'electric-axis-lock') {

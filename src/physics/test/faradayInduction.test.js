@@ -53,6 +53,13 @@ test('Faraday apparatus is registered on the electromagnetism station', () => {
   assert.equal(experiment.steps.length, 3);
 });
 
+test('electromagnetism menu exposes the five source experiments', () => {
+  assert.deepEqual(
+    STATION_EXPERIMENTS.electro.experiments.map((item) => item.id),
+    ['faraday_induction', 'induced_electric_field', 'electric_field', 'hall_effect', 'hall_carrier_demo'],
+  );
+});
+
 test('Faraday flux uses B times the sliding-rod area', () => {
   assert.equal(faradayArea(4.5), (4.5 - 0.25) * FARADAY_ROD_LENGTH);
   assert.equal(faradayFlux(-1, 4.5), -17);

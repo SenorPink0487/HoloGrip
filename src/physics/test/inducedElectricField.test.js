@@ -56,7 +56,6 @@ test('induced electric field experiment is registered on electromagnetism statio
   assert.ok(experiment);
   assert.equal(experiment.steps.length, 4);
 });
-
 test('induced |E| is proportional to r inside the B region', () => {
   const R = 2;
   const dBdt = 1.5;
@@ -231,4 +230,22 @@ test('auto oscillation button enables sine drive of B and dB/dt', () => {
   handlers.update(0, 0.5);
   close(state.data.B, frozenB);
   close(state.data.dBdt, frozenD);
+});
+
+test('equipment disables raycast picking on forceArrow and non-probe lines/helpers', async () => {
+  const { createInducedElectricFieldEquipment } = await import('../src/experiments/inducedElectricFieldEquipment.js');
+  const root = createInducedElectricFieldEquipment();
+  root.userData.setInteractive(true);
+
+  root.traverse((child) => {
+    if (child.userData?.role === 'induced_e_probe') {
+      if (child.isMesh) {
+        assert.notEqual(child.raycast.name, '', 'probe mesh should have default raycast enabled');
+      }
+    } else if (child.isMesh || child.isLine || child.isLineSegments || child.isSprite) {
+      const hits = [];
+      child.raycast({ intersectObject: () => {} }, hits);
+      assert.equal(hits.length, 0, `non-probe element ${child.type} must not raycast`);
+    }
+  });
 });

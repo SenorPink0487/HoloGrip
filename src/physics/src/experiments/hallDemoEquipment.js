@@ -2,7 +2,7 @@ import * as THREE from 'three';
 
 const SAMPLE = Object.freeze({ L: 4.4, W: 1.7, H: 0.5 });
 const PARTICLE_COUNT = 240;
-const TRAIL_LENGTH = 10;
+const TRAIL_LENGTH = 20;
 const ELECTRON_COLOR = 0x5cb89a;
 const HOLE_COLOR = 0xc49878;
 /** Drift speed scale used by the teaching particle model (world units / s per I). */
@@ -149,27 +149,75 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     body.add(pad);
   }
 
-  const labelI = makeTextSprite('I', '#72c7a8', 0.78);
-  labelI.position.set(SAMPLE.L / 2 + 0.72, -0.55, 0.35);
-  const labelB = makeTextSprite('B', '#8eaae0', 0.85);
-  labelB.position.set(-SAMPLE.L / 2 - 0.78, 0.12, 1.25);
-  const labelVh = makeTextSprite('Vₕ', '#c4a0b0', 0.85);
-  labelVh.position.set(0.1, SAMPLE.W / 2 + 0.62, 0);
-  const labelF = makeTextSprite('F', '#d4bc7a', 0.72);
-  labelF.position.set(1.45, -0.54, 0.35);
-  root.add(labelI, labelB, labelVh, labelF);
+  // Striking Hall face charge accumulation glow planes (+Y and -Y)
+  const glowPlaneGeo = new THREE.PlaneGeometry(SAMPLE.L * 0.98, SAMPLE.H * 0.95);
+  const glowMatPos = new THREE.MeshBasicMaterial({
+    color: ELECTRON_COLOR,
+    transparent: true,
+    opacity: 0,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    blending: THREE.AdditiveBlending,
+  });
+  const glowMatNeg = glowMatPos.clone();
+
+  const faceGlowPos = new THREE.Mesh(glowPlaneGeo, glowMatPos);
+  faceGlowPos.rotation.x = Math.PI / 2;
+  faceGlowPos.position.y = SAMPLE.W / 2 + 0.01;
+  faceGlowPos.renderOrder = 5;
+
+  const faceGlowNeg = new THREE.Mesh(glowPlaneGeo, glowMatNeg);
+  faceGlowNeg.rotation.x = Math.PI / 2;
+  faceGlowNeg.position.y = -SAMPLE.W / 2 - 0.01;
+  faceGlowNeg.renderOrder = 5;
+
+  body.add(faceGlowPos, faceGlowNeg);
+
+  // 磁场 3D 矢量箭头组（位于实验器材正前方，开启 DoubleSide 与无色调映射，确保正面看色泽鲜艳不发黑）
+  const bFieldGroup = new THREE.Group();
+  bFieldGroup.visible = false;
+  root.add(bFieldGroup);
+
+  const bArrows = [];
+  const B_GRID_X = 6;
+  const zFront = 1.15; // 位于实验器材正前方（面向视角方向），保持安全距离
+  for (let ix = 0; ix < B_GRID_X; ix += 1) {
+    const x = (ix / (B_GRID_X - 1) - 0.5) * SAMPLE.L * 0.82;
+    const arrow = new THREE.ArrowHelper(
+      new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(x, 0, zFront),
+      1.5,
+      0x38bdf8,
+      0.30,
+      0.18,
+    );
+    arrow.line.material.transparent = true;
+    arrow.cone.material.transparent = true;
+    arrow.line.material.side = THREE.DoubleSide;
+    arrow.cone.material.side = THREE.DoubleSide;
+    arrow.line.material.toneMapped = false;
+    arrow.cone.material.toneMapped = false;
+    arrow.renderOrder = 6;
+    arrow.line.renderOrder = 6;
+    arrow.cone.renderOrder = 7;
+    bFieldGroup.add(arrow);
+    bArrows.push(arrow);
+  }
 
   const positions = new Float32Array(PARTICLE_COUNT * 3);
   const velocities = new Float32Array(PARTICLE_COUNT * 3);
+  const baseCoords = new Float32Array(PARTICLE_COUNT * 2);
   const massVariance = new Float32Array(PARTICLE_COUNT);
   const phases = new Float32Array(PARTICLE_COUNT);
   const trailHistory = new Float32Array(PARTICLE_COUNT * TRAIL_LENGTH * 3);
   for (let i = 0; i < PARTICLE_COUNT; i += 1) {
     const x = (Math.random() - 0.5) * SAMPLE.L * 0.92;
-    const y = (Math.random() - 0.5) * SAMPLE.W * 0.72;
+    const y = (Math.random() - 0.5) * SAMPLE.W * 0.76;
     const z = (Math.random() - 0.5) * SAMPLE.H * 0.88;
+    baseCoords[i * 2] = y;
+    baseCoords[i * 2 + 1] = z;
     positions.set([x, y, z], i * 3);
-    velocities.set([0, (Math.random() - 0.5) * 0.3, (Math.random() - 0.5) * 0.3], i * 3);
+    velocities.set([0, 0, 0], i * 3);
     massVariance[i] = 0.86 + Math.random() * 0.28;
     phases[i] = Math.random() * Math.PI * 2;
     for (let s = 0; s < TRAIL_LENGTH; s += 1) trailHistory.set([x, y, z], (i * TRAIL_LENGTH + s) * 3);
@@ -216,6 +264,10 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
   trails.renderOrder = 3;
   root.add(trails);
 
+  let smoothTilt = 0;
+  let smoothGlowPos = 0;
+  let smoothGlowNeg = 0;
+
   const carrierColor = new THREE.Color(ELECTRON_COLOR);
   let lastCarrierType = null;
   let lastIntensity = null;
@@ -224,12 +276,13 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     if (lastThickness !== state.d) {
       lastThickness = state.d;
       body.scale.z = state.d / SAMPLE.H;
-      labelF.position.z = Math.max(0.35, state.d / 2 + 0.15);
     }
     if (lastCarrierType !== state.nType) {
       lastCarrierType = state.nType;
       carrierColor.setHex(state.nType ? ELECTRON_COLOR : HOLE_COLOR);
       particleMaterial.color.copy(carrierColor);
+      glowMatPos.color.copy(carrierColor);
+      glowMatNeg.color.copy(carrierColor);
       lastIntensity = null;
     }
     const intensity = Math.min(1, 0.35 + 0.55 * state.I);
@@ -278,11 +331,11 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     const flowDirection = nType ? -1 : 1;
 
     particleMaterial.opacity = tabletop
-      ? 0.58 + 0.18 * Math.min(I, 1.2)
-      : 0.5 + 0.5 * Math.min(I, 1.2);
+      ? 0.72 + 0.2 * Math.min(I, 1.2)
+      : 0.7 + 0.3 * Math.min(I, 1.2);
     particleMaterial.size = tabletop
-      ? 0.026 + 0.012 * Math.min(I, 1.2)
-      : 0.1 + 0.05 * Math.min(I, 1.2);
+      ? 0.048 + 0.018 * Math.min(I, 1.2)
+      : 0.16 + 0.08 * Math.min(I, 1.2);
 
     const halfW = SAMPLE.W / 2 - 0.08;
     const halfH = Math.max(0.02, Number(state.d || 0.5) / 2 - 0.04);
@@ -296,33 +349,17 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     // Thermal noise falls as concentration rises (mean free path picture).
     const thermalStep = Math.sqrt(2 * (0.006 / n) * dt);
 
-    // Mean transverse position → space-charge Hall field.
-    // Electrons pile at y < 0 ⇒ meanY < 0 ⇒ E_y < 0 (E points toward −y).
-    // Holes pile at y < 0 ⇒ meanY < 0 ⇒ E_y > 0 (E points toward +y).
-    // E_y = −κ · meanY · q  satisfies both.
-    let meanY = 0;
-    for (let i = 0; i < PARTICLE_COUNT; i += 1) meanY += positions[i * 3 + 1];
-    meanY /= PARTICLE_COUNT;
-
-    // Cap |E| near the ideal cancelling field |v0 B| so force balance is reachable.
-    const kappa = 2.8 * (0.5 / Math.max(0.5, n));
-    const Ecap = Math.abs(v0 * Bz) + 0.05;
-    let Ey = -kappa * meanY * carrierSign;
-    if (Ey > Ecap) Ey = Ecap;
-    else if (Ey < -Ecap) Ey = -Ecap;
-
-    // Soft wall stiffness (restoring, not absorbing).
-    const wallK = 28;
-    const wallDamp = 0.55;
-    // Weak z confinement to keep carriers inside the film.
-    const zSpring = 1.8 * (0.5 / Math.max(0.15, Number(state.d || 0.5)));
-
-    // Lorentz force direction on a pure-drift carrier: F_y ∝ q (−v0 Bz).
-    // Used for the F label and wrap re-entry bias (not as a hard attractor).
+    // Uncapped linear scaling: B=1 gives tilt 0.38, B=2 gives tilt 0.76 (2x clear visual distinction!)
     const FmagY = -carrierSign * v0 * Bz;
-    const pileBias = Math.abs(Bz) < 1e-3 || Math.abs(I) < 1e-3
-      ? 0
-      : Math.sign(FmagY || -1) * Math.min(0.35, 0.12 + 0.18 * Math.min(Math.abs(v0 * Bz), 2));
+    const targetTilt = Math.sign(FmagY || 0) * (0.38 * Math.abs(Bz) * Math.min(1.5, I));
+    const lerpAlpha = Math.min(1.0, 12.0 * Math.max(0.001, dt));
+    smoothTilt += (targetTilt - smoothTilt) * lerpAlpha;
+    const tiltScale = smoothTilt;
+
+    // Weak z confinement to keep carriers inside the sample film.
+    const zSpring = 2.2 * (0.5 / Math.max(0.15, Number(state.d || 0.5)));
+    const wallK = 32;
+    const wallDamp = 0.5;
 
     for (let i = 0; i < PARTICLE_COUNT; i += 1) {
       const pi = i * 3;
@@ -343,25 +380,40 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
       }
 
       const mass = massVariance[i];
-      // v × B with B = (0, 0, Bz): (vy Bz, −vx Bz, 0)
-      const vCrossBx = vy * Bz;
-      const vCrossBy = -vx * Bz;
-      // a = (q/m)(v × B + E) + drag toward drift + soft walls
-      let ax = (v0 - vx) / (tau * mass) + qOverM * vCrossBx;
-      let ay = (0 - vy) / (tau * 1.15 * mass) + qOverM * (vCrossBy + Ey);
-      let az = (0 - vz) / (tau * mass) - z * zSpring / mass;
+      const yBase = baseCoords[i * 2];
+      const zBase = baseCoords[i * 2 + 1];
 
-      // Soft Hall-face walls: push back while inside a skin layer.
-      if (y > halfW * 0.92) ay -= (y - halfW * 0.92) * wallK / mass;
-      else if (y < -halfW * 0.92) ay -= (y + halfW * 0.92) * wallK / mass;
-      if (z > halfH * 0.9) az -= (z - halfH * 0.9) * wallK / mass;
-      else if (z < -halfH * 0.9) az -= (z + halfH * 0.9) * wallK / mass;
+      // Normalized progress along drift direction (0 at entry, 1 at exit).
+      const progress = flowDirection < 0
+        ? Math.max(0, Math.min(1, (halfL - x) / SAMPLE.L))
+        : Math.max(0, Math.min(1, (x + halfL) / SAMPLE.L));
+
+      // Equal-Amplitude Symmetric Dual-End Streamline Engine:
+      // Streamline curves continuously from right entry (s=0), reaches maximum deflection at sample center (s=0.5),
+      // and returns to the left exit (s=1) with identical curve amplitude and width on both ends.
+      const sCurve = Math.sin(Math.PI * progress);
+      const yDeflected = yBase * (1 - 0.4 * sCurve) + tiltScale * sCurve * 1.5;
+      const yTarget = Math.max(-halfW * 0.95, Math.min(halfW * 0.95, yDeflected));
+      const filmScale = Number(state.d || 0.5) / 0.5;
+      const zTarget = Math.max(-halfH * 0.88, Math.min(halfH * 0.88, zBase * filmScale));
+
+      const vCrossBx = vy * Bz;
+
+      let ax = (v0 - vx) / (tau * mass) + qOverM * vCrossBx;
+      let ay = (0 - vy) / (tau * mass) + (yTarget - y) * (20.0 / mass);
+      let az = (0 - vz) / (tau * mass) + (zTarget - z) * (20.0 / mass);
+
+      // Soft Hall-face walls: restoring force near borders.
+      if (y > halfW * 0.88) ay -= (y - halfW * 0.88) * wallK / mass;
+      else if (y < -halfW * 0.88) ay -= (y + halfW * 0.88) * wallK / mass;
+      if (z > halfH * 0.85) az -= (z - halfH * 0.85) * wallK / mass;
+      else if (z < -halfH * 0.85) az -= (z + halfH * 0.85) * wallK / mass;
 
       phases[i] += dt * 8;
       const jitter = thermalStep / Math.sqrt(mass);
       vx += ax * dt + (Math.sin(phases[i] * 1.3 + i) * 0.35 + Math.random() - 0.5) * jitter;
-      vy += ay * dt + (Math.cos(phases[i] * 1.7 + i) * 0.35 + Math.random() - 0.5) * jitter;
-      vz += az * dt + (Math.sin(phases[i] * 2.1 + i) * 0.25 + Math.random() - 0.5) * jitter * 0.7;
+      vy += ay * dt + (Math.cos(phases[i] * 1.7 + i) * 0.15 + Math.random() - 0.5) * jitter * 0.4;
+      vz += az * dt + (Math.sin(phases[i] * 2.1 + i) * 0.15 + Math.random() - 0.5) * jitter * 0.4;
 
       // Mild speed clamp keeps rare large steps from tunneling the walls.
       const speed2 = vx * vx + vy * vy + vz * vz;
@@ -375,7 +427,7 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
       y += vy * dt;
       z += vz * dt;
 
-      // Hard clamp only after soft forces — partial bounce (not sticky absorb).
+      // Hard clamp only after soft forces — partial bounce.
       if (y > halfW) {
         y = halfW;
         if (vy > 0) vy = -vy * wallDamp;
@@ -391,25 +443,22 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
         if (vz < 0) vz = -vz * wallDamp;
       }
 
-      // Periodic along current axis: carriers re-enter across the full width
-      // with only a mild bias toward the Lorentz-deflected side (bulk flow).
+      // Periodic along current axis: carriers re-enter on opposite side
+      // on their entry streamline (progress=0), preserving continuous parabolic orbits indefinitely.
       let wrapped = false;
-      if (flowDirection < 0 && x < -halfL - 0.08) {
+      if (x < -halfL - 0.08) {
         x = halfL + 0.08;
         wrapped = true;
-      } else if (flowDirection > 0 && x > halfL + 0.08) {
+      } else if (x > halfL + 0.08) {
         x = -halfL - 0.08;
         wrapped = true;
       }
       if (wrapped) {
-        // Gaussian-ish fill of the cross-section, lightly biased by Hall side.
-        const u1 = Math.random() + Math.random() + Math.random() - 1.5;
-        const u2 = Math.random() + Math.random() + Math.random() - 1.5;
-        y = Math.max(-halfW, Math.min(halfW, pileBias * halfW * 0.55 + u1 * halfW * 0.55));
-        z = Math.max(-halfH, Math.min(halfH, u2 * halfH * 0.7));
+        y = Math.max(-halfW * 0.92, Math.min(halfW * 0.92, yBase));
+        z = Math.max(-halfH * 0.88, Math.min(halfH * 0.88, zBase * filmScale));
         vx = v0 * (0.85 + Math.random() * 0.3);
-        vy = (Math.random() - 0.5) * 0.25;
-        vz = (Math.random() - 0.5) * 0.2;
+        vy = (Math.random() - 0.5) * 0.02;
+        vz = (Math.random() - 0.5) * 0.02;
       }
 
       positions[pi] = x;
@@ -446,18 +495,6 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
 
     particleGeometry.attributes.position.needsUpdate = true;
     trailGeometry.attributes.position.needsUpdate = true;
-
-    // Place F on the Lorentz-deflected Hall face (same side for n and p).
-    const showF = Math.abs(Bz) > 0.04 && I > 0.04;
-    labelF.visible = showF;
-    if (showF) {
-      const side = Math.sign(FmagY || -1);
-      labelF.position.set(
-        halfL * 0.35,
-        side * (SAMPLE.W / 2 + 0.42),
-        Math.max(0.2, Number(state.d || 0.5) / 2 + 0.1),
-      );
-    }
   }
 
   root.userData.update = (state, dt) => {
@@ -466,7 +503,55 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     const voltage = (state.I * state.B * (state.nType ? -1 : 1)) / (state.n * Math.max(0.05, state.d / 0.5));
     shell.material.emissiveIntensity = 0.18 + Math.min(Math.abs(voltage), 2) * 0.11;
     core.material.opacity = (tabletop ? 0.62 : 0.2) + Math.min(Math.abs(voltage), 2) * 0.06;
-    labelB.visible = state.showB !== false;
+
+    // Striking Hall face charge accumulation glow feedback with smooth Lerp
+    const carrierSign = state.nType !== false ? -1 : 1;
+    const flowDirection = state.nType !== false ? -1 : 1;
+    const v0 = DRIFT_SPEED * Math.max(0, Number(state.I || 0)) * flowDirection;
+    const FmagY = -carrierSign * v0 * Number(state.B || 0);
+    const pileSide = Math.abs(state.B || 0) < 0.02 || Math.abs(state.I || 0) < 0.02 ? 0 : Math.sign(FmagY || -1);
+    const absV = Math.min(1, Math.abs(voltage) / 2.0);
+    const activeGlow = absV > 0.01 ? 0.18 + 0.62 * absV : 0;
+
+    const targetGlowPos = pileSide > 0 ? activeGlow : 0;
+    const targetGlowNeg = pileSide < 0 ? activeGlow : 0;
+    const glowAlpha = Math.min(1.0, 10.0 * Math.max(0.001, dt));
+
+    smoothGlowPos += (targetGlowPos - smoothGlowPos) * glowAlpha;
+    smoothGlowNeg += (targetGlowNeg - smoothGlowNeg) * glowAlpha;
+
+    const showB = state.showB !== false && Math.abs(state.B || 0) > 0.01;
+    bFieldGroup.visible = showB;
+    if (showB) {
+      const bVal = Number(state.B || 0);
+      const bSign = bVal >= 0 ? 1 : -1;
+      const bColorHex = bVal >= 0 ? 0x38bdf8 : 0xff6b00;
+      const bColor = new THREE.Color(bColorHex);
+      const bStrength = Math.min(1, Math.abs(bVal) / 2.0);
+      const bOpacity = 0.65 + 0.35 * bStrength;
+      const bDir = new THREE.Vector3(0, 0, bSign);
+      const zCenter = 1.15;
+      const zStart = zCenter - bSign * 0.75;
+
+      for (let i = 0; i < bArrows.length; i += 1) {
+        const arrow = bArrows[i];
+        arrow.setDirection(bDir);
+        arrow.position.z = zStart;
+        arrow.setColor(bColorHex);
+        if (arrow.line?.material) {
+          arrow.line.material.color.copy(bColor);
+          arrow.line.material.opacity = bOpacity;
+          arrow.line.material.side = THREE.DoubleSide;
+          arrow.line.material.toneMapped = false;
+        }
+        if (arrow.cone?.material) {
+          arrow.cone.material.color.copy(bColor);
+          arrow.cone.material.opacity = Math.min(1, bOpacity + 0.15);
+          arrow.cone.material.side = THREE.DoubleSide;
+          arrow.cone.material.toneMapped = false;
+        }
+      }
+    }
     if (tabletop && state.autoCam && dt > 0) root.rotation.y += dt * 0.18;
     if (!state.paused && dt > 0) updateParticles(state, Math.min(dt, 0.05));
   };
@@ -504,7 +589,7 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
       nType: true,
       paused: true,
       autoCam: false,
-      showB: true,
+      showB: false,
       vh: -1,
       force: 1,
     }, 0.016);

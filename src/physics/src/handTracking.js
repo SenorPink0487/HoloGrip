@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import workerWasmLoaderPath from '../../../node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_module_internal.js?url';
-import workerWasmBinaryPath from '../../../node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_module_internal.wasm?url';
+import workerWasmLoaderPath from '@mediapipe/tasks-vision/vision_wasm_module_internal.js?url';
+import workerWasmBinaryPath from '@mediapipe/tasks-vision/vision_wasm_module_internal.wasm?url';
 import {
   OCCLUSION_HOLD_MS,
   HandInteractionArbiter,

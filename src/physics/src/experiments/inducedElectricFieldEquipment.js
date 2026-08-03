@@ -18,6 +18,9 @@ const B_EDGE_FADE = 0.35;
 
 /** Frameless two-line billboard: q and E only, above the probe charge. */
 function createFloatingHudLabel({ worldScale = 1 } = {}) {
+  if (typeof document === 'undefined') {
+    return { sprite: new THREE.Group(), setQE: () => {} };
+  }
   const canvas = document.createElement('canvas');
   canvas.width = 512;
   canvas.height = 160;
@@ -83,15 +86,18 @@ export function createInducedElectricFieldEquipment() {
   root.add(fieldGroup, eGroup, probeGroup, labelGroup);
   const _tangentDir = new THREE.Vector3(1, 0, 0);
 
-  // Floor disc for spatial reference.
+  // Dark, emissive measurement plane: the old translucent grey disk vanished
+  // into the pale tabletop at the normal working camera distance.
   const floor = new THREE.Mesh(
     new THREE.CircleGeometry(4.8 * S, 64),
     new THREE.MeshStandardMaterial({
-      color: 0x1e293b,
+      color: 0x0b1630,
       transparent: true,
-      opacity: 0.35,
-      metalness: 0.2,
-      roughness: 0.7,
+      opacity: 0.78,
+      metalness: 0.42,
+      roughness: 0.38,
+      emissive: 0x071426,
+      emissiveIntensity: 0.42,
       side: THREE.DoubleSide,
       depthWrite: false,
     }),
@@ -101,14 +107,31 @@ export function createInducedElectricFieldEquipment() {
   floor.receiveShadow = true;
   fieldGroup.add(floor);
 
+  // Physical rim: retains a clear usable-probe boundary at shallow angles.
+  const workRim = new THREE.Mesh(
+    new THREE.TorusGeometry(4.8 * S, 0.026 * S, 8, 96),
+    new THREE.MeshStandardMaterial({
+      color: 0x334e72,
+      emissive: 0x1d4ed8,
+      emissiveIntensity: 0.22,
+      metalness: 0.64,
+      roughness: 0.24,
+    }),
+  );
+  workRim.rotation.x = Math.PI / 2;
+  workRim.position.y = 0.008;
+  fieldGroup.add(workRim);
+
   // Glass cylinder marking the uniform-B region boundary.
   const regionMat = new THREE.MeshPhysicalMaterial({
-    color: 0x38bdf8,
+    color: 0x0ea5e9,
     transparent: true,
-    opacity: 0.14,
-    transmission: 0.45,
-    roughness: 0.18,
-    metalness: 0.05,
+    opacity: 0.38,
+    transmission: 0.06,
+    roughness: 0.24,
+    metalness: 0.16,
+    emissive: 0x075985,
+    emissiveIntensity: 0.38,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
@@ -117,9 +140,9 @@ export function createInducedElectricFieldEquipment() {
   fieldGroup.add(region);
 
   const regionCapMat = new THREE.MeshBasicMaterial({
-    color: 0x38bdf8,
+    color: 0x0ea5e9,
     transparent: true,
-    opacity: 0.1,
+    opacity: 0.26,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
@@ -129,6 +152,21 @@ export function createInducedElectricFieldEquipment() {
   const regionBottom = regionTop.clone();
   regionBottom.position.y = 0.01;
   fieldGroup.add(regionTop, regionBottom);
+  const regionRim = new THREE.Mesh(
+    // Radius is scaled from source R below; use an unscaled tube width so the
+    // rim remains legible instead of shrinking into a hairline at small R.
+    new THREE.TorusGeometry(1, 0.024, 8, 64),
+    new THREE.MeshStandardMaterial({
+      color: 0x67e8f9,
+      emissive: 0x0891b2,
+      emissiveIntensity: 1.35,
+      metalness: 0.36,
+      roughness: 0.22,
+    }),
+  );
+  regionRim.rotation.x = Math.PI / 2;
+  regionRim.position.y = 0.14 * S;
+  fieldGroup.add(regionRim);
   // No wireframe cage — the soft glass cylinder + B arrows already mark the region.
 
   // Vertical B arrows — Faraday-style lattice:
@@ -216,8 +254,8 @@ export function createInducedElectricFieldEquipment() {
     // Linear spacing vs |B|: no tier / no floor(count) — lattice breathes continuously.
     const spacing = THREE.MathUtils.lerp(B_SPACING_SPARSE, B_SPACING_DENSE, strength);
     bDir.set(0, sign, 0);
-    const baseLineOp = THREE.MathUtils.lerp(0.5, 0.86, strength);
-    const baseConeOp = THREE.MathUtils.lerp(0.55, 0.9, strength);
+    const baseLineOp = THREE.MathUtils.lerp(0.76, 0.98, strength);
+    const baseConeOp = THREE.MathUtils.lerp(0.82, 1, strength);
     const originY = B_ARROW_MID_Y - sign * (B_ARROW_LEN * 0.5);
 
     for (let i = 0; i < bArrows.length; i += 1) {
@@ -273,9 +311,9 @@ export function createInducedElectricFieldEquipment() {
     eGroup.add(ring);
 
     const mat = new THREE.LineBasicMaterial({
-      color: index < 4 ? 0xf472b6 : 0xa78bfa,
+      color: index < 4 ? 0xff4fa3 : 0xc084fc,
       transparent: true,
-      opacity: 0.55,
+      opacity: 0.82,
       depthWrite: false,
     });
     const line = new THREE.LineLoop(ringGeometry(72), mat);
@@ -283,9 +321,9 @@ export function createInducedElectricFieldEquipment() {
     ring.add(line);
 
     // Tangent E markers — fixed length like Faraday B; strength → opacity only.
-    const E_ARROW_LEN = 0.22 * S;
-    const E_ARROW_HEAD_LEN = 0.1 * S;
-    const E_ARROW_HEAD_W = 0.055 * S;
+    const E_ARROW_LEN = 0.27 * S;
+    const E_ARROW_HEAD_LEN = 0.12 * S;
+    const E_ARROW_HEAD_W = 0.068 * S;
     const markers = [];
     for (let k = 0; k < E_MARKERS_PER_RING; k += 1) {
       const phase = (k / E_MARKERS_PER_RING) * Math.PI * 2;
@@ -313,7 +351,7 @@ export function createInducedElectricFieldEquipment() {
   // Probe charge.
   const probe = new THREE.Group();
   const probeCore = new THREE.Mesh(
-    new THREE.SphereGeometry(0.07 * S, 20, 16),
+    new THREE.SphereGeometry(0.105 * S, 20, 16),
     new THREE.MeshStandardMaterial({
       color: 0xffd43b,
       emissive: 0xffb000,
@@ -323,34 +361,37 @@ export function createInducedElectricFieldEquipment() {
     }),
   );
   const probeHalo = new THREE.Mesh(
-    new THREE.SphereGeometry(0.13 * S, 14, 12),
+    new THREE.SphereGeometry(0.20 * S, 14, 12),
     new THREE.MeshBasicMaterial({
       color: 0xffd43b,
       transparent: true,
-      opacity: 0.18,
+      opacity: 0.34,
       depthWrite: false,
     }),
   );
   const probeHit = new THREE.Mesh(
-    new THREE.SphereGeometry(0.32 * S, 14, 10),
+    new THREE.SphereGeometry(0.38 * S, 14, 10),
     new THREE.MeshBasicMaterial({ visible: false }),
   );
   // Probe force arrow — fixed length; hide when |F|≈0 (same rule as Faraday tips).
-  const FORCE_ARROW_LEN = 0.32 * S;
+  const FORCE_ARROW_LEN = 0.48 * S;
   const forceArrow = new THREE.ArrowHelper(
     new THREE.Vector3(1, 0, 0),
     new THREE.Vector3(0, 0, 0),
     FORCE_ARROW_LEN,
     0x4ade80,
-    0.12 * S,
-    0.07 * S,
+    0.16 * S,
+    0.09 * S,
   );
   forceArrow.line.material.transparent = true;
   forceArrow.line.material.depthWrite = false;
   forceArrow.cone.material.transparent = true;
   forceArrow.cone.material.depthWrite = false;
-  const probeHud = createFloatingHudLabel({ worldScale: S * 8.5 });
-  probeHud.sprite.position.set(0, 0.16 * S, 0);
+  forceArrow.line.raycast = () => {};
+  forceArrow.cone.raycast = () => {};
+  forceArrow.raycast = () => {};
+  const probeHud = createFloatingHudLabel({ worldScale: S * 11 });
+  probeHud.sprite.position.set(0, 0.22 * S, 0);
   probe.add(probeHalo, probeCore, probeHit, forceArrow, probeHud.sprite);
   [probe, probeCore, probeHalo, probeHit].forEach((node) => {
     node.userData.interactive = true;
@@ -359,7 +400,7 @@ export function createInducedElectricFieldEquipment() {
   probeGroup.add(probe);
 
   // Axis ticks.
-  const axisMat = new THREE.LineBasicMaterial({ color: 0x94a3b8, transparent: true, opacity: 0.45 });
+  const axisMat = new THREE.LineBasicMaterial({ color: 0x93c5fd, transparent: true, opacity: 0.78 });
   const axisPts = new Float32Array([
     -4.6 * S, 0.004, 0, 4.6 * S, 0.004, 0,
     0, 0.004, -4.6 * S, 0, 0.004, 4.6 * S,
@@ -392,6 +433,7 @@ export function createInducedElectricFieldEquipment() {
       region.scale.set(rWorld, 1, rWorld);
       regionTop.scale.set(rWorld, rWorld, 1);
       regionBottom.scale.set(rWorld, rWorld, 1);
+      regionRim.scale.set(rWorld, rWorld, 1);
       // Force B lattice re-layout when the cylinder radius changes.
       bLastR = NaN;
     }
@@ -414,9 +456,12 @@ export function createInducedElectricFieldEquipment() {
       const { color, strength } = applyBFieldLayout(B, R);
       regionMat.color.setHex(color);
       regionCapMat.color.setHex(color);
+      regionRim.material.color.setHex(color);
+      regionRim.material.emissive.setHex(color);
+      regionRim.material.emissiveIntensity = absB < 0.02 ? 0.28 : 0.9 + strength * 0.75;
       regionMat.opacity = absB < 0.02
-        ? 0.08
-        : 0.1 + strength * 0.12;
+        ? 0.18
+        : 0.28 + strength * 0.2;
     }
 
     // E rings: style + spin; tangent arrows keep fixed length (opacity encodes |E|).
@@ -424,8 +469,8 @@ export function createInducedElectricFieldEquipment() {
     if (showE) {
       const eColor = sense === 'ccw' ? 0xa78bfa : sense === 'cw' ? 0xf472b6 : 0x64748b;
       const eOpacityBase = sense === 'none'
-        ? 0.12
-        : THREE.MathUtils.lerp(0.22, 0.88, THREE.MathUtils.clamp(absD / 2.2, 0, 1));
+        ? 0.22
+        : THREE.MathUtils.lerp(0.52, 0.98, THREE.MathUtils.clamp(absD / 2.2, 0, 1));
       const eAtR = Math.max(1e-9, inducedEMagnitude(R, R, dBdt));
       const maxMag = Math.max(1e-6, eAtR || absD * R * 0.5);
       // Angular rate ∝ |E|/r (constant inside B region; falls ~1/r² outside).
@@ -463,11 +508,11 @@ export function createInducedElectricFieldEquipment() {
           marker.setColor(eColor);
           if (marker.line?.material) {
             marker.line.material.color?.setHex?.(eColor);
-            marker.line.material.opacity = THREE.MathUtils.lerp(0.5, 0.9, strength);
+            marker.line.material.opacity = THREE.MathUtils.lerp(0.72, 1, strength);
           }
           if (marker.cone?.material) {
             marker.cone.material.color?.setHex?.(eColor);
-            marker.cone.material.opacity = THREE.MathUtils.lerp(0.55, 0.92, strength);
+            marker.cone.material.opacity = THREE.MathUtils.lerp(0.78, 1, strength);
           }
         });
 
@@ -533,11 +578,12 @@ export function createInducedElectricFieldEquipment() {
   root.userData.setInteractive = (on) => {
     const raycast = on ? THREE.Mesh.prototype.raycast : () => {};
     root.traverse((child) => {
-      if (!child.isMesh) return;
       if (child.userData?.role === 'induced_e_probe') {
-        child.raycast = raycast;
-        child.userData.interactive = !!on;
-      } else {
+        if (child.isMesh) {
+          child.raycast = raycast;
+          child.userData.interactive = !!on;
+        }
+      } else if (child.isMesh || child.isLine || child.isLineSegments || child.isSprite) {
         child.raycast = () => {};
       }
     });

@@ -175,7 +175,53 @@ export function createElectricFieldEquipment() {
   const arrowGroup = new THREE.Group();
   const equipotGroup = new THREE.Group();
   const probeGroup = new THREE.Group();
-  root.add(lineGroup, equipotGroup, arrowGroup, chargeGroup, probeGroup);
+  const gaussSurfaceGroup = new THREE.Group();
+  root.add(lineGroup, equipotGroup, arrowGroup, chargeGroup, probeGroup, gaussSurfaceGroup);
+
+  const gaussSurfaceMaterial = new THREE.MeshPhysicalMaterial({
+    color: 0x38bdf8,
+    transparent: true,
+    opacity: 0.22,
+    transmission: 0.65,
+    roughness: 0.10,
+    metalness: 0.08,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+  });
+  const gaussWireMaterial = new THREE.LineBasicMaterial({
+    color: 0x67e8f9,
+    transparent: true,
+    opacity: 0.70,
+    depthWrite: false,
+  });
+  const gaussSurfaceMesh = new THREE.Mesh(new THREE.SphereGeometry(0.31, 48, 32), gaussSurfaceMaterial);
+  gaussSurfaceMesh.userData.interactive = true;
+  gaussSurfaceMesh.userData.role = 'gauss_surface';
+
+  const gaussWireMesh = new THREE.LineSegments(
+    new THREE.WireframeGeometry(new THREE.SphereGeometry(0.31, 24, 16)),
+    gaussWireMaterial,
+  );
+  gaussSurfaceGroup.add(gaussSurfaceMesh, gaussWireMesh);
+  disablePick(gaussSurfaceGroup);
+  gaussSurfaceGroup.visible = false;
+
+  let lastGaussRadius = NaN;
+  function updateGaussSurface(radius, visible) {
+    gaussSurfaceGroup.visible = visible;
+    if (!visible) return;
+    const r = Number(radius || 2.4);
+    if (Math.abs(r - lastGaussRadius) > 1e-5) {
+      const worldR = r * WORLD_PER_SOURCE_UNIT;
+      gaussSurfaceMesh.geometry.dispose();
+      gaussWireMesh.geometry.dispose();
+      gaussSurfaceMesh.geometry = new THREE.SphereGeometry(worldR, 48, 32);
+      gaussWireMesh.geometry = new THREE.WireframeGeometry(
+        new THREE.SphereGeometry(worldR, 24, 16),
+      );
+      lastGaussRadius = r;
+    }
+  }
 
   const chargeSlots = [];
   for (let index = 0; index < CHARGE_LIMIT; index += 1) {
@@ -371,7 +417,7 @@ export function createElectricFieldEquipment() {
 
     for (let iy = 0; iy < size; iy += 1) {
       for (let ix = 0; ix < size; ix += 1) {
-        // Cell centers → isotropic sampling (true circles under bilinear filter).
+        // Cell centers → isotropic sampling on fixed plane (Y = 0).
         const sx = -extent + (2 * extent * (ix + 0.5)) / size;
         const sz = -extent + (2 * extent * (iy + 0.5)) / size;
         let phi = 0;
@@ -473,7 +519,7 @@ export function createElectricFieldEquipment() {
       }),
     );
     plane.rotation.x = -Math.PI / 2;
-    plane.position.y = -0.012;
+    plane.position.set(0, -0.012, 0);
     plane.renderOrder = 2;
     plane.frustumCulled = false;
     disablePick(plane);
@@ -485,7 +531,7 @@ export function createElectricFieldEquipment() {
     else clearGroup(lineGroup);
     if (data.showArrows !== false) rebuildArrows(charges);
     else clearGroup(arrowGroup);
-    if (data.showEquipot === true) rebuildEquipotential(charges);
+    if (data.showEquipot === true) rebuildEquipotential(charges, data);
     else clearGroup(equipotGroup);
     pendingDecoration = false;
   }
@@ -681,7 +727,11 @@ export function createElectricFieldEquipment() {
 
     lineGroup.visible = data.showLines !== false;
     arrowGroup.visible = data.showArrows !== false;
-    equipotGroup.visible = data.showEquipot === true;
+    const isGaussActive = data.showGauss === true || data.showGaussSurface === true || data.isGaussTheorem === true;
+    updateGaussSurface(
+      data.radius || 2.4,
+      isGaussActive && data.showSurface !== false,
+    );
 
     // Heavy field decorations (lines / arrows / equipotential) allocate and
     // dispose hundreds of geometries. Doing that on every pointermove freezes
@@ -710,7 +760,7 @@ export function createElectricFieldEquipment() {
       // Avoids a blank field until the next drain if signature already matched prewarm.
       if (data.showLines !== false && lineGroup.children.length === 0) rebuildLines(charges);
       if (data.showArrows !== false && arrowGroup.children.length === 0) rebuildArrows(charges);
-      if (data.showEquipot === true && equipotGroup.children.length === 0) rebuildEquipotential(charges);
+      if (data.showEquipot === true && equipotGroup.children.length === 0) rebuildEquipotential(charges, data);
     }
 
     if (data.autoRotate && dt > 0) root.rotation.y += dt * 0.18;

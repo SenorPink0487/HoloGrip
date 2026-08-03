@@ -60,6 +60,11 @@ function electricSpecs(d) {
   const charges = Array.isArray(d?.charges) ? d.charges : [];
   const selected = charges.find((c) => c.id === d?.selectedId) || null;
   const out = [];
+  if (d?.showGauss === true) {
+    out.push(
+      range('radius', '高斯面 R', 1.2, 4.2, { setAction: 'electric-set' }),
+    );
+  }
   if (selected) {
     out.push(
       range('q', '|Q|/μC', 0.2, 3, { digits: 1, setAction: 'electric-set' }),
