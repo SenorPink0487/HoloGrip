@@ -9,45 +9,22 @@ body,
   min-height: 100%;
   margin: 0;
   overflow: hidden;
-  background: #09090b;
+  background-color: #f4f6fa;
+}
+
+html.dark,
+html.dark body,
+html.dark #root {
+  background-color: #09090b;
 }
 
 #root {
   min-height: 100dvh;
 }
 
-/* View Transitions Custom Circular Ripple Animations (一出一回) */
-html::view-transition-group(root),
-html::view-transition-image-pair(root) {
-  animation: none !important;
-}
 
-html::view-transition-old(root),
-html::view-transition-new(root) {
-  animation: none !important;
-  mix-blend-mode: normal !important;
-  display: block !important;
-  position: absolute !important;
-  inset: 0 !important;
-  width: 100% !important;
-  height: 100% !important;
-}
 
-/* 默认（切亮色模式过程）：旧暗色图层置顶 (9999)，向内向按键收缩 */
-html::view-transition-old(root) {
-  z-index: 9999 !important;
-}
 
-html::view-transition-new(root) {
-  z-index: 1 !important;
-}
 
-/* 切暗色模式过程：新暗色图层置顶 (9999)，初始状态强制限制为 0px，防首帧全黑闪烁！ */
-html.dark::view-transition-old(root) {
-  z-index: 1 !important;
-}
 
-html.dark::view-transition-new(root) {
-  z-index: 9999 !important;
-  clip-path: circle(0px at var(--click-x, 50%) var(--click-y, 100%));
-}
+

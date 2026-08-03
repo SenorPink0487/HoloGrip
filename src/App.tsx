@@ -465,7 +465,7 @@ export default function App() {
     <div
       className={[
         'relative w-full h-[100dvh] overflow-hidden bg-[#f4f6fa] dark:bg-[#121316]',
-        'select-none text-zinc-800 dark:text-white transition-colors duration-500',
+        'select-none text-zinc-800 dark:text-white',
         // 始终用 flex column,这样内层 flex-1 在 web 与桌面端都能撑满高度;
         // 桌面端额外加圆角,让 OS 阴影显出来
         'flex flex-col',

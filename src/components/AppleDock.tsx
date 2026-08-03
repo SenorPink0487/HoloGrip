@@ -43,68 +43,95 @@ export function AppleDock() {
 
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showARConfirm, setShowARConfirm] = useState(false);
+  const [rippleOverlay, setRippleOverlay] = useState<{
+    x: number;
+    y: number;
+    endRadius: number;
+    bg: string;
+    isDarkNext: boolean;
+  } | null>(null);
 
   const toggleTheme = (event: React.MouseEvent<HTMLButtonElement>) => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
 
-    if (!document.startViewTransition) {
-      setTheme(nextTheme);
-      return;
-    }
-
     const rect = event.currentTarget.getBoundingClientRect();
     const x = event.clientX || (rect.left + rect.width / 2);
     const y = event.clientY || (rect.top + rect.height / 2);
-
-    // 绑定 CSS 变量，确保首帧初始化 clip-path = circle(0px) 立刻生效，防闪全黑
-    document.documentElement.style.setProperty('--click-x', `${x}px`);
-    document.documentElement.style.setProperty('--click-y', `${y}px`);
 
     const endRadius = Math.hypot(
       Math.max(x, window.innerWidth - x),
       Math.max(y, window.innerHeight - y)
     );
 
-    const transition = document.startViewTransition(() => {
-      flushSync(() => {
-        setTheme(nextTheme);
-      });
-    });
+    if (document.startViewTransition) {
+      const styleId = 'theme-transition-style';
+      let style = document.getElementById(styleId) as HTMLStyleElement | null;
+      if (!style) {
+        style = document.createElement('style');
+        style.id = styleId;
+        document.head.appendChild(style);
+      }
 
-    const isDarkNext = nextTheme === 'dark';
-
-    const pseudoElement = isDarkNext
-      ? '::view-transition-new(root)'
-      : '::view-transition-old(root)';
-
-    const clipPath = isDarkNext
-      ? [
-          `circle(0px at ${x}px ${y}px)`,
-          `circle(${endRadius}px at ${x}px ${y}px)`
-        ]
-      : [
-          `circle(${endRadius}px at ${x}px ${y}px)`,
-          `circle(0px at ${x}px ${y}px)`
-        ];
-
-    transition.ready.then(() => {
-      document.documentElement.animate(
-        {
-          clipPath: clipPath,
-        },
-        {
-          duration: 700,
-          easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
-          pseudoElement: pseudoElement,
-          fill: 'forwards',
+      style.innerHTML = `
+        ::view-transition-group(root),
+        ::view-transition-image-pair(root) {
+          animation: none !important;
         }
-      );
-    });
+        ::view-transition-old(root),
+        ::view-transition-new(root) {
+          mix-blend-mode: normal !important;
+          display: block !important;
+          position: absolute !important;
+          inset: 0 !important;
+          width: 100% !important;
+          height: 100% !important;
+        }
+        html.dark::view-transition-old(root) {
+          z-index: 9999 !important;
+          animation: theme-ripple-out-dynamic 650ms cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
+        }
+        html.dark::view-transition-new(root) {
+          z-index: 1 !important;
+          animation: none !important;
+        }
+        html:not(.dark)::view-transition-old(root) {
+          z-index: 1 !important;
+          animation: none !important;
+        }
+        html:not(.dark)::view-transition-new(root) {
+          z-index: 9999 !important;
+          animation: theme-ripple-in-dynamic 650ms cubic-bezier(0.4, 0, 0.2, 1) forwards !important;
+        }
+        @keyframes theme-ripple-out-dynamic {
+          0% { clip-path: circle(${endRadius}px at ${x}px ${y}px); }
+          100% { clip-path: circle(0px at ${x}px ${y}px); }
+        }
+        @keyframes theme-ripple-in-dynamic {
+          0% { clip-path: circle(0px at ${x}px ${y}px); }
+          100% { clip-path: circle(${endRadius}px at ${x}px ${y}px); }
+        }
+      `;
 
-    transition.finished.then(() => {
-      document.documentElement.style.removeProperty('--click-x');
-      document.documentElement.style.removeProperty('--click-y');
-    });
+      const transition = document.startViewTransition(() => {
+        flushSync(() => {
+          setTheme(nextTheme);
+        });
+      });
+
+      transition.finished.then(() => {
+        if (style && style.parentNode) {
+          style.parentNode.removeChild(style);
+        }
+      });
+      return;
+    }
+
+    // 降级兜底方案 (不支持 View Transitions API 的环境如 WebKit / WebView2 / Tauri Desktop)：
+    // 渲染全屏 Overlay 层并通过 Web Animations 驱动圆形波纹扩散/收缩动画
+    const isDarkNext = nextTheme === 'dark';
+    const oldBg = theme === 'dark' ? '#09090b' : '#f4f6fa';
+    setRippleOverlay({ x, y, endRadius, bg: oldBg, isDarkNext });
+    setTheme(nextTheme);
   };
 
   const items: DockItem[] = [
@@ -316,6 +343,33 @@ export function AppleDock() {
               </div>
             </motion.div>
           </div>
+        )}
+        {rippleOverlay && (
+          <div
+            ref={(node) => {
+              if (node) {
+                const anim = node.animate(
+                  [
+                    { clipPath: `circle(${rippleOverlay.endRadius}px at ${rippleOverlay.x}px ${rippleOverlay.y}px)` },
+                    { clipPath: `circle(0px at ${rippleOverlay.x}px ${rippleOverlay.y}px)` }
+                  ],
+                  {
+                    duration: 650,
+                    easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+                    fill: 'forwards'
+                  }
+                );
+                anim.onfinish = () => {
+                  setRippleOverlay(null);
+                  document.documentElement.style.removeProperty('--click-x');
+                  document.documentElement.style.removeProperty('--click-y');
+                  document.documentElement.style.removeProperty('--end-radius');
+                };
+              }
+            }}
+            className="fixed inset-0 z-[99999] pointer-events-none"
+            style={{ backgroundColor: rippleOverlay.bg }}
+          />
         )}
       </AnimatePresence>
     </>
