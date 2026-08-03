@@ -3,7 +3,7 @@ import type { Vector2 } from 'three';
 import type { AIVertex } from './lib/gemini';
 
 export type MathShape = 'cube' | 'sphere' | 'cylinder' | 'cone' | 'pyramid';
-export type AppTab = 'launcher' | 'whiteboard' | 'function' | 'calculator3d' | 'ar_3d' | 'physics' | 'chem' | 'rocket' | 'pool';
+export type AppTab = 'launcher' | 'whiteboard' | 'function' | 'calculator3d' | 'ar_3d' | 'physics' | 'chem' | 'rocket' | 'pool' | 'profile';
 
 // `holomath.html` 始终保持为原有数学白板入口；启动器使用独立的
 // `launcher.html` 入口，避免桌面壳替代原应用页面。
@@ -277,7 +277,7 @@ export const useARStore = create<ARState>((set) => ({
   isAnalyzing: false,
   modelScale: 2.5,
 
-  activeTab: isLauncherEntry ? 'launcher' : 'whiteboard',
+  activeTab: 'whiteboard',
 
   isModelPanelOpen: false,
   isPenPanelOpen: false,
@@ -382,7 +382,7 @@ export const useARStore = create<ARState>((set) => ({
   setAnalyzing: (v) => set({ isAnalyzing: v }),
   setModelScale: (s) => set({ modelScale: s }),
   
-  setActiveTab: (t) => set({ activeTab: t === 'function' || t === 'calculator3d' ? 'whiteboard' : t }),
+  setActiveTab: (t) => set({ activeTab: (t === 'function' || t === 'calculator3d' || t === 'launcher') ? 'whiteboard' : t }),
   setModelPanelOpen: (o) => set({ isModelPanelOpen: o }),
   setPenPanelOpen: (o) => set({ isPenPanelOpen: o }),
   // 画笔与连线/剖切互斥：启用画笔时自动关闭其它 3D 绘制模式，避免捏合手势同时触发多种行为

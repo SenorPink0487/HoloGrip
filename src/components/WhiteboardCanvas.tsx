@@ -151,6 +151,17 @@ export function WhiteboardCanvas() {
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctxRef.current = ctx;
+
+      // 挂载时立即还原当前页笔迹，解决从物理/化学等板块切回时画板空白的问题
+      const currentPage = pages[currentPageIndex];
+      if (currentPage && currentPage.whiteboardDataUrl) {
+        const img = new Image();
+        img.onload = () => {
+          ctx.clearRect(0, 0, WHITEBOARD_WIDTH, WHITEBOARD_HEIGHT);
+          ctx.drawImage(img, 0, 0, WHITEBOARD_WIDTH, WHITEBOARD_HEIGHT);
+        };
+        img.src = currentPage.whiteboardDataUrl;
+      }
     }
   }, []);
 
@@ -183,7 +194,8 @@ export function WhiteboardCanvas() {
     } else {
       ctx.clearRect(0, 0, WHITEBOARD_WIDTH, WHITEBOARD_HEIGHT);
     }
-  }, [currentPageIndex, whiteboardRestoreVersion]); // 鐩戝惉褰撳墠椤电储寮曞彉鍖?
+  }, [currentPageIndex, whiteboardRestoreVersion, pages]);
+
   // 缁樺浘浜嬩欢澶勭悊
   useEffect(() => {
     const handleRemoteStroke = (event: Event) => {

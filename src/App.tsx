@@ -26,6 +26,7 @@ import { WhiteboardEmbedsLayer } from './components/WhiteboardEmbedsLayer';
 import { GeometryBoard } from './components/GeometryBoard';
 import { ToolboxPanel } from './components/ToolboxPanel';
 import { FloatingWindow } from './components/FloatingWindow';
+import { AccountView } from './components/AccountView';
 
 // Import Ruler/Compass/Protractor/TriangleRuler for global whiteboard layer
 import { Ruler } from './components/tools/Ruler';
@@ -802,8 +803,7 @@ export default function App() {
         </>
       )}
       
-      {/* 4. 启动器页面：五大学科 Launchpad 空间实验室大厅 */}
-      {isDesktop && activeTab === 'launcher' && <LauncherPortal />}
+ 
 
       {/* 5. 物理、化学、航天、台球等 4 大学科外部场景全景嵌入 */}
       {['physics', 'chem', 'rocket', 'pool'].includes(activeTab) && (
@@ -819,9 +819,12 @@ export default function App() {
  
       {/* 6. 顶层穿透白板书写画布 (仅在超级白板下供老师书写,函数探究单独隔离) */}
       {activeTab === 'whiteboard' && <WhiteboardCanvas />}
+
+      {/* 6.5 专属个人账户中心界面 */}
+      {activeTab === 'profile' && <AccountView />}
  
-      {/* 7. 全新底部苹果 Dock 菜单 (启动器页面与 AR 3D 模式下隐藏) */}
-      {activeTab !== 'ar_3d' && activeTab !== 'launcher' && <AppleDock />}
+      {/* 7. 全新底部苹果 Dock 菜单 (仅在白板页面下呈现) */}
+      {activeTab === 'whiteboard' && <AppleDock />}
 
       {/* 8. 冷启动动画属于独立启动器；原 HoloMath 入口不加载该覆盖层。 */}
       {IS_LAUNCHER_ENTRY && !IS_IPAD_STANDALONE && <SplashScreen />}

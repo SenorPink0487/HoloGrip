@@ -3,33 +3,46 @@ import { flushSync } from 'react-dom';
 import { useARStore, AppTab } from '../store';
 import { cn } from '../lib/utils';
 import { 
-  PenTool, 
   Compass, 
-  Trash2,
-  Moon,
-  Sun
+  Atom, 
+  FlaskConical, 
+  User, 
+  Trash2, 
+  Moon, 
+  Sun,
+  LogOut,
+  ShieldCheck,
+  CheckCircle2,
+  X
 } from 'lucide-react';
 import { motion, useMotionValue, useSpring, useTransform, AnimatePresence } from 'motion/react';
 
 interface DockItem {
-  tab: AppTab | 'clear';
+  key: string;
   label: string;
   icon: React.ReactNode;
 }
 
-const MATH_TABS: AppTab[] = ['whiteboard'];
-
 export function AppleDock() {
   const activeTab = useARStore(state => state.activeTab);
-  // 除了数学板块，其它板块不应该有 Dock 栏
-  if (!MATH_TABS.includes(activeTab)) return null;
-
   const setActiveTab = useARStore(state => state.setActiveTab);
+
+  // Dock 栏仅在白板 ('whiteboard') 状态下呈现
+  if (activeTab !== 'whiteboard') return null;
+
   const clearCanvas = useARStore(state => state.clearCanvas);
   const clearModelLines = useARStore(state => state.clearModelLines);
 
   const theme = useARStore(state => state.theme);
   const setTheme = useARStore(state => state.setTheme);
+
+  const isLoggedIn = useARStore(state => state.isLoggedIn);
+  const currentUser = useARStore(state => state.currentUser);
+  const logout = useARStore(state => state.logout);
+  const lockScreen = useARStore(state => state.lockScreen);
+
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [showARConfirm, setShowARConfirm] = useState(false);
 
   const toggleTheme = (event: React.MouseEvent<HTMLButtonElement>) => {
     const nextTheme = theme === 'dark' ? 'light' : 'dark';
@@ -84,22 +97,47 @@ export function AppleDock() {
   };
 
   const items: DockItem[] = [
-    { tab: 'whiteboard', label: '数学 · 白板', icon: <PenTool className="w-6 h-6" /> },
-    { tab: 'ar_3d', label: '空间AR', icon: <Compass className="w-6 h-6" /> },
+    { key: 'math', label: '数学', icon: <Compass className="w-6 h-6" /> },
+    { key: 'physics', label: '物理', icon: <Atom className="w-6 h-6" /> },
+    { key: 'chem', label: '化学', icon: <FlaskConical className="w-6 h-6" /> },
+    { key: 'account', label: '账户', icon: <User className="w-6 h-6" /> },
   ];
 
-  const getIsActive = (tab: AppTab) => {
-    return activeTab === tab;
+  const getIsActive = (key: string) => {
+    const currentTab = activeTab as string;
+    if (key === 'math') return currentTab === 'ar_3d'; // 默认在白板中不蓝色高亮
+    if (key === 'physics') return currentTab === 'physics';
+    if (key === 'chem') return currentTab === 'chem';
+    if (key === 'account') return currentTab === 'profile';
+    return false;
   };
 
-  const [showARConfirm, setShowARConfirm] = useState(false);
+  const handleItemClick = (key: string) => {
+    if (key === 'math') {
+      if (activeTab === 'whiteboard') {
+        setShowARConfirm(true);
+      } else {
+        setActiveTab('whiteboard');
+      }
+    } else if (key === 'physics') {
+      setActiveTab('physics');
+    } else if (key === 'chem') {
+      setActiveTab('chem');
+    } else if (key === 'account') {
+      if (!isLoggedIn) {
+        lockScreen();
+      } else {
+        setActiveTab('profile');
+      }
+    }
+  };
 
   // Mouse positioning for magnifying effect
   const mouseX = useMotionValue(Infinity);
 
   return (
     <>
-      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 select-none pointer-events-auto">
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-4 select-none pointer-events-auto">
         {/* Themes & Clear panel */}
         <div className="flex items-center gap-1.5 p-2 rounded-2xl bg-white/70 dark:bg-zinc-900/60 backdrop-blur-2xl border border-black/5 dark:border-white/10 shadow-2xl transition-all duration-500">
           <button
@@ -110,17 +148,19 @@ export function AppleDock() {
             {theme === 'dark' ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </button>
 
-          <button
-            onClick={() => {
-              clearCanvas();
-              window.dispatchEvent(new CustomEvent('holomath:whiteboard-local-clear'));
-              clearModelLines();
-            }}
-            className="p-2.5 rounded-xl text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-500/10 dark:hover:bg-red-500/20 transition-all duration-200 active:scale-90 cursor-pointer"
-            title="清空画板内容"
-          >
-            <Trash2 className="w-5 h-5" />
-          </button>
+          {activeTab === 'whiteboard' && (
+            <button
+              onClick={() => {
+                clearCanvas();
+                window.dispatchEvent(new CustomEvent('holomath:whiteboard-local-clear'));
+                clearModelLines();
+              }}
+              className="p-2.5 rounded-xl text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-500/10 dark:hover:bg-red-500/20 transition-all duration-200 active:scale-90 cursor-pointer"
+              title="清空画板内容"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* Main Apple Dock */}
@@ -130,37 +170,117 @@ export function AppleDock() {
           className="flex items-end gap-3 px-4 py-2.5 rounded-[2rem] bg-white/50 dark:bg-zinc-900/40 backdrop-blur-3xl border border-black/5 dark:border-white/10 shadow-[0_24px_50px_-12px_rgba(0,0,0,0.15)] dark:shadow-[0_24px_50px_-12px_rgba(0,0,0,0.5)] transition-all duration-500"
         >
           {items.map((item) => (
-            <DockIcon
-              key={item.tab}
-              mouseX={mouseX}
-              item={item}
-              active={getIsActive(item.tab as AppTab)}
-              onClick={() => {
-                if (item.tab === 'ar_3d') {
-                  setShowARConfirm(true);
-                } else if (item.tab !== 'clear') {
-                  setActiveTab(item.tab as AppTab);
-                }
-              }}
-            />
+            <React.Fragment key={item.key}>
+              {item.key === 'account' && (
+                <div className="w-px h-8 bg-black/10 dark:bg-white/15 mx-1 mb-3.5 self-center rounded-full" />
+              )}
+              <DockIcon
+                mouseX={mouseX}
+                item={item}
+                active={getIsActive(item.key)}
+                onClick={() => handleItemClick(item.key)}
+              />
+            </React.Fragment>
           ))}
         </motion.div>
       </div>
 
       <AnimatePresence>
-        {showARConfirm && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+        {showAccountModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto">
             <motion.div
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className="w-[360px] p-6 rounded-2xl bg-white/80 dark:bg-zinc-950/80 backdrop-blur-xl border border-black/10 dark:border-white/10 text-center shadow-2xl flex flex-col gap-4 text-zinc-800 dark:text-zinc-100"
+              className="relative w-[380px] p-6 rounded-3xl bg-white/85 dark:bg-zinc-950/85 backdrop-blur-2xl border border-black/10 dark:border-white/10 text-center shadow-2xl flex flex-col gap-5 text-zinc-800 dark:text-zinc-100"
+            >
+              <button
+                onClick={() => setShowAccountModal(false)}
+                className="absolute top-4 right-4 p-1.5 rounded-full hover:bg-black/5 dark:hover:bg-white/10 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <div className="flex flex-col items-center gap-3 pt-2">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-cyan-500 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-cyan-500/30">
+                  <User className="w-8 h-8" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-bold tracking-tight">
+                    {currentUser?.name || 'HoloGrip 用户'}
+                  </h3>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-0.5">
+                    {currentUser?.email || '未登录云端账号'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-zinc-100 dark:bg-zinc-900/80 border border-black/5 dark:border-white/5 flex flex-col gap-2 text-left text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-500 dark:text-zinc-400">身份角色</span>
+                  <span className="font-medium text-cyan-600 dark:text-cyan-400 flex items-center gap-1">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    {currentUser?.role || '高级教师 / 实验管理员'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-500 dark:text-zinc-400">云端同步状态</span>
+                  <span className="font-medium text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    {isLoggedIn ? '已连接云云互联' : '离线本地模式'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowAccountModal(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-black/10 dark:border-white/10 text-xs font-medium hover:bg-black/5 dark:hover:bg-white/5 active:scale-95 transition-all cursor-pointer"
+                >
+                  关闭
+                </button>
+                {isLoggedIn ? (
+                  <button
+                    onClick={() => {
+                      setShowAccountModal(false);
+                      logout();
+                      lockScreen();
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 border border-red-500/20 text-xs font-medium shadow-sm active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    退出登录
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setShowAccountModal(false);
+                      lockScreen();
+                    }}
+                    className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-500 text-white text-xs font-medium shadow-lg shadow-cyan-500/20 active:scale-95 transition-all cursor-pointer"
+                  >
+                    前往登录
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+
+        {showARConfirm && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-auto">
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+              className="w-[360px] p-6 rounded-2xl bg-white/85 dark:bg-zinc-950/85 backdrop-blur-xl border border-black/10 dark:border-white/10 text-center shadow-2xl flex flex-col gap-4 text-zinc-800 dark:text-zinc-100"
             >
               <div className="flex justify-center text-cyan-500">
                 <Compass className="w-12 h-12 animate-pulse" />
               </div>
-              <h3 className="text-lg font-bold">进入空间 AR 模块？</h3>
+              <h3 className="text-lg font-bold">进入数学 3D 空间 AR？</h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
                 空间 AR 模块将启用您的摄像头以进行手势识别与 3D 空间教学建模交互。为获得最佳体验，请确保环境光线充足且无遮挡。
               </p>

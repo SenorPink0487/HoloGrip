@@ -197,7 +197,7 @@ export function GeometryBoard() {
 
   const isSwitchingPageRef = useRef(false);
 
-  // 监听换页，从 store 恢复几何状态
+  // 监听换页或模块挂载，从 store 恢复几何状态
   useEffect(() => {
     const currentPage = pages[currentPageIndex];
     if (currentPage && currentPage.geometry) {
@@ -219,11 +219,12 @@ export function GeometryBoard() {
       setHoverEntity(null);
       
       // 恢复完毕后，重置 flag
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         isSwitchingPageRef.current = false;
       }, 50);
+      return () => clearTimeout(timer);
     }
-  }, [currentPageIndex, whiteboardRestoreVersion]); // 注意不要把 pages 放进依赖，否则会无限循环
+  }, [currentPageIndex, whiteboardRestoreVersion, activeTab]);
 
   // 监听几何状态变化，保存到 store
   useEffect(() => {

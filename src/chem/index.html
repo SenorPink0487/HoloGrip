@@ -9,6 +9,53 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=SF+Pro+Display:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 </head>
 <body>
+  <!-- HoloChem 浅色调开场 3D 动画 overlay -->
+  <div id="chem-boot-loader" style="position: fixed; inset: 0; z-index: 99999; background: #f8fafc; display: flex; flex-direction: column; align-items: center; justify-content: center; transition: opacity 0.8s ease, visibility 0.8s ease;">
+    <style>
+      .chem-loader-box { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; text-align: center; font-family: 'Outfit', -apple-system, sans-serif; }
+      .chem-atom-ring-container { position: relative; width: 110px; height: 110px; display: flex; align-items: center; justify-content: center; }
+      .chem-core-glow { width: 22px; height: 22px; background: #0284c7; border-radius: 50%; box-shadow: 0 0 20px rgba(2, 132, 199, 0.6), 0 0 40px rgba(37, 99, 235, 0.4); animation: chemPulse 1.5s infinite alternate ease-in-out; }
+      .chem-orbit-ring { position: absolute; border: 2px solid rgba(2, 132, 199, 0.35); border-radius: 50%; }
+      .chem-ring-1 { width: 90px; height: 90px; transform: rotateX(65deg) rotateY(20deg); animation: chemSpin 3s linear infinite; }
+      .chem-ring-2 { width: 90px; height: 90px; transform: rotateX(65deg) rotateY(80deg); animation: chemSpin 2.2s linear infinite reverse; }
+      .chem-ring-3 { width: 90px; height: 90px; transform: rotateX(65deg) rotateY(140deg); animation: chemSpin 4s linear infinite; }
+      @keyframes chemSpin { 0% { transform: rotateX(65deg) rotateY(0deg) rotateZ(0deg); } 100% { transform: rotateX(65deg) rotateY(0deg) rotateZ(360deg); } }
+      @keyframes chemPulse { 0% { transform: scale(0.85); opacity: 0.8; } 100% { transform: scale(1.15); opacity: 1; } }
+      .chem-title { font-size: 28px; font-weight: 800; letter-spacing: 2px; margin-top: 8px; background: linear-gradient(135deg, #0284c7, #2563eb); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+      .chem-sub { font-size: 13px; color: #64748b; font-weight: 600; letter-spacing: 1px; }
+      .chem-meter-bar { width: 200px; height: 4px; background: #e2e8f0; border-radius: 9999px; overflow: hidden; position: relative; margin-top: 8px; }
+      .chem-meter-fill { height: 100%; background: linear-gradient(90deg, #0284c7, #2563eb); width: 0%; transition: width 0.8s ease; border-radius: 9999px; }
+    </style>
+    <div class="chem-loader-box">
+      <div class="chem-atom-ring-container">
+        <div class="chem-core-glow"></div>
+        <div class="chem-orbit-ring chem-ring-1"></div>
+        <div class="chem-orbit-ring chem-ring-2"></div>
+        <div class="chem-orbit-ring chem-ring-3"></div>
+      </div>
+      <div class="chem-title">HoloChem</div>
+      <div class="chem-sub">3D 分子结构与反应观象台</div>
+      <div class="chem-meter-bar">
+        <div class="chem-meter-fill" id="chem-meter-fill"></div>
+      </div>
+    </div>
+    <script>
+      (function() {
+        var fill = document.getElementById('chem-meter-fill');
+        var loader = document.getElementById('chem-boot-loader');
+        if(fill) setTimeout(function(){ fill.style.width = '75%'; }, 80);
+        if(fill) setTimeout(function(){ fill.style.width = '100%'; }, 450);
+        setTimeout(function(){
+          if(loader) {
+            loader.style.opacity = '0';
+            loader.style.visibility = 'hidden';
+            setTimeout(function(){ if(loader.parentNode) loader.parentNode.removeChild(loader); }, 800);
+          }
+        }, 900);
+      })();
+    </script>
+  </div>
+
   <!-- 数学板块风格的环境极光影与粒子拖尾层 -->
   <div class="atmosphere"></div>
   <div class="ambient-glow bg-glow-1"></div>
