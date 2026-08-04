@@ -1,13 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { RotateCw, Move } from 'lucide-react';
-import { useARStore } from '../../store';
+import { useSessionStore } from '../../stores/sessionStore';
 
 interface RulerProps {
   onDrawLine?: (p1: { x: number; y: number }, p2: { x: number; y: number }) => void;
 }
 
 export function Ruler({ onDrawLine }: RulerProps) {
-  const theme = useARStore(state => state.theme);
+  const theme = useSessionStore(state => state.theme);
   const isDark = theme === 'dark';
   const [pos, setPos] = useState({ x: 250, y: 200 });
   const [angle, setAngle] = useState(0); // 旋转角度 (度)

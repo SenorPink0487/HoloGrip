@@ -1,13 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Move } from 'lucide-react';
-import { useARStore } from '../../store';
+import { useSessionStore } from '../../stores/sessionStore';
 
 interface CompassProps {
   onDrawArc?: (center: { x: number; y: number }, radius: number, startAngle: number, endAngle: number) => void;
 }
 
 export function Compass({ onDrawArc }: CompassProps) {
-  const theme = useARStore(state => state.theme);
+  const theme = useSessionStore(state => state.theme);
   const isDark = theme === 'dark';
 
   // 针尖位置 (圆心)

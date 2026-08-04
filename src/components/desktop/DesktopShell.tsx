@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { motion } from 'motion/react';
-import { useARStore, AppTab } from '../../store';
+import { useWhiteboardStore } from '../../stores/whiteboardStore';
+import type { AppTab } from '../../stores/types';
 import { LayoutGrid, ArrowLeft } from 'lucide-react';
 
 interface SubjectFrameProps {
@@ -18,7 +19,7 @@ const SUBJECT_IFRAMES: Record<string, { src: string; title: string }> = {
 
 export function SubjectIFrameView({ tab }: { tab: AppTab }) {
   const config = SUBJECT_IFRAMES[tab];
-  const setActiveTab = useARStore(state => state.setActiveTab);
+  const setActiveTab = useWhiteboardStore(state => state.setActiveTab);
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {

@@ -1,6 +1,8 @@
 import React, { useRef, useState } from 'react';
 import { flushSync } from 'react-dom';
-import { useARStore, AppTab } from '../store';
+import { useWhiteboardStore } from '../stores/whiteboardStore';
+import { useSessionStore } from '../stores/sessionStore';
+import type { AppTab } from '../stores/types';
 import { cn } from '../lib/utils';
 import { 
   Compass, 
@@ -24,22 +26,21 @@ interface DockItem {
 }
 
 export function AppleDock() {
-  const activeTab = useARStore(state => state.activeTab);
-  const setActiveTab = useARStore(state => state.setActiveTab);
+  const activeTab = useWhiteboardStore(state => state.activeTab);
+  const setActiveTab = useWhiteboardStore(state => state.setActiveTab);
 
   // Dock 栏仅在白板 ('whiteboard') 状态下呈现
   if (activeTab !== 'whiteboard') return null;
 
-  const clearCanvas = useARStore(state => state.clearCanvas);
-  const clearModelLines = useARStore(state => state.clearModelLines);
+  const clearCanvas = useWhiteboardStore(state => state.clearCanvas);
 
-  const theme = useARStore(state => state.theme);
-  const setTheme = useARStore(state => state.setTheme);
+  const theme = useSessionStore(state => state.theme);
+  const setTheme = useSessionStore(state => state.setTheme);
 
-  const isLoggedIn = useARStore(state => state.isLoggedIn);
-  const currentUser = useARStore(state => state.currentUser);
-  const logout = useARStore(state => state.logout);
-  const lockScreen = useARStore(state => state.lockScreen);
+  const isLoggedIn = useSessionStore(state => state.isLoggedIn);
+  const currentUser = useSessionStore(state => state.currentUser);
+  const logout = useSessionStore(state => state.logout);
+  const lockScreen = useSessionStore(state => state.lockScreen);
 
   const [showAccountModal, setShowAccountModal] = useState(false);
   const [showARConfirm, setShowARConfirm] = useState(false);
@@ -191,7 +192,6 @@ export function AppleDock() {
               onClick={() => {
                 clearCanvas();
                 window.dispatchEvent(new CustomEvent('holomath:whiteboard-local-clear'));
-                clearModelLines();
               }}
               className="p-2.5 rounded-xl text-red-500 dark:text-red-400 hover:text-red-600 dark:hover:text-red-300 hover:bg-red-500/10 dark:hover:bg-red-500/20 transition-all duration-200 active:scale-90 cursor-pointer"
               title="清空画板内容"
@@ -333,7 +333,7 @@ export function AppleDock() {
                   onClick={() => {
                     setShowARConfirm(false);
                     flushSync(() => {
-                      setActiveTab('ar_3d');
+                      window.location.assign('holomath.html');
                     });
                   }}
                   className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-cyan-600 to-blue-500 hover:from-cyan-500 hover:to-blue-400 text-white text-sm font-medium shadow-lg shadow-cyan-500/20 active:scale-95 transition-all cursor-pointer"

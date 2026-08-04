@@ -7,7 +7,8 @@ import {
 } from 'lucide-react';
 import { tryCompile, findRoots, findExtrema, type CompiledExpression } from '../lib/mathExpression';
 import { MathKeyboard } from './MathKeyboard';
-import { useARStore } from '../store';
+import { useWhiteboardStore } from '../stores/whiteboardStore';
+import { useSessionStore } from '../stores/sessionStore';
 
 // ============================================================
 // 数学空间限定: 函数图像有效定义域 [-300, 300]
@@ -251,8 +252,8 @@ function serializeFunctionObjects(objects: GeoObject[]): SerializedFunctionObjec
 }
 
 export function FunctionExplorer({ embedded = false, preview = false, editorOnly = false, initialState, onStateChange }: FunctionExplorerProps = {}) {
-  const theme = useARStore(state => state.theme);
-  const interactMode = useARStore(state => state.interactMode);
+  const theme = useSessionStore(state => state.theme);
+  const interactMode = useWhiteboardStore(state => state.interactMode);
   const isDark = theme === 'dark';
 
   // ---------- 侧栏 ----------

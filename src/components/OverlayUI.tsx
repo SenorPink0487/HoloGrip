@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { useARStore, HandState, MathShape } from '../store';
+import { useARStore } from '../stores/arStore';
+import type { HandState, MathShape } from '../stores/types';
 import { cn } from '../lib/utils';
 import { Box, Cylinder, Cone, Triangle, PenTool, Cuboid, Palette, Eraser, Trash2, Unplug, Upload, X, Network, Ruler, Camera, Scan } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';

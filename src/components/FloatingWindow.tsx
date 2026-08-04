@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { motion, useDragControls } from 'motion/react';
-import { useARStore } from '../store';
+import { useWhiteboardStore } from '../stores/whiteboardStore';
+import { useSessionStore } from '../stores/sessionStore';
 import { X, Minimize2, Maximize2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 
@@ -25,9 +26,9 @@ export function FloatingWindow({
   height = '560px',
   defaultPosition = { x: 100, y: 80 }
 }: FloatingWindowProps) {
-  const focusedWindow = useARStore(state => state.focusedWindow);
-  const setFocusedWindow = useARStore(state => state.setFocusedWindow);
-  const theme = useARStore(state => state.theme);
+  const focusedWindow = useWhiteboardStore(state => state.focusedWindow);
+  const setFocusedWindow = useWhiteboardStore(state => state.setFocusedWindow);
+  const theme = useSessionStore(state => state.theme);
   
   const [isMaximized, setIsMaximized] = React.useState(false);
   const [isMinimized, setIsMinimized] = React.useState(false);

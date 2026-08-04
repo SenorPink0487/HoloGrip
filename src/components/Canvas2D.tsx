@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useARStore } from '../store';
+import { useARStore } from '../stores/arStore';
 import { cn } from '../lib/utils';
 
 export function Canvas2D() {

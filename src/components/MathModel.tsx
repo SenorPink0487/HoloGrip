@@ -2,7 +2,8 @@ import { useRef, useState, useEffect, useMemo } from 'react';
 import { useFrame, useThree } from '@react-three/fiber';
 import { Box, Sphere, Cylinder, Cone, Tetrahedron, Edges, Line, Text, Billboard, Html } from '@react-three/drei';
 import * as THREE from 'three';
-import { useARStore, Point3D, CustomModel, MathShape, AuxiliaryLine, SectionPlane } from '../store';
+import { useARStore } from '../stores/arStore';
+import type { Point3D, CustomModel, MathShape, AuxiliaryLine, SectionPlane } from '../stores/types';
 import { triangulateFaces } from '../lib/geometry';
 import { LineLengthLabel, PRESET_EDGE_DEFS } from './LineLengthLabel';
 

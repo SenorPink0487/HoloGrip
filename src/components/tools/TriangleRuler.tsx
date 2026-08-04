@@ -1,14 +1,14 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { RotateCw, Move } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { useARStore } from '../../store';
+import { useSessionStore } from '../../stores/sessionStore';
 
 interface TriangleRulerProps {
   onDrawLine?: (p1: { x: number; y: number }, p2: { x: number; y: number }) => void;
 }
 
 export function TriangleRuler({ onDrawLine }: TriangleRulerProps) {
-  const theme = useARStore(state => state.theme);
+  const theme = useSessionStore(state => state.theme);
   const isDark = theme === 'dark';
   // 三角板类型：'45' (等腰直角三角板) 或 '30' (30-60-90直角三角板)
   const [type, setType] = useState<'45' | '30'>('45');

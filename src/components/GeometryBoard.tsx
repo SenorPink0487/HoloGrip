@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { cn } from '../lib/utils';
-import { useARStore } from '../store';
+import { useWhiteboardStore } from '../stores/whiteboardStore';
+import { useSessionStore } from '../stores/sessionStore';
 import { useApplePencilInput, type PencilSample } from '../hooks/useApplePencilInput';
 import { isIPadOS } from '../lib/platform';
 import { motion, AnimatePresence } from 'motion/react';
@@ -81,13 +82,14 @@ interface Circle {
 const WHITEBOARD_WIDTH = 1920;
 const WHITEBOARD_HEIGHT = 1080;
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+const useARStore = useWhiteboardStore;
 
 export function GeometryBoard() {
   const activeTab = useARStore(state => state.activeTab);
   const setInteractMode = useARStore(state => state.setInteractMode);
   const interactMode = useARStore(state => state.interactMode);
   const isEraser = useARStore(state => state.isEraser);
-  const theme = useARStore(state => state.theme);
+  const theme = useSessionStore(state => state.theme);
 
   const pages = useARStore(state => state.pages);
   const currentPageIndex = useARStore(state => state.currentPageIndex);

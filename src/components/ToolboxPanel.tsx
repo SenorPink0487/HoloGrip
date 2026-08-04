@@ -1,6 +1,7 @@
 import React from 'react';
 import { cn } from '../lib/utils';
-import { useARStore } from '../store';
+import { useWhiteboardStore } from '../stores/whiteboardStore';
+import { useSessionStore } from '../stores/sessionStore';
 import { 
   Ruler as RulerIcon, 
   Triangle as TriIcon, 
@@ -13,20 +14,20 @@ import {
 } from 'lucide-react';
 
 export function ToolboxPanel() {
-  const theme = useARStore(state => state.theme);
+  const theme = useSessionStore(state => state.theme);
   const isDark = theme === 'dark';
 
-  const showRuler = useARStore(state => state.showRuler);
-  const setShowRuler = useARStore(state => state.setShowRuler);
+  const showRuler = useWhiteboardStore(state => state.showRuler);
+  const setShowRuler = useWhiteboardStore(state => state.setShowRuler);
   
-  const showTriangleRuler = useARStore(state => state.showTriangleRuler);
-  const setShowTriangleRuler = useARStore(state => state.setShowTriangleRuler);
+  const showTriangleRuler = useWhiteboardStore(state => state.showTriangleRuler);
+  const setShowTriangleRuler = useWhiteboardStore(state => state.setShowTriangleRuler);
   
-  const showProtractor = useARStore(state => state.showProtractor);
-  const setShowProtractor = useARStore(state => state.setShowProtractor);
+  const showProtractor = useWhiteboardStore(state => state.showProtractor);
+  const setShowProtractor = useWhiteboardStore(state => state.setShowProtractor);
   
-  const showCompass = useARStore(state => state.showCompass);
-  const setShowCompass = useARStore(state => state.setShowCompass);
+  const showCompass = useWhiteboardStore(state => state.showCompass);
+  const setShowCompass = useWhiteboardStore(state => state.setShowCompass);
 
   // 一键关闭/重置所有尺规工具
   const resetAllTools = () => {

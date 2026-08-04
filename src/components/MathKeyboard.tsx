@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { useARStore } from '../store';
+import { useSessionStore } from '../stores/sessionStore';
 import { X, Delete, ChevronLeft, ChevronRight, CornerDownLeft } from 'lucide-react';
 
 /**
@@ -42,7 +42,7 @@ export function MathKeyboard({
   onSubmit,
 }: MathKeyboardProps) {
   const [tab, setTab] = useState<Tab>('num');
-  const theme = useARStore(state => state.theme);
+  const theme = useSessionStore(state => state.theme);
   const isDark = theme === 'dark';
 
   const handleKey = (k: KeyDef) => (e: React.MouseEvent) => {

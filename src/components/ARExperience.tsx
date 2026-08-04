@@ -9,7 +9,7 @@ import { CameraPermissionModal } from './CameraPermissionModal';
 import { Canvas2D } from './Canvas2D';
 import { MathModel } from './MathModel';
 import { OverlayUI } from './OverlayUI';
-import { useARStore } from '../store';
+import { useARStore } from '../stores/arStore';
 import { isIPadOS } from '../lib/platform';
 import type { RawHandObservation } from '../lib/handTracking';
 
@@ -305,7 +305,7 @@ export function ARExperience({ stageRef }: ARExperienceProps) {
 
   const handleCancelPermission = () => {
     setShowCameraPermissionModal(false);
-    useARStore.getState().setActiveTab('whiteboard');
+    window.location.assign('whiteboard.html');
   };
 
   return (
@@ -339,7 +339,7 @@ export function ARExperience({ stageRef }: ARExperienceProps) {
 
       <button
         onClick={() => {
-          useARStore.getState().setActiveTab('whiteboard');
+          window.location.assign('whiteboard.html');
         }}
         className="absolute top-[calc(env(safe-area-inset-top)+1rem)] right-[calc(env(safe-area-inset-right)+1rem)] z-50 flex items-center gap-2 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl bg-zinc-900/80 border border-white/10 text-zinc-200 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/20 active:scale-95 transition-all shadow-[0_8px_30px_rgba(0,0,0,0.3)] backdrop-blur-md cursor-pointer"
       >

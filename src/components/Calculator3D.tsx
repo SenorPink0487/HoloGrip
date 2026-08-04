@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { cn } from '../lib/utils';
-import { useARStore } from '../store';
+import { useWhiteboardStore } from '../stores/whiteboardStore';
+import { useSessionStore } from '../stores/sessionStore';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import {
@@ -567,8 +568,8 @@ export interface Calculator3DProps {
 }
 
 export function Calculator3D({ embedded = false, preview = false, editorOnly = false, initialState, onStateChange }: Calculator3DProps = {}) {
-  const theme = useARStore((state) => state.theme);
-  const interactMode = useARStore((state) => state.interactMode);
+  const theme = useSessionStore((state) => state.theme);
+  const interactMode = useWhiteboardStore((state) => state.interactMode);
   const isDark = theme === 'dark';
 
   // Sidebar state

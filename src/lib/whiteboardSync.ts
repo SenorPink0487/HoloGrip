@@ -1,4 +1,4 @@
-import type { PageData } from '../store';
+import type { PageData } from '../stores/types';
 import { apiUrl } from './apiOrigin';
 import { isTauriRuntime } from './platform';
 

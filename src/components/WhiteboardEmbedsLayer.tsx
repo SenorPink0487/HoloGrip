@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Box, ChevronDown, ChevronUp, GripVertical, Maximize2, Sigma, Trash2, X } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { useARStore, type WhiteboardEmbed, type WhiteboardEmbedKind } from '../store';
+import { useWhiteboardStore } from '../stores/whiteboardStore';
+import { useSessionStore } from '../stores/sessionStore';
+import type { WhiteboardEmbed, WhiteboardEmbedKind } from '../stores/types';
 import { FunctionExplorer, type FunctionExplorerState } from './FunctionExplorer';
 import { Calculator3D, type Calculator3DState } from './Calculator3D';
 
@@ -30,13 +32,13 @@ export function createEmbed(kind: WhiteboardEmbedKind, zIndex: number = 10): Whi
 }
 
 export function WhiteboardEmbedsLayer() {
-  const theme = useARStore(state => state.theme);
-  const pages = useARStore(state => state.pages);
-  const currentPageIndex = useARStore(state => state.currentPageIndex);
-  const interactMode = useARStore(state => state.interactMode);
-  const addWhiteboardEmbed = useARStore(state => state.addWhiteboardEmbed);
-  const updateWhiteboardEmbed = useARStore(state => state.updateWhiteboardEmbed);
-  const removeWhiteboardEmbed = useARStore(state => state.removeWhiteboardEmbed);
+  const theme = useSessionStore(state => state.theme);
+  const pages = useWhiteboardStore(state => state.pages);
+  const currentPageIndex = useWhiteboardStore(state => state.currentPageIndex);
+  const interactMode = useWhiteboardStore(state => state.interactMode);
+  const addWhiteboardEmbed = useWhiteboardStore(state => state.addWhiteboardEmbed);
+  const updateWhiteboardEmbed = useWhiteboardStore(state => state.updateWhiteboardEmbed);
+  const removeWhiteboardEmbed = useWhiteboardStore(state => state.removeWhiteboardEmbed);
   const page = pages[currentPageIndex];
   const embeds = page?.embeds ?? [];
   const [selectedId, setSelectedId] = useState<string | null>(null);

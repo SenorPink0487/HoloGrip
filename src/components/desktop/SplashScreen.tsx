@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Sparkles, ShieldCheck, Cpu, Orbit, CheckCircle2 } from 'lucide-react';
-import { useARStore } from '../../store';
+import { useSessionStore } from '../../stores/sessionStore';
 
 const INIT_STEPS = [
   { text: '正在初始化 Tauri 2 桌面内核引擎...', icon: Cpu },
@@ -11,8 +11,8 @@ const INIT_STEPS = [
 ];
 
 export function SplashScreen() {
-  const isSplashActive = useARStore(state => state.isSplashActive);
-  const dismissSplash = useARStore(state => state.dismissSplash);
+  const isSplashActive = useSessionStore(state => state.isSplashActive);
+  const dismissSplash = useSessionStore(state => state.dismissSplash);
   
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
   const [progress, setProgress] = useState(15);

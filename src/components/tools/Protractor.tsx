@@ -1,13 +1,13 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { RotateCw, Move } from 'lucide-react';
-import { useARStore } from '../../store';
+import { useSessionStore } from '../../stores/sessionStore';
 
 interface ProtractorProps {
   onDrawArc?: (center: { x: number; y: number }, radius: number, startAngle: number, endAngle: number) => void;
 }
 
 export function Protractor({ onDrawArc }: ProtractorProps) {
-  const theme = useARStore(state => state.theme);
+  const theme = useSessionStore(state => state.theme);
   const isDark = theme === 'dark';
 
   const [pos, setPos] = useState({ x: 350, y: 350 });

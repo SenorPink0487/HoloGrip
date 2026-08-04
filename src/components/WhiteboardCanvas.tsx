@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useARStore } from '../store';
+import { useWhiteboardStore } from '../stores/whiteboardStore';
+import { useSessionStore } from '../stores/sessionStore';
 import { cn } from '../lib/utils';
 import { isIPadOS } from '../lib/platform';
 import { Eraser, Edit3, Move, LineChart, Sigma, Box, Calculator } from 'lucide-react';
@@ -59,6 +60,7 @@ type AppleTouch = Touch & {
 const WHITEBOARD_WIDTH = 1920;
 const WHITEBOARD_HEIGHT = 1080;
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+const useARStore = useWhiteboardStore;
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -108,7 +110,7 @@ export function WhiteboardCanvas() {
   const triggerClearCanvas = useARStore(state => state.triggerClearCanvas);
   const interactMode = useARStore(state => state.interactMode);
   const setInteractMode = useARStore(state => state.setInteractMode);
-  const theme = useARStore(state => state.theme);
+  const theme = useSessionStore(state => state.theme);
   const isDark = theme === 'dark';
 
   const addWhiteboardEmbed = useARStore(state => state.addWhiteboardEmbed);

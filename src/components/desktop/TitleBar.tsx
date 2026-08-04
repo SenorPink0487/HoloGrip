@@ -13,7 +13,8 @@
 import { useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minus, Square, Copy, X, Lock, Sparkles, UserCheck, LayoutGrid, ArrowLeft } from 'lucide-react';
-import { useARStore } from '../../store';
+import { useSessionStore } from '../../stores/sessionStore';
+import type { AppTab } from '../../stores/types';
 
 const SUBJECT_TITLES: Record<string, string> = {
   launcher: 'HoloGrip 启动器大厅 · 空间科学实验室',
@@ -27,12 +28,15 @@ const SUBJECT_TITLES: Record<string, string> = {
   pool: '台球 · 三维碰撞物理引擎',
 };
 
-export function TitleBar() {
+interface TitleBarProps {
+  activeTab: AppTab;
+  onNavigate: (tab: AppTab) => void;
+}
+
+export function TitleBar({ activeTab, onNavigate }: TitleBarProps) {
   const [maximized, setMaximized] = useState(false);
-  const activeTab = useARStore(state => state.activeTab);
-  const setActiveTab = useARStore(state => state.setActiveTab);
-  const lockScreen = useARStore(state => state.lockScreen);
-  const currentUser = useARStore(state => state.currentUser);
+  const lockScreen = useSessionStore(state => state.lockScreen);
+  const currentUser = useSessionStore(state => state.currentUser);
   const isAR = activeTab === 'ar_3d';
 
   useEffect(() => {
@@ -94,7 +98,7 @@ export function TitleBar() {
       <div className="flex items-center gap-2">
         {activeTab !== 'launcher' && (
           <button
-            onClick={() => setActiveTab('launcher')}
+            onClick={() => onNavigate('launcher')}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-xs font-semibold shadow-md active:scale-95 transition-all cursor-pointer"
             title="返回启动器大厅"
           >

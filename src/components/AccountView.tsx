@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useARStore } from '../store';
+import { useWhiteboardStore } from '../stores/whiteboardStore';
+import { useSessionStore } from '../stores/sessionStore';
 import { apiUrl } from '../lib/apiOrigin';
 import { 
   User, 
@@ -32,11 +33,11 @@ export interface ClassItem {
 }
 
 export function AccountView() {
-  const currentUser = useARStore(state => state.currentUser);
-  const setCurrentUser = useARStore(state => state.setCurrentUser);
-  const logout = useARStore(state => state.logout);
-  const lockScreen = useARStore(state => state.lockScreen);
-  const setActiveTab = useARStore(state => state.setActiveTab);
+  const currentUser = useSessionStore(state => state.currentUser);
+  const setCurrentUser = useSessionStore(state => state.setCurrentUser);
+  const logout = useSessionStore(state => state.logout);
+  const lockScreen = useSessionStore(state => state.lockScreen);
+  const setActiveTab = useWhiteboardStore(state => state.setActiveTab);
 
   const [activeMenu, setActiveMenu] = useState<'class' | 'settings'>('class');
 

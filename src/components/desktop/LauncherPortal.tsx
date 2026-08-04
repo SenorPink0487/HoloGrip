@@ -10,7 +10,9 @@ import {
   LogOut,
   LogIn
 } from 'lucide-react';
-import { useARStore, AppTab } from '../../store';
+import { useWhiteboardStore } from '../../stores/whiteboardStore';
+import { useSessionStore } from '../../stores/sessionStore';
+import type { AppTab } from '../../stores/types';
 
 interface LaunchApp {
   id: string;
@@ -24,10 +26,10 @@ interface LaunchApp {
 }
 
 export function LauncherPortal() {
-  const setActiveTab = useARStore(state => state.setActiveTab);
-  const isLoggedIn = useARStore(state => state.isLoggedIn);
-  const currentUser = useARStore(state => state.currentUser);
-  const logout = useARStore(state => state.logout);
+  const setActiveTab = useWhiteboardStore(state => state.setActiveTab);
+  const isLoggedIn = useSessionStore(state => state.isLoggedIn);
+  const currentUser = useSessionStore(state => state.currentUser);
+  const logout = useSessionStore(state => state.logout);
 
   const apps: LaunchApp[] = [
     {

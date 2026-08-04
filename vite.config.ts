@@ -56,6 +56,7 @@ export default defineConfig(({ mode }) => {
     dashboard: path.resolve(__dirname, 'dashboard.html'),
     admin:     path.resolve(__dirname, 'admin.html'),
     holomath:  path.resolve(__dirname, 'holomath.html'),
+    whiteboard: path.resolve(__dirname, 'whiteboard.html'),
     physics:   path.resolve(__dirname, 'physics.html'),
     chem:      path.resolve(__dirname, 'chem.html'),
     rocket:    path.resolve(__dirname, 'rocket.html'),
@@ -64,6 +65,7 @@ export default defineConfig(({ mode }) => {
   const targetInputs: Record<string, Record<string, string>> = {
     desktop: entries,
     ipad: {
+      whiteboard: entries.whiteboard,
       holomath: entries.holomath,
       // iPad is a self-contained five-subject app. The launchpad opens the
       // four standalone labs below in an iframe, so each entry must be in

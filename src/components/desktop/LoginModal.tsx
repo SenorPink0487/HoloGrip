@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { ArrowRight, ShieldAlert, UserCheck, UserPlus, Shield } from 'lucide-react';
-import { useARStore } from '../../store';
+import { useSessionStore } from '../../stores/sessionStore';
 import { apiUrl } from '../../lib/apiOrigin';
 
 export function LoginModal() {
-  const isLoggedIn = useARStore((state) => state.isLoggedIn);
-  const currentUser = useARStore((state) => state.currentUser);
-  const login = useARStore((state) => state.login);
-  const setCurrentUser = useARStore((state) => state.setCurrentUser);
-  const logout = useARStore((state) => state.logout);
+  const isLoggedIn = useSessionStore((state) => state.isLoggedIn);
+  const currentUser = useSessionStore((state) => state.currentUser);
+  const login = useSessionStore((state) => state.login);
+  const setCurrentUser = useSessionStore((state) => state.setCurrentUser);
+  const logout = useSessionStore((state) => state.logout);
 
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [username, setUsername] = useState('');
@@ -228,5 +228,4 @@ export function LoginModal() {
     </AnimatePresence>
   );
 }
-
 
