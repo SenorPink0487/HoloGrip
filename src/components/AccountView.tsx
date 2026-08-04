@@ -296,7 +296,7 @@ export function AccountView() {
               className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200/80 text-slate-700 text-xs font-semibold transition-all active:scale-95 cursor-pointer flex items-center gap-2 border border-slate-200"
             >
               <ArrowLeft className="w-4 h-4 text-cyan-600" />
-              返回数学白板
+              返回数字白板
             </button>
 
             <button
