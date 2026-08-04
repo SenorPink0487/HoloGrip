@@ -962,7 +962,7 @@ export function FunctionExplorer({ embedded = false, preview = false, editorOnly
             if (py > 10 && py < H - 10) {
               ctx.save();
               ctx.fillStyle = fn.color;
-              ctx.shadowBlur = 6;
+              ctx.shadowBlur = embedded ? 0 : 4;
               ctx.shadowColor = fn.glowColor;
               ctx.font = 'bold 13px system-ui';
               ctx.fillText(fn.name, px + 4, py - 4);
@@ -992,7 +992,7 @@ export function FunctionExplorer({ embedded = false, preview = false, editorOnly
         ctx.setLineDash([]);
         // 圆点
         ctx.fillStyle = fn.color;
-        ctx.shadowBlur = 14;
+        ctx.shadowBlur = embedded ? 0 : 4;
         ctx.shadowColor = fn.glowColor;
         ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.fill();
         ctx.strokeStyle = isDark ? '#fff' : '#1e293b';
