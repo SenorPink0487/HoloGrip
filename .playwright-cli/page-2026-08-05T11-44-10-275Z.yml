@@ -1,0 +1,120 @@
+- generic [active] [ref=f5e1]:
+  - progressbar:
+    - generic:
+      - generic "HoloPhysics":
+        - generic: H
+        - generic: o
+        - generic: l
+        - generic: o
+        - generic: P
+        - generic: h
+        - generic: "y"
+        - generic: s
+        - generic: i
+        - generic: c
+        - generic: s
+      - paragraph: 未来物理实验室
+      - generic: 3%
+      - paragraph: Loading the interactive room
+  - generic:
+    - dialog:
+      - generic:
+        - generic:
+          - heading [level=2]: 实验室操作指南
+        - button:
+          - generic: ESC
+          - generic: ×
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - heading [level=3]: 常规键鼠操作
+          - generic:
+            - generic:
+              - generic:
+                - generic: W
+                - generic: A
+                - generic: S
+                - generic: D
+              - generic:
+                - heading [level=4]: 三维空间漫游与走位
+                - paragraph: 在物理实验室中前后左右平滑移动，调整最佳观测视角
+            - generic:
+              - generic:
+                - generic: Space
+                - text: /
+                - generic: Shift
+              - generic:
+                - heading [level=4]: Z 轴垂直升降与下潜
+                - paragraph: 控制人物垂直上升浮动或下潜高度，便于多角度观察大型物理仪器
+            - generic:
+              - generic:
+                - generic: 点击屏幕
+                - text: +
+                - generic: 转动
+              - generic:
+                - heading [level=4]: 锁定视角与精密瞄准
+                - paragraph: 点击画面进入第一人称沉浸视角，移动鼠标自由查看并使中央准星锁定仪器
+            - generic:
+              - generic:
+                - generic: E
+                - text: /
+                - generic: 左键触发
+              - generic:
+                - heading [level=4]: 核心仪器交互与回路开关
+                - paragraph: 准星锁定可交互仪器时，触发电路闭合、光学发生器采样或启动动力引擎
+            - generic:
+              - generic: 按住左键 + 左右拖曳
+              - generic:
+                - heading [level=4]: 连续物理参数无级精密调节
+                - paragraph: 实时无级滑动调节单摆摆长、弹簧质量、激光波长与磁场轨道定位
+            - generic:
+              - generic: F
+              - generic:
+                - heading [level=4]: 极速瞬态波峰与数据采样
+                - paragraph: 在实时物理振荡与测量过程中，一键捕捉并记录当前精准峰值与实验数据点
+            - generic:
+              - generic:
+                - generic: H
+                - text: /
+                - generic: Esc
+              - generic:
+                - heading [level=4]: 手势追踪开关与全息退出
+                - paragraph:
+                  - text: 一键开启/关闭右上角 AR 手势视觉核心；按
+                  - generic: Esc
+                  - text: 退出全息数据屏或当前窗口
+        - generic:
+          - generic:
+            - generic:
+              - heading [level=3]: AR 手势隔空操作 (H)
+          - generic:
+            - generic:
+              - generic: 单手捏合 + 轻移手腕
+              - generic:
+                - heading [level=4]: 隔空自由转向与全域回转
+                - paragraph: 手部准星处于无仪器空处时，做出拇指与食指捏合动作，轻移手腕即可隔空平滑旋转镜头
+            - generic:
+              - generic: 双手同时捏合展开 / 收拢
+              - generic:
+                - heading [level=4]: 双手隔空立体漫游 (Locomotion)
+                - paragraph: 双手同时做出捏合姿势：向外张开向前推进漫游，向内收拢向后倒退，纵横全景空间
+            - generic:
+              - generic: 瞄准仪器 + 单手捏合拖曳
+              - generic:
+                - heading [level=4]: 隔空触发与参数无接触推拉
+                - paragraph: 手部准星锁定仪器按钮时捏合即触发；瞄准连续调节滑轨捏住并左右拖放即可无级改变物理参数
+            - generic:
+              - generic: 智能仲裁与低光自动降级
+              - generic:
+                - heading [level=4]: 多模态神经网络优先权架构
+                - paragraph: 双手漫游享有最高响应优先级；若环境光线过暗导致视觉丢帧，系统会无感自动切入稳态冗余模式
+      - generic:
+        - generic:
+          - paragraph:
+            - generic:
+              - strong: 实验锦囊
+              - text: ：点击实验台任意全息终端，即可查看该实验的物理理论推导公式与分步操作目标。
+        - button:
+          - generic: 掌握了，进入物理世界 (E)
+          - generic: →

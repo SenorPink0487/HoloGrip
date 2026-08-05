@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
@@ -55,27 +55,70 @@
     </button>
   </div>
 
+  <div id="hand-tracking-controls" aria-live="polite">
+    <button type="button" id="hand-tracking-toggle" aria-pressed="false" title="开启 AR 模式（H）">
+      <span class="hand-toggle-icon" aria-hidden="true">AR</span>
+      <span class="hand-toggle-copy">
+        <strong>AR 模式</strong>
+        <small id="hand-tracking-status">AR 模式已关闭 · H</small>
+      </span>
+      <span class="hand-toggle-led-wrap" aria-hidden="true">
+        <span class="hand-toggle-led"></span>
+        <span class="hand-toggle-led-ping"></span>
+      </span>
+    </button>
+    <video id="hand-tracking-video" playsinline muted aria-hidden="true"></video>
+  </div>
+
+  <div id="ar-tutorial" role="status" aria-live="polite">
+    <strong>AR 双手交互</strong>
+    <span>双手捏合外扩前进 / 内收后退 · 单手空处捏合转向 · 对准仪器捏合操作（双手捏合优先）</span>
+  </div>
+
+  <div id="vr-edge-highlight" aria-hidden="true">
+    <i class="vr-edge vr-edge-top"></i>
+    <i class="vr-edge vr-edge-right"></i>
+    <i class="vr-edge vr-edge-bottom"></i>
+    <i class="vr-edge vr-edge-left"></i>
+    <span class="vr-corner vr-corner-tl"></span>
+    <span class="vr-corner vr-corner-tr"></span>
+    <span class="vr-corner vr-corner-br"></span>
+    <span class="vr-corner vr-corner-bl"></span>
+  </div>
+
+  <div id="toast"></div>
+
+  <div id="exp-panel">
+    <div class="exp-header">
+      <h2 id="exp-station-title">实验台</h2>
+      <button type="button" class="exp-close" id="exp-close" title="关闭">×</button>
+    </div>
+    <div id="exp-list"></div>
+    <div id="exp-active">
+      <div class="exp-name" id="exp-name"></div>
+      <div class="exp-theory" id="exp-theory"></div>
+      <ul id="exp-steps"></ul>
+      <div id="exp-hint"></div>
+      <div id="exp-data"></div>
+      <div class="exp-actions">
+        <button type="button" class="btn-ghost" id="exp-back">返回列表</button>
+        <button type="button" class="btn-record" id="exp-record" title="记录当前峰值 (F)">记录数据 (F)</button>
+        <button type="button" class="btn-primary" id="exp-action">执行操作 (E)</button>
+      </div>
+    </div>
+  </div>
+  </div>
+
+  <!-- Crosshair must stay outside #legacy-ui (hidden) so pointer-lock aim is visible. -->
+  <div id="crosshair" aria-hidden="true"></div>
+  <div id="ui-root"></div>
+
   <div id="help-modal-wrap" class="help-modal-wrap" aria-hidden="true">
     <div class="help-modal-backdrop" id="help-modal-backdrop"></div>
     <div class="help-modal-box" role="dialog" aria-labelledby="help-modal-title" aria-modal="true">
-      <i class="hud-corner tl"></i>
-      <i class="hud-corner tr"></i>
-      <i class="hud-corner br"></i>
-      <i class="hud-corner bl"></i>
-      
-      <div class="hud-top-bar">
-        <span class="hud-sys-status">
-          <span class="hud-dot"></span>
-          SYS.DOC // QUANTUM INTERACTION PROTOCOL v3.4
-        </span>
-        <span class="hud-scan-line"></span>
-        <span class="hud-freq">⚡ 60HZ · OPTICAL SYNC</span>
-      </div>
-
       <div class="help-modal-header">
         <div class="help-header-left">
-          <span class="help-header-badge">QUANTUM LAB ARCHITECTURE</span>
-          <h2 id="help-modal-title">交互操作与物理引擎控制指南</h2>
+          <h2 id="help-modal-title">实验室操作指南</h2>
         </div>
         <button type="button" class="help-close" id="help-close" title="关闭 (Esc)">
           <span class="close-kbd">ESC</span>
@@ -93,8 +136,7 @@
               </svg>
             </div>
             <div class="guide-col-title">
-              <h3>常规键鼠神经终端</h3>
-              <span>STANDARD MECH-INPUT & PRECISION AIM</span>
+              <h3>常规键鼠操作</h3>
             </div>
           </div>
           <div class="guide-rows">
@@ -104,7 +146,7 @@
               </div>
               <div class="guide-desc">
                 <h4>三维空间漫游与走位</h4>
-                <p>在量子物理实验室中前后左右平滑移动，调整最佳观测视角</p>
+                <p>在物理实验室中前后左右平滑移动，调整最佳观测视角</p>
               </div>
             </div>
             <div class="guide-row">
@@ -175,8 +217,7 @@
               </svg>
             </div>
             <div class="guide-col-title">
-              <h3>AR 隔空全息追踪引擎</h3>
-              <span>LOCAL MEDIAPIPE VISION CORE · H KEY</span>
+              <h3>AR 手势隔空操作 (H)</h3>
             </div>
           </div>
           <div class="guide-rows">
@@ -222,10 +263,6 @@
 
       <div class="help-modal-footer">
         <div class="help-footer-left">
-          <div class="help-footer-status">
-            <i class="status-pulse"></i>
-            <span>HAPTIC RAYCASTER ONLINE · FULL OPTICAL SYNC</span>
-          </div>
           <p class="help-tip">
             <span class="tip-icon-wrap">
               <svg class="svg-icon tip-svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -238,71 +275,12 @@
           </p>
         </div>
         <button type="button" class="help-btn-confirm" id="help-confirm">
-          <span class="btn-shimmer"></span>
           <span class="btn-text">掌握了，进入物理世界 (E)</span>
           <i class="btn-arrow">→</i>
         </button>
       </div>
     </div>
   </div>
-
-  <div id="hand-tracking-controls" aria-live="polite">
-    <button type="button" id="hand-tracking-toggle" aria-pressed="false" title="开启 AR 模式（H）">
-      <span class="hand-toggle-icon" aria-hidden="true">AR</span>
-      <span class="hand-toggle-copy">
-        <strong>AR 模式</strong>
-        <small id="hand-tracking-status">AR 模式已关闭 · H</small>
-      </span>
-      <span class="hand-toggle-led-wrap" aria-hidden="true">
-        <span class="hand-toggle-led"></span>
-        <span class="hand-toggle-led-ping"></span>
-      </span>
-    </button>
-    <video id="hand-tracking-video" playsinline muted aria-hidden="true"></video>
-  </div>
-
-  <div id="ar-tutorial" role="status" aria-live="polite">
-    <strong>AR 双手交互</strong>
-    <span>双手捏合外扩前进 / 内收后退 · 单手空处捏合转向 · 对准仪器捏合操作（双手捏合优先）</span>
-  </div>
-
-  <div id="vr-edge-highlight" aria-hidden="true">
-    <i class="vr-edge vr-edge-top"></i>
-    <i class="vr-edge vr-edge-right"></i>
-    <i class="vr-edge vr-edge-bottom"></i>
-    <i class="vr-edge vr-edge-left"></i>
-    <span class="vr-corner vr-corner-tl"></span>
-    <span class="vr-corner vr-corner-tr"></span>
-    <span class="vr-corner vr-corner-br"></span>
-    <span class="vr-corner vr-corner-bl"></span>
-  </div>
-
-  <div id="toast"></div>
-
-  <div id="exp-panel">
-    <div class="exp-header">
-      <h2 id="exp-station-title">实验台</h2>
-      <button type="button" class="exp-close" id="exp-close" title="关闭">×</button>
-    </div>
-    <div id="exp-list"></div>
-    <div id="exp-active">
-      <div class="exp-name" id="exp-name"></div>
-      <div class="exp-theory" id="exp-theory"></div>
-      <ul id="exp-steps"></ul>
-      <div id="exp-hint"></div>
-      <div id="exp-data"></div>
-      <div class="exp-actions">
-        <button type="button" class="btn-ghost" id="exp-back">返回列表</button>
-        <button type="button" class="btn-record" id="exp-record" title="记录当前峰值 (F)">记录数据 (F)</button>
-        <button type="button" class="btn-primary" id="exp-action">执行操作 (E)</button>
-      </div>
-    </div>
-  </div>
-  </div>
-
-  <!-- Crosshair must stay outside #legacy-ui (hidden) so pointer-lock aim is visible. -->
-  <div id="crosshair" aria-hidden="true"></div>
-  <div id="ui-root"></div>
 
   <!-- Fullscreen hologram UI (maximize) -->
   <div id="holo-fs" class="holo-fs" aria-hidden="true">
