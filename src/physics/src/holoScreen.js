@@ -86,7 +86,7 @@ function stripHtml(html) {
 }
 
 const HALL_MU0 = 4 * Math.PI * 1e-7;
-const HALL_K = 200; // calibrated representative value, mV·mA⁻¹·T⁻¹
+const HALL_K = 220; // calibrated representative value, mV·mA⁻¹·T⁻¹
 
 /** Magnetic flux density in mT from standard on-axis field equations. */
 function hallTheoreticalB(data, pos) {
@@ -630,61 +630,8 @@ function drawInducedElectricExperiment(ctx, _W, _H, cfg) {
   });
   ctx.textAlign = 'left';
 
-  // —— Params live on the tabletop desk panel; screen keeps mode chips + chart ——
+  // —— Params live on the tabletop desk panel; screen keeps chart ——
   let cy = statY + statH + gap;
-  ctx.fillStyle = P.muted;
-  ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.fillText(
-    isAuto
-      ? '自动振荡 · 桌侧滑条调 B₀/ω/R · 探测电荷读数在球体上方'
-      : '手动 · 桌侧滑条调 B/dB/dt/R · 探测电荷读数在球体上方',
-    x + 2,
-    cy,
-  );
-  cy += Math.round(22 * scale);
-
-  // —— Mode chips (B / E / spin always on; pause removed) ——
-  const chipH = Math.round(40 * scale);
-  const chipGap = Math.round(8 * scale);
-  const modeRow = [
-    {
-      label: isAuto ? '关自动' : '自动',
-      action: 'induced-e-mode',
-      meta: { auto: !isAuto },
-      active: isAuto,
-      color: accentHex,
-    },
-    {
-      label: '反转 dB/dt',
-      action: 'induced-e-flip',
-      meta: {},
-      active: false,
-      color: accentHex,
-    },
-    {
-      label: q0Pos ? 'q₀ 正' : 'q₀ 负',
-      action: 'induced-e-probe-sign',
-      meta: { sign: q0Pos ? -1 : 1 },
-      active: true,
-      color: q0Pos ? '#ef4444' : '#3b82f6',
-    },
-    {
-      label: d.showProbe === false ? '探测电荷关' : '探测电荷',
-      action: 'induced-e-toggle',
-      meta: { key: 'probe' },
-      active: d.showProbe !== false,
-      color: accentHex,
-    },
-  ];
-  const chipW = (w - chipGap * (modeRow.length - 1)) / modeRow.length;
-  modeRow.forEach((btn, i) => {
-    drawHallButton(
-      ctx, hits,
-      x + i * (chipW + chipGap), cy, chipW, chipH,
-      btn.label, btn.action, btn.meta, btn.color, btn.active,
-    );
-  });
-  cy += chipH + gap;
 
   // —— E–r textbook chart fills remaining space ——
   const chartH = Math.max(Math.round(180 * scale), contentTop + contentH - cy);
@@ -1929,8 +1876,8 @@ function drawHallExperiment(ctx, W, _H, cfg) {
   // Action bar: secondary tools only (record lives in the left control panel)
   const btnGap = Math.round(10 * scale);
   const labels = [
-    { label: '↔ 交换红黑接线', action: 'hall-direction' },
     { label: d.showCurve ? '返回记录' : '生成曲线', action: 'hall-chart' },
+    { label: '导出数据', action: 'hall-export' },
     { label: '清空', action: 'hall-clear' },
   ];
   const bw = (innerW - btnGap * (labels.length - 1)) / labels.length;
@@ -1973,17 +1920,23 @@ function drawHallDemoExperiment(ctx, _W, _H, cfg) {
   ctx.stroke();
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
+  const formulaPadX = Math.round(52 * scale);
   drawMathFormula(
     ctx,
-    'U_{H}=R_{H}IB/d',
-    x + Math.round(16 * scale),
+    'U_{H}=KIB',
+    x + formulaPadX,
     contentTop + formulaH / 2 + Math.round(10 * scale),
-    { fontSize: Math.round(34 * scale), color: pink, align: 'left' },
+    { fontSize: Math.round(32 * scale), color: pink, align: 'left' },
   );
-  ctx.textAlign = 'right';
-  ctx.fillStyle = P.title;
-  ctx.font = `italic ${Math.round(24 * scale)}px "Times New Roman", serif`;
-  ctx.fillText(`U_H = ${vh.toFixed(3)}（相对）`, x + w - Math.round(16 * scale), contentTop + formulaH / 2);
+
+  const vhFormatted = (vh >= 0 ? '+' : '') + vh.toFixed(3);
+  drawMathFormula(
+    ctx,
+    `U_{H}=${vhFormatted}（相对）`,
+    x + w - formulaPadX,
+    contentTop + formulaH / 2 + Math.round(10 * scale),
+    { fontSize: Math.round(30 * scale), color: P.title, align: 'right' },
+  );
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
 
@@ -1996,10 +1949,17 @@ function drawHallDemoExperiment(ctx, _W, _H, cfg) {
   roundRect(ctx, x, cy, w, statH, 10);
   ctx.fill();
   ctx.stroke();
+
+  const nVal = Math.max(0.01, Number(d.n || 1));
+  const dVal = Math.max(0.01, Number(d.d || 0.5));
+  const sign = d.nType !== false ? -1 : 1;
+  const kVal = sign / (nVal * (dVal / 0.5));
+  const kFormatted = (kVal >= 0 ? '+' : '') + kVal.toFixed(3);
+
   const stats = [
     ['载流子', carrier],
     ['霍尔极性', polarity],
-    ['|I·B|', Number(d.force || 0).toFixed(3)],
+    ['灵敏度 K', kFormatted],
   ];
   stats.forEach(([label, value], i) => {
     const colW = w / stats.length;
@@ -2065,7 +2025,6 @@ function drawHallDemoExperiment(ctx, _W, _H, cfg) {
   const actions = [
     { label: '反转 B', action: 'hall-demo-flip', active: false },
     { label: Math.abs(d.B || 0) < 0.01 ? 'B 关' : 'B 开', action: 'hall-demo-field', active: Math.abs(d.B || 0) >= 0.01 },
-    { label: '重置', action: 'hall-demo-reset', active: false },
   ];
   const aGap = Math.round(8 * scale);
   const aW = (w - aGap * (actions.length - 1)) / actions.length;

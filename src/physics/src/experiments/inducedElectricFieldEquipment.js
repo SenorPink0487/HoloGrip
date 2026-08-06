@@ -27,7 +27,7 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
   }
   const canvas = document.createElement('canvas');
   canvas.width = 512;
-  canvas.height = 160;
+  canvas.height = 280;
   const ctx = canvas.getContext('2d');
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -40,13 +40,15 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
     opacity: 1,
   }));
   sprite.center.set(0.5, 0);
-  sprite.scale.set(0.42 * worldScale, 0.13 * worldScale, 1);
+  const baseW = 0.40 * worldScale;
+  const heightFor = (n) => (0.055 + 0.048 * Math.max(2, n)) * worldScale;
+  sprite.scale.set(baseW, heightFor(3), 1);
   sprite.renderOrder = 24;
   sprite.raycast = () => {};
   let lastKey = '';
 
-  function setQE(qText, eText, accent = '#fde68a') {
-    const key = `${accent}|${qText}|${eText}`;
+  function setQE(qText, eText, accent = '#fde68a', rText = null) {
+    const key = `${accent}|${qText}|${eText}|${rText || ''}`;
     if (key === lastKey) return;
     lastKey = key;
     const W = canvas.width;
@@ -54,8 +56,8 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
     ctx.clearRect(0, 0, W, H);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    // Soft stroke for readability without a panel box.
     const drawLine = (text, y, size, color) => {
+      if (!text) return;
       ctx.font = `bold ${size}px Consolas, "SF Mono", "Microsoft YaHei", sans-serif`;
       ctx.lineWidth = 6;
       ctx.strokeStyle = 'rgba(15, 23, 42, 0.72)';
@@ -63,8 +65,18 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
       ctx.fillStyle = color;
       ctx.fillText(text, W / 2, y);
     };
-    drawLine(qText, H * 0.36, 44, accent);
-    drawLine(eText, H * 0.70, 40, '#e2e8f0');
+    const lines = [
+      { text: qText, color: accent, size: 40 },
+      rText ? { text: rText, color: '#7dd3fc', size: 36 } : null,
+      { text: eText, color: '#e2e8f0', size: 34 },
+    ].filter(Boolean);
+    sprite.scale.set(baseW, heightFor(lines.length), 1);
+    const top = 0.14;
+    const bottom = 0.88;
+    lines.forEach((line, i) => {
+      const y = H * (top + (bottom - top) * (lines.length === 1 ? 0.5 : i / (lines.length - 1)));
+      drawLine(line.text, y, line.size, line.color);
+    });
     texture.needsUpdate = true;
   }
 
@@ -488,28 +500,25 @@ export function createInducedElectricFieldEquipment() {
         if (absRate < 0.02) return [];
 
         const safeR = Math.max(0.6, Math.min(3.6, Number(regionR || 2)));
-        // Active ring count scales continuously with |dB/dt| up to 22 rings:
-        const nActive = Math.min(MAX_E_RINGS, Math.max(5, Math.round(5 + absRate * 2.8)));
-
-        // Divide rings: ~50% inside R, 1 at boundary R, ~50% outside R
-        const nIn = Math.max(2, Math.min(nActive - 3, Math.round((nActive - 1) * 0.48)));
-        const nOut = Math.max(2, nActive - 1 - nIn);
+        // 物理规律：电场线密度 ∝ 局部场强 E
+        // 面内 E ∝ r：从约 0.3R 起起始，越靠近边界 R 越紧密（避免圆心过空，同时展现渐变）
+        // 面外 E ∝ 1/r：边界 R 处最紧密，向外延伸间距逐渐拉开
+        const nIn = Math.min(6, Math.max(3, Math.round(2.0 + absRate * 0.7)));
+        const nOut = Math.min(7, Math.max(4, Math.round(3.0 + absRate * 0.8)));
 
         const radii = [];
-        // 1. Inside rings: E(r) ∝ r => quadratic integration dn/dr ∝ r
-        // Exponent 0.62 creates a dramatic density gradient: sparse near r=0, dense near r=R!
+        // 1. 面内环 (E ∝ r)：从 ~0.3R 起起始，保持明显的非均匀间距
         for (let i = 1; i <= nIn; i += 1) {
-          const frac = i / (nIn + 0.1);
-          radii.push(safeR * Math.pow(frac, 0.62));
+          const frac = Math.pow(i / (nIn + 0.4), 0.68);
+          radii.push(safeR * frac);
         }
-        // 2. Boundary ring at r = R
+        // 2. 边界环 r = R (场强最大 E_max)
         radii.push(safeR);
-        // 3. Outside rings: E(r) ∝ 1/r => exponential integration dn/dr ∝ 1/r
-        // Exponent 1.35 creates a tight cluster near r=R and sparse spacing toward Rdisk!
+        // 3. 面外环 (E ∝ 1/r)：随半径增大间距平滑拉开
         const ratio = Math.max(1.12, Rdisk / safeR);
         for (let k = 1; k <= nOut; k += 1) {
           const frac = k / nOut;
-          radii.push(safeR * Math.pow(ratio, Math.pow(frac, 1.35)));
+          radii.push(safeR * Math.pow(ratio, Math.pow(frac, 1.25)));
         }
         return radii;
       }(R, dBdt));
@@ -567,10 +576,8 @@ export function createInducedElectricFieldEquipment() {
         });
 
         if (canSpin) {
-          const angRel = (mag / sourceR) / (eAtR / R);
-          const angSpeed = baseAng * THREE.MathUtils.clamp(angRel, 0, 1.25);
-          // angSpeed is revolutions/s (same units as the old particle progress rate).
-          ring.rotation.y += dirSign * angSpeed * stepDt * Math.PI * 2;
+          const CONSTANT_SPIN_SPEED = 0.22; // 始终保持不变的转速 (revolutions/s)
+          ring.rotation.y += dirSign * CONSTANT_SPIN_SPEED * stepDt * Math.PI * 2;
         }
       });
     }
@@ -592,10 +599,12 @@ export function createInducedElectricFieldEquipment() {
       probeCore.material.emissive.setHex(qPos ? 0xffb000 : 0x2563eb);
       probeHalo.material.color.setHex(qPos ? 0xffd43b : 0x60a5fa);
 
+      const pr = Number(data?.probeR ?? Math.hypot(Number(data?.probe?.x || 0), Number(data?.probe?.z || 0)));
       probeHud.setQE(
         `q₀=${qPos ? '+' : ''}${q0.toFixed(1)} μC`,
         `|E| = ${formatPhysicsNumber(data?.magnitudeE, { digits: 2, unit: 'N/C' })}`,
         qPos ? '#fbbf24' : '#60a5fa',
+        `r = ${pr.toFixed(2)} m`,
       );
 
       const fx = Number(data?.force?.x || 0);

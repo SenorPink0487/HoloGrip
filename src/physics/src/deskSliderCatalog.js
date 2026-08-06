@@ -50,19 +50,19 @@ function actionGroup(buttons = [], { key = null } = {}) {
 
 function inducedSpecs(d) {
   const isAuto = d?.auto === true;
-  if (isAuto) {
-    return [
-      range('R', '半径 R', 0.8, 3.2, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
-      range('amp', '振幅 B₀', 0.2, 2.5, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
-      range('omega', '角频率 ω', 0.15, 2.5, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
-      range('probeR', '探测电荷 r', 0.15, 4.5, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
-    ];
-  }
   return [
+    actionGroup([
+      {
+        label: isAuto ? '停止' : '循环播放',
+        action: 'induced-e-mode',
+        payload: { auto: !isAuto },
+        active: isAuto,
+      },
+    ]),
+    range('bStart', '起点 B', -2.5, 2.5, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
+    range('bEnd', '终点 B', -2.5, 2.5, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
     range('R', '半径 R', 0.8, 3.2, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
-    range('B', '磁感应 B', -2.5, 2.5, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
     range('dBdt', 'dB/dt', -6.25, 6.25, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
-    range('probeR', '探测电荷 r', 0.15, 4.5, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
   ];
 }
 
@@ -279,6 +279,7 @@ export function readDeskSliderValue(spec, data = {}, experiment = null) {
     return Number(probe[key]);
   }
   if (spec.setAction === 'electric-set') {
+    if (key === 'radius' || key === 'R') return Number(d.radius ?? 2.4);
     const charges = Array.isArray(d.charges) ? d.charges : [];
     const selected = charges.find((c) => c.id === d.selectedId);
     if (!selected) return null;

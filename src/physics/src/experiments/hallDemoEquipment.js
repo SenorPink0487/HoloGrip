@@ -73,24 +73,53 @@ function createCarrierTexture({ crisp = false } = {}) {
   if (crisp) {
     // Tabletop viewing can get very close to the sample. Keep a compact solid
     // core and clip the wide soft halo that made overlapping carriers blurry.
+    // Use neutral white alpha gradient so PointsMaterial tinting stays pure solid carrier color without greenish edge fringes.
     glow.addColorStop(0, 'rgba(255,255,255,1)');
     glow.addColorStop(0.24, 'rgba(255,255,255,1)');
-    glow.addColorStop(0.38, 'rgba(210,255,244,0.9)');
-    glow.addColorStop(0.52, 'rgba(150,235,214,0.28)');
-    glow.addColorStop(0.64, 'rgba(120,210,190,0)');
-    glow.addColorStop(1, 'rgba(120,210,190,0)');
+    glow.addColorStop(0.38, 'rgba(255,255,255,0.9)');
+    glow.addColorStop(0.52, 'rgba(255,255,255,0.28)');
+    glow.addColorStop(0.64, 'rgba(255,255,255,0)');
+    glow.addColorStop(1, 'rgba(255,255,255,0)');
   } else {
     glow.addColorStop(0, 'rgba(255,255,255,1)');
     glow.addColorStop(0.18, 'rgba(255,255,255,0.95)');
-    glow.addColorStop(0.42, 'rgba(180,230,255,0.55)');
-    glow.addColorStop(0.75, 'rgba(120,190,255,0.15)');
-    glow.addColorStop(1, 'rgba(120,190,255,0)');
+    glow.addColorStop(0.42, 'rgba(255,255,255,0.55)');
+    glow.addColorStop(0.75, 'rgba(255,255,255,0.15)');
+    glow.addColorStop(1, 'rgba(255,255,255,0)');
   }
   ctx.fillStyle = glow;
   ctx.fillRect(0, 0, 128, 128);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
+}
+
+function makeSignSprite(signChar) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 128;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (ctx && ctx.clearRect) {
+    ctx.clearRect(0, 0, 128, 128);
+    ctx.font = '900 115px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(signChar, 64, 64);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const mat = new THREE.SpriteMaterial({
+    map: texture,
+    transparent: true,
+    depthTest: false,
+    depthWrite: false,
+  });
+  const sprite = new THREE.Sprite(mat);
+  sprite.scale.set(0.17, 0.17, 1);
+  sprite.position.set(0, 0, 0.001);
+  sprite.renderOrder = 12;
+  return sprite;
 }
 
 /** Programmatic apparatus ported from the standalone Hall-effect animation. */
@@ -148,29 +177,49 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     body.add(pad);
   }
 
-  // Striking Hall face charge accumulation glow planes (+Y and -Y)
-  const glowPlaneGeo = new THREE.PlaneGeometry(SAMPLE.L * 0.98, SAMPLE.H * 0.95);
-  const glowMatPos = new THREE.MeshBasicMaterial({
-    color: ELECTRON_COLOR,
-    transparent: true,
-    opacity: 0,
-    side: THREE.DoubleSide,
-    depthWrite: false,
-    blending: THREE.AdditiveBlending,
+  // 3D 实体电荷小球与 3D 标符组（位于样品上下两表面）
+  const MAX_SURFACE_CHARGES = 15;
+  const chargeSphereGeo = new THREE.SphereGeometry(0.052, 16, 16);
+  const posChargeMat = new THREE.MeshStandardMaterial({
+    color: 0xff3333,
+    emissive: 0xff1111,
+    emissiveIntensity: 0.85,
+    metalness: 0.1,
+    roughness: 0.1,
   });
-  const glowMatNeg = glowMatPos.clone();
+  const negChargeMat = new THREE.MeshStandardMaterial({
+    color: 0x0284c7,
+    emissive: 0x0369a1,
+    emissiveIntensity: 0.45,
+    metalness: 0.25,
+    roughness: 0.2,
+  });
 
-  const faceGlowPos = new THREE.Mesh(glowPlaneGeo, glowMatPos);
-  faceGlowPos.rotation.x = Math.PI / 2;
-  faceGlowPos.position.y = SAMPLE.W / 2 + 0.01;
-  faceGlowPos.renderOrder = 5;
+  const posChargeGroup = new THREE.Group();
+  const negChargeGroup = new THREE.Group();
+  posChargeGroup.visible = false;
+  negChargeGroup.visible = false;
+  body.add(posChargeGroup, negChargeGroup);
 
-  const faceGlowNeg = new THREE.Mesh(glowPlaneGeo, glowMatNeg);
-  faceGlowNeg.rotation.x = Math.PI / 2;
-  faceGlowNeg.position.y = -SAMPLE.W / 2 - 0.01;
-  faceGlowNeg.renderOrder = 5;
+  const posChargeNodes = [];
+  const negChargeNodes = [];
+  for (let i = 0; i < MAX_SURFACE_CHARGES; i += 1) {
+    const pNode = new THREE.Group();
+    const pMesh = new THREE.Mesh(chargeSphereGeo, posChargeMat);
+    const pSprite = makeSignSprite('+');
+    pNode.add(pMesh, pSprite);
+    pNode.visible = false;
+    posChargeGroup.add(pNode);
+    posChargeNodes.push(pNode);
 
-  body.add(faceGlowPos, faceGlowNeg);
+    const nNode = new THREE.Group();
+    const nMesh = new THREE.Mesh(chargeSphereGeo, negChargeMat);
+    const nSprite = makeSignSprite('-');
+    nNode.add(nMesh, nSprite);
+    nNode.visible = false;
+    negChargeGroup.add(nNode);
+    negChargeNodes.push(nNode);
+  }
 
   // 磁场 3D 矢量箭头组（位于实验器材正前方，开启 DoubleSide 与无色调映射，确保正面看色泽鲜艳不发黑）
   const bFieldGroup = new THREE.Group();
@@ -180,20 +229,37 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
   const bArrows = [];
   const MAX_B_ARROWS = 15;
   const zFront = 1.15; // 位于实验器材正前方（面向视角方向），保持安全距离
+  const headLength = 0.18;
+  const headWidth = 0.12; // 适度加粗箭头头部
+  const totalLen = 1.35;
+  const shaftRadius = 0.018; // 适度加粗的立体箭杆（直径0.036）
   for (let i = 0; i < MAX_B_ARROWS; i += 1) {
     const arrow = new THREE.ArrowHelper(
       new THREE.Vector3(0, 0, 1),
       new THREE.Vector3(0, 0, zFront),
-      1.5,
+      totalLen,
       0x38bdf8,
-      0.30,
-      0.18,
+      headLength,
+      headWidth,
     );
-    arrow.line.material.transparent = true;
+    // 将原本的 1 像素细线箭杆升级为质感饱满的 3D 圆柱实体箭杆
+    const shaftLen = totalLen - headLength;
+    const shaftGeo = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftLen, 8);
+    shaftGeo.translate(0, shaftLen / 2, 0);
+    const shaftMat = new THREE.MeshBasicMaterial({
+      color: 0x38bdf8,
+      transparent: true,
+      opacity: 0.8,
+      side: THREE.DoubleSide,
+      toneMapped: false,
+    });
+    arrow.remove(arrow.line);
+    arrow.line.geometry.dispose();
+    arrow.line = new THREE.Mesh(shaftGeo, shaftMat);
+    arrow.add(arrow.line);
+
     arrow.cone.material.transparent = true;
-    arrow.line.material.side = THREE.DoubleSide;
     arrow.cone.material.side = THREE.DoubleSide;
-    arrow.line.material.toneMapped = false;
     arrow.cone.material.toneMapped = false;
     arrow.renderOrder = 6;
     arrow.line.renderOrder = 6;
@@ -247,6 +313,7 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
   const carrierColor = new THREE.Color(ELECTRON_COLOR);
   let lastCarrierType = null;
   let lastThickness = null;
+  let lastN = null;
   function syncStaticVisuals(state) {
     if (lastThickness !== state.d) {
       lastThickness = state.d;
@@ -256,8 +323,59 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
       lastCarrierType = state.nType;
       carrierColor.setHex(state.nType ? ELECTRON_COLOR : HOLE_COLOR);
       particleMaterial.color.copy(carrierColor);
-      glowMatPos.color.copy(carrierColor);
-      glowMatNeg.color.copy(carrierColor);
+    }
+    if (lastN !== state.n) {
+      lastN = state.n;
+      const rawN = Math.max(0.3, Math.min(2.5, Number(state.n ?? 1)));
+      const frac = 0.20 + ((rawN - 0.3) / (2.5 - 0.3)) * 0.80;
+      const activeCount = Math.max(12, Math.min(PARTICLE_COUNT, Math.round(PARTICLE_COUNT * frac)));
+      particleGeometry.setDrawRange(0, activeCount);
+    }
+  }
+
+  let lastChargeSignPos = null;
+  let lastChargeSignNeg = null;
+  let lastChargeB = null;
+
+  root.userData.update = (state, dt) => {
+    if (!state) return;
+    syncStaticVisuals(state);
+    const voltage = (state.I * state.B * (state.nType ? -1 : 1)) / (state.n * Math.max(0.05, state.d / 0.5));
+    shell.material.emissiveIntensity = 0.18 + Math.min(Math.abs(voltage), 2) * 0.11;
+    core.material.opacity = (tabletop ? 0.62 : 0.2) + Math.min(Math.abs(voltage), 2) * 0.06;
+
+    // Striking Hall face charge accumulation glow feedback with smooth Lerp
+    const carrierSign = state.nType !== false ? -1 : 1;
+    const flowDirection = state.nType !== false ? -1 : 1;
+    const v0 = DRIFT_SPEED * Math.max(0, Number(state.I || 0)) * flowDirection;
+    const FmagY = -carrierSign * v0 * Number(state.B || 0);
+    const pileSide = Math.abs(state.B || 0) < 0.02 || Math.abs(state.I || 0) < 0.02 ? 0 : Math.sign(FmagY || -1);
+
+    // Surface charge symbols and density scaling with B field
+    const absB = Math.abs(state.B || 0);
+    const absI = Math.abs(state.I || 0);
+    let signPos = '';
+    let signNeg = '';
+    if (absB >= 0.01 && absI >= 0.01) {
+      const isPType = state.nType === false;
+      if (pileSide > 0) {
+        signPos = isPType ? '+' : '-';
+        signNeg = isPType ? '-' : '+';
+      } else {
+        signPos = isPType ? '-' : '+';
+        signNeg = isPType ? '+' : '-';
+      }
+    }
+
+    if (lastChargeSignPos !== signPos || lastChargeSignNeg !== signNeg || Math.abs((lastChargeB || 0) - absB) > 0.02) {
+      lastChargeSignPos = signPos;
+      lastChargeSignNeg = signNeg;
+      lastChargeB = absB;
+
+      updateChargeCanvas(chargeCanvasPos, signPos, absB);
+      updateChargeCanvas(chargeCanvasNeg, signNeg, absB);
+      chargeTexturePos.needsUpdate = true;
+      chargeTextureNeg.needsUpdate = true;
     }
   }
 
@@ -305,8 +423,8 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     const v0 = DRIFT_SPEED * I * flowDirection;
     // |q|/m scale — large enough that Lorentz is visible, small enough to stay stable.
     const qOverM = carrierSign * 3.6;
-    // Thermal noise falls as concentration rises (mean free path picture).
-    const thermalStep = Math.sqrt(2 * (0.006 / n) * dt);
+    // Thermal noise (kept constant so drift speed vx is decoupled from n).
+    const thermalStep = Math.sqrt(2 * 0.003 * dt);
 
     // Uncapped linear scaling: B=1 gives tilt 0.38, B=2 gives tilt 0.76 (2x clear visual distinction!)
     const FmagY = -carrierSign * v0 * Bz;
@@ -369,7 +487,7 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
 
       phases[i] += dt * 8;
       const jitter = thermalStep / Math.sqrt(mass);
-      vx += ax * dt + (Math.sin(phases[i] * 1.3 + i) * 0.35 + Math.random() - 0.5) * jitter;
+      vx += ax * dt + (Math.random() - 0.5) * jitter * 0.05;
       vy += ay * dt + (Math.cos(phases[i] * 1.7 + i) * 0.15 + Math.random() - 0.5) * jitter * 0.4;
       vz += az * dt + (Math.sin(phases[i] * 2.1 + i) * 0.15 + Math.random() - 0.5) * jitter * 0.4;
 
@@ -517,6 +635,45 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     const v0 = DRIFT_SPEED * Math.max(0, Number(state.I || 0)) * flowDirection;
     const FmagY = -carrierSign * v0 * Number(state.B || 0);
     const pileSide = Math.abs(state.B || 0) < 0.02 || Math.abs(state.I || 0) < 0.02 ? 0 : Math.sign(FmagY || -1);
+
+    // 3D volumetric surface charge nodes with dynamic B density scaling
+    const absB = Math.abs(state.B || 0);
+    const absI = Math.abs(state.I || 0);
+    if (absB < 0.01 || absI < 0.01 || pileSide === 0) {
+      posChargeGroup.visible = false;
+      negChargeGroup.visible = false;
+    } else {
+      posChargeGroup.visible = true;
+      negChargeGroup.visible = true;
+
+      const isPType = state.nType === false;
+      const isPosOnTop = pileSide > 0 ? isPType : !isPType;
+      const posPosY = isPosOnTop ? SAMPLE.W / 2 + 0.06 : -SAMPLE.W / 2 - 0.02;
+      const negPosY = !isPosOnTop ? SAMPLE.W / 2 + 0.06 : -SAMPLE.W / 2 - 0.02;
+      const posPosZ = isPosOnTop ? 0 : SAMPLE.H / 2 + 0.12;
+      const negPosZ = !isPosOnTop ? 0 : SAMPLE.H / 2 + 0.12;
+
+      posChargeGroup.position.set(0, posPosY, posPosZ);
+      negChargeGroup.position.set(0, negPosY, negPosZ);
+
+      const bStrength = Math.min(1.0, absB / 2.0);
+      const count = Math.max(3, Math.min(MAX_SURFACE_CHARGES, Math.round(THREE.MathUtils.lerp(3, MAX_SURFACE_CHARGES, bStrength))));
+
+      for (let i = 0; i < MAX_SURFACE_CHARGES; i += 1) {
+        const pNode = posChargeNodes[i];
+        const nNode = negChargeNodes[i];
+        if (i < count) {
+          pNode.visible = true;
+          nNode.visible = true;
+          const x = count > 1 ? (i / (count - 1) - 0.5) * SAMPLE.L * 0.88 : 0;
+          pNode.position.set(x, 0, 0);
+          nNode.position.set(x, 0, 0);
+        } else {
+          pNode.visible = false;
+          nNode.visible = false;
+        }
+      }
+    }
     const absV = Math.min(1, Math.abs(voltage) / 2.0);
     const activeGlow = absV > 0.01 ? 0.18 + 0.62 * absV : 0;
 

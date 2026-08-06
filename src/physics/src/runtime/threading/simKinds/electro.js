@@ -406,7 +406,7 @@ export function createHallCarriersKind(initial = {}) {
       const tau = 0.18;
       const v0 = HALL_DRIFT * Math.max(0, I) * flowDirection;
       const qOverM = carrierSign * 3.6;
-      const thermalStep = Math.sqrt(2 * (0.006 / n) * h);
+      const thermalStep = Math.sqrt(2 * 0.003 * h);
       const FmagY = -carrierSign * v0 * B;
       const targetTilt = Math.sign(FmagY || 0) * (0.38 * Math.abs(B) * Math.min(1.5, Math.max(0, I)));
       const lerpAlpha = Math.min(1.0, 12.0 * Math.max(0.001, h));
@@ -456,8 +456,7 @@ export function createHallCarriersKind(initial = {}) {
 
         phases[i] += h * 8;
         const jitter = thermalStep / Math.sqrt(mass);
-        // Deterministic jitter (no Math.random) for worker reproducibility.
-        vx += ax * h + (Math.sin(phases[i] * 1.3 + i) * 0.35 + Math.sin(phases[i] + i * 0.17) * 0.5) * jitter;
+        vx += ax * h + (Math.sin(phases[i] * 1.3 + i) * 0.05) * jitter;
         vy += ay * h + (Math.cos(phases[i] * 1.7 + i) * 0.15 + Math.cos(phases[i] * 0.9) * 0.3) * jitter * 0.4;
         vz += az * h + (Math.sin(phases[i] * 2.1 + i) * 0.15) * jitter * 0.4;
 

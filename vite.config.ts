@@ -94,9 +94,19 @@ export default defineConfig(({ mode }) => {
       'import.meta.env.HOLO_TARGET': JSON.stringify(target),
     },
     resolve: {
+      // Force a single three.js instance across the monorepo. Nested
+      // src/physics/node_modules/three must not win over the root copy —
+      // dual instances blank MeshStandardMaterial room geometry in Vite dev
+      // (shadow sampler mismatch; only MeshBasic holos remain visible).
+      // Do NOT alias `three` to a filesystem folder: that bypasses package
+      // exports and breaks `three/addons/*` → `examples/jsm/*`.
       alias: {
         '@': path.resolve(__dirname, '.'),
       },
+      dedupe: ['three'],
+    },
+    optimizeDeps: {
+      include: ['three'],
     },
     build: {
       // HoloPhysics boot uses top-level await (station cooperative load).

@@ -5,8 +5,10 @@ export function createMaterials() {
   return {
     wall: new THREE.MeshStandardMaterial({ color: 0xf4f9ff, roughness: 0.15, roughness: 0.55 }),
   wallPanel: new THREE.MeshStandardMaterial({ color: 0xe8f2fc, metalness: 0.35, roughness: 0.4 }),
-  floor: new THREE.MeshStandardMaterial({ color: 0xeef6ff, metalness: 0.55, roughness: 0.18 }),
-  floorAccent: new THREE.MeshStandardMaterial({ color: 0xc8e4ff, metalness: 0.6, roughness: 0.22 }),
+  // Keep the lab floor matte so ceiling area lights do not form large reflected
+  // hotspots in the player's view.
+  floor: new THREE.MeshStandardMaterial({ color: 0xeef6ff, metalness: 0, roughness: 0.92 }),
+  floorAccent: new THREE.MeshStandardMaterial({ color: 0xc8e4ff, metalness: 0, roughness: 0.88 }),
     ceiling: new THREE.MeshStandardMaterial({ color: 0xf8fbff, metalness: 0.2, roughness: 0.5 }),
   white: new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.25, roughness: 0.35 }),
     whiteGloss: new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0.1, roughness: 0.15, clearcoat: 1, clearcoatRoughness: 0.08 }),

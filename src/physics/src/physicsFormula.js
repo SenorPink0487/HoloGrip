@@ -191,7 +191,7 @@ export function drawMathFormula(ctx, formula, x, y, opts = {}) {
     });
   }
 
-  let penX = align === 'center' ? x - totalW / 2 : x;
+  let penX = align === 'center' ? x - totalW / 2 : (align === 'right' ? x - totalW : x);
   const startX = penX;
 
   ctx.save();

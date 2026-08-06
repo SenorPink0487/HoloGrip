@@ -18,6 +18,14 @@ export default defineConfig({
   // Prevent Vite from obscuring Rust errors
   clearScreen: false,
 
+  // Keep one three.js graph even when a parent monorepo also depends on three.
+  resolve: {
+    dedupe: ['three'],
+  },
+  optimizeDeps: {
+    include: ['three'],
+  },
+
   server: {
     port: 1420,
     // If 1420 is occupied, Vite automatically tries the next available port.

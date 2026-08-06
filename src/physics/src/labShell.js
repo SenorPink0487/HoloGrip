@@ -300,6 +300,7 @@ scene.fog = new THREE.FogExp2(0xd6ecff, 0.018);
 const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.06, 60);
 // Spawn inside the room looking toward the lab center (not against the front wall)
 camera.position.set(0, 1.65, 5.0);
+camera.lookAt(0, 1.2, 0);
 
 labLoader.setProgress(0.08, '构建实验室空间…');
 
@@ -1015,13 +1016,12 @@ function createStationProxy(stationId) {
   return { root, equipment, refs: { hallBench }, animators: [], proxy: true };
 }
 
-// This map intentionally contains no station module imports. The boot path
-// creates only these tiny proxy roots; the real factories arrive via import().
-const STATION_SCENE_MODULES = Object.fromEntries(
-  STATION_IDS.map((id) => [id, () => createStationProxy(id)]),
-);
-// Boot mounts only tiny station proxies (no experiment geometry). Yield between
-// each so the loader and browser chrome stay interactive.
+// Keep the catalog import-free, but build the station shells during boot. The
+// shells contain room-facing benches and terminals; experiment handlers and
+// selected experiment modes remain intent-gated.
+// Boot mounts real station shells. Yield between stations so the loader and
+// browser chrome stay interactive while the scene becomes visible before any
+// experiment card is selected.
 const STATION_BOOT = Object.freeze({
   mechanics: { ratio: 0.18, status: '装配力学实验台…' },
   optics: { ratio: 0.22, status: '装配光学实验台…' },
@@ -1029,17 +1029,24 @@ const STATION_BOOT = Object.freeze({
   thermo: { ratio: 0.30, status: '装配热力学实验台…' },
 });
 const stationScenes = {};
-for (const [stationId, createStation] of Object.entries(STATION_SCENE_MODULES)) {
+for (const stationId of STATION_IDS) {
   const boot = STATION_BOOT[stationId] || { ratio: 0.24, status: `装配${stationId}…` };
   labLoader.setProgress(boot.ratio, boot.status);
   await yieldToBrowser(12);
   registeringStationId = stationId;
-  const station = await runHeavyChunk(() => createStation(stationContext), {
+  const sceneModule = await loadStationModule(stationId);
+  const createRealStation = sceneModule.createStationEquipment || sceneModule.default;
+  if (typeof createRealStation !== 'function') {
+    registeringStationId = null;
+    throw new Error(`Invalid station module: ${stationId}`);
+  }
+  const station = await runHeavyChunk(() => createRealStation(stationContext), {
     minIdleMs: 24,
     maxRestMs: 64,
   });
   registeringStationId = null;
   stationScenes[stationId] = station;
+  station.proxy = false;
   scene.add(station.root);
   // Station-owned animators (also accept list return for backwards compat).
   (station.animators || []).forEach((fn) => {
@@ -6188,10 +6195,13 @@ async function prepareExperimentIntent(stationId, expId, signal) {
       const previousTarget = renderer.getRenderTarget?.() || null;
       try {
         renderer.setRenderTarget(intentPrepareTarget);
+        renderer.setViewport?.(0, 0, 1, 1);
+        renderer.setScissorTest?.(false);
         renderer.clear?.();
         renderer.render(prepareScene, intentPrepareCamera);
       } finally {
         renderer.setRenderTarget(previousTarget);
+        restoreLabFramebuffer();
       }
     }
     return !signal?.aborted;
@@ -6382,41 +6392,44 @@ animate();
 const bootStarted = performance.now();
 const MIN_BOOT_MS = 500;
 
+/** Restore the default framebuffer to the full canvas drawing buffer. */
+function restoreLabFramebuffer() {
+  // Always re-assert CSS size from the window. A prior 1×1 offscreen warm
+  // (or a disposed RT) can leave the drawing buffer / viewport in a state
+  // where only MeshBasic holos survive and the room shell is blank until the
+  // next experiment prepare path happens to call setSize again.
+  const cssW = Math.max(1, window.innerWidth || canvas.clientWidth || 1);
+  const cssH = Math.max(1, window.innerHeight || canvas.clientHeight || 1);
+  const pr = Math.min(
+    Math.max(renderer.getPixelRatio?.() || 1, 1),
+    currentDprCap || MAX_DPR || 1.25,
+  );
+  renderer.setPixelRatio(pr);
+  // updateStyle=false keeps #c CSS size owned by stylesheet (100%/100%).
+  renderer.setSize(cssW, cssH, false);
+  renderer.setRenderTarget(null);
+  const fullW = Math.max(1, Math.floor(cssW * pr));
+  const fullH = Math.max(1, Math.floor(cssH * pr));
+  renderer.setViewport(0, 0, fullW, fullH);
+  if (renderer.setScissorTest) renderer.setScissorTest(false);
+  if (renderer.setScissor) renderer.setScissor(0, 0, fullW, fullH);
+  return { fullW, fullH, pr, cssW, cssH };
+}
+
 /** Present a few frames so the first visible image is the lab, not an empty buffer. */
 async function paintReadyFrames() {
   labLoader.setProgress(0.92, '渲染首帧…');
   const firstFrameT0 = performance.now();
-  // Optional 1×1 offscreen tick warms GL programs without a full-screen compile.
-  // Must restore default framebuffer + full viewport — leaving a 1×1 viewport
-  // blanked the entire lab canvas (only Interaction guide / AR chrome visible).
-  const previousTarget = renderer.getRenderTarget?.() || null;
-  const size = new THREE.Vector2();
-  renderer.getSize(size);
-  const pr = renderer.getPixelRatio?.() || 1;
-  const fullW = Math.max(1, Math.floor(size.x * pr));
-  const fullH = Math.max(1, Math.floor(size.y * pr));
-  const target = new THREE.WebGLRenderTarget(1, 1, {
-    depthBuffer: true,
-    stencilBuffer: false,
-  });
+  // Skip the 1×1 offscreen warm entirely. In Vite dev it repeatedly left the
+  // default framebuffer / viewport in a broken state (GL zero-size attachment
+  // errors every frame; only MeshBasic holos + blackboards remained visible).
+  // Production builds happened to recover on the first experiment prepare's
+  // setSize, which is why `npm run build` looked fine.
+  restoreLabFramebuffer();
   try {
-    renderer.setRenderTarget(target);
-    renderer.setViewport(0, 0, 1, 1);
     renderer.clear?.();
-    renderer.render(scene, camera);
-  } catch { /* normal render remains the fallback */ }
-  finally {
-    target.dispose();
-    renderer.setRenderTarget(previousTarget);
-    renderer.setViewport(0, 0, fullW, fullH);
-    if (renderer.setScissorTest) renderer.setScissorTest(false);
-  }
-
-  // Full-size present to the visible canvas so the first paint is the room shell.
-  try {
-    renderer.setRenderTarget(null);
-    renderer.setViewport(0, 0, fullW, fullH);
-    renderer.clear?.();
+    // Force a shadow map fill so the first visible frame has contact shadows.
+    renderer.shadowMap.needsUpdate = true;
     renderer.render(scene, camera);
   } catch { /* animate() will keep trying */ }
 

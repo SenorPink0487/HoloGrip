@@ -152,6 +152,21 @@ test('host-owned flag allows smooth carrier extrapolation so particles do not fr
   assert.ok(Math.abs(applied.meanVx + 1.4) < 1e-6, `applied meanVx=${applied.meanVx}`);
 });
 
+test('carrier concentration n dynamically scales rendered particle density drawRange', () => {
+  const root = createHallDemoEquipment({ tabletop: true });
+  const pointsMesh = root.children.find((child) => child.isPoints);
+  assert.ok(pointsMesh, 'carrier Points mesh must exist');
+
+  root.userData.update({ I: 1, B: 1, n: 0.3, d: 0.5, nType: true }, 0.016);
+  const countLow = pointsMesh.geometry.drawRange.count;
+
+  root.userData.update({ I: 1, B: 1, n: 2.5, d: 0.5, nType: true }, 0.016);
+  const countHigh = pointsMesh.geometry.drawRange.count;
+
+  assert.ok(countLow < countHigh, `low n (0.3) count (${countLow}) must be smaller than high n (2.5) count (${countHigh})`);
+  assert.ok(countHigh / countLow >= 3.5, `density change ratio (${countHigh / countLow}) should be distinct (>3.5x)`);
+});
+
 test('hologram canvas sizes match dense layout table', () => {
   const hallDemo = getHoloScreenLayoutSize({
     active: true,

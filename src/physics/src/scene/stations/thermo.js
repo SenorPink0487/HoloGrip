@@ -240,7 +240,9 @@ export function createStationEquipment(ctx) {
           }
           if (scene && typeof renderer?.render === 'function') {
             const previousTarget = renderer.getRenderTarget?.() || null;
-            const previousSize = renderer.getSize?.(new THREE.Vector2()) || null;
+            const previousSize = new THREE.Vector2();
+            renderer.getSize?.(previousSize);
+            const previousPr = renderer.getPixelRatio?.() || 1;
             const target = new THREE.WebGLRenderTarget(1, 1, {
               depthBuffer: true,
               stencilBuffer: false,
@@ -254,7 +256,13 @@ export function createStationEquipment(ctx) {
             } finally {
               target.dispose();
               renderer.setRenderTarget?.(previousTarget);
-              if (previousSize) renderer.setSize?.(previousSize.x, previousSize.y, false);
+              const w = Math.max(1, Math.floor((previousSize.x || 0) * previousPr));
+              const h = Math.max(1, Math.floor((previousSize.y || 0) * previousPr));
+              if (previousSize.x > 0 && previousSize.y > 0) {
+                renderer.setSize?.(previousSize.x, previousSize.y, false);
+              }
+              renderer.setViewport?.(0, 0, w, h);
+              renderer.setScissorTest?.(false);
             }
           }
         } finally {

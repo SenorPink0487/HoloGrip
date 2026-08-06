@@ -68,7 +68,7 @@ export const station = {
       id: 'hall_carrier_demo',
       name: '霍尔效应原理',
       goal: '观察电流、磁场、载流子浓度、样品厚度与载流子类型如何共同改变载流子的三维运动和霍尔电压极性。',
-      theory: '霍尔电压 U_H = R_H·I·B/d；n 型与 p 型载流子的霍尔电压极性相反（演示量为相对值）。',
+      theory: '霍尔电压 U_H = K_IB·I·B ；n 型与 p 型载流子的霍尔电压极性相反（演示量为相对值）。',
       steps: [
         { id: 'observe', text: '自由调节参数并观察载流子运动', hint: '在桌右侧滑条调节 I、B、n、d，内容屏可切换 n/p 型。' },
       ],
@@ -274,7 +274,7 @@ export function electricSourceForceAt(charges = [], id, options = {}) {
 }
 
 const HALL_MU0 = 4 * Math.PI * 1e-7;
-const HALL_K = 200;
+const HALL_K = 220;
 const HALL_COIL_RADIUS_M = 0.05;
 const HALL_COIL_TURNS = 210;
 const HALL_SOLENOID_LENGTH_M = 0.26;
@@ -847,6 +847,8 @@ export function createHandlers(ctx) {
         omega,
         phase,
         B,
+        bStart: -2.0,
+        bEnd: 2.0,
         dBdt,
         auto: false,
         paused: false,
@@ -1072,6 +1074,40 @@ export function createHandlers(ctx) {
     return true;
   }
 
+  function recomputeInducedElectric(data) {
+    if (data.auto) {
+      const bStart = Number(data.bStart ?? -2.0);
+      const bEnd = Number(data.bEnd ?? 2.0);
+      const deltaB = bEnd - bStart;
+      const rateMag = Math.max(0.1, Math.abs(Number(data.dBdt || 1.1)));
+      if (Math.abs(deltaB) < 1e-4) {
+        data.B = bStart;
+        data.actualDbDt = 0;
+      } else {
+        const sign = deltaB >= 0 ? 1 : -1;
+        data.actualDbDt = sign * rateMag;
+        const u = ((Number(data.progress || 0) % 1) + 1) % 1;
+        data.B = bStart + u * deltaB;
+      }
+    }
+    const probe = data.probe || { x: 0, y: 0, z: 0, q0: 1 };
+    data.probeR = Math.hypot(Number(probe.x || 0), Number(probe.z || 0));
+    const activeDbDt = data.auto ? Number(data.actualDbDt || 0) : Number(data.dBdt || 0);
+    const field = inducedEVectorAt(probe, data.R, activeDbDt);
+    data.field = field;
+    data.magnitudeE = field.magnitude;
+    data.force = {
+      x: field.x * Number(probe.q0 || 0),
+      y: 0,
+      z: field.z * Number(probe.q0 || 0),
+    };
+    data.sense = field.sense;
+    data.senseLabel = inducedESenseLabel(field.sense);
+    data.eAtBoundary = inducedEMagnitude(data.R, data.R, activeDbDt);
+    data.profile = inducedEProfile(data.R, activeDbDt);
+    return data;
+  }
+
   function syncElectricField(data, refresh = true, dt = 0) {
     const probe = data.probe || { x: 0, y: 0, z: 0, q0: 1 };
     data.field = electricFieldAt(data.charges, probe);
@@ -1105,8 +1141,14 @@ export function createHandlers(ctx) {
 
   function recomputeInducedElectric(data) {
     if (data.auto) {
-      data.B = Number(data.amp || 0) * Math.sin(Number(data.phase || 0));
-      data.dBdt = Number(data.amp || 0) * Number(data.omega || 0) * Math.cos(Number(data.phase || 0));
+      const bStart = Number(data.bStart ?? -2.0);
+      const bEnd = Number(data.bEnd ?? 2.0);
+      const mid = (bStart + bEnd) / 2;
+      const amp = Math.abs(bEnd - bStart) / 2 || 1;
+      data.amp = amp;
+      const omega = Number(data.omega || 1);
+      data.B = mid + amp * Math.sin(Number(data.phase || 0));
+      data.dBdt = amp * omega * Math.cos(Number(data.phase || 0));
     }
     const probe = data.probe || { x: 0, y: 0, z: 0, q0: 1 };
     data.probeR = Math.hypot(Number(probe.x || 0), Number(probe.z || 0));
@@ -1589,7 +1631,7 @@ export function createHandlers(ctx) {
     }
     // Keep ownership in sync; local integrate runs until particles are live.
     equipment.electro?.setHallDemoHostParticlesOwned?.(hallHostParticlesLive);
-    equipment.electro?.updateHallDemo?.(data, 1 / 60);
+    equipment.electro?.updateHallDemo?.(data, 0);
     if (refresh) pushHud();
   }
 
@@ -1835,6 +1877,11 @@ export function createHandlers(ctx) {
             INDUCED_E_AMP_MAX * INDUCED_E_OMEGA_MAX,
           );
           if (state.stepIndex < 2) setStep('lenz');
+        } else if (key === 'bStart') {
+          data.bStart = clamp(value, -2.5, 2.5);
+          if (!data.auto) data.B = data.bStart;
+        } else if (key === 'bEnd') {
+          data.bEnd = clamp(value, -2.5, 2.5);
         } else if (key === 'B' && !data.auto) {
           data.B = clamp(value, -INDUCED_E_AMP_MAX, INDUCED_E_AMP_MAX);
           if (state.stepIndex < 2) setStep('lenz');
@@ -2311,6 +2358,15 @@ export function createHandlers(ctx) {
       data.showCurve = !data.showCurve;
       syncHall(data);
       toast(data.showCurve ? '已生成符合磁场模型的 B–X 分布曲线' : '已返回实验数据记录');
+      return true;
+    }
+    if (action === 'hall-export') {
+      if (!data.records || data.records.length === 0) {
+        toast('暂无记录数据，请先点击「记录当前读数」');
+        return true;
+      }
+      exportHallDataReport(data);
+      toast('已打开打印与导出数据页面');
       return true;
     }
     if (action === 'hall-complete') {
@@ -3182,4 +3238,509 @@ export function createHandlers(ctx) {
     cleanup,
     update,
   };
+}
+
+export function exportHallDataReport(data) {
+  if (!data?.records || data.records.length === 0) return false;
+  const records = data.records;
+  const lastRec = records[records.length - 1] || records[0];
+  const nowStr = new Date().toLocaleString('zh-CN', { hour12: false });
+  const kVal = records[0]?.hallK || 220;
+
+  function getTheoreticalB(r, xPosCm) {
+    const xM = Number(xPosCm || 0) / 100;
+    const Im = Number(r.Im || 0);
+    let bTesla = 0;
+    if (r.target === 'helmholtz') {
+      const fixedX = -0.025;
+      const movingX = Number(r.rightCoilPos ?? 2.5) / 100;
+      const fieldAt = (centreX) => (
+        HALL_MU0 * HALL_COIL_TURNS * Im * HALL_COIL_RADIUS_M ** 2
+        / (2 * Math.pow(HALL_COIL_RADIUS_M ** 2 + (xM - centreX) ** 2, 1.5))
+      );
+      bTesla = fieldAt(fixedX) + fieldAt(movingX);
+    } else {
+      const halfLength = HALL_SOLENOID_LENGTH_M / 2;
+      const turnsPerMetre = Number(r.turns || 100) / HALL_SOLENOID_LENGTH_M;
+      const endCos = (z) => z / Math.sqrt(z * z + HALL_SOLENOID_RADIUS_M ** 2);
+      bTesla = HALL_MU0 * turnsPerMetre * Im * 0.5
+        * (endCos(xM + halfLength) - endCos(xM - halfLength));
+    }
+    return bTesla * 1000 * Number(r.direction || 1);
+  }
+
+  const recordedX = records.map((r) => Number(r.pos || 0));
+  const xMin = Math.min(-15, ...recordedX);
+  const xMax = Math.max(15, ...recordedX);
+
+  const theoryPoints = [];
+  const samples = 160;
+  for (let i = 0; i <= samples; i += 1) {
+    const x = xMin + ((xMax - xMin) * i) / samples;
+    theoryPoints.push({ x, b: getTheoreticalB(lastRec, x) });
+  }
+
+  const measuredPoints = records.map((r) => ({
+    x: Number(r.pos || 0),
+    b: Number(r.b || 0),
+    vh: Number(r.vh || 0),
+  }));
+
+  const allB = theoryPoints.map((p) => p.b).concat(measuredPoints.map((p) => p.b), [0]);
+  const rawMin = Math.min(...allB);
+  const rawMax = Math.max(...allB);
+  let yMin;
+  let yMax;
+  if (rawMin >= 0) {
+    yMin = 0;
+    yMax = Math.max(0.02, rawMax * 1.12);
+  } else if (rawMax <= 0) {
+    yMin = Math.min(-0.02, rawMin * 1.12);
+    yMax = 0;
+  } else {
+    const yPad = Math.max(0.02, (rawMax - rawMin) * 0.1);
+    yMin = rawMin - yPad;
+    yMax = rawMax + yPad;
+  }
+
+  const svgW = 800;
+  const svgH = 380;
+  const margin = { top: 45, right: 40, bottom: 50, left: 65 };
+  const plotW = svgW - margin.left - margin.right;
+  const plotH = svgH - margin.top - margin.bottom;
+
+  const mapX = (x) => margin.left + ((x - xMin) / (xMax - xMin)) * plotW;
+  const mapY = (b) => margin.top + plotH - ((b - yMin) / Math.max(1e-9, yMax - yMin)) * plotH;
+
+  let gridLines = '';
+  for (let i = 0; i <= 4; i += 1) {
+    const t = i / 4;
+    const gx = margin.left + plotW * t;
+    const gy = margin.top + plotH * (1 - t);
+    const xVal = (xMin + (xMax - xMin) * t).toFixed(1);
+    const bVal = (yMin + (yMax - yMin) * t).toFixed(2);
+    gridLines += `<line x1="${gx}" y1="${margin.top}" x2="${gx}" y2="${margin.top + plotH}" stroke="#e2e8f0" stroke-dasharray="4,4" />
+<text x="${gx}" y="${margin.top + plotH + 20}" font-size="12" fill="#64748b" text-anchor="middle">${xVal}</text>`;
+    gridLines += `<line x1="${margin.left}" y1="${gy}" x2="${margin.left + plotW}" y2="${gy}" stroke="#e2e8f0" stroke-dasharray="4,4" />
+<text x="${margin.left - 10}" y="${gy + 4}" font-size="12" fill="#64748b" text-anchor="end">${bVal}</text>`;
+  }
+
+  const theoryPolyline = theoryPoints.map((p) => `${mapX(p.x).toFixed(1)},${mapY(p.b).toFixed(1)}`).join(' ');
+
+  const dotsHtml = measuredPoints.map((p, i) => {
+    const cx = mapX(p.x).toFixed(1);
+    const cy = mapY(p.b).toFixed(1);
+    return `<circle cx="${cx}" cy="${cy}" r="6" fill="#be185d" stroke="#ffffff" stroke-width="2">
+      <title>点 #${i + 1}: X = ${p.x.toFixed(1)} cm, B = ${p.b.toFixed(3)} mT, Vh = ${p.vh.toFixed(2)} mV</title>
+    </circle>`;
+  }).join('\n');
+
+  const targetLabel = lastRec.target === 'helmholtz' ? '亥姆霍兹线圈' : '长螺线管';
+  const conditionText = lastRec.target === 'solenoid'
+    ? `长 L=26cm 匝数 N=${Number(lastRec.turns || 100)}`
+    : (() => {
+      const sep = Number(lastRec.rightCoilPos ?? 2.5) + 2.5;
+      const isHelm = Math.abs(sep - 5.0) < 0.1;
+      return `线圈间距 d=${sep.toFixed(1)}cm${isHelm ? ' = R (亥姆霍兹状态)' : ''}`;
+    })();
+
+  const rowsHtml = records.map((r, i) => `
+    <tr>
+      <td>${i + 1}</td>
+      <td>${r.target === 'helmholtz' ? '亥姆霍兹线圈' : '长螺线管'}</td>
+      <td>${Number(r.pos).toFixed(1)}</td>
+      <td>${Number(r.vh).toFixed(2)}</td>
+      <td>${Number(r.b).toFixed(3)}</td>
+      <td>${Number(r.Im).toFixed(2)}</td>
+      <td>${Number(r.Is).toFixed(1)}</td>
+    </tr>
+  `).join('');
+
+  const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>霍尔效应测磁实验报告 - B–X 磁场分布图与数据</title>
+  <style>
+    @page { size: A4 portrait; margin: 15mm; }
+    * { box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+      margin: 0;
+      padding: 24px;
+    }
+    .report-card {
+      max-width: 860px;
+      margin: 0 auto;
+      background: #ffffff;
+      padding: 36px 44px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+      border: 1px solid #e2e8f0;
+    }
+    .header-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid #0284c7;
+      padding-bottom: 16px;
+      margin-bottom: 24px;
+    }
+    .title { font-size: 24px; font-weight: 700; color: #0f172a; margin: 0; }
+    .subtitle { font-size: 13px; color: #64748b; margin-top: 4px; }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px 16px;
+      background: #f1f5f9;
+      padding: 16px 20px;
+      border-radius: 8px;
+      margin-bottom: 28px;
+      font-size: 14px;
+    }
+    .meta-item { color: #475569; }
+    .meta-item strong { color: #0f172a; font-weight: 600; }
+    .section-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin: 28px 0 14px 0;
+    }
+    .section-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: #0f172a;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title::before {
+      content: "";
+      display: inline-block;
+      width: 4px;
+      height: 16px;
+      background: #0284c7;
+      border-radius: 2px;
+    }
+    .chart-legend {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      font-size: 13px;
+      color: #475569;
+    }
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .legend-line { width: 18px; height: 3px; background: #0284c7; border-radius: 2px; }
+    .legend-dot {
+      width: 10px; height: 10px; background: #be185d; border-radius: 50%;
+      border: 2px solid #ffffff; box-shadow: 0 0 0 1px #be185d;
+    }
+    .chart-box {
+      display: flex;
+      justify-content: center;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 16px 8px;
+      margin-bottom: 28px;
+    }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: center; }
+    th { background: #f1f5f9; color: #334155; font-weight: 600; padding: 10px; border: 1px solid #cbd5e1; }
+    td { padding: 8px 10px; border: 1px solid #e2e8f0; color: #1e293b; }
+    tr:nth-child(even) td { background: #f8fafc; }
+    .btn-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn { padding: 8px 14px; font-size: 13px; font-weight: 500; border-radius: 6px; cursor: pointer; border: none; transition: opacity 0.2s; }
+    .btn:hover { opacity: 0.9; }
+    .btn-primary { background: #0284c7; color: #ffffff; }
+    .btn-excel { background: #10b981; color: #ffffff; }
+    .btn-csv { background: #0f766e; color: #ffffff; }
+    .btn-json { background: #6366f1; color: #ffffff; }
+    .btn-secondary { background: #e2e8f0; color: #334155; }
+    @media print {
+      body { background: #fff; padding: 0; }
+      .report-card { box-shadow: none; border: none; padding: 0; max-width: 100%; }
+      .no-print { display: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <div class="report-card">
+    <div class="header-bar">
+      <div>
+        <h1 class="title">霍尔效应测磁实验报告</h1>
+        <div class="subtitle">B–X 磁场分布曲线与测量数据</div>
+      </div>
+      <div class="btn-group no-print">
+        <button class="btn btn-primary" type="button" onclick="window.print()">🖨️ 打印 / PDF</button>
+        <button class="btn btn-excel" type="button" onclick="exportExcel()">📊 导出 Excel</button>
+        <button class="btn btn-csv" type="button" onclick="exportCSV()">📄 导出 CSV</button>
+        <button class="btn btn-json" type="button" onclick="exportJSON()">📋 导出 JSON</button>
+        <button class="btn btn-secondary" type="button" onclick="window.close()">关闭</button>
+      </div>
+    </div>
+
+    <div class="meta-grid">
+      <div class="meta-item">实验仪器: <strong>HCC-2 型霍尔效应测磁仪</strong></div>
+      <div class="meta-item">测量对象: <strong>${targetLabel}</strong></div>
+      <div class="meta-item">灵敏度 K: <strong>${kVal} mV/(mA·T)</strong></div>
+      <div class="meta-item">实测点数: <strong>${records.length} 组</strong></div>
+      <div class="meta-item">励磁电流 Im: <strong>${Number(lastRec.Im || 0).toFixed(2)} A</strong></div>
+      <div class="meta-item">霍尔电流 Is: <strong>${Number(lastRec.Is || 0).toFixed(1)} mA</strong></div>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">B–X 磁场分布曲线</div>
+      <div class="chart-legend">
+        <div class="legend-item"><span class="legend-line"></span> 理论线 (${conditionText})</div>
+        <div class="legend-item"><span class="legend-dot"></span> 实测点 (${records.length} 组)</div>
+      </div>
+    </div>
+
+    <div class="chart-box">
+      <svg width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}" style="max-width: 100%; height: auto;">
+        ${gridLines}
+        ${yMin < 0 && yMax > 0 ? `<line x1="${margin.left}" y1="${mapY(0)}" x2="${margin.left + plotW}" y2="${mapY(0)}" stroke="#94a3b8" stroke-width="1.5" />` : ''}
+        <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${margin.top + plotH}" stroke="#334155" stroke-width="2" />
+        <line x1="${margin.left}" y1="${margin.top + plotH}" x2="${margin.left + plotW}" y2="${margin.top + plotH}" stroke="#334155" stroke-width="2" />
+        <text x="${margin.left + plotW / 2}" y="${svgH - 12}" font-size="13" font-weight="600" fill="#334155" text-anchor="middle">X / cm</text>
+        <text x="20" y="${margin.top + plotH / 2}" font-size="13" font-weight="600" fill="#334155" text-anchor="middle" transform="rotate(-90 20 ${margin.top + plotH / 2})">B / mT</text>
+
+        <!-- Theoretical Curve -->
+        <polyline points="${theoryPolyline}" fill="none" stroke="#0284c7" stroke-width="2.5" stroke-linejoin="round" />
+
+        <!-- Measured Points -->
+        ${dotsHtml}
+      </svg>
+    </div>
+
+    <div class="section-header">
+      <div class="section-title">实验数据记录表</div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>序号</th>
+          <th>测量对象</th>
+          <th>探头位置 X (cm)</th>
+          <th>霍尔电压 V<sub>H</sub> (mV)</th>
+          <th>磁感应强度 B (mT)</th>
+          <th>励磁电流 I<sub>m</sub> (A)</th>
+          <th>霍尔电流 I<sub>s</sub> (mA)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    const rawRecords = ${JSON.stringify(records)};
+    const kVal = ${JSON.stringify(kVal)};
+
+    function downloadFile(filename, content, mimeType) {
+      const type = mimeType || 'application/octet-stream';
+      try {
+        const blob = new Blob([content], { type: type });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          if (a.parentNode) document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+        }, 1000);
+      } catch (e) {
+        const encoded = 'data:' + type + ',' + encodeURIComponent(content);
+        const a = document.createElement('a');
+        a.style.display = 'none';
+        a.href = encoded;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { if (a.parentNode) document.body.removeChild(a); }, 1000);
+      }
+    }
+
+    function exportExcel() {
+      const headers = ['序号', '测量对象', '探头位置 X (cm)', '霍尔电压 Vh (mV)', '磁感应强度 B (mT)', '励磁电流 Im (A)', '霍尔电流 Is (mA)'];
+      const rows = rawRecords.map((r, i) => [
+        i + 1,
+        r.target === 'helmholtz' ? '亥姆霍兹线圈' : '长螺线管',
+        Number(r.pos).toFixed(1),
+        Number(r.vh).toFixed(2),
+        Number(r.b).toFixed(3),
+        Number(r.Im).toFixed(2),
+        Number(r.Is).toFixed(1)
+      ]);
+
+      let xmlRows = '<Row ss:StyleID="Header">\n' +
+        headers.map(h => '  <Cell><Data ss:Type="String">' + h + '</Data></Cell>').join('\n') +
+        '\n</Row>\n';
+
+      rows.forEach(row => {
+        xmlRows += '<Row ss:StyleID="Cell">\n' +
+          row.map(val => {
+            const isNum = !isNaN(val) && val !== '';
+            const type = isNum ? 'Number' : 'String';
+            return '  <Cell><Data ss:Type="' + type + '">' + val + '</Data></Cell>';
+          }).join('\n') +
+          '\n</Row>\n';
+      });
+
+      const xml = '<?xml version="1.0" encoding="UTF-8"?>\n' +
+'<?mso-application progid="Excel.Sheet"?>\n' +
+'<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"\n' +
+' xmlns:o="urn:schemas-microsoft-com:office:office"\n' +
+' xmlns:x="urn:schemas-microsoft-com:office:excel"\n' +
+' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n' +
+' <Styles>\n' +
+'  <Style ss:ID="Header">\n' +
+'   <Font ss:Bold="1" ss:Color="#0F172A"/>\n' +
+'   <Interior ss:Color="#F1F5F9" ss:Pattern="Solid"/>\n' +
+'   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>\n' +
+'  </Style>\n' +
+'  <Style ss:ID="Cell">\n' +
+'   <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>\n' +
+'  </Style>\n' +
+' </Styles>\n' +
+' <Worksheet ss:Name="霍尔测磁实验数据">\n' +
+'  <Table>\n' +
+'   <Column ss:Width="50"/>\n' +
+'   <Column ss:Width="100"/>\n' +
+'   <Column ss:Width="120"/>\n' +
+'   <Column ss:Width="120"/>\n' +
+'   <Column ss:Width="130"/>\n' +
+'   <Column ss:Width="110"/>\n' +
+'   <Column ss:Width="110"/>\n' +
+    xmlRows +
+'  </Table>\n' +
+' </Worksheet>\n' +
+'</Workbook>';
+
+      const filename = '霍尔效应测磁实验数据_' + new Date().toISOString().slice(0, 10) + '.xls';
+      downloadFile(filename, xml, 'application/vnd.ms-excel');
+    }
+
+    function exportCSV() {
+      const headers = ['序号', '测量对象', '探头位置 X (cm)', '霍尔电压 Vh (mV)', '磁感应强度 B (mT)', '励磁电流 Im (A)', '霍尔电流 Is (mA)'];
+      const rows = rawRecords.map((r, i) => [
+        i + 1,
+        r.target === 'helmholtz' ? '亥姆霍兹线圈' : '长螺线管',
+        Number(r.pos).toFixed(1),
+        Number(r.vh).toFixed(2),
+        Number(r.b).toFixed(3),
+        Number(r.Im).toFixed(2),
+        Number(r.Is).toFixed(1)
+      ]);
+      const csvContent = '\uFEFF' + [headers, ...rows].map(row => row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
+      const filename = '霍尔效应测磁实验数据_' + new Date().toISOString().slice(0, 10) + '.csv';
+      downloadFile(filename, csvContent, 'text/csv;charset=utf-8;');
+    }
+
+    function exportJSON() {
+      const payload = {
+        experiment: "霍尔效应测磁实验",
+        instrument: "HCC-2 型霍尔效应测磁仪",
+        hallK: kVal,
+        exportedAt: new Date().toLocaleString('zh-CN'),
+        records: rawRecords
+      };
+      const jsonContent = JSON.stringify(payload, null, 2);
+      const filename = '霍尔效应测磁实验数据_' + new Date().toISOString().slice(0, 10) + '.json';
+      downloadFile(filename, jsonContent, 'application/json;charset=utf-8;');
+    }
+  </script>
+</body>
+</html>`;
+
+  const reportRows = records.map((r, i) => [
+    i + 1,
+    r.target === 'helmholtz' ? '浜ュ闇嶅吂绾垮湀' : '闀胯灪绾跨',
+    Number(r.pos).toFixed(1),
+    Number(r.vh).toFixed(2),
+    Number(r.b).toFixed(3),
+    Number(r.Im).toFixed(2),
+    Number(r.Is).toFixed(1),
+  ]);
+  const reportHeaders = ['搴忓彿', '娴嬮噺瀵硅薄', '鎺㈠ご浣嶇疆 X (cm)', '闇嶅皵鐢靛帇 Vh (mV)', '纾佹劅搴斿己搴?B (mT)', '鍔辩鐢垫祦 Im (A)', '闇嶅皵鐢垫祦 Is (mA)'];
+  const downloadReportFile = (filename, content, mimeType) => {
+    const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+  const encodeExcelHtml = (content) => {
+    const bytes = new Uint8Array(2 + content.length * 2);
+    bytes[0] = 0xff;
+    bytes[1] = 0xfe;
+    for (let i = 0; i < content.length; i += 1) {
+      const code = content.charCodeAt(i);
+      bytes[2 + i * 2] = code & 0xff;
+      bytes[3 + i * 2] = code >>> 8;
+    }
+    return bytes;
+  };
+  const exportReportData = (format) => {
+    const date = new Date().toISOString().slice(0, 10);
+    const stem = '闇嶅皵鏁堝簲娴嬬瀹為獙鏁版嵁_' + date;
+    if (format === 'json') {
+      downloadReportFile(stem + '.json', JSON.stringify({
+        experiment: '闇嶅皵鏁堝簲娴嬬瀹為獙',
+        instrument: 'HCC-2 鍨嬮湇灏旀晥搴旀祴纾佷华',
+        hallK: kVal,
+        exportedAt: new Date().toLocaleString('zh-CN'),
+        records,
+      }, null, 2), 'application/json;charset=utf-8');
+      return;
+    }
+    if (format === 'csv') {
+      const csv = '\uFEFF' + [reportHeaders, ...reportRows]
+        .map((row) => row.map((value) => '"' + String(value).replace(/"/g, '""') + '"').join(','))
+        .join('\r\n');
+      downloadReportFile(stem + '.csv', csv, 'text/csv;charset=utf-8');
+      return;
+    }
+    const table = [reportHeaders, ...reportRows]
+      .map((row) => '<tr>' + row.map((value) => '<td>' + String(value).replace(/[&<>]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[char])) + '</td>').join('') + '</tr>')
+      .join('');
+    const excelHtml = '<html><meta charset="UTF-16"><table>' + table + '</table></html>';
+    downloadReportFile(stem + '.xls', encodeExcelHtml(excelHtml), 'application/vnd.ms-excel');
+  };
+
+  const win = window.open('', '_blank');
+  if (!win) {
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.target = '_blank';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return true;
+  }
+  win.document.open();
+  win.document.write(html);
+  win.document.close();
+  const bindReportButton = (selector, handler) => {
+    const button = win.document.querySelector(selector);
+    if (!button) return;
+    button.removeAttribute('onclick');
+    button.addEventListener('click', handler);
+  };
+  bindReportButton('.btn-primary', () => win.print());
+  bindReportButton('.btn-excel', () => exportReportData('excel'));
+  bindReportButton('.btn-csv', () => exportReportData('csv'));
+  bindReportButton('.btn-json', () => exportReportData('json'));
+  bindReportButton('.btn-secondary', () => win.close());
+  return true;
 }

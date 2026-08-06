@@ -48,7 +48,9 @@ export function createEquipmentRuntime({
         }
         if (scene && typeof renderer?.render === 'function') {
           const previousTarget = renderer.getRenderTarget?.() || null;
-          const previousSize = renderer.getSize?.(new Vector2()) || null;
+          const previousSize = new Vector2();
+          renderer.getSize?.(previousSize);
+          const previousPr = renderer.getPixelRatio?.() || 1;
           try {
             renderer.setRenderTarget?.(prepareTarget(renderer));
             renderer.setViewport?.(0, 0, 1, 1);
@@ -56,8 +58,17 @@ export function createEquipmentRuntime({
             renderer.clear?.();
             renderer.render(scene, camera);
           } finally {
+            // Always restore the default framebuffer + full drawing-buffer
+            // viewport. Leaving a 1×1 viewport after intent prewarm blanks the
+            // lab canvas in Vite dev (only holos / UI chrome remain visible).
             renderer.setRenderTarget?.(previousTarget);
-            if (previousSize) renderer.setSize?.(previousSize.x, previousSize.y, false);
+            const w = Math.max(1, Math.floor((previousSize.x || 0) * previousPr));
+            const h = Math.max(1, Math.floor((previousSize.y || 0) * previousPr));
+            if (previousSize.x > 0 && previousSize.y > 0) {
+              renderer.setSize?.(previousSize.x, previousSize.y, false);
+            }
+            renderer.setViewport?.(0, 0, w, h);
+            renderer.setScissorTest?.(false);
           }
         }
       } finally {
