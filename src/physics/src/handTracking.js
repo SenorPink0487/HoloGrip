@@ -478,12 +478,22 @@ export function createHandTracking({
     return true;
   }
 
+  function viewportCssSize() {
+    // Match labShell: NDC must be relative to the WebGL canvas box, not
+    // window.inner* (iframe / title-bar / non-fullscreen stretch).
+    const el = typeof document !== 'undefined' ? document.getElementById('c') : null;
+    const width = el?.clientWidth > 1 ? el.clientWidth : (window.innerWidth || 1280);
+    const height = el?.clientHeight > 1 ? el.clientHeight : (window.innerHeight || 720);
+    return { width, height };
+  }
+
   function cameraPointToNdc(landmark, output = new THREE.Vector3()) {
+    const { width, height } = viewportCssSize();
     return mapVideoPointToViewportNdc(landmark, {
       videoWidth: video.videoWidth || 1280,
       videoHeight: video.videoHeight || 720,
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight,
+      viewportWidth: width,
+      viewportHeight: height,
       mirrorX: true,
     }, output);
   }
@@ -732,8 +742,9 @@ export function createHandTracking({
   }
 
   function consumeDragDelta(state) {
-    const rawDx = (state.cursorNdc.x - state.lastNdc.x) * window.innerWidth * 0.5;
-    const rawDy = (state.cursorNdc.y - state.lastNdc.y) * window.innerHeight * -0.5;
+    const { width: cssW, height: cssH } = viewportCssSize();
+    const rawDx = (state.cursorNdc.x - state.lastNdc.x) * cssW * 0.5;
+    const rawDy = (state.cursorNdc.y - state.lastNdc.y) * cssH * -0.5;
     state.lastNdc.copy(state.cursorNdc);
     state.dragResidual.x += rawDx;
     state.dragResidual.y += rawDy;

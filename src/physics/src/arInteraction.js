@@ -14,8 +14,15 @@ function clamp(value, min, max) {
 }
 
 function viewportSize() {
-  const width = Number(globalThis.innerWidth) || 1280;
-  const height = Number(globalThis.innerHeight) || 720;
+  // Prefer the lab canvas layout box so look deltas match on-screen pixels
+  // when the page is windowed / iframe-embedded (not only after F11).
+  const el = typeof document !== 'undefined' ? document.getElementById('c') : null;
+  const width = el?.clientWidth > 1
+    ? el.clientWidth
+    : (Number(globalThis.innerWidth) || 1280);
+  const height = el?.clientHeight > 1
+    ? el.clientHeight
+    : (Number(globalThis.innerHeight) || 720);
   return { width, height };
 }
 

@@ -105,7 +105,8 @@ export function createHandlers(ctx) {
   }
 
   /**
-   * Original HoloChem AI path: DeepSeek resolve + PubChem SDF, then fill active cup.
+   * AI 试剂检索：直接调 DeepSeek `/api/resolve-molecule`（或 A+B 反应判定）。
+   * 装杯只依赖 AI 返回的成分；PubChem 3D 是后续可选步骤，失败不阻断 AI。
    */
   async function runAiReagentQuery(query, condition = '') {
     const cup = state.data.activeCup === 'B' ? 'B' : 'A';
@@ -113,28 +114,25 @@ export function createHandlers(ctx) {
     setReagentSearchStatus('AI 正在解析…');
     toast('AI 解析中…');
     try {
-      const { lookupMolecule } = await import('../../../chem/src/pubchem.js');
-      const product = await lookupMolecule(query, {
-        condition: condition || '',
-        onStatus: (msg) => setReagentSearchStatus(String(msg || '')),
+      const product = await resolveAiProduct(query, condition, (msg) => {
+        setReagentSearchStatus(String(msg || ''));
       });
 
       const comps = Array.isArray(product?.components) ? product.components : [];
-      const primary = comps[0] || null;
-      const formula = primary?.formula
-        || product?.formula
-        || product?.product_zh
-        || query;
-      const nameZh = primary?.name_zh
-        || product?.product_zh
-        || formula;
-      const queryKey = primary?.query
+      if (!comps.length) {
+        throw new Error(product?.reason || `无法解析「${query}」的化学成分`);
+      }
+
+      const primary = comps[0];
+      const formula = primary?.formula || primary?.name_en || product?.product_zh || query;
+      const nameZh = primary?.name_zh || product?.product_zh || formula;
+      const queryKey = primary?.smiles
         || primary?.formula
+        || primary?.name_en
         || primary?.name_zh
         || formula
         || query;
 
-      // Build a cup reagent entry (catalog-compatible shape)
       const reagent = {
         id: `ai-${Date.now().toString(36)}`,
         formula: String(formula),
@@ -147,19 +145,15 @@ export function createHandlers(ctx) {
 
       eq()?.assignReagent?.(cup, reagent);
 
-      // Map AI components into right-panel list + optional molecule show
-      const mapped = comps.length
-        ? comps.map((c, i) => ({
-          id: c.id || `comp-${i}-${String(c.formula || c.name_zh || i)}`,
-          formula: c.formula || c.name_zh || `成分${i + 1}`,
-          name_zh: c.name_zh || c.formula || '',
-          color: colorForFormula(String(c.formula || c.name_zh || '')),
-          query: c.query || c.formula || c.name_zh || '',
-          percent: c.percent,
-        }))
-        : [{ ...reagent }];
+      const mapped = comps.map((c, i) => ({
+        id: c.id || `comp-${i}-${String(c.formula || c.name_zh || i)}`,
+        formula: c.formula || c.name_zh || `成分${i + 1}`,
+        name_zh: c.name_zh || c.formula || '',
+        color: colorForFormula(String(c.formula || c.name_zh || '')),
+        query: c.smiles || c.formula || c.name_en || c.name_zh || '',
+        percent: c.percent,
+      }));
 
-      // Merge into cup state components for right holo
       syncFromRig();
       const existing = state.data.components || [];
       const byId = new Map(existing.map((c) => [c.id, c]));
@@ -171,7 +165,7 @@ export function createHandlers(ctx) {
       setStep('pour');
       pushHud();
 
-      // Auto-show primary structure with original 3Dmol panel
+      // 3D 结构可选：失败只 toast，不回滚装杯
       const showComp = mapped[0];
       if (showComp) {
         state.data.selectedComponentId = showComp.id;
@@ -191,6 +185,46 @@ export function createHandlers(ctx) {
     } finally {
       setReagentSearchBusy(false);
     }
+  }
+
+  /**
+   * 调用 DeepSeek：单物质 resolve-molecule；A+B 走 resolve-reaction。
+   */
+  async function resolveAiProduct(query, condition, onStatus) {
+    const raw = String(query || '').trim();
+    if (!raw) throw new Error('请输入内容');
+
+    const [{ parseAddExpression, expandMixtureComponents }, { resolveWithDeepSeek }, reactionMod] = await Promise.all([
+      import('../../../chem/src/pubchem.js'),
+      import('../../../chem/src/deepseek.js'),
+      import('../../../chem/src/reaction.js'),
+    ]);
+
+    const parts = parseAddExpression(raw);
+    if (parts && parts.length >= 2) {
+      onStatus?.(`AI 正在判定：${parts.map((p) => p.name).join(' + ')}`);
+      const reaction = await reactionMod.resolveReaction(parts, condition || '');
+      return {
+        ...reaction,
+        components: expandMixtureComponents(reaction.components || []),
+      };
+    }
+
+    onStatus?.(`AI 正在拆解「${raw}」…`);
+    const ai = await resolveWithDeepSeek(raw);
+    const components = expandMixtureComponents(ai.components || []);
+    if (!components.length) {
+      throw new Error(ai.reason || `无法解析「${raw}」的化学成分`);
+    }
+    return {
+      kind: components.length <= 1 ? 'pure' : (ai.kind || 'mixture'),
+      product_zh: ai.product_zh || raw,
+      product_en: ai.product_en || '',
+      note: ai.note,
+      reason: ai.reason,
+      model: ai.model,
+      components,
+    };
   }
 
   // Wire dock once per handler instance

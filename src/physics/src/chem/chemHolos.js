@@ -179,21 +179,52 @@ export function makeChemHolo(THREE, opts) {
     tex.needsUpdate = true;
   }
 
-  function pickFromRay(raycaster) {
-    if (!g.userData.present) return null;
+  const _pickPlane = new THREE.Plane();
+  const _pickHit = new THREE.Vector3();
+  const _pickLocal = new THREE.Vector3();
+  const _pickN = new THREE.Vector3();
+  const _holoWorldPos = new THREE.Vector3();
+
+  function getUvFromRay(raycaster) {
+    if (!g.userData.present || !g.visible) return null;
+    screen.updateMatrixWorld(true);
+    // 1. Direct mesh intersection
     const hits = raycaster.intersectObject(screen, false);
-    if (!hits.length) return null;
-    const uv = hits[0].uv;
-    if (!uv) return null;
-    return pickChemHits(hitRegions, uv.x, uv.y, CW, CH);
+    if (hits.length && hits[0].uv) {
+      return { u: hits[0].uv.x, v: hits[0].uv.y, distance: hits[0].distance, point: hits[0].point };
+    }
+    // 2. Physics terminal fallback: plane intersection + worldToLocal (guarantees raycast accuracy at all angles)
+    _pickN.set(0, 0, 1).transformDirection(screen.matrixWorld).normalize();
+    screen.getWorldPosition(_holoWorldPos);
+    _pickPlane.setFromNormalAndCoplanarPoint(_pickN, _holoWorldPos);
+    const ray = raycaster.ray;
+    if (!ray.intersectPlane(_pickPlane, _pickHit)) return null;
+    _pickLocal.subVectors(_pickHit, ray.origin);
+    if (_pickLocal.dot(ray.direction) < 1e-4) return null;
+
+    _pickLocal.copy(_pickHit);
+    screen.worldToLocal(_pickLocal);
+    const u = (_pickLocal.x / panelW) + 0.5;
+    const v = (_pickLocal.y / panelH) + 0.5;
+    if (u < -0.08 || u > 1.08 || v < -0.08 || v > 1.08) return null;
+    return {
+      u: THREE.MathUtils.clamp(u, 0, 1),
+      v: THREE.MathUtils.clamp(v, 0, 1),
+      distance: ray.origin.distanceTo(_pickHit),
+      point: _pickHit.clone(),
+    };
+  }
+
+  function pickFromRay(raycaster) {
+    const uvInfo = getUvFromRay(raycaster);
+    if (!uvInfo) return null;
+    return pickChemHits(hitRegions, uvInfo.u, uvInfo.v, CW, CH);
   }
 
   function screenAimFromRay(raycaster) {
-    if (!g.userData.present || !g.visible) return null;
-    screen.updateWorldMatrix?.(true, false);
-    const hits = raycaster.intersectObject(screen, false);
-    if (!hits.length) return null;
-    return { distance: hits[0].distance, point: hits[0].point, object: screen };
+    const uvInfo = getUvFromRay(raycaster);
+    if (!uvInfo) return null;
+    return { distance: uvInfo.distance, point: uvInfo.point, object: screen };
   }
 
   g.userData.setPresent = setPresent;

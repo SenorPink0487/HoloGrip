@@ -1,6 +1,6 @@
 /**
  * Real HTML search bar for the chem reagent picker.
- * Canvas holos cannot type; this dock appears when the periodic/reagent panel is open.
+ * Streamlined single-row bar embedded directly into the bottom slot of the periodic selection screen.
  * Reuses original HoloChem AI: DeepSeek resolve + PubChem lookupMolecule.
  */
 
@@ -26,62 +26,67 @@ function ensureDock() {
   dock.style.cssText = [
     'position:fixed',
     'left:50%',
-    'bottom:28px',
+    'bottom:max(64px, 11vh)',
     'transform:translateX(-50%)',
     'z-index:55',
     'display:none',
-    'width:min(720px,92vw)',
-    'padding:14px 16px',
-    'border-radius:20px',
-    'background:rgba(255,255,255,0.92)',
+    'width:min(680px,80vw)',
+    'padding:8px 12px',
+    'border-radius:16px',
+    'background:rgba(255,255,255,0.95)',
     'border:1px solid rgba(226,232,240,0.95)',
-    'box-shadow:0 16px 48px rgba(15,23,42,0.22),0 0 0 1px rgba(255,255,255,0.6) inset',
-    'backdrop-filter:blur(18px)',
-    '-webkit-backdrop-filter:blur(18px)',
+    'box-shadow:0 12px 36px rgba(15,23,42,0.18),0 0 0 1px rgba(255,255,255,0.8) inset',
+    'backdrop-filter:blur(20px)',
+    '-webkit-backdrop-filter:blur(20px)',
     'font-family:Outfit,"Noto Sans SC",system-ui,sans-serif',
     'pointer-events:auto',
+    'box-sizing:border-box',
   ].join(';');
 
-  const label = document.createElement('div');
-  label.textContent = 'AI 试剂检索 · 化学式 / 中英文名 / SMILES · 支持 A+B 反应';
-  label.style.cssText = 'font-size:12px;font-weight:600;color:#64748b;margin-bottom:10px;letter-spacing:0.02em';
-
   const row = document.createElement('div');
-  row.style.cssText = 'display:flex;gap:10px;align-items:center;flex-wrap:wrap';
+  row.style.cssText = 'display:flex;gap:8px;align-items:center;width:100%';
+
+  const badge = document.createElement('div');
+  badge.innerHTML = '<span style="font-size:14px">✨</span><span style="font-weight:700;font-size:12px;color:#0284c7;letter-spacing:-0.01em">AI 检索</span>';
+  badge.style.cssText = 'display:flex;align-items:center;gap:4px;padding:0 4px 0 2px;white-space:nowrap;user-select:none;flex-shrink:0';
 
   inputEl = document.createElement('input');
   inputEl.type = 'text';
   inputEl.id = 'chem-reagent-query';
-  inputEl.placeholder = '例如：H2O、氯化钠、C6H12O6、NaOH+HCl…';
+  inputEl.placeholder = '输入化学式 / 名称 / SMILES (如 H2O, 氯化钠, NaOH+HCl)';
   inputEl.autocomplete = 'off';
   inputEl.spellcheck = false;
   inputEl.style.cssText = [
-    'flex:1 1 240px',
-    'min-width:180px',
-    'height:44px',
-    'padding:0 14px',
-    'border-radius:12px',
-    'border:1.5px solid rgba(203,213,225,0.95)',
-    'background:#fff',
+    'flex:1',
+    'min-width:140px',
+    'height:36px',
+    'padding:0 12px',
+    'border-radius:10px',
+    'border:1px solid rgba(203,213,225,0.9)',
+    'background:#f8fafc',
     'color:#0f172a',
-    'font-size:15px',
+    'font-size:13.5px',
     'font-weight:500',
     'outline:none',
-    'box-shadow:0 1px 2px rgba(15,23,42,0.04)',
+    'box-sizing:border-box',
+    'transition:all 0.15s ease',
   ].join(';');
 
   condEl = document.createElement('select');
   condEl.id = 'chem-reaction-condition';
   condEl.style.cssText = [
-    'height:44px',
-    'padding:0 12px',
-    'border-radius:12px',
-    'border:1.5px solid rgba(203,213,225,0.95)',
-    'background:#fff',
+    'height:36px',
+    'padding:0 10px',
+    'border-radius:10px',
+    'border:1px solid rgba(203,213,225,0.9)',
+    'background:#f8fafc',
     'color:#334155',
-    'font-size:13px',
+    'font-size:12.5px',
     'font-weight:600',
     'cursor:pointer',
+    'outline:none',
+    'flex-shrink:0',
+    'box-sizing:border-box',
   ].join(';');
   [
     ['', '未指定条件'],
@@ -99,26 +104,28 @@ function ensureDock() {
   searchBtn.type = 'button';
   searchBtn.textContent = 'AI 解析';
   searchBtn.style.cssText = [
-    'height:44px',
-    'padding:0 18px',
+    'height:36px',
+    'padding:0 16px',
     'border:none',
-    'border-radius:12px',
+    'border-radius:10px',
     'background:linear-gradient(135deg,#0ea5e9,#0284c7)',
     'color:#fff',
-    'font-size:14px',
+    'font-size:13px',
     'font-weight:700',
     'cursor:pointer',
-    'box-shadow:0 6px 16px rgba(2,132,199,0.28)',
+    'box-shadow:0 4px 12px rgba(2,132,199,0.25)',
     'white-space:nowrap',
+    'flex-shrink:0',
+    'transition:all 0.15s ease',
   ].join(';');
 
   statusEl = document.createElement('div');
-  statusEl.style.cssText = 'margin-top:8px;font-size:12px;font-weight:600;color:#64748b;min-height:16px';
+  statusEl.style.cssText = 'margin-top:4px;font-size:11.5px;font-weight:600;color:#64748b;text-align:center;min-height:0;display:none;transition:all 0.15s ease';
 
+  row.appendChild(badge);
   row.appendChild(inputEl);
   row.appendChild(condEl);
   row.appendChild(searchBtn);
-  dock.appendChild(label);
   dock.appendChild(row);
   dock.appendChild(statusEl);
   document.body.appendChild(dock);
@@ -145,7 +152,6 @@ function ensureDock() {
       e.stopPropagation();
       submit();
     }
-    // Keep lab pointer-lock / WASD from eating typing
     e.stopPropagation();
   });
   inputEl.addEventListener('keyup', (e) => e.stopPropagation());
@@ -165,7 +171,14 @@ export function setReagentSearchHandler(handler) {
 export function setReagentSearchStatus(text, tone = 'info') {
   ensureDock();
   if (!statusEl) return;
-  statusEl.textContent = text || '';
+  const str = String(text || '').trim();
+  if (!str) {
+    statusEl.style.display = 'none';
+    statusEl.textContent = '';
+    return;
+  }
+  statusEl.style.display = 'block';
+  statusEl.textContent = str;
   statusEl.style.color = tone === 'error'
     ? '#dc2626'
     : tone === 'ok'
@@ -188,12 +201,10 @@ export function showReagentSearchDock(opts = {}) {
   ensureDock();
   visible = true;
   if (dock) dock.style.display = 'block';
-  const cup = opts.activeCup || 'A';
   if (statusEl && !opts.keepStatus) {
-    statusEl.textContent = `当前烧杯 ${cup} · 输入后按 Enter 或点「AI 解析」`;
-    statusEl.style.color = '#64748b';
+    statusEl.style.display = 'none';
+    statusEl.textContent = '';
   }
-  // Focus after a tick so pointer-lock unlock / holo click settles
   requestAnimationFrame(() => {
     try {
       inputEl?.focus({ preventScroll: true });
@@ -225,3 +236,4 @@ export function setReagentSearchValue(v) {
 function setStatus(text) {
   setReagentSearchStatus(text);
 }
+

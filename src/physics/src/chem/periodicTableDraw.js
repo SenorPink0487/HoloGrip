@@ -13,6 +13,7 @@ import {
   getElement,
   getReagentsForElement,
 } from './reagentCatalog.js';
+import { pickHoloScreen } from '../holoScreen.js';
 
 function roundRect(ctx, x, y, w, h, r) {
   const rr = Math.min(r, w / 2, h / 2);
@@ -217,100 +218,150 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
   ctx.fillText(phase === 'elements' ? '元素周期表 · 选择元素' : '常见试剂 · 装入烧杯', pad, 64);
   ctx.fillStyle = '#64748b';
   ctx.font = '600 22px "Noto Sans SC", system-ui, sans-serif';
-  ctx.fillText(`当前烧杯 ${activeCup}  ·  也可使用屏幕下方 AI 输入栏检索`, pad, 102);
+  ctx.fillText(`当前烧杯 ${activeCup}  ·  选择元素或在下方输入 AI 检索`, pad, 102);
 
-  // Visual hint for the real HTML search dock (bottom of screen)
-  roundRect(ctx, pad, H - 88, W - pad * 2, 52, 16);
-  ctx.fillStyle = 'rgba(14, 165, 233, 0.10)';
+  // Embedded container slot for the HTML search dock at the bottom of the selection panel
+  const slotY = H - 94;
+  const slotH = 58;
+  roundRect(ctx, pad, slotY, W - pad * 2, slotH, 20);
+  ctx.fillStyle = 'rgba(241, 245, 249, 0.60)';
   ctx.fill();
   ctx.strokeStyle = 'rgba(14, 165, 233, 0.35)';
   ctx.lineWidth = 2;
   ctx.stroke();
-  ctx.fillStyle = '#0369a1';
-  ctx.font = '700 22px "Noto Sans SC", system-ui, sans-serif';
-  ctx.fillText('↓ 屏幕底部输入栏：化学式 / 名称 / SMILES · AI 解析装入烧杯', pad + 20, H - 54);
 
-  // Close button (Prominent Vision Pro Glass Badge)
-  const closeW = 104;
-  const closeH = 64;
+  // Close button (Prominent Vision Pro Red Glass Badge)
+  const closeW = 160;
+  const closeH = 68;
   const closeX = W - pad - closeW;
   const closeY = 20;
-  roundRect(ctx, closeX, closeY, closeW, closeH, 20);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  roundRect(ctx, closeX, closeY, closeW, closeH, 22);
+  ctx.fillStyle = 'rgba(239, 68, 68, 0.90)';
   ctx.fill();
-  ctx.strokeStyle = 'rgba(226, 232, 240, 0.95)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.90)';
   ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  // Subtle red accent pill inside close button
-  roundRect(ctx, closeX + 4, closeY + 4, closeW - 8, closeH - 8, 16);
-  ctx.fillStyle = 'rgba(239, 68, 68, 0.10)';
-  ctx.fill();
-
-  ctx.fillStyle = '#dc2626';
-  ctx.font = '800 36px "Outfit", system-ui, sans-serif';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = '800 28px "Outfit", "Noto Sans SC", system-ui, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('×', closeX + closeW / 2, closeY + 44);
+  ctx.fillText('关闭  ×', closeX + closeW / 2, closeY + 44);
   ctx.textAlign = 'left';
 
-    hits.push({
-      x: W - 360, y: 0, w: 360, h: 140,
-      action: 'chem-close-picker', role: 'chem_ui',
-    });
-    return { hits };
-  }
-
-  // Element grid — leave bottom band free for AI search-dock hint
-  const cols = 18;
-  const rows = 6;
-  const gridTop = 130;
-  const gridLeft = pad;
-  const gridW = W - pad * 2;
-  const gridH = H - gridTop - pad - 100;
-  const cellW = gridW / cols;
-  const cellH = Math.min(130, gridH / rows);
-
-  for (const el of CHEM_ELEMENTS) {
-    const { col, row } = elementGridCell(el);
-    const x = gridLeft + col * cellW + 4;
-    const y = gridTop + row * cellH + 4;
-    const cw = cellW - 8;
-    const ch = cellH - 8;
-    roundRect(ctx, x, y, cw, ch, 14);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+  if (phase === 'reagents') {
+    const el = getElement(data.pickedElement);
+    const reagents = getReagentsForElement(data.pickedElement) || [];
+    // Back button
+    roundRect(ctx, pad, 120, 160, 50, 16);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.85)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(203, 213, 225, 0.65)';
+    ctx.strokeStyle = 'rgba(203, 213, 225, 0.70)';
     ctx.lineWidth = 1.8;
     ctx.stroke();
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '700 22px "Noto Sans SC", system-ui';
+    ctx.fillText('← 返回', pad + 32, 152);
+    hits.push({
+      x: pad, y: 120, w: 160, h: 50,
+      action: 'chem-picker-back', role: 'chem_ui',
+    });
 
     ctx.fillStyle = '#0f172a';
-    const symSize = Math.max(26, Math.min(42, cw * 0.58));
-    ctx.font = `800 ${symSize}px "Outfit", system-ui`;
-    ctx.textAlign = 'center';
-    ctx.fillText(el.symbol, x + cw / 2, y + ch * 0.48);
-    ctx.fillStyle = '#334155';
-    const nameSize = Math.max(16, Math.min(22, cw * 0.35));
-    ctx.font = `700 ${nameSize}px "Noto Sans SC", system-ui`;
-    ctx.fillText(el.name_zh, x + cw / 2, y + ch * 0.80);
-    ctx.textAlign = 'left';
-    hits.push({
-      x, y, w: cw, h: ch,
-      action: 'chem-pick-element',
-      element: el.symbol,
-      role: 'chem_ui',
+    ctx.font = '800 30px "Outfit", "Noto Sans SC", system-ui';
+    ctx.fillText(`${el?.symbol || ''} · ${el?.name_zh || ''} · ${reagents.length} 种试剂`, pad + 190, 154);
+
+    // Two-column card grid so more reagents fit on the picker panel.
+    const listTop = 200;
+    const gapX = 18;
+    const gapY = 14;
+    const listCols = reagents.length > 6 ? 2 : 1;
+    const cardW = (W - pad * 2 - gapX * (listCols - 1)) / listCols;
+    const cardH = reagents.length > 10 ? 76 : 92;
+    reagents.forEach((r, i) => {
+      const col = i % listCols;
+      const row = Math.floor(i / listCols);
+      const x = pad + col * (cardW + gapX);
+      const y = listTop + row * (cardH + gapY);
+      if (y + cardH > H - pad) return;
+
+      roundRect(ctx, x, y, cardW, cardH, 18);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.70)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(203, 213, 225, 0.70)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+
+      const sw = Math.min(48, cardH - 28);
+      ctx.fillStyle = `#${(r.color >>> 0).toString(16).padStart(6, '0')}`;
+      roundRect(ctx, x + 20, y + (cardH - sw) / 2, sw, sw, 14);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.50)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+
+      const textX = x + 20 + sw + 18;
+      ctx.fillStyle = '#0f172a';
+      ctx.font = `800 ${cardH >= 88 ? 30 : 24}px "Outfit", system-ui`;
+      ctx.fillText(r.formula, textX, y + cardH * 0.42);
+      ctx.fillStyle = '#475569';
+      ctx.font = `600 ${cardH >= 88 ? 22 : 18}px "Noto Sans SC", system-ui`;
+      ctx.fillText(r.name_zh, textX, y + cardH * 0.72);
+      hits.push({
+        x, y, w: cardW, h: cardH,
+        action: 'chem-pick-reagent',
+        reagentId: r.id,
+        role: 'chem_ui',
+      });
     });
+  } else {
+    // Element grid — leave bottom band free for AI search-dock hint
+    const cols = 18;
+    const rows = 6;
+    const gridTop = 130;
+    const gridLeft = pad;
+    const gridW = W - pad * 2;
+    const gridH = H - gridTop - pad - 100;
+    const cellW = gridW / cols;
+    const cellH = Math.min(130, gridH / rows);
+
+    for (const el of CHEM_ELEMENTS) {
+      const { col, row } = elementGridCell(el);
+      const x = gridLeft + col * cellW + 4;
+      const y = gridTop + row * cellH + 4;
+      const cw = cellW - 8;
+      const ch = cellH - 8;
+      roundRect(ctx, x, y, cw, ch, 14);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(203, 213, 225, 0.65)';
+      ctx.lineWidth = 1.8;
+      ctx.stroke();
+
+      ctx.fillStyle = '#0f172a';
+      const symSize = Math.max(26, Math.min(42, cw * 0.58));
+      ctx.font = `800 ${symSize}px "Outfit", system-ui`;
+      ctx.textAlign = 'center';
+      ctx.fillText(el.symbol, x + cw / 2, y + ch * 0.48);
+      ctx.fillStyle = '#334155';
+      const nameSize = Math.max(16, Math.min(22, cw * 0.35));
+      ctx.font = `700 ${nameSize}px "Noto Sans SC", system-ui`;
+      ctx.fillText(el.name_zh, x + cw / 2, y + ch * 0.80);
+      ctx.textAlign = 'left';
+      hits.push({
+        x, y, w: cw, h: ch,
+        action: 'chem-pick-element',
+        element: el.symbol,
+        role: 'chem_ui',
+      });
+    }
   }
 
-  // Dedicated hit region for close button (closeX/closeY with 10px padding around glass badge)
-  const closeW = 104;
-  const closeH = 64;
-  const closeX = W - pad - closeW;
-  const closeY = 20;
+  // Dedicated hit region for enlarged close button aligned with visual badge
   hits.push({
-    x: closeX - 12,
-    y: Math.max(0, closeY - 10),
-    w: closeW + 24,
-    h: closeH + 20,
+    x: closeX,
+    y: closeY,
+    w: closeW,
+    h: closeH,
     action: 'chem-close-picker',
     role: 'chem_ui',
   });
@@ -335,15 +386,24 @@ function wrapText(ctx, text, x, y, maxW, lineH) {
   if (line) ctx.fillText(line, x, cy);
 }
 
-/** Hit-test helper shared with holo pick. */
+/** Hit-test helper for chemistry holos with precise pixel-perfect alignment. */
 export function pickChemHits(hits, u, v, W, H) {
-  if (!hits?.length) return null;
-  const x = u * W;
-  // Three.js PlaneGeometry UV: v=0 at bottom; canvas y=0 at top
-  const y = (1 - v) * H;
+  if (!hits?.length || u == null || v == null || !Number.isFinite(u) || !Number.isFinite(v)) {
+    return null;
+  }
+  const px = u * W;
+  const py = (1 - v) * H;
+  const pad = 12;
   for (let i = hits.length - 1; i >= 0; i -= 1) {
     const h = hits[i];
-    if (x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h) return h;
+    if (
+      px >= h.x - pad
+      && px <= h.x + h.w + pad
+      && py >= h.y - pad
+      && py <= h.y + h.h + pad
+    ) {
+      return { ...h, px, py };
+    }
   }
   return null;
 }

@@ -58,17 +58,27 @@ export function createEquipmentRuntime({
             renderer.clear?.();
             renderer.render(scene, camera);
           } finally {
-            // Always restore the default framebuffer + full drawing-buffer
-            // viewport. Leaving a 1×1 viewport after intent prewarm blanks the
-            // lab canvas in Vite dev (only holos / UI chrome remain visible).
+            // Always restore the default framebuffer + full canvas viewport.
+            // Leaving a 1×1 viewport after intent prewarm blanks the lab canvas
+            // in Vite dev (only holos / UI chrome remain visible).
+            // setViewport takes logical CSS px (Three multiplies by pixelRatio);
+            // never pass drawing-buffer / physical pixels here or the scene is
+            // letterboxed and mouse/crosshair picks stay offset until the next
+            // clean setSize (e.g. F11).
             renderer.setRenderTarget?.(previousTarget);
-            const w = Math.max(1, Math.floor((previousSize.x || 0) * previousPr));
-            const h = Math.max(1, Math.floor((previousSize.y || 0) * previousPr));
+            const w = Math.max(1, previousSize.x || 0);
+            const h = Math.max(1, previousSize.y || 0);
             if (previousSize.x > 0 && previousSize.y > 0) {
-              renderer.setSize?.(previousSize.x, previousSize.y, false);
+              if (typeof renderer.setPixelRatio === 'function' && previousPr > 0) {
+                renderer.setPixelRatio(previousPr);
+              }
+              renderer.setSize?.(w, h, false);
             }
             renderer.setViewport?.(0, 0, w, h);
             renderer.setScissorTest?.(false);
+            if (typeof renderer.setScissor === 'function') {
+              renderer.setScissor(0, 0, w, h);
+            }
           }
         }
       } finally {

@@ -256,13 +256,20 @@ export function createStationEquipment(ctx) {
             } finally {
               target.dispose();
               renderer.setRenderTarget?.(previousTarget);
-              const w = Math.max(1, Math.floor((previousSize.x || 0) * previousPr));
-              const h = Math.max(1, Math.floor((previousSize.y || 0) * previousPr));
+              // Logical CSS px only — Three.js multiplies by pixelRatio inside setViewport.
+              const w = Math.max(1, previousSize.x || 0);
+              const h = Math.max(1, previousSize.y || 0);
               if (previousSize.x > 0 && previousSize.y > 0) {
-                renderer.setSize?.(previousSize.x, previousSize.y, false);
+                if (typeof renderer.setPixelRatio === 'function' && previousPr > 0) {
+                  renderer.setPixelRatio(previousPr);
+                }
+                renderer.setSize?.(w, h, false);
               }
               renderer.setViewport?.(0, 0, w, h);
               renderer.setScissorTest?.(false);
+              if (typeof renderer.setScissor === 'function') {
+                renderer.setScissor(0, 0, w, h);
+              }
             }
           }
         } finally {

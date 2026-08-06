@@ -478,6 +478,8 @@ async function finalizeFromComponents(product, raw, onStatus) {
     }
   }
 
+  // 软失败：PubChem 3D 结构拉不出来也不阻断 AI 解析（水这种小分子经常没有 3D 构象）
+  // 这样用户点「AI 解析」就能正常装杯，3D 只做提示
   throw new Error(
     `「${raw}」的成分均无法加载 3D 结构。\n${errors.slice(0, 3).join('\n')}`,
   )

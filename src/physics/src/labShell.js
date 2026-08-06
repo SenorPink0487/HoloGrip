@@ -272,8 +272,51 @@ const renderer = new THREE.WebGLRenderer({
 const MAX_DPR = 1.25;
 const OPTICS_GEO_DPR = 1.25;
 let currentDprCap = MAX_DPR;
+
+/**
+ * CSS layout box of #c — the only size that must drive camera aspect + drawing
+ * buffer. window.innerWidth/Height can diverge (iframe under a title bar, DPI
+ * snap, setSize(updateStyle=true) baking stale inline px) and then the scene
+ * is anamorphically stretched: crosshair stays centered but hits feel "歪"
+ * until F11 forces a clean resize. Always pair with setSize(..., false) so
+ * stylesheet `width/height: 100%` owns the element box.
+ */
+function getLabViewportSize() {
+  const cw = Math.max(1, Math.floor(canvas?.clientWidth || 0));
+  const ch = Math.max(1, Math.floor(canvas?.clientHeight || 0));
+  if (cw > 1 && ch > 1) return { width: cw, height: ch };
+  return {
+    width: Math.max(1, Math.floor(window.innerWidth || 1)),
+    height: Math.max(1, Math.floor(window.innerHeight || 1)),
+  };
+}
+
+function clearCanvasInlineSize() {
+  // Three.js setSize(w,h,true) writes inline px that then fight % layout.
+  if (canvas.style.width) canvas.style.width = '';
+  if (canvas.style.height) canvas.style.height = '';
+}
+
+function applyLabViewportSize({ updateCamera = true, pixelRatio = null } = {}) {
+  clearCanvasInlineSize();
+  const { width, height } = getLabViewportSize();
+  if (pixelRatio != null && Number.isFinite(pixelRatio)) {
+    renderer.setPixelRatio(pixelRatio);
+  }
+  renderer.setSize(width, height, false);
+  if (updateCamera && camera) {
+    const nextAspect = width / Math.max(height, 1);
+    if (Math.abs(camera.aspect - nextAspect) > 1e-6) {
+      camera.aspect = nextAspect;
+      camera.updateProjectionMatrix();
+    }
+  }
+  return { width, height };
+}
+
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, currentDprCap));
-renderer.setSize(window.innerWidth, window.innerHeight);
+// updateStyle=false: keep #c on stylesheet 100%/100% (never bake inner* into inline px).
+applyLabViewportSize({ updateCamera: false });
 renderer.shadowMap.enabled = true;
 // Soft PCF is roughly 2–4× the shadow-map cost of basic PCF on large rooms.
 renderer.shadowMap.type = THREE.PCFShadowMap;
@@ -306,7 +349,13 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0xd6ecff);
 scene.fog = new THREE.FogExp2(0xd6ecff, 0.018);
 
-const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.06, 60);
+const _bootView = getLabViewportSize();
+const camera = new THREE.PerspectiveCamera(68, _bootView.width / Math.max(_bootView.height, 1), 0.06, 60);
+// Re-sync buffer now that camera exists (init setSize ran with updateCamera:false).
+applyLabViewportSize({
+  updateCamera: true,
+  pixelRatio: Math.min(window.devicePixelRatio || 1, currentDprCap),
+});
 // Spawn inside the room looking toward the lab center (not against the front wall).
 // Chem mode: stand at the sitting edge of the center island.
 if (chemMode) {
@@ -5030,13 +5079,16 @@ function getHandFocusInfo(inputRaycaster, handNdc = null) {
 
 function handCursorOverUi(ndc) {
   if (!ndc) return false;
-  const x = (Number(ndc.x) + 1) * 0.5 * window.innerWidth;
-  const y = (1 - Number(ndc.y)) * 0.5 * window.innerHeight;
+  // Map NDC through the canvas layout box (not window.inner*), matching the
+  // drawing buffer / camera aspect used for picking.
+  const rect = canvas.getBoundingClientRect();
+  const x = rect.left + (Number(ndc.x) + 1) * 0.5 * rect.width;
+  const y = rect.top + (1 - Number(ndc.y)) * 0.5 * rect.height;
   if (![x, y].every(Number.isFinite)) return false;
   return [handToggleEl, arTutorialEl, helpModalWrapEl].some((element) => {
     if (!element || element.getClientRects().length === 0) return false;
-    const rect = element.getBoundingClientRect();
-    return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
+    const box = element.getBoundingClientRect();
+    return x >= box.left && x <= box.right && y >= box.top && y <= box.bottom;
   });
 }
 
@@ -5825,13 +5877,30 @@ const BOUND = {
 };
 
 function resizeRendererViewport() {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  frameCoordinator.invalidate();
+  applyLabViewportSize({
+    updateCamera: true,
+    pixelRatio: Math.min(window.devicePixelRatio || 1, currentDprCap),
+  });
+  // frameCoordinator is created later in this module; avoid TDZ on early RO/resize.
+  try { frameCoordinator.invalidate(); } catch { /* boot */ }
 }
 
 window.addEventListener('resize', resizeRendererViewport);
+// Iframe / desktop-shell layout changes often resize the canvas without a
+// window.resize (parent title bar, dock, snap). Observe the element box so
+// aspect + buffer stay locked to what the user actually sees — the F11-only
+// "fix" was just a forced window resize.
+if (typeof ResizeObserver !== 'undefined' && canvas) {
+  let roRaf = 0;
+  const canvasRo = new ResizeObserver(() => {
+    if (roRaf) return;
+    roRaf = requestAnimationFrame(() => {
+      roRaf = 0;
+      resizeRendererViewport();
+    });
+  });
+  canvasRo.observe(canvas);
+}
 
 const clock = new THREE.Clock();
 
@@ -5987,8 +6056,10 @@ function applyDprCap(baseCap) {
   const nextCap = Math.max(MIN_DPR, Math.min(baseCap, adaptiveDprCap));
   if (Math.abs(nextCap - currentDprCap) < 0.001) return;
   currentDprCap = nextCap;
-  renderer.setPixelRatio(Math.max(MIN_DPR, Math.min(window.devicePixelRatio || 1, currentDprCap)));
-  renderer.setSize(window.innerWidth, window.innerHeight, false);
+  applyLabViewportSize({
+    updateCamera: true,
+    pixelRatio: Math.max(MIN_DPR, Math.min(window.devicePixelRatio || 1, currentDprCap)),
+  });
 }
 
 let webglContextLost = false;
@@ -6184,6 +6255,18 @@ function animate() {
       else crosshair.classList.remove('can-interact');
     }
     updateAimHud(focusedTarget, canInteract);
+
+    // Force crosshair to stay at the canvas center (in case canvas is in an iframe
+    // or has transform/scroll that makes CSS fixed 50% not land exactly on canvas).
+    // This is purely visual — the ray is still the real NDC center.
+    if (crosshair) {
+      const canvasEl = document.getElementById('c');
+      if (canvasEl && !canvasEl.classList.contains('holo-fs-canvas')) {
+        const rect = canvasEl.getBoundingClientRect();
+        crosshair.style.left = `${rect.left + rect.width / 2}px`;
+        crosshair.style.top = `${rect.top + rect.height / 2}px`;
+      }
+    }
   }
 
   // Room shell animators always; station animators only for the hot station.
@@ -6587,25 +6670,29 @@ const MIN_BOOT_MS = 500;
 
 /** Restore the default framebuffer to the full canvas drawing buffer. */
 function restoreLabFramebuffer() {
-  // Always re-assert CSS size from the window. A prior 1×1 offscreen warm
-  // (or a disposed RT) can leave the drawing buffer / viewport in a state
-  // where only MeshBasic holos survive and the room shell is blank until the
-  // next experiment prepare path happens to call setSize again.
-  const cssW = Math.max(1, window.innerWidth || canvas.clientWidth || 1);
-  const cssH = Math.max(1, window.innerHeight || canvas.clientHeight || 1);
+  // Always re-assert drawing buffer from the live canvas layout box. A prior
+  // 1×1 offscreen warm (or a disposed RT) can leave the viewport broken so
+  // only MeshBasic holos survive until the next setSize; also re-sync aspect
+  // so windowed mode does not stay anamorphically stretched vs fullscreen.
   const pr = Math.min(
     Math.max(renderer.getPixelRatio?.() || 1, 1),
     currentDprCap || MAX_DPR || 1.25,
   );
-  renderer.setPixelRatio(pr);
-  // updateStyle=false keeps #c CSS size owned by stylesheet (100%/100%).
-  renderer.setSize(cssW, cssH, false);
+  const { width: cssW, height: cssH } = applyLabViewportSize({
+    updateCamera: true,
+    pixelRatio: pr,
+  });
   renderer.setRenderTarget(null);
+  // Three.js setViewport/setScissor take *logical* CSS pixels and multiply by
+  // pixelRatio internally. Passing cssW*pr (physical) double-scales the GL
+  // viewport — the scene no longer fills the canvas, crosshair stays CSS-centered,
+  // and picks feel permanently offset (esp. Vite dev after 1×1 intent prewarm;
+  // F11 only "fixed" it by running setSize which resets the viewport correctly).
+  renderer.setViewport(0, 0, cssW, cssH);
+  if (renderer.setScissorTest) renderer.setScissorTest(false);
+  if (renderer.setScissor) renderer.setScissor(0, 0, cssW, cssH);
   const fullW = Math.max(1, Math.floor(cssW * pr));
   const fullH = Math.max(1, Math.floor(cssH * pr));
-  renderer.setViewport(0, 0, fullW, fullH);
-  if (renderer.setScissorTest) renderer.setScissorTest(false);
-  if (renderer.setScissor) renderer.setScissor(0, 0, fullW, fullH);
   return { fullW, fullH, pr, cssW, cssH };
 }
 
@@ -6618,6 +6705,8 @@ async function paintReadyFrames() {
   // errors every frame; only MeshBasic holos + blackboards remained visible).
   // Production builds happened to recover on the first experiment prepare's
   // setSize, which is why `npm run build` looked fine.
+  // Layout may have settled under the loader; remeasure client box before first paint.
+  resizeRendererViewport();
   restoreLabFramebuffer();
   try {
     renderer.clear?.();
