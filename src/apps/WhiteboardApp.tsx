@@ -481,7 +481,7 @@ export function WhiteboardApp() {
           onClick={() => setActiveTab('whiteboard')}
           whileHover={{ scale: 1.03, y: -1 }}
           whileTap={{ scale: 0.96 }}
-          className="absolute right-[calc(env(safe-area-inset-right)+1rem)] top-[calc(env(safe-area-inset-top)+1rem)] z-[100] flex h-12 items-center gap-2.5 rounded-full border border-white/15 bg-zinc-950/85 px-4 text-sm font-semibold text-white shadow-[0_8px_28px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:border-cyan-400/50 hover:bg-zinc-900/90 active:scale-95"
+          className="absolute left-[calc(env(safe-area-inset-left)+1rem)] top-[calc(env(safe-area-inset-top)+1rem)] z-[100] flex h-12 items-center gap-2.5 rounded-full border border-white/15 bg-zinc-950/85 px-4 text-sm font-semibold text-white shadow-[0_8px_28px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:border-cyan-400/50 hover:bg-zinc-900/90 active:scale-95"
           aria-label="返回白板"
         >
           <ArrowLeft className="h-4 w-4 text-cyan-300" strokeWidth={2.4} />

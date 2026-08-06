@@ -291,6 +291,17 @@
   </div>
 
   <canvas id="c"></canvas>
+  <div id="mobile-controls" class="mobile-controls" aria-label="iPad 实验室控制">
+    <div id="mobile-joystick" class="mobile-joystick" role="application" aria-label="移动摇杆">
+      <span class="mobile-joystick-ring" aria-hidden="true"></span>
+      <span class="mobile-joystick-label" aria-hidden="true">移动</span>
+      <span id="mobile-joystick-knob" class="mobile-joystick-knob" aria-hidden="true"></span>
+    </div>
+    <div class="mobile-lift-controls" aria-label="升降控制">
+      <button id="mobile-lift-up" class="mobile-lift-button" type="button" aria-label="上升">▲<span>上升</span></button>
+      <button id="mobile-lift-down" class="mobile-lift-button" type="button" aria-label="下降">▼<span>下降</span></button>
+    </div>
+  </div>
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

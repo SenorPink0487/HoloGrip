@@ -649,19 +649,30 @@ export function createHandTracking({
   }
 
   function updateRayFromVisualCursor(state) {
-    // A pinch behaves like a mouse press at the center of the cursor the user
-    // can actually see. Keep the cursor attached to the reconstructed hand;
-    // project its current world position only for hit testing.
+    // Prefer the visible fingertip cursor when it projects cleanly in front of
+    // the camera. If the skinned hand tip is still at the camera origin (model
+    // not ready / depth collapse), fall back to the filtered MediaPipe aim so
+    // AR clicks still land on menus and apparatus.
     state.visual.tip.updateWorldMatrix(true, false);
     state.visual.tip.getWorldPosition(state.cursorWorld);
-    state.cursorWorld.project(camera);
-    state.cursorNdc.set(
-      THREE.MathUtils.clamp(state.cursorWorld.x, -1, 1),
-      THREE.MathUtils.clamp(state.cursorWorld.y, -1, 1),
-    );
+    const camSpaceZ = state.cursorWorld.clone().applyMatrix4(camera.matrixWorldInverse).z;
+    const tipUsable = Number.isFinite(camSpaceZ) && camSpaceZ < -0.08;
+    if (tipUsable) {
+      state.cursorWorld.project(camera);
+      if (Number.isFinite(state.cursorWorld.x) && Number.isFinite(state.cursorWorld.y)) {
+        state.cursorNdc.set(
+          THREE.MathUtils.clamp(state.cursorWorld.x, -1, 1),
+          THREE.MathUtils.clamp(state.cursorWorld.y, -1, 1),
+        );
+      } else if (state.aimTarget) {
+        state.cursorNdc.copy(state.aimTarget);
+      }
+    } else if (state.aimTarget && Number.isFinite(state.aimTarget.x)) {
+      state.cursorNdc.copy(state.aimTarget);
+    } else if (state.palmNdc && Number.isFinite(state.palmNdc.x)) {
+      state.cursorNdc.copy(state.palmNdc);
+    }
     // AR navigation reads state.ndc for single-hand look and dual-hand dolly.
-    // Keep it synchronized with the same visible fingertip cursor used for
-    // apparatus hit testing; otherwise navigation sees a frozen aim point.
     state.ndc.copy(state.cursorNdc);
     state.raycaster.setFromCamera(state.cursorNdc, camera);
     const targetInfo = resolveTarget?.(state.raycaster, state.label, state.cursorNdc) || null;
@@ -694,17 +705,15 @@ export function createHandTracking({
     if (state.pinching) {
       updateRayFromVisualCursor(state);
       const { dx, dy } = consumeDragDelta(state);
-      if (dx || dy) {
-        onPinchMove?.({
-          hand: state.label,
-          raycaster: state.raycaster,
-          target: state.lockedTarget,
-          hoverTarget: state.liveTarget,
-          ndc: state.cursorNdc,
-          dx,
-          dy,
-        });
-      }
+      onPinchMove?.({
+        hand: state.label,
+        raycaster: state.raycaster,
+        target: state.lockedTarget,
+        hoverTarget: state.liveTarget,
+        ndc: state.cursorNdc,
+        dx,
+        dy,
+      });
     }
     applyRayState(state);
   }
@@ -1330,16 +1339,19 @@ export function createHandTracking({
         hoverTarget: null,
         hand: null,
         dual: true,
+        raycaster: null,
       };
     }
     if (pinchingHands.length === 1) {
       const owner = pinchingHands[0];
       return {
         holding: true,
-        target: owner.lockedTarget,
-        hoverTarget: owner.liveTarget,
+        // Pinch acts like a mouse button: locked target at press, live hover while held.
+        target: owner.lockedTarget || owner.liveTarget || owner.hoverTarget,
+        hoverTarget: owner.liveTarget || owner.hoverTarget,
         hand: owner.label,
         dual: false,
+        raycaster: owner.raycaster,
       };
     }
     const hovering = states.find((state) => state.visible && state.trackingVisible && state.hoverTarget);
@@ -1349,6 +1361,7 @@ export function createHandTracking({
       hoverTarget: hovering?.liveTarget || null,
       hand: hovering?.label || null,
       dual: false,
+      raycaster: hovering?.raycaster || null,
     };
   }
 

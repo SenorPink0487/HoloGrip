@@ -27,6 +27,7 @@ import { labFrameScheduler } from './frameBudget.js';
 import { createStationPresence } from './runtime/stationPresence.js';
 import { labOpenTiming } from './runtime/openTiming.js';
 import { createRuntimeCache, runtimeCacheBudget } from './runtime/runtimeCache.js';
+import { normalizeJoystickInput } from '../../pool/touch-controls.js';
 import {
   createExperimentRuntime,
   createTransitionController,
@@ -259,6 +260,20 @@ if (isTauri()) {
 //  Renderer — bright cinematic look
 // ═══════════════════════════════════════════════
 const canvas = document.getElementById('c');
+// iPad 11 (including the Mac-like iPadOS user agent) uses a 30 Hz present
+// budget so the GPU can spend more time on a sharper frame.
+const IS_IPAD_PERFORMANCE = navigator.maxTouchPoints > 1
+  && (/iPad|Macintosh/i.test(navigator.userAgent) || /iPad/i.test(navigator.platform));
+if (IS_IPAD_PERFORMANCE) {
+  document.documentElement.classList.add('ipad-performance');
+  // Keep simulation and Cannon work off the WebView/UI thread. The existing
+  // backends fall back safely when a WebView cannot create module workers.
+  // Two warm slots let continuous particles and field/thermo work run in
+  // parallel on the iPad's performance cores while WebGL owns the GPU.
+  globalThis.__PHYSICS_BACKEND_MODE__ ??= 'worker';
+  globalThis.__SIM_BACKEND_MODE__ ??= 'worker';
+  globalThis.__SIM_WORKER_POOL_SIZE__ ??= 2;
+}
 const renderer = new THREE.WebGLRenderer({
   canvas,
   antialias: true,
@@ -270,7 +285,7 @@ const renderer = new THREE.WebGLRenderer({
 // Keep one stable render-target size across experiment switches. Reallocating
 // the WebGL backbuffer on every optics mount was a multi-second driver stall on
 // low-end/ANGLE GPUs, which no amount of JS task slicing can hide.
-const MAX_DPR = 1.25;
+const MAX_DPR = IS_IPAD_PERFORMANCE ? 1.5 : 1.25;
 const OPTICS_GEO_DPR = 1.25;
 let currentDprCap = MAX_DPR;
 
@@ -413,6 +428,177 @@ const SPEED = 4.5;
 const AR_SPEED = 2.2;
 /** Dual-hand pinch dolly is intentional locomotion — keep it snappier and longer-range. */
 const AR_DOLLY_SPEED = 6.2;
+const mobileJoystick = document.getElementById('mobile-joystick');
+const mobileJoystickKnob = document.getElementById('mobile-joystick-knob');
+const mobileLiftUp = document.getElementById('mobile-lift-up');
+const mobileLiftDown = document.getElementById('mobile-lift-down');
+const touchStick = { x: 0, y: 0, magnitude: 0, pointerId: null };
+let touchNavigationActive = false;
+const touchLook = { pointerId: null, lastX: 0, lastY: 0 };
+const touchMove = {
+  pointers: new Map(),
+  previousDistance: null,
+};
+
+function clearTouchMove() {
+  touchMove.previousDistance = null;
+  move.forward = false;
+  move.back = false;
+}
+
+function resetTouchStick() {
+  touchStick.x = 0;
+  touchStick.y = 0;
+  touchStick.magnitude = 0;
+  touchStick.pointerId = null;
+  move.left = false;
+  move.right = false;
+  move.forward = false;
+  move.back = false;
+  touchNavigationActive = move.up || move.down;
+  mobileJoystick?.classList.remove('is-active');
+  if (mobileJoystickKnob) mobileJoystickKnob.style.transform = 'translate3d(-50%, -50%, 0)';
+}
+
+function updateTouchStick(event) {
+  if (!mobileJoystick) return;
+  const rect = mobileJoystick.getBoundingClientRect();
+  const radius = rect.width * 0.34;
+  const dx = event.clientX - (rect.left + rect.width / 2);
+  const dy = event.clientY - (rect.top + rect.height / 2);
+  const input = normalizeJoystickInput(dx, dy, radius);
+  touchStick.x = input.x;
+  touchStick.y = input.y;
+  touchStick.magnitude = input.magnitude;
+  touchNavigationActive = input.magnitude > 0;
+  move.left = input.x < -0.12;
+  move.right = input.x > 0.12;
+  move.forward = input.y < -0.12;
+  move.back = input.y > 0.12;
+  const rawLength = Math.hypot(dx, dy);
+  const visualLength = Math.min(rawLength, radius);
+  const vx = rawLength ? (dx / rawLength) * visualLength : 0;
+  const vy = rawLength ? (dy / rawLength) * visualLength : 0;
+  mobileJoystick.classList.toggle('is-active', input.magnitude > 0);
+  if (mobileJoystickKnob) mobileJoystickKnob.style.transform = `translate3d(calc(-50% + ${vx}px), calc(-50% + ${vy}px), 0)`;
+}
+
+function setTouchLift(axis, active) {
+  touchNavigationActive = active || touchStick.magnitude > 0;
+  move[axis] = active;
+}
+
+function bindTouchButton(button, axis) {
+  if (!button) return;
+  const release = (event) => {
+    if (event?.pointerId != null && button.dataset.pointerId !== String(event.pointerId)) return;
+    button.dataset.pointerId = '';
+    button.classList.remove('is-active');
+    setTouchLift(axis, false);
+  };
+  button.addEventListener('pointerdown', (event) => {
+    if (event.pointerType === 'mouse') return;
+    event.preventDefault();
+    event.stopPropagation();
+    button.dataset.pointerId = String(event.pointerId);
+    button.setPointerCapture?.(event.pointerId);
+    button.classList.add('is-active');
+    setTouchLift(axis, true);
+  });
+  for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) button.addEventListener(name, release);
+}
+
+mobileJoystick?.addEventListener('pointerdown', (event) => {
+  if (event.pointerType === 'mouse' || touchStick.pointerId != null) return;
+  event.preventDefault();
+  event.stopPropagation();
+  touchStick.pointerId = event.pointerId;
+  mobileJoystick.setPointerCapture?.(event.pointerId);
+  updateTouchStick(event);
+});
+mobileJoystick?.addEventListener('pointermove', (event) => {
+  if (event.pointerId !== touchStick.pointerId) return;
+  event.preventDefault();
+  updateTouchStick(event);
+});
+for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) {
+  mobileJoystick?.addEventListener(name, (event) => {
+    if (event.pointerId === touchStick.pointerId) resetTouchStick();
+  });
+}
+bindTouchButton(mobileLiftUp, 'up');
+bindTouchButton(mobileLiftDown, 'down');
+window.addEventListener('blur', () => { resetTouchStick(); move.up = false; move.down = false; });
+document.addEventListener('visibilitychange', () => { if (document.hidden) { resetTouchStick(); move.up = false; move.down = false; } });
+
+function updateTouchMove() {
+  if (touchMove.pointers.size < 2) {
+    clearTouchMove();
+    return;
+  }
+  const [a, b] = [...touchMove.pointers.values()];
+  const distance = Math.hypot(a.x - b.x, a.y - b.y);
+  if (touchMove.previousDistance == null) {
+    touchMove.previousDistance = distance;
+    return;
+  }
+  const delta = distance - touchMove.previousDistance;
+  touchMove.previousDistance = distance;
+  if (Math.abs(delta) < 1.5) return;
+  // Two fingers spreading apart = forward; pinching inward = backward.
+  move.forward = delta > 0;
+  move.back = delta < 0;
+}
+
+// iPad camera look: swipe the scene to orbit the first-person camera.
+canvas.addEventListener('pointerdown', (event) => {
+  if (event.pointerType !== 'touch' || holoFsState?.open || handTracking?.isActive()) return;
+  touchMove.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+  if (touchMove.pointers.size >= 2) {
+    touchLook.pointerId = null;
+    updateTouchMove();
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  touchLook.pointerId = event.pointerId;
+  touchLook.lastX = event.clientX;
+  touchLook.lastY = event.clientY;
+  canvas.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+  event.stopPropagation();
+}, { capture: true, passive: false });
+window.addEventListener('pointermove', (event) => {
+  if (event.pointerType !== 'touch' || handTracking?.isActive()) return;
+  if (touchMove.pointers.has(event.pointerId)) {
+    touchMove.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    if (touchMove.pointers.size >= 2) {
+      updateTouchMove();
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+  }
+  if (event.pointerId !== touchLook.pointerId) return;
+  const dx = event.clientX - touchLook.lastX;
+  const dy = event.clientY - touchLook.lastY;
+  touchLook.lastX = event.clientX;
+  touchLook.lastY = event.clientY;
+  camera.rotation.y -= dx * 0.006;
+  camera.rotation.x = THREE.MathUtils.clamp(camera.rotation.x - dy * 0.004, -1.35, 1.35);
+  event.preventDefault();
+  event.stopPropagation();
+}, { capture: true, passive: false });
+window.addEventListener('pointerup', (event) => {
+  touchMove.pointers.delete(event.pointerId);
+  if (touchMove.pointers.size < 2) clearTouchMove();
+  if (event.pointerId === touchLook.pointerId) touchLook.pointerId = null;
+}, { capture: true });
+window.addEventListener('pointercancel', (event) => {
+  touchMove.pointers.delete(event.pointerId);
+  clearTouchMove();
+  touchLook.pointerId = null;
+}, { capture: true });
 
 document.addEventListener('keydown', (e) => {
   switch (e.code) {
@@ -4446,6 +4632,7 @@ let focusedTarget = null;
 let lastFocusHit = null;
 let holdE = false;
 let holdLMB = false;
+let pinchStartTimes = new Map();
 // Direct desktop dragging is available before pointer-lock is engaged.  The
 // standalone Gauss demo behaves this way, so keep a small pointer gesture
 // bridge in the host lab instead of requiring a separate "look" click first.
@@ -5074,7 +5261,27 @@ function getHandFocusInfo(inputRaycaster, handNdc = null) {
   } else if (terminalFallback) {
     priorityInteraction = terminalFallback;
   }
-  return resolveFrontmostInteraction(hits, {
+
+  // Empty content-screen glass (no button/slider under the ray) must not be
+  // treated as an interactive target for AR, and must not occlude apparatus
+  // behind it. Otherwise a pinch on empty glass locks into "manipulating"
+  // (look is blocked) and apparatus behind the screen becomes unreachable.
+  // Real control picks are already elevated via holoControl priority above.
+  const isEmptyHoloGlassHit = (hit) => {
+    if (holoControl?.target) return false;
+    const target = resolveInteractive(hit?.object);
+    if (!target) return false;
+    const isDisplay = target.userData?.type === 'holo_display'
+      || target.userData?.role === 'holo_display';
+    const isSelector = target.userData?.type === 'holo'
+      || target.userData?.role === 'holo_selector';
+    // Only filter pure display glass when there is no control pick under the ray.
+    // holo_selector (menu terminals) must stay interactive even if the ray misses a button.
+    return isDisplay && !holoControl?.target;
+  };
+  const filteredHits = (hits || []).filter((hit) => !isEmptyHoloGlassHit(hit));
+
+  return resolveFrontmostInteraction(filteredHits, {
     resolveInteractive,
     withinInteractDist,
     priorityInteraction,
@@ -5101,12 +5308,15 @@ function handCursorOverUi(ndc) {
 }
 
 function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directContext = null) {
-  if (!allowUnlocked && !controls.isLocked) return;
+  if (!allowUnlocked && !controls.isLocked) return false;
   const t = clock.elapsedTime;
+  if (!inputRaycaster) return false;
   if (inputRaycaster === raycaster) {
     inputRaycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
   }
 
+  // AR pinch often arrives with a stale/null locked target. Always re-resolve
+  // holos from the live ray first so menus/buttons stay clickable.
   const directTarget = directContext?.target || null;
 
   // ── Desk panel locked by AR pinch / desktop click: handle before holo UI ──
@@ -5119,7 +5329,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
         || directDesk.userData.pickFromRay?.(inputRaycaster);
       if (isDeskActionPick(pick)) {
         expManager.uiAction?.(pick.action, pick.payload || pick.meta || pick || {});
-        return;
+        return true;
       }
       if (pick && isParamSliderAction(pick.action)) {
         expManager.beginManipulation(directDesk, {
@@ -5128,7 +5338,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
           raycaster: inputRaycaster,
           pick,
         });
-        return;
+        return true;
       }
     }
   }
@@ -5138,20 +5348,21 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
   // intersectObjects(interactables) over the whole station before handling UI.
   // Exception: live apparatus closer than the screen must win (aim charge ≠
   // click the floating panel behind it).
+  // Prefer ray-based holo pick over a raw directTarget mesh: AR tip lock often
+  // points at a non-UV child; getAimedHoloControl still finds the real card.
   const directScreen = resolveScreenHost(directTarget);
-  let aimedHoloControl = directScreen
-    ? { target: directScreen, hit: { object: directScreen, distance: 0 } }
-    : getAimedHoloControl(inputRaycaster);
-  if (aimedHoloControl?.target && !directScreen) {
+  let aimedHoloControl = getAimedHoloControl(inputRaycaster);
+  if (directScreen && !aimedHoloControl?.target) {
+    aimedHoloControl = { target: directScreen, hit: { object: directScreen, distance: 0 } };
+  }
+  if (aimedHoloControl?.target) {
     const probeHits = inputRaycaster.intersectObjects(interactables, true);
     const livePick = pickLiveElectroChargeHit(probeHits);
     if (apparatusBeatsHolo(livePick, aimedHoloControl)) {
       aimedHoloControl = null;
     }
   }
-  const aimedHoloFast = directScreen
-    || aimedHoloControl?.target
-    || null;
+  const aimedHoloFast = aimedHoloControl?.target || directScreen || null;
 
   if (aimedHoloFast) {
     const aimedHolo = aimedHoloFast;
@@ -5174,7 +5385,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
           raycaster: inputRaycaster,
           pick,
         });
-        return;
+        return true;
       }
       if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table' || pick.role === 'scrollable_components' || pick.action === 'chem-scroll-right') {
         if (directContext) {
@@ -5187,32 +5398,37 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
         } else {
           handleHoloScreenAction(pick, sid);
         }
-        return;
+        return true;
       }
       // activate / start / back / menu cards — before any scene raycast
       handleHoloScreenAction(pick, sid);
-      return;
+      return true;
     }
     if (screenLive) {
       if (isDisplay && !directScreen && !aimedHoloControl?.target) {
         // empty content glass → fall through to apparatus
       } else if (!isDisplay) {
+        // Selector aimed but UV miss: still activate (AR tip is noisy).
+        if (isSelector) {
+          handleHoloScreenAction({ action: 'activate', stationId: sid }, sid);
+          return true;
+        }
         showToast('请瞄准桌面终端上的实验卡片');
-        return;
+        return true;
       } else {
         showToast('请瞄准内容屏上的控件');
-        return;
+        return true;
       }
     } else if (isSelector) {
       // Fallback if pickFromRay failed to sample UV but the terminal is aimed.
       handleHoloScreenAction({ action: 'activate', stationId: sid }, sid);
-      return;
+      return true;
     } else if (!isDisplay) {
       expManager.interact(aimedHolo, t);
-      return;
+      return true;
     } else {
       showToast('请先在桌面终端选择实验');
-      return;
+      return true;
     }
   }
 
@@ -5233,7 +5449,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
         || (isDeskPanelPick(directContext?.pick) ? directContext.pick : null);
       if (isDeskActionPick(pick)) {
         expManager.uiAction?.(pick.action, pick.payload || pick.meta || pick || {});
-        return;
+        return true;
       }
       if (pick && isParamSliderAction(pick.action)) {
         expManager.beginManipulation(deskHost, {
@@ -5242,7 +5458,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
           raycaster: inputRaycaster,
           pick,
         });
-        return;
+        return true;
       }
     }
   }
@@ -5274,14 +5490,15 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
       time: directContext?.time ?? t,
       raycaster: inputRaycaster,
     });
-    return;
+    return true;
   }
 
   // Prefer a nearby Hall terminal for desktop mouse grabs even when the ray
   // intersects the console/deck first.  The fallback is intentionally only
   // used for a live Hall experiment and remains narrow enough to distinguish
   // the adjacent red/black sockets.
-  const terminalFallback = !directContext && expManager?.state?.expId === 'hall_effect'
+  // AR directContext used to suppress this fallback — keep it for pinch too.
+  const terminalFallback = expManager?.state?.expId === 'hall_effect'
     ? hallBench.userData.getHallTerminalTarget?.(inputRaycaster, { maxDistance: 0.11 })
     : null;
   const target = directTarget || terminalFallback?.target || resolveInteractivePreferred(hits);
@@ -5295,17 +5512,17 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
     });
     if (boardHit && !withinInteractDist(board, boardHit.distance)) {
       frontWallTooFarToast();
-      return;
+      return true;
     }
     const pick = board?.userData?.pickFromRay?.(inputRaycaster);
     if (pick) {
       board.userData.applyPick(pick);
-      return;
+      return true;
     }
     if (!boardHit || withinInteractDist(board, boardHit.distance)) {
       showToast('瞄准分类标签或公式卡片后按 E');
     }
-    return;
+    return true;
   }
 
   // Front-wall chalkboards share the same near-third range to avoid far mis-taps.
@@ -5317,14 +5534,14 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
     });
     if (boardHit && !withinInteractDist(board, boardHit.distance)) {
       frontWallTooFarToast();
-      return;
+      return true;
     }
     const pick = board.userData.pickFromRay?.(inputRaycaster);
     if (!pick) {
       if (boardHit && withinInteractDist(board, boardHit.distance)) {
         showToast('瞄准黑板工具栏或书写区后按 E');
       }
-      return;
+      return true;
     }
     if (pick.action === 'color' || pick.action === 'size' || pick.action === 'eraser' || pick.action === 'clear') {
       board.userData.applyPick(pick);
@@ -5338,7 +5555,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
     } else if (pick.action === 'draw') {
       board.userData.drawFromRay?.(inputRaycaster);
     }
-    return;
+    return true;
   }
 
   // Hologram mesh/hitbox (pedestal / content frame) when not on the screen plane
@@ -5367,7 +5584,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
             raycaster: inputRaycaster,
             pick,
           });
-          return;
+          return true;
         }
         if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table' || pick.role === 'scrollable_components' || pick.action === 'chem-scroll-right') {
           if (directContext) {
@@ -5380,18 +5597,23 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
           } else {
             handleHoloScreenAction(pick, sid);
           }
-          return;
+          return true;
         }
         handleHoloScreenAction(pick, sid);
-        return;
+        return true;
+      }
+      // AR: selector hitbox without UV still activates the station menu.
+      if (!isDisplay) {
+        handleHoloScreenAction({ action: 'activate', stationId: sid }, sid);
+        return true;
       }
       showToast(isDisplay
         ? '请瞄准内容屏上的控件'
         : '请瞄准桌面终端上的实验卡片');
-      return;
+      return true;
     } else if (!isDisplay) {
       expManager.interact(screen, t);
-      return;
+      return true;
     }
   }
 
@@ -5408,7 +5630,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
           console.warn('[lab] chem cup cold-start failed', err);
         }
       })();
-      return;
+      return true;
     }
     if (directContext) {
       expManager.beginManipulation(target, {
@@ -5419,15 +5641,29 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
     } else {
       expManager.interact(target, t);
     }
-  } else if (!directContext && expManager.state.running) {
-    expManager.interact({ userData: { role: 'generic' } }, t);
+    return true;
   }
+  if (!directContext && expManager.state.running) {
+    expManager.interact({ userData: { role: 'generic' } }, t);
+    return true;
+  }
+  return false;
 }
 
 function syncMouseDragState() {
-  const holding = holdLMB || !!handTracking?.isPinching();
+  // AR pinch is treated as a virtual mouse button:
+  // - pinch down  → holdLMB (same as left mouse down)
+  // - pinch hold  → continuous drag via mouseDrag totals
+  // - pinch up    → release
+  // Dual-hand dolly does not count as a click/hold.
+  const primary = handTracking?.getPrimaryInteraction?.();
+  const isPinching = !!(primary?.holding && !primary?.dual);
+  const holding = holdLMB || isPinching;
   if (equipment?.electro?.mouseDrag) equipment.electro.mouseDrag.holdLMB = holding;
   if (equipment?.optics?.mouseDrag) equipment.optics.mouseDrag.holdLMB = holding;
+  if (equipment?.mechanics?.mouseDrag) equipment.mechanics.mouseDrag.holdLMB = holding;
+  if (equipment?.thermo?.mouseDrag) equipment.thermo.mouseDrag.holdLMB = holding;
+  if (equipment?.chem?.mouseDrag) equipment.chem.mouseDrag.holdLMB = holding;
 }
 
 function resetMouseDragAccum() {
@@ -5572,32 +5808,58 @@ const handTrackingOptions = {
     const distance = THREE.MathUtils.clamp(Number(hit?.distance || 4.5), 0.35, 4.5);
     return { target, distance };
   },
-  onPinchStart: (event) => arInteractionController?.onPinchStart(event),
+  onPinchStart: (event) => {
+    if (event?.hand) pinchStartTimes.set(event.hand, performance.now());
+    arInteractionController?.onPinchStart(event);
+  },
   onPinchMove: (event) => arInteractionController?.onPinchMove(event),
-  onPinchEnd: (event) => arInteractionController?.onPinchEnd(event),
+  onPinchEnd: (event) => {
+    if (event?.hand) pinchStartTimes.delete(event.hand);
+    arInteractionController?.onPinchEnd(event);
+  },
   onStatus: updateHandTrackingStatus,
 };
 
 const arInteractionOptions = {
   getHandState: (label) => handTracking?.getHandState?.(label),
   beginManipulation: (event) => {
+    // Pinch = mouse button down + click at the fingertip ray.
     resetMouseDragAccum();
+    holdLMB = true;
     syncMouseDragState();
-    // Resolve desk pick at pinch-start so tryInteract does not lose the track
-    // when a content-screen plane shares the ray.
-    const deskHost = resolveDeskSliderHost(event?.target);
+
+    const ray = event?.raycaster;
+    if (!ray) return false;
+
+    // Re-resolve at the exact pinch frame from the live ray. Do not trust a
+    // stale lockedTarget — AR tip lock often lags or misses UV faces.
+    const focus = getHandFocusInfo(ray, event?.ndc);
+    const holo = getAimedHoloControl(ray);
+    const deskHost = resolveDeskSliderHost(focus?.target)
+      || resolveDeskSliderHost(event?.target);
     const deskPick = deskHost?.userData?.present
-      ? deskHost.userData.pickFromRay?.(event.raycaster)
+      ? deskHost.userData.pickFromRay?.(ray)
       : null;
-    tryInteract(event.raycaster, true, {
+    const target = holo?.target
+      || focus?.target
+      || resolveScreenHost(event?.target)
+      || event?.target
+      || null;
+
+    const hit = tryInteract(ray, true, {
       direct: true,
-      target: event.target,
+      target,
       time: clock.elapsedTime,
       pick: isDeskPanelPick(deskPick) ? deskPick : null,
     });
+    // Stash resolved target so drag/end use the same object the click armed.
+    if (hit && target && event) event.target = target;
+    return !!hit;
   },
   updateManipulation: (event) => {
-    // Forward both axes so table scroll (Y) and probe/knob drags (X) work in AR.
+    // Pinch hold = mouse drag (movement accumulates into mouseDrag facade).
+    holdLMB = true;
+    syncMouseDragState();
     accumulateMouseDrag(
       THREE.MathUtils.clamp(Number(event.dx || 0), -60, 60),
       THREE.MathUtils.clamp(Number(event.dy || 0), -60, 60),
@@ -5607,6 +5869,9 @@ const arInteractionOptions = {
       time: clock.elapsedTime,
       raycaster: event.raycaster || null,
     });
+    // Also drive continuous hold for experiments that only use holdInteract
+    // (e.g. Hall probe, Faraday rod, optics sliders, thermo beaker).
+    expManager?.holdInteract(true, clock.elapsedTime, 0, event.target);
   },
   endManipulation: (event) => {
     expManager?.endManipulation(event.target, {
@@ -5614,7 +5879,11 @@ const arInteractionOptions = {
       time: clock.elapsedTime,
     });
     sideBlackboards.forEach((board) => board.userData.stopStroke?.());
+    // Pinch up = mouse button up.
+    holdLMB = false;
     syncMouseDragState();
+    // Release continuous hold for experiments that only use holdInteract
+    expManager?.holdInteract(false, clock.elapsedTime, 0, event.target);
   },
   onLook: (dx, dy) => {
     // Keep euler/quaternion in sync (PointerLockControls also drives the camera this way).
@@ -5969,6 +6238,7 @@ simDriver.bind({
 // Handlers still expose update(); driver owns the integrate call site.
 expManager?.setSimOwnedByDriver?.(true);
 
+let lastPresentAt = -Infinity;
 const frameCoordinator = createFrameCoordinator({
   fixedDt: 1 / 60,
   maxCatchUp: 2,
@@ -6035,7 +6305,7 @@ const frameCoordinator = createFrameCoordinator({
   },
 });
 
-const MIN_DPR = 0.85;
+const MIN_DPR = IS_IPAD_PERFORMANCE ? 1.0 : 0.85;
 let adaptiveDprCap = MAX_DPR;
 let dprLastAdjustment = -Infinity;
 let slowFrameStreak = 0;
@@ -6045,15 +6315,16 @@ let dprCommitBlockedUntil = 0;
 
 function noteRenderBudget(renderMs, nowMs) {
   if (!Number.isFinite(renderMs) || nowMs < dprCommitBlockedUntil || switchFrameMetrics.active) return;
-  slowFrameStreak = renderMs > 18.5 ? slowFrameStreak + 1 : 0;
-  severeFrameStreak = renderMs > 28 ? severeFrameStreak + 1 : 0;
+  slowFrameStreak = renderMs > (IS_IPAD_PERFORMANCE ? 36 : 18.5) ? slowFrameStreak + 1 : 0;
+  severeFrameStreak = renderMs > (IS_IPAD_PERFORMANCE ? 50 : 28) ? severeFrameStreak + 1 : 0;
   fastFrameStreak = renderMs < 12.5 ? fastFrameStreak + 1 : 0;
   if (nowMs - dprLastAdjustment < 5000) return;
-  if ((slowFrameStreak >= 30 || severeFrameStreak >= 3) && adaptiveDprCap > MIN_DPR) {
+  if ((slowFrameStreak >= (IS_IPAD_PERFORMANCE ? 4 : 30)
+    || severeFrameStreak >= (IS_IPAD_PERFORMANCE ? 2 : 3)) && adaptiveDprCap > MIN_DPR) {
     adaptiveDprCap = Math.max(MIN_DPR, Number((adaptiveDprCap - 0.1).toFixed(2)));
     dprLastAdjustment = nowMs;
     slowFrameStreak = severeFrameStreak = fastFrameStreak = 0;
-  } else if (fastFrameStreak >= 300 && adaptiveDprCap < MAX_DPR) {
+  } else if (fastFrameStreak >= (IS_IPAD_PERFORMANCE ? 240 : 300) && adaptiveDprCap < MAX_DPR) {
     adaptiveDprCap = Math.min(MAX_DPR, Number((adaptiveDprCap + 0.1).toFixed(2)));
     dprLastAdjustment = nowMs;
     slowFrameStreak = severeFrameStreak = fastFrameStreak = 0;
@@ -6131,7 +6402,7 @@ function animate() {
     ? arInteractionController?.update(nowMs)
     : null;
 
-  if (controls.isLocked || arActive) {
+  if (controls.isLocked || arActive || touchNavigationActive) {
     velocity.x -= velocity.x * 9.0 * dt;
     velocity.z -= velocity.z * 9.0 * dt;
     velocity.y -= velocity.y * 9.0 * dt;
@@ -6182,7 +6453,7 @@ function animate() {
   // Freeze SimDriver so fixed steps do not fight switch jobs on the main thread.
   if (softSwitch) {
     simDriver.pause();
-    frameCoordinator.frame(nowMs);
+    frameCoordinator.frame(nowMs, { render: true });
     switchFrameMetrics.frames += 1;
     switchFrameMetrics.maxFrameMs = Math.max(
       switchFrameMetrics.maxFrameMs,
@@ -6206,17 +6477,26 @@ function animate() {
   // experiment simulation — every frame, same as the standalone sources
   if (expManager) {
     syncMouseDragState();
-    const handInteraction = handTracking?.getPrimaryInteraction();
+    const handInteraction = handTracking?.getPrimaryInteraction?.();
     const pointerTarget = getFocusTarget();
     // Once pointer lock is active, the mouse owns the central ray.  AR hands
     // remain rendered, but their hover/hold state must not shadow mouse gear
     // controls or keep a stale terminal drag alive.
-    const mouseMode = controls.isLocked || !handInteraction?.target;
-    focusedTarget = mouseMode ? pointerTarget : (handInteraction?.target || pointerTarget);
-    const handHolding = !mouseMode && !!handInteraction?.holding;
+    // Pinch maps to mouse click/hold: when pinching, use the hand ray target
+    // (or the locked pinch target) so holdInteract sees the same apparatus
+    // the fingertip is pointing at — just like a mouse long-press.
+    const arPinchActive = !!(handInteraction?.holding && !handInteraction?.dual && !controls.isLocked);
+    const handRay = handInteraction?.hand
+      ? handTracking?.getHandState?.(handInteraction.hand)?.raycaster
+      : null;
+    const mouseMode = controls.isLocked || (!arPinchActive && !handInteraction?.target);
+    focusedTarget = mouseMode
+      ? pointerTarget
+      : (handInteraction?.target || handInteraction?.hoverTarget || pointerTarget);
+    const handHolding = arPinchActive;
     updateExperimentIntentFocus(
       focusedTarget,
-      mouseMode ? raycaster : (handInteraction?.raycaster || raycaster),
+      mouseMode ? raycaster : (handRay || handInteraction?.raycaster || raycaster),
     );
     expManager.holdInteract(holdE || holdLMB || handHolding, t, dt, focusedTarget);
     // Heavy integrate runs in frameCoordinator → simDriver.fixedUpdate.
@@ -6291,7 +6571,9 @@ function animate() {
 
   // Decode/upload at most one portrait after it enters the viewing radius.
   loadOneVisiblePortrait();
-  frameCoordinator.frame(nowMs);
+  const renderDue = !IS_IPAD_PERFORMANCE || nowMs - lastPresentAt >= (1000 / 30);
+  if (renderDue) lastPresentAt = nowMs;
+  frameCoordinator.frame(nowMs, { render: renderDue });
 
   // One-shot HUD / attach work only — never block the next frame's sim.
 } 

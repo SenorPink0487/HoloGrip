@@ -51,6 +51,13 @@ html, body {
   user-select: none;
 }
 
+.mobile-joystick { position: fixed; left: max(24px, env(safe-area-inset-left)); bottom: max(24px, env(safe-area-inset-bottom)); width: 142px; height: 142px; z-index: 1200; border-radius: 50%; background: rgba(255, 255, 255, 0.72); border: 1px solid rgba(2, 132, 199, 0.28); box-shadow: 0 16px 36px rgba(15, 23, 42, 0.16), inset 0 0 30px rgba(2, 132, 199, 0.08); touch-action: none; user-select: none; }
+.mobile-joystick[hidden], .mobile-joystick.is-hidden { display: none; }
+.mobile-joystick.is-active { border-color: rgba(2, 132, 199, 0.8); }
+.mobile-joystick-ring { position: absolute; inset: 20px; border: 1px solid rgba(2, 132, 199, 0.24); border-radius: 50%; }
+.mobile-joystick-knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; border-radius: 50%; transform: translate3d(-50%, -50%, 0); background: linear-gradient(145deg, #38bdf8, #0284c7); box-shadow: 0 0 24px rgba(2, 132, 199, 0.38); pointer-events: none; }
+.mobile-joystick-label { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); color: #0369a1; font: 600 11px/1 system-ui, sans-serif; letter-spacing: .12em; pointer-events: none; }
+
 /* Custom Apple-style Translucent Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

@@ -55,7 +55,6 @@ const el = {
 let blendMode = false
 
 const viewer = new MoleculeViewer(el.viewport)
-
 /** @type {{ product: any, activeIndex: number, cache: Map<number, any>, switching: boolean } | null} */
 let session = null
 let loading = false
@@ -589,4 +588,3 @@ function initCustomConditionDropdown() {
 }
 
 initCustomConditionDropdown()
-

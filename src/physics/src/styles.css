@@ -18,6 +18,22 @@ html, body {
   color: #0c1a2e;
 }
 
+.mobile-controls { display: none; }
+
+@media (pointer: coarse) and (min-width: 700px) {
+  .mobile-controls { position: fixed; inset: auto max(22px, env(safe-area-inset-right)) max(22px, env(safe-area-inset-bottom)) max(22px, env(safe-area-inset-left)); z-index: 1200; display: flex; align-items: flex-end; justify-content: space-between; pointer-events: none; }
+  .mobile-joystick { position: relative; width: 142px; height: 142px; border-radius: 50%; background: rgba(7, 24, 46, 0.42); border: 1px solid rgba(125, 211, 252, 0.4); box-shadow: 0 12px 36px rgba(2, 8, 23, 0.28), inset 0 0 30px rgba(56, 189, 248, 0.1); touch-action: none; user-select: none; pointer-events: auto; }
+  .mobile-joystick[hidden], .mobile-joystick.is-hidden { display: none; }
+  .mobile-joystick.is-active { border-color: rgba(103, 232, 249, 0.9); }
+  .mobile-joystick-ring { position: absolute; inset: 20px; border: 1px solid rgba(186, 230, 253, 0.34); border-radius: 50%; }
+  .mobile-joystick-knob { position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; border-radius: 50%; transform: translate3d(-50%, -50%, 0); background: linear-gradient(145deg, #67e8f9, #0284c7); box-shadow: 0 0 24px rgba(34, 211, 238, 0.55); pointer-events: none; }
+  .mobile-joystick-label { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); color: rgba(224, 242, 254, 0.9); font: 600 11px/1 system-ui, sans-serif; letter-spacing: .12em; pointer-events: none; }
+  .mobile-lift-controls { display: flex; flex-direction: column; gap: 12px; pointer-events: auto; }
+  .mobile-lift-button { width: 76px; min-height: 62px; border: 1px solid rgba(125, 211, 252, 0.5); border-radius: 18px; color: #e0f2fe; background: rgba(7, 24, 46, 0.62); box-shadow: 0 10px 24px rgba(2, 8, 23, 0.28), inset 0 0 18px rgba(56, 189, 248, 0.08); backdrop-filter: blur(12px); font: 700 22px/1 system-ui, sans-serif; touch-action: none; user-select: none; }
+  .mobile-lift-button span { display: block; margin-top: 7px; font-size: 12px; letter-spacing: .08em; }
+  .mobile-lift-button:active, .mobile-lift-button.is-active { border-color: #67e8f9; background: rgba(2, 132, 199, 0.72); transform: scale(.95); }
+}
+
 #c {
   display: block;
   width: 100%;
@@ -27,6 +43,7 @@ html, body {
   /* Promote layer so it composites under the loader, not only after unmount */
   transform: translateZ(0);
   will-change: contents;
+  touch-action: none;
 }
 
 /* ── Boot loader ──
@@ -1834,6 +1851,7 @@ body.holo-fs-open #crosshair {
 
 /* ── Top-Center Aim Target HUD ── */
 #aim-hud {
+  display: none !important;
   position: fixed;
   top: 18px;
   left: 50%;
@@ -1887,4 +1905,3 @@ body.holo-fs-open #crosshair {
   color: #34d399;
   border: 1px solid rgba(52, 211, 153, 0.35);
 }
-

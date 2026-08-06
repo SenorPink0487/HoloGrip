@@ -17,7 +17,7 @@ import { useSessionStore } from '../../stores/sessionStore';
 import type { AppTab } from '../../stores/types';
 
 const SUBJECT_TITLES: Record<string, string> = {
-  launcher: 'HoloGrip 启动器大厅 · 空间科学实验室',
+  launcher: 'HoloGrip · 白板',
   whiteboard: '数学 · 空间几何超级白板',
   function: '数学 · 三维动态函数探究',
   calculator3d: '数学 · 空间计算器与几何模型',
@@ -94,16 +94,16 @@ export function TitleBar({ activeTab, onNavigate }: TitleBarProps) {
       {/* 左侧空拖拽区 */}
       <div className="flex items-center gap-2" data-tauri-drag-region />
 
-      {/* 右侧：返回启动器按钮与窗口控制 */}
+      {/* 右侧：返回白板按钮与窗口控制 */}
       <div className="flex items-center gap-2">
-        {activeTab !== 'launcher' && (
+        {activeTab !== 'launcher' && activeTab !== 'whiteboard' && (
           <button
-            onClick={() => onNavigate('launcher')}
+            onClick={() => onNavigate('whiteboard')}
             className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 text-xs font-semibold shadow-md active:scale-95 transition-all cursor-pointer"
-            title="返回启动器大厅"
+            title="返回白板"
           >
             <LayoutGrid className="w-3.5 h-3.5" />
-            <span>返回启动器</span>
+            <span>返回白板</span>
           </button>
         )}
 
@@ -143,4 +143,3 @@ function PlusIcon(props: any) {
     </svg>
   );
 }
-

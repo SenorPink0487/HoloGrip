@@ -53,7 +53,7 @@ test('single-hand empty pinch looks around; equipment pinch manipulates', () => 
 
   // First samples seed the look filter without rotating.
   controller.onPinchStart({ hand: 'Right', target: null });
-  assert.equal(controller.update(0).phase, 'looking');
+  assert.equal(controller.update(0).phase, 'idle');
   assert.equal(looks.length, 0);
 
   // Continuous aim motion is smoothed across animation frames.

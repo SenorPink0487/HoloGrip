@@ -163,11 +163,9 @@ export function AppleDock() {
     } else if (key === 'chem') {
       setActiveTab('chem');
     } else if (key === 'account') {
-      if (!isLoggedIn) {
-        lockScreen();
-      } else {
-        setActiveTab('profile');
-      }
+      // 账户页本身也要能在离线/未登录状态打开；页面内再提供登录入口。
+      // 之前这里直接锁屏，导致 iPad 上点击“账户”看起来像没有响应。
+      setActiveTab('profile');
     }
   };
 

@@ -5,7 +5,7 @@
   "identifier": "com.hologrip.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:3002",
+    "devUrl": "http://localhost:3002/whiteboard.html",
     "beforeDevCommand": "npm run dev:tauri",
     "beforeBuildCommand": "npm run build:desktop"
   },
@@ -14,11 +14,11 @@
       {
         "label": "main",
         "title": "HoloGrip",
-        "url": "index.html",
-        "width": 1280,
-        "height": 820,
-        "minWidth": 960,
-        "minHeight": 640,
+        "url": "whiteboard.html",
+        "width": 1194,
+        "height": 834,
+        "minWidth": 1024,
+        "minHeight": 700,
         "resizable": true,
         "fullscreen": false,
         "center": true,

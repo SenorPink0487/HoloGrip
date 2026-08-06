@@ -38,7 +38,7 @@ export function createFrameCoordinator({
     }
   }
 
-  function frame(timestamp = now()) {
+  function frame(timestamp = now(), { render = true } = {}) {
     if (last == null) last = timestamp;
     const elapsed = Math.min(0.1, Math.max(0, (timestamp - last) / 1000));
     last = timestamp;
@@ -56,9 +56,13 @@ export function createFrameCoordinator({
       dirty = false;
     }
     const renderStart = now();
-    onRaycast(timestamp);
-    onRender(timestamp);
-    renderMs = now() - renderStart;
+    if (render) {
+      onRaycast(timestamp);
+      onRender(timestamp);
+      renderMs = now() - renderStart;
+    } else {
+      renderMs = 0;
+    }
     // Skip background drain when the present already exceeded one frame budget.
     // Budget is measured from post-render now — not from the frame timestamp —
     // so a 4 ms present still leaves a fresh 2 ms window for one background task.
