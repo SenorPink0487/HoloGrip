@@ -11,6 +11,7 @@ import {
   setReagentSearchStatus,
   setReagentSearchBusy,
   setReagentSearchValue,
+  focusSearchInput,
 } from '../chem/reagentSearchDock.js';
 import * as THREE from 'three';
 
@@ -62,8 +63,8 @@ function buildComponents(data) {
 }
 
 function roleToKind(role) {
-  if (role === 'chem_cup_a') return 'A';
-  if (role === 'chem_cup_b') return 'B';
+  if (role === 'chem_cup_a' || role === 'chem_cup_a_label') return 'A';
+  if (role === 'chem_cup_b' || role === 'chem_cup_b_label') return 'B';
   return null;
 }
 
@@ -88,17 +89,18 @@ export function createHandlers(ctx) {
     state.data.pickerOpen = true;
     state.data.pickerPhase = 'elements';
     state.data.pickedElement = null;
+    state.data.searchFocused = false;
+    state.data.condMenuOpen = false;
     setStep('pick_cup');
-    toast(`烧杯 ${k} · 选择元素或下方输入检索`);
+    toast(`烧杯 ${k} · 选择元素或主屏下方 AI 检索`);
     pushHud();
-    // Real HTML input (canvas holos cannot type). Unlock pointer focus for typing.
-    try { document.exitPointerLock?.(); } catch { /* ignore */ }
-    showReagentSearchDock({ activeCup: k });
     return true;
   }
 
   function closePicker() {
     state.data.pickerOpen = false;
+    state.data.searchFocused = false;
+    state.data.condMenuOpen = false;
     hideReagentSearchDock();
     pushHud();
     return true;
@@ -281,6 +283,10 @@ export function createHandlers(ctx) {
         dragLifted: false,
         hint: '点击烧杯选择试剂 · 长按或拖动烧杯向另一杯倾倒',
         completed: false,
+        searchQuery: '',
+        searchCondition: '',
+        condMenuOpen: false,
+        searchFocused: false,
       };
     },
 
@@ -464,6 +470,43 @@ export function createHandlers(ctx) {
             return false;
           }
           void runAiReagentQuery(q, payload.condition || '');
+          return true;
+        }
+        case 'chem-search-focus': {
+          d.condMenuOpen = false;
+          d.searchFocused = true;
+          focusSearchInput(d.searchQuery || '', (newVal) => {
+            d.searchQuery = newVal;
+            pushHud();
+          }, (submitVal) => {
+            d.searchQuery = submitVal;
+            const cond = d.searchCondition || '';
+            if (submitVal.trim()) {
+              void runAiReagentQuery(submitVal.trim(), cond);
+            }
+          });
+          pushHud();
+          return true;
+        }
+        case 'chem-search-toggle-cond': {
+          d.condMenuOpen = !d.condMenuOpen;
+          pushHud();
+          return true;
+        }
+        case 'chem-search-set-cond': {
+          d.searchCondition = payload.condition || '';
+          d.condMenuOpen = false;
+          pushHud();
+          return true;
+        }
+        case 'chem-search-submit': {
+          d.condMenuOpen = false;
+          const q = String(d.searchQuery || '').trim();
+          if (!q) {
+            toast('请输入化学式、名称或 SMILES');
+            return false;
+          }
+          void runAiReagentQuery(q, d.searchCondition || '');
           return true;
         }
         case 'chem-pick-element': {

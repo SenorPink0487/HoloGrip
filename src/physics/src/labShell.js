@@ -55,6 +55,7 @@ import {
 } from './runtime/catalog.js';
 import { resolveLabMode, isChemMode, CHEM_ACCENT, CHEM_ACCENT_NUM } from './chem/labMode.js';
 import { createChemHoloSet } from './chem/chemHolos.js';
+import { updateReagentSearchDockPosition } from './chem/reagentSearchDock.js';
 
 /** Subject mode: physics (4 corner stations) | chem (center island only). */
 const labMode = resolveLabMode();
@@ -2472,11 +2473,14 @@ if (chemHoloSet) {
   stationDisplays['chem-periodic'] = chemHoloSet.periodic;
   holos.chem = chemHoloSet.left;
 
-  // Always yaw L/R/periodic holos toward the player (room animator, not station-gated).
+  // Always yaw L/R/periodic holos toward the player & sync search dock to front 3D screen
   stationContext.registerAnimator(() => {
     chemHoloSet.list.forEach((panel) => {
       try { panel.userData.faceCamera?.(camera); } catch { /* ignore */ }
     });
+    if (chemHoloSet.periodic?.userData?.present) {
+      updateReagentSearchDockPosition(chemHoloSet.periodic, camera);
+    }
   });
 }
 
@@ -4889,8 +4893,8 @@ function pickLiveElectroChargeHit(hits) {
     // In the sequential Hall introduction, a console hit volume can sit in
     // front of the coils and ruler. Prefer the requested part whenever its
     // own recognition proxy is also under the ray.
-    if (role === identifyNext && (!expected || entry.distance < expected.hit.distance)) {
-      expected = { target, hit: entry };
+    if (role?.includes('label')) {
+      return { target, hit: entry };
     }
     if (!best || entry.distance < best.hit.distance) {
       best = { target, hit: entry };

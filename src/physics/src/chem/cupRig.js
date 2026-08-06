@@ -274,7 +274,7 @@ export function createChemCupRig(THREE, opts = {}) {
     if (state[from].fill <= 0.02) return false;
     const cup = from === 'A' ? cupA : cupB;
     const target = to === 'A' ? cupA : cupB;
-    const sign = from === 'A' ? 1 : -1;
+    const sign = from === 'A' ? -1 : 1;
     clearFluid();
     emitCarry = 0;
     pour = {
@@ -487,7 +487,7 @@ export function createChemCupRig(THREE, opts = {}) {
 
     const lip = cupLipWorld(cup, tiltZ);
     // Outward along pour axis (tilt plane) with slight downward bias once past lip
-    const sx = Math.sign(tiltZ) || 1;
+    const sx = -Math.sign(tiltZ) || 1;
     const exitVx = sx * vExit * (0.55 + 0.45 * gate);
     const exitVy = -0.15 - 0.55 * gate * vExit * 0.25;
     const exitVz = 0;
@@ -678,24 +678,19 @@ export function createChemCupRig(THREE, opts = {}) {
   }
 
   function showMoleculeFromSdf(sdf, formula) {
-    // Prefer original HoloChem 3Dmol floating panel (改造前样式).
-    // Keep a lightweight Three fallback on the pedestal if panel fails.
+    // 3D models live on the island pedestal (DOM 3Dmol panel is a no-op stub).
     clearMolecule();
     try {
-      getMoleculePanel().showSdf(sdf || '', formula || '');
+      molecule = sdf
+        ? createMoleculeMesh(THREE, sdf, { scale: 0.11 })
+        : createFallbackMolecule(THREE, formula);
     } catch (err) {
-      console.warn('[chem] molecule panel failed, using scene mesh', err);
-      try {
-        molecule = sdf
-          ? createMoleculeMesh(THREE, sdf, { scale: 0.11 })
-          : createFallbackMolecule(THREE, formula);
-      } catch {
-        molecule = createFallbackMolecule(THREE, formula);
-      }
-      molecule.position.set(0, 0.35, 0);
-      molecule.scale.setScalar(1.1);
-      pedestal.add(molecule);
+      console.warn('[chem] molecule mesh failed, using fallback', err);
+      molecule = createFallbackMolecule(THREE, formula);
     }
+    molecule.position.set(0, 0.35, 0);
+    molecule.scale.setScalar(1.1);
+    pedestal.add(molecule);
   }
 
   function clearMolecule() {
@@ -883,10 +878,10 @@ function makeCup(THREE, kind, tint, accent) {
 
   // Dedicated 3D recognition zone for black label bar
   const labelHit = new THREE.Mesh(
-    new THREE.BoxGeometry(0.54, 0.16, 0.12),
+    new THREE.BoxGeometry(0.52, 0.16, 0.16),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
   );
-  labelHit.position.set(0, 0.52, 0);
+  labelHit.position.set(0, 0.52, 0.22);
   const labelRole = kind === 'A' ? 'chem_cup_a_label' : 'chem_cup_b_label';
   labelHit.userData.role = labelRole;
   labelHit.userData.interactive = true;
@@ -946,15 +941,25 @@ function setCupLevel(cup, level, color, opts = {}) {
   const baseY = cup.userData.liqBaseY ?? 0.1;
   const h = maxH * t;
 
-  liq.scale.set(1, Math.max(0.04, h / 0.28), 1);
-  liqGroup.rotation.z = -tiltZ;
-
   const slosh = opts.slosh ?? 0;
   const ripple = opts.ripple ?? 0;
   const sloshY = Math.sin(slosh * 6) * 0.015;
   const rippleY = Math.sin(ripple * 18) * 0.008;
 
+  // Keep liquid group aligned with cup body so liquid stays inside vessel
+  liqGroup.rotation.z = 0;
+
+  liq.position.set(0, baseY + h / 2, 0);
+  liq.scale.set(1, Math.max(0.04, h / 0.28), 1);
+  liq.rotation.z = 0;
+
+  const surfY = baseY + h + sloshY + rippleY;
+  surf.position.set(0, surfY, 0);
+  surf.rotation.set(-Math.PI / 2, 0, -tiltZ, 'ZXY');
+
   if (meniscus) {
+    meniscus.position.set(0, surfY, 0);
+    meniscus.rotation.set(Math.PI / 2, 0, -tiltZ, 'ZXY');
     meniscus.material.color.setHex(color);
     meniscus.material.emissive.setHex(color);
     meniscus.material.opacity = 0.45;
@@ -996,7 +1001,7 @@ function setCupLabel(THREE, cup, text) {
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: true, depthWrite: false });
   const spr = new THREE.Sprite(mat);
   spr.scale.set(0.48, 0.12, 1);
-  spr.position.set(0, 0.52, 0);
+  spr.position.set(0, 0.52, 0.22);
   const labelRole = cup.userData.kind === 'A' ? 'chem_cup_a_label' : 'chem_cup_b_label';
   spr.userData.role = labelRole;
   spr.userData.interactive = true;
