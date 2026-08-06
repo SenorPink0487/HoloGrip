@@ -3383,13 +3383,17 @@ function pushHudToHoloScreens(hud) {
     labFrameScheduler.schedule('hud:chem-holos', () => {
       const snap = lastHudSnapshot;
       const data = snap?.data || chemData;
+      const pickerOpen = !!data?.pickerOpen;
       chemHoloSet.list.forEach((panel) => {
         try { panel.userData.setHud?.({ data, ...snap }); } catch { /* ignore */ }
       });
+      try {
+        equipment?.chem?.rig?.setDimmed?.(pickerOpen);
+      } catch { /* ignore */ }
       // Keep HTML AI search dock in sync with picker visibility
       try {
         import('./chem/reagentSearchDock.js').then((m) => {
-          if (data?.pickerOpen) m.showReagentSearchDock?.({ activeCup: data.activeCup || 'A', keepStatus: true });
+          if (pickerOpen) m.showReagentSearchDock?.({ activeCup: data.activeCup || 'A', keepStatus: true });
           else m.hideReagentSearchDock?.();
         });
       } catch { /* ignore */ }
@@ -5172,7 +5176,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
         });
         return;
       }
-      if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table') {
+      if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table' || pick.role === 'scrollable_components' || pick.action === 'chem-scroll-right') {
         if (directContext) {
           expManager.beginManipulation(aimedHolo, {
             ...directContext,
@@ -5365,7 +5369,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
           });
           return;
         }
-        if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table') {
+        if (pick.action === 'hall-scroll-table' || pick.role === 'scrollable_table' || pick.role === 'scrollable_components' || pick.action === 'chem-scroll-right') {
           if (directContext) {
             expManager.beginManipulation(screen, {
               ...directContext,
@@ -5855,10 +5859,10 @@ document.addEventListener('wheel', (e) => {
   // Prefer the scrollable-table hit metadata even when the ray currently rests
   // on a nearby button, so maxRows/maxStart match the painted viewport.
   let wheelPick = pick;
-  if (pick?.action !== 'hall-scroll-table' && pick?.role !== 'scrollable_table') {
+  if (pick?.action !== 'hall-scroll-table' && pick?.role !== 'scrollable_table' && pick?.role !== 'scrollable_components' && pick?.action !== 'chem-scroll-right') {
     const regions = target?.userData?.hitRegions;
     const scrollHit = Array.isArray(regions)
-      ? regions.find((h) => h?.action === 'hall-scroll-table' || h?.role === 'scrollable_table')
+      ? regions.find((h) => h?.action === 'hall-scroll-table' || h?.role === 'scrollable_table' || h?.role === 'scrollable_components' || h?.action === 'chem-scroll-right')
       : null;
     if (scrollHit) wheelPick = scrollHit;
   }

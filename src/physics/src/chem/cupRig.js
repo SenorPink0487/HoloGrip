@@ -7,7 +7,7 @@
  * free surface stays world-horizontal, destination surface ripples on hit.
  */
 
-import { blendColors } from './reagentCatalog.js';
+import { blendColors, formatSubscriptFormula } from './reagentCatalog.js';
 import { createMoleculeMesh, createFallbackMolecule } from './moleculeMesh.js';
 import { getMoleculePanel } from './moleculePanel.js';
 
@@ -175,7 +175,7 @@ export function createChemCupRig(THREE, opts = {}) {
       slosh: optsVis.slosh ?? 0,
       ripple: optsVis.ripple ?? 0,
     });
-    const label = s.reagents.map((r) => r.formula).join('+') || kind;
+    const label = s.reagents.map((r) => formatSubscriptFormula(r.formula)).join('+') || kind;
     if (cup.userData.labelText !== label) {
       cup.userData.labelText = label;
       setCupLabel(THREE, cup, label);
@@ -678,19 +678,25 @@ export function createChemCupRig(THREE, opts = {}) {
   }
 
   function showMoleculeFromSdf(sdf, formula) {
-    // 3D models live on the island pedestal (DOM 3Dmol panel is a no-op stub).
+    // Always place molecule on the island pedestal (in-scene), never a DOM white box.
     clearMolecule();
     try {
-      molecule = sdf
-        ? createMoleculeMesh(THREE, sdf, { scale: 0.11 })
-        : createFallbackMolecule(THREE, formula);
+      if (sdf && String(sdf).length > 20) {
+        molecule = createMoleculeMesh(THREE, sdf);
+      } else {
+        molecule = createFallbackMolecule(THREE, formula);
+      }
     } catch (err) {
-      console.warn('[chem] molecule mesh failed, using fallback', err);
+      console.warn('[chem] molecule mesh failed', err);
       molecule = createFallbackMolecule(THREE, formula);
     }
-    molecule.position.set(0, 0.35, 0);
-    molecule.scale.setScalar(1.1);
+    // Sit clearly above pedestal ring so it is visible from sitting edge
+    molecule.position.set(0, 0.42, 0);
+    molecule.scale.setScalar(1.35);
+    molecule.visible = true;
+    pedestal.visible = true;
     pedestal.add(molecule);
+    try { getMoleculePanel().hide(); } catch { /* ignore */ }
   }
 
   function clearMolecule() {
@@ -714,6 +720,43 @@ export function createChemCupRig(THREE, opts = {}) {
   function cupByKind(kind) {
     return kind === 'A' ? cupA : cupB;
   }
+
+  let isDimmed = false;
+  function setDimmed(dimmed) {
+    dimmed = !!dimmed;
+    isDimmed = dimmed;
+
+    [cupA, cupB].forEach((cup) => {
+      cup.userData.interactive = !dimmed;
+      if (cup.userData.hit) cup.userData.hit.userData.interactive = !dimmed;
+      if (cup.userData.labelHit) {
+        cup.userData.labelHit.userData.interactive = !dimmed;
+        cup.userData.labelHit.visible = !dimmed;
+      }
+      if (cup.userData.label) {
+        cup.userData.label.visible = !dimmed;
+      }
+    });
+
+    root.traverse((obj) => {
+      if ((obj.isMesh || obj.isSprite) && obj.material) {
+        if (obj === cupA.userData.hit || obj === cupB.userData.hit ||
+            obj === cupA.userData.labelHit || obj === cupB.userData.labelHit ||
+            obj === cupA.userData.label || obj === cupB.userData.label) {
+          return;
+        }
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        mats.forEach((mat) => {
+          if (mat.userData._origOpacity === undefined) {
+            mat.userData._origOpacity = mat.opacity;
+          }
+          mat.opacity = dimmed ? mat.userData._origOpacity * 0.25 : mat.userData._origOpacity;
+        });
+      }
+    });
+  }
+
+  root.userData.setDimmed = setDimmed;
 
   // init empty visuals
   applyCupVisual('A');
@@ -742,6 +785,7 @@ export function createChemCupRig(THREE, opts = {}) {
     cupByKind,
     homeA,
     homeB,
+    setDimmed,
   };
 }
 
@@ -876,12 +920,12 @@ function makeCup(THREE, kind, tint, accent) {
   g.add(hit);
   g.userData.hit = hit;
 
-  // Dedicated 3D recognition zone for black label bar
+  // Dedicated 3D recognition zone for black label bar (enlarged, placed directly above beaker)
   const labelHit = new THREE.Mesh(
-    new THREE.BoxGeometry(0.52, 0.16, 0.16),
+    new THREE.BoxGeometry(0.76, 0.22, 0.20),
     new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
   );
-  labelHit.position.set(0, 0.52, 0.22);
+  labelHit.position.set(0, 0.64, 0);
   const labelRole = kind === 'A' ? 'chem_cup_a_label' : 'chem_cup_b_label';
   labelHit.userData.role = labelRole;
   labelHit.userData.interactive = true;
@@ -991,7 +1035,7 @@ function setCupLabel(THREE, cup, text) {
   ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
   ctx.lineWidth = 2;
   ctx.stroke();
-  ctx.font = '600 24px "Outfit", "Noto Sans SC", system-ui, sans-serif';
+  ctx.font = '600 28px "Outfit", "Noto Sans SC", system-ui, sans-serif';
   ctx.fillStyle = '#ecfdf5';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
@@ -1000,18 +1044,21 @@ function setCupLabel(THREE, cup, text) {
   tex.colorSpace = THREE.SRGBColorSpace;
   const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: true, depthWrite: false });
   const spr = new THREE.Sprite(mat);
-  spr.scale.set(0.48, 0.12, 1);
-  spr.position.set(0, 0.52, 0.22);
+  spr.scale.set(0.72, 0.18, 1);
+  spr.position.set(0, 0.64, 0);
   const labelRole = cup.userData.kind === 'A' ? 'chem_cup_a_label' : 'chem_cup_b_label';
   spr.userData.role = labelRole;
   spr.userData.interactive = true;
   spr.userData.kind = cup.userData.kind;
-  spr.userData.isLabel = true;
+  const isDimmed = cup.userData.interactive === false;
+  spr.visible = !isDimmed;
   cup.add(spr);
   cup.userData.label = spr;
   if (cup.userData.labelHit) {
+    cup.userData.labelHit.position.set(0, 0.64, 0);
+    cup.userData.labelHit.visible = !isDimmed;
     cup.userData.labelHit.userData.role = labelRole;
-    cup.userData.labelHit.userData.interactive = true;
+    cup.userData.labelHit.userData.interactive = !isDimmed;
     cup.userData.labelHit.userData.kind = cup.userData.kind;
     cup.userData.labelHit.userData.isLabel = true;
   }

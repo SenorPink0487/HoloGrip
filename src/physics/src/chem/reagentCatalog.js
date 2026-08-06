@@ -9,6 +9,99 @@
 /** @typedef {{ id: string, symbol: string, name_zh: string, Z: number, group: number, period: number }} ChemElement */
 /** @typedef {{ id: string, formula: string, name_zh: string, color: number, query: string, element: string }} ChemReagent */
 
+const SUB_DIGITS = {
+  '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
+  '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+};
+
+/**
+ * Format chemical formula numbers to standard subscript notation (e.g. H2O -> H₂O, C8H18 -> C₈H₁₈)
+ * @param {string} formula
+ * @returns {string}
+ */
+export function formatSubscriptFormula(formula) {
+  if (!formula) return '';
+  return String(formula).replace(/([A-Za-z\)])(\d+)/g, (_match, prefix, digits) => {
+    const sub = digits.split('').map((d) => SUB_DIGITS[d] || d).join('');
+    return prefix + sub;
+  });
+}
+
+/** Dictionary of common chemical formulas to Chinese names for instant zero-latency local resolution. */
+const LOCAL_FORMULA_MAP = new Map([
+  ['H2O', '水'],
+  ['NACL', '氯化钠'],
+  ['NAOH', '氢氧化钠'],
+  ['HCL', '盐酸'],
+  ['CO2', '二氧化碳'],
+  ['H2SO4', '硫酸'],
+  ['HNO3', '硝酸'],
+  ['H3PO4', '磷酸'],
+  ['CUSO4', '硫酸铜'],
+  ['KMNO4', '高锰酸钾'],
+  ['FE2O3', '氧化铁'],
+  ['FESO4', '硫酸亚铁'],
+  ['CA(OH)2', '氢氧化钙'],
+  ['CACO3', '碳酸钙'],
+  ['NH3', '氨气'],
+  ['NH4CL', '氯化铵'],
+  ['CH4', '甲烷'],
+  ['C2H5OH', '乙醇'],
+  ['C2H4', '乙烯'],
+  ['C2H2', '乙炔'],
+  ['C3H8', '丙烷'],
+  ['C4H10', '丁烷'],
+  ['C6H12', '环己烷'],
+  ['C6H6', '苯'],
+  ['C7H8', '甲苯'],
+  ['C7H16', '庚烷'],
+  ['C8H18', '辛烷'],
+  ['C12H22O11', '蔗糖'],
+  ['O2', '氧气'],
+  ['H2', '氢气'],
+  ['N2', '氮气'],
+  ['CL2', '氯气'],
+  ['BR2', '溴水'],
+]);
+
+/** Normalize formula casing e.g. 'h2o' -> 'H2O', 'nacl' -> 'NaCl', 'c8h18' -> 'C8H18'. */
+export function normalizeFormulaCase(raw) {
+  const str = String(raw || '').trim();
+  if (!str) return '';
+  return str.replace(/([a-zA-Z]+)(\d*)/g, (_m, elems, num) => {
+    const formattedElem = elems.replace(/([A-Z][a-z]?)/gi, (sub) => {
+      return sub.charAt(0).toUpperCase() + sub.slice(1).toLowerCase();
+    });
+    return formattedElem + num;
+  });
+}
+
+/**
+ * Check if query is a determined single chemical formula and resolve locally without API call.
+ * @param {string} query
+ * @returns {{ formula: string, name_zh: string } | null}
+ */
+export function tryResolveLocalFormula(query) {
+  const raw = String(query || '').trim();
+  if (!raw) return null;
+  // If query contains Chinese characters, '+', '=', or spaces, treat as natural language / reaction
+  if (/[\u4e00-\u9fa5\+\=\s]/.test(raw)) return null;
+
+  const normalized = normalizeFormulaCase(raw);
+  const key = normalized.toUpperCase();
+
+  const nameZh = LOCAL_FORMULA_MAP.get(key) || getReagent(raw.toLowerCase())?.name_zh || getReagent(normalized.toLowerCase())?.name_zh || normalized;
+
+  // Validate formula regex pattern
+  if (/^([A-Z][a-z]?\d*)+$/i.test(normalized) || /^([A-Z][a-z]?\d*|\([A-Z][a-z]?\d*\)\d*)+$/i.test(normalized)) {
+    return {
+      formula: normalized,
+      name_zh: nameZh,
+    };
+  }
+  return null;
+}
+
 /** @type {ChemElement[]} */
 export const CHEM_ELEMENTS = Object.freeze([
   // Period 1

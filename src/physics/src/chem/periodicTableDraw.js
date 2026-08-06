@@ -12,6 +12,7 @@ import {
   elementGridCell,
   getElement,
   getReagentsForElement,
+  formatSubscriptFormula,
 } from './reagentCatalog.js';
 import { pickHoloScreen } from '../holoScreen.js';
 
@@ -59,7 +60,7 @@ function fillGlass(ctx, w, h) {
 
 function cupLabel(cup) {
   if (!cup?.reagents?.length) return '空 · 点击选择试剂';
-  return cup.reagents.map((r) => r.formula).join(' + ');
+  return cup.reagents.map((r) => formatSubscriptFormula(r.formula)).join(' + ');
 }
 
 /**
@@ -151,53 +152,236 @@ export function drawChemRightPanel(ctx, W, H, data = {}) {
   const pad = 44;
   ctx.fillStyle = '#0f172a';
   ctx.font = '800 48px "Outfit", "Noto Sans SC", system-ui, sans-serif';
-  ctx.fillText('成分构成', pad, 72);
+  ctx.fillText('成分构成与比例', pad, 72);
   ctx.fillStyle = '#64748b';
   ctx.font = '600 22px "Noto Sans SC", system-ui, sans-serif';
-  ctx.fillText('点击成分在桌上显示 3D 结构', pad, 108);
+  ctx.fillText('百分比环形图 · 滚轮/拖拽列表查看 3D 结构', pad, 108);
 
   const components = data.components || [];
+
+  // --- Circular Percentage Chart (Donut Chart) ---
+  const cx = W / 2;
+  const cy = 245;
+  const R = 110;
+  const r = 68;
+
   if (!components.length) {
+    // Empty state ring
+    ctx.beginPath();
+    ctx.arc(cx, cy, R, 0, Math.PI * 2);
+    ctx.arc(cx, cy, r, Math.PI * 2, 0, true);
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(241, 245, 249, 0.65)';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(203, 213, 225, 0.85)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+
     ctx.fillStyle = '#64748b';
-    ctx.font = '600 26px "Noto Sans SC", system-ui, sans-serif';
-    wrapText(ctx, '装入试剂或倾倒混合后，成分将显示在这里。', pad, 180, W - pad * 2, 40);
+    ctx.font = '600 24px "Noto Sans SC", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('暂无成分', cx, cy + 8);
+
+    ctx.font = '500 22px "Noto Sans SC", system-ui, sans-serif';
+    ctx.fillText('装入试剂或倾倒混合后，成分与比例将在此显示。', cx, cy + 175);
+    ctx.textAlign = 'left';
+
+    // Allow wheel & drag scroll interaction even when empty
+    hits.push({
+      x: pad,
+      y: 380,
+      w: W - pad * 2,
+      h: H - 420,
+      action: 'chem-scroll-right',
+      role: 'scrollable_components',
+      maxScroll: 0,
+    });
     return { hits };
   }
 
-  let y = 140;
-  components.forEach((comp) => {
-    const rowH = 104;
+  // Calculate component percentages
+  let totalWeight = 0;
+  const weights = components.map((c) => {
+    const p = Number(c.percent);
+    const w = Number.isFinite(p) && p > 0 ? p : 1;
+    totalWeight += w;
+    return w;
+  });
+  const pcts = weights.map((w) => (w / totalWeight) * 100);
+
+  // Render Donut Slices
+  let startAngle = -Math.PI / 2;
+  components.forEach((comp, idx) => {
+    const pct = pcts[idx];
+    const sliceAngle = (pct / 100) * 2 * Math.PI;
+    const endAngle = startAngle + sliceAngle;
+    const isSelected = data.selectedComponentId === comp.id;
+    const sliceR = isSelected ? R + 8 : R;
+    const sliceColor = `#${(comp.color >>> 0).toString(16).padStart(6, '0')}`;
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, sliceR, startAngle, endAngle, false);
+    ctx.arc(cx, cy, r, endAngle, startAngle, true);
+    ctx.closePath();
+
+    ctx.fillStyle = sliceColor;
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+
+    // Hit region for slice
+    hits.push({
+      x: cx - sliceR,
+      y: cy - sliceR,
+      w: sliceR * 2,
+      h: sliceR * 2,
+      action: 'chem-show-component',
+      componentId: comp.id,
+      role: 'chem_ui',
+    });
+
+    startAngle = endAngle;
+  });
+
+  // Inner Donut Center Hole
+  ctx.beginPath();
+  ctx.arc(cx, cy, r - 2, 0, Math.PI * 2);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(203, 213, 225, 0.70)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Donut Center Text: selected component formula or total count
+  const selComp = components.find((c) => c.id === data.selectedComponentId) || components[0];
+  const selIdx = components.indexOf(selComp);
+  const selPct = selIdx >= 0 ? pcts[selIdx] : 0;
+
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#0f172a';
+  ctx.font = '800 28px "Outfit", system-ui, sans-serif';
+  ctx.fillText(formatSubscriptFormula(selComp.formula || selComp.name_zh || `${components.length} 种成分`), cx, cy - 4);
+
+  ctx.fillStyle = '#0284c7';
+  ctx.font = '700 22px "Outfit", system-ui, sans-serif';
+  ctx.fillText(`${selPct.toFixed(1)}%`, cx, cy + 26);
+  ctx.textAlign = 'left';
+
+  // --- Scrollable Component List Below ---
+  const listTop = 385;
+  const listBottom = H - 40; // 1000
+  const viewportH = listBottom - listTop; // 615
+  const rowH = 92;
+  const rowGap = 14;
+  const totalH = components.length * (rowH + rowGap);
+  const maxScroll = Math.max(0, totalH - viewportH);
+  const scrollY = Math.min(Math.max(0, data.rightPanelScrollY || 0), maxScroll);
+
+  // Section Header
+  ctx.fillStyle = '#334155';
+  ctx.font = '700 24px "Noto Sans SC", system-ui, sans-serif';
+  ctx.fillText(`成分列表 (${components.length})`, pad, 370);
+
+  ctx.fillStyle = '#64748b';
+  ctx.font = '500 20px "Noto Sans SC", system-ui, sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText('↕ 支持滚轮/拖拽滑动', W - pad, 370);
+  ctx.textAlign = 'left';
+
+  // Clip list area
+  ctx.save();
+  ctx.beginPath();
+  roundRect(ctx, pad, listTop, W - pad * 2, viewportH, 16);
+  ctx.clip();
+
+  components.forEach((comp, idx) => {
+    const pct = pcts[idx];
+    const y = listTop - scrollY + idx * (rowH + rowGap);
+    if (y + rowH < listTop || y > listBottom) return;
+
     const active = data.selectedComponentId === comp.id;
-    roundRect(ctx, pad, y, W - pad * 2, rowH, 24);
-    ctx.fillStyle = active ? 'rgba(255, 255, 255, 0.96)' : 'rgba(255, 255, 255, 0.60)';
+    roundRect(ctx, pad, y, W - pad * 2, rowH, 22);
+    ctx.fillStyle = active ? 'rgba(255, 255, 255, 0.98)' : 'rgba(255, 255, 255, 0.65)';
     ctx.fill();
     ctx.strokeStyle = active ? '#0f172a' : 'rgba(203, 213, 225, 0.70)';
     ctx.lineWidth = active ? 3.5 : 1.8;
     ctx.stroke();
 
-    // Color swatch with specular border
+    // Color Swatch
     ctx.fillStyle = `#${(comp.color >>> 0).toString(16).padStart(6, '0')}`;
-    roundRect(ctx, pad + 24, y + 26, 52, 52, 14);
+    roundRect(ctx, pad + 20, y + (rowH - 48) / 2, 48, 48, 14);
     ctx.fill();
     ctx.strokeStyle = 'rgba(148, 163, 184, 0.50)';
     ctx.lineWidth = 1.8;
     ctx.stroke();
 
+    // Formula & Name
     ctx.fillStyle = '#0f172a';
-    ctx.font = '800 34px "Outfit", system-ui, sans-serif';
-    ctx.fillText(comp.formula || comp.id, pad + 96, y + 46);
-    ctx.fillStyle = '#475569';
-    ctx.font = '600 24px "Noto Sans SC", system-ui, sans-serif';
-    ctx.fillText(comp.name_zh || '', pad + 96, y + 80);
+    ctx.font = '800 32px "Outfit", system-ui, sans-serif';
+    ctx.fillText(formatSubscriptFormula(comp.formula || comp.id), pad + 84, y + 40);
 
+    ctx.fillStyle = '#475569';
+    ctx.font = '600 22px "Noto Sans SC", system-ui, sans-serif';
+    ctx.fillText(comp.name_zh || '', pad + 84, y + 72);
+
+    // Percentage Pill Badge
+    const pillW = 120;
+    const pillH = 40;
+    const pillX = W - pad - 20 - pillW;
+    const pillY = y + (rowH - pillH) / 2;
+
+    roundRect(ctx, pillX, pillY, pillW, pillH, 14);
+    ctx.fillStyle = active ? '#0f172a' : 'rgba(15, 23, 42, 0.08)';
+    ctx.fill();
+
+    ctx.fillStyle = active ? '#ffffff' : '#0f172a';
+    ctx.font = '700 22px "Outfit", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${pct.toFixed(1)}%`, pillX + pillW / 2, pillY + 28);
+    ctx.textAlign = 'left';
+
+    // Clickable hit region for component item
     hits.push({
-      x: pad, y, w: W - pad * 2, h: rowH,
+      x: pad,
+      y: Math.max(listTop, y),
+      w: W - pad * 2,
+      h: Math.min(rowH, listBottom - y),
       action: 'chem-show-component',
       componentId: comp.id,
       role: 'chem_ui',
     });
-    y += rowH + 18;
-    if (y > H - 90) return;
+  });
+
+  ctx.restore();
+
+  // Glass Scrollbar Indicator
+  if (totalH > viewportH) {
+    const sbTrackW = 6;
+    const sbX = W - pad - sbTrackW;
+    const sbY = listTop;
+    const thumbH = Math.max(36, (viewportH / totalH) * viewportH);
+    const thumbY = listTop + (scrollY / maxScroll) * (viewportH - thumbH);
+
+    roundRect(ctx, sbX, sbY, sbTrackW, viewportH, 3);
+    ctx.fillStyle = 'rgba(203, 213, 225, 0.40)';
+    ctx.fill();
+
+    roundRect(ctx, sbX, thumbY, sbTrackW, thumbH, 3);
+    ctx.fillStyle = 'rgba(100, 116, 139, 0.60)';
+    ctx.fill();
+  }
+
+  // General scroll hit region covering list area
+  hits.push({
+    x: pad,
+    y: listTop,
+    w: W - pad * 2,
+    h: viewportH,
+    action: 'chem-scroll-right',
+    role: 'scrollable_components',
+    maxScroll,
   });
 
   return { hits };
@@ -223,31 +407,26 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
   ctx.fillText(`当前烧杯 ${activeCup}  ·  点击元素或在下方输入 AI 检索`, pad, 108);
 
   // Dedicated Compact Search Bar centered at bottom of Main Front Screen (W=1920, H=1120)
-  const slotW = 1180;
+  const slotW = 960;
   const slotX = (W - slotW) / 2;
-  const slotY = H - 100;
-  const slotH = 72;
-  roundRect(ctx, slotX, slotY, slotW, slotH, 22);
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.88)';
+  const slotY = H - 124;
+  const slotH = 92;
+  roundRect(ctx, slotX, slotY, slotW, slotH, 24);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
   ctx.fill();
   ctx.strokeStyle = 'rgba(14, 165, 233, 0.45)';
   ctx.lineWidth = 2.5;
   ctx.stroke();
 
-  // Badge: ✨ AI 检索
-  ctx.fillStyle = '#0284c7';
-  ctx.font = '800 24px "Outfit", "Noto Sans SC", system-ui, sans-serif';
-  ctx.fillText('✨ AI 检索', slotX + 22, slotY + 45);
+  // Input Field (Full Width & Proportional)
+  const inputX = slotX + 18;
+  const inputY = slotY + 12;
+  const btnW = 136;
+  const condW = 160;
+  const inputW = 600;
+  const inputH = 68;
 
-  // Input Field (Compact)
-  const inputX = slotX + 155;
-  const inputY = slotY + 9;
-  const btnW = 145;
-  const condW = 185;
-  const inputW = 580;
-  const inputH = 54;
-
-  roundRect(ctx, inputX, inputY, inputW, inputH, 14);
+  roundRect(ctx, inputX, inputY, inputW, inputH, 16);
   ctx.fillStyle = '#ffffff';
   ctx.fill();
   ctx.strokeStyle = data.searchFocused ? '#0284c7' : 'rgba(203, 213, 225, 0.95)';
@@ -257,12 +436,12 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
   const query = data.searchQuery != null ? data.searchQuery : '';
   if (query) {
     ctx.fillStyle = '#0f172a';
-    ctx.font = '600 22px "Outfit", "Noto Sans SC", system-ui, sans-serif';
-    ctx.fillText(query + (data.searchFocused ? '|' : ''), inputX + 18, inputY + 35);
+    ctx.font = '700 25px "Outfit", "Noto Sans SC", system-ui, sans-serif';
+    ctx.fillText(query + (data.searchFocused ? '|' : ''), inputX + 20, inputY + 44);
   } else {
     ctx.fillStyle = '#94a3b8';
-    ctx.font = '500 20px "Noto Sans SC", system-ui, sans-serif';
-    ctx.fillText('输入化学式 / 名称 / SMILES (如 H2O, NaOH)', inputX + 18, inputY + 35);
+    ctx.font = '600 23px "Noto Sans SC", system-ui, sans-serif';
+    ctx.fillText('输入化学式 / 名称 / SMILES', inputX + 20, inputY + 44);
   }
 
   hits.push({
@@ -270,32 +449,49 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
     action: 'chem-search-focus', role: 'chem_ui',
   });
 
-  // Condition Dropdown Selector
-  const condX = inputX + inputW + 14;
-  roundRect(ctx, condX, inputY, condW, inputH, 14);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(203, 213, 225, 0.95)';
-  ctx.lineWidth = 1.5;
-  ctx.stroke();
+  // Voice Input Button (Replaces condition dropdown)
+  const voiceX = inputX + inputW + 14;
+  const voiceW = 160;
+  roundRect(ctx, voiceX, inputY, voiceW, inputH, 16);
+  const isListening = !!data.speechListening;
 
-  const condText = data.searchCondition || '未指定条件';
-  ctx.fillStyle = '#334155';
-  ctx.font = '700 20px "Noto Sans SC", system-ui, sans-serif';
-  ctx.fillText(condText, condX + 16, inputY + 35);
+  if (isListening) {
+    const voiceGrad = ctx.createLinearGradient(voiceX, inputY, voiceX + voiceW, inputY + inputH);
+    voiceGrad.addColorStop(0, '#ef4444');
+    voiceGrad.addColorStop(1, '#dc2626');
+    ctx.fillStyle = voiceGrad;
+    ctx.fill();
+    ctx.strokeStyle = '#fca5a5';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
 
-  ctx.fillStyle = '#64748b';
-  ctx.font = '700 16px system-ui';
-  ctx.fillText('▼', condX + condW - 28, inputY + 34);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '800 22px "Noto Sans SC", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🔴 聆听中…', voiceX + voiceW / 2, inputY + 44);
+    ctx.textAlign = 'left';
+  } else {
+    ctx.fillStyle = '#ffffff';
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(203, 213, 225, 0.95)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    ctx.fillStyle = '#0284c7';
+    ctx.font = '700 22px "Noto Sans SC", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('🎙️ 语音输入', voiceX + voiceW / 2, inputY + 44);
+    ctx.textAlign = 'left';
+  }
 
   hits.push({
-    x: condX, y: inputY, w: condW, h: inputH,
-    action: 'chem-search-toggle-cond', role: 'chem_ui',
+    x: voiceX, y: inputY, w: voiceW, h: inputH,
+    action: 'chem-search-voice', role: 'chem_ui',
   });
 
   // AI Parse Button
-  const btnX = condX + condW + 14;
-  roundRect(ctx, btnX, inputY, btnW, inputH, 14);
+  const btnX = voiceX + voiceW + 14;
+  roundRect(ctx, btnX, inputY, btnW, inputH, 16);
   const isBusy = !!data.searchBusy;
   const btnGrad = ctx.createLinearGradient(btnX, inputY, btnX + btnW, inputY + inputH);
   btnGrad.addColorStop(0, '#0ea5e9');
@@ -304,53 +500,15 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
   ctx.fill();
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = '800 22px "Noto Sans SC", system-ui, sans-serif';
+  ctx.font = '800 25px "Noto Sans SC", system-ui, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(isBusy ? '解析中…' : 'AI 解析', btnX + btnW / 2, inputY + 35);
+  ctx.fillText(isBusy ? '解析中…' : 'AI 解析', btnX + btnW / 2, inputY + 44);
   ctx.textAlign = 'left';
 
   hits.push({
     x: btnX, y: inputY, w: btnW, h: inputH,
     action: 'chem-search-submit', role: 'chem_ui',
   });
-
-  // Condition Dropdown Menu Popup (if toggled open)
-  if (data.condMenuOpen) {
-    const options = [
-      { v: '', t: '未指定条件' },
-      { v: '水溶液', t: '水溶液' },
-      { v: '加热', t: '加热' },
-      { v: '点燃', t: '点燃' },
-    ];
-    const itemH = 48;
-    const menuH = options.length * itemH + 12;
-    const menuY = inputY - menuH - 8;
-
-    roundRect(ctx, condX, menuY, condW, menuH, 16);
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.98)';
-    ctx.fill();
-    ctx.strokeStyle = '#0284c7';
-    ctx.lineWidth = 2.5;
-    ctx.stroke();
-
-    options.forEach((opt, idx) => {
-      const iy = menuY + 6 + idx * itemH;
-      const isSel = (data.searchCondition || '') === opt.v;
-      if (isSel) {
-        roundRect(ctx, condX + 6, iy, condW - 12, itemH - 4, 10);
-        ctx.fillStyle = 'rgba(14, 165, 233, 0.12)';
-        ctx.fill();
-      }
-      ctx.fillStyle = isSel ? '#0284c7' : '#0f172a';
-      ctx.font = `${isSel ? '700' : '600'} 20px "Noto Sans SC", system-ui`;
-      ctx.fillText(opt.t, condX + 18, iy + 30);
-
-      hits.push({
-        x: condX, y: iy, w: condW, h: itemH,
-        action: 'chem-search-set-cond', condition: opt.v, role: 'chem_ui',
-      });
-    });
-  }
 
   // Close button (Prominent Vision Pro Red Glass Badge)
   const closeW = 160;
@@ -431,7 +589,7 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
       const textX = x + 24 + sw + 22;
       ctx.fillStyle = '#0f172a';
       ctx.font = '800 32px "Outfit", system-ui';
-      ctx.fillText(r.formula, textX, y + 48);
+      ctx.fillText(formatSubscriptFormula(r.formula), textX, y + 48);
       ctx.fillStyle = '#475569';
       ctx.font = '600 24px "Noto Sans SC", system-ui';
       ctx.fillText(r.name_zh, textX, y + 86);
@@ -525,8 +683,25 @@ export function pickChemHits(hits, u, v, W, H) {
   const px = u * W;
   const py = (1 - v) * H;
   const pad = 12;
+
+  // 1. Check specific interactive UI actions (e.g. chem-show-component, chem-pick-element)
   for (let i = hits.length - 1; i >= 0; i -= 1) {
     const h = hits[i];
+    if (h.role === 'scrollable_components' || h.action === 'chem-scroll-right') continue;
+    if (
+      px >= h.x - pad
+      && px <= h.x + h.w + pad
+      && py >= h.y - pad
+      && py <= h.y + h.h + pad
+    ) {
+      return { ...h, px, py };
+    }
+  }
+
+  // 2. Fallback to scrollable background region
+  for (let i = hits.length - 1; i >= 0; i -= 1) {
+    const h = hits[i];
+    if (h.role !== 'scrollable_components' && h.action !== 'chem-scroll-right') continue;
     if (
       px >= h.x - pad
       && px <= h.x + h.w + pad

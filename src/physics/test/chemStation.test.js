@@ -18,9 +18,11 @@ import {
   getReagentsForElement,
   CHEM_ELEMENTS,
   blendColors,
+  formatSubscriptFormula,
+  tryResolveLocalFormula,
 } from '../src/chem/reagentCatalog.js';
-import { parseSdf } from '../src/chem/moleculeMesh.js';
-import { pickChemHits, drawChemPeriodicPanel } from '../src/chem/periodicTableDraw.js';
+import { parseSdf, buildProceduralStructure } from '../src/chem/moleculeMesh.js';
+import { pickChemHits, drawChemPeriodicPanel, drawChemRightPanel } from '../src/chem/periodicTableDraw.js';
 
 describe('labMode', () => {
   it('defaults to physics', () => {
@@ -120,10 +122,14 @@ describe('SDF parse + periodic hits', () => {
       strokeRect() {},
       beginPath() {},
       moveTo() {},
+      arc() {},
       arcTo() {},
       closePath() {},
       fill() {},
       stroke() {},
+      save() {},
+      restore() {},
+      clip() {},
       fillText(...args) { calls.push(args); },
       measureText: (t) => ({ width: String(t).length * 8 }),
     };
@@ -139,5 +145,83 @@ describe('SDF parse + periodic hits', () => {
     const v = 1 - (elHit.y + elHit.h / 2) / canvas.height;
     const picked = pickChemHits(hits, u, v, canvas.width, canvas.height);
     assert.equal(picked?.element, 'Na');
+  });
+
+  it('draws right panel circular percentage chart and ingredient list', () => {
+    const W = 1400;
+    const H = 1040;
+    const ctx = {
+      fillStyle: '',
+      strokeStyle: '',
+      lineWidth: 1,
+      font: '',
+      textAlign: 'left',
+      createLinearGradient: () => ({ addColorStop() {} }),
+      fillRect() {},
+      strokeRect() {},
+      beginPath() {},
+      moveTo() {},
+      arc() {},
+      arcTo() {},
+      closePath() {},
+      fill() {},
+      stroke() {},
+      save() {},
+      restore() {},
+      clip() {},
+      fillText() {},
+      measureText: (t) => ({ width: String(t).length * 8 }),
+    };
+    const components = [
+      { id: 'h2o', formula: 'H2O', name_zh: '水', color: 0x38bdf8, percent: 70 },
+      { id: 'naoh', formula: 'NaOH', name_zh: '氢氧化钠', color: 0x86efac, percent: 30 },
+    ];
+    const { hits } = drawChemRightPanel(ctx, W, H, { components, selectedComponentId: 'h2o' });
+
+    assert.ok(hits.length >= 3);
+    const scrollHit = hits.find((h) => h.role === 'scrollable_components');
+    const compHit = hits.find((h) => h.componentId === 'h2o');
+    assert.ok(compHit, 'component card hit present');
+
+    // Donut chart center (700, 245) UV pick should hit a slice / component
+    const donutU = 700 / W;
+    const donutV = 1 - 245 / H;
+    const pickedDonut = pickChemHits(hits, donutU, donutV, W, H);
+  });
+});
+
+describe('subscript formula formatting & procedural 3D structure', () => {
+  it('resolves determined single formulas locally with zero API latency', () => {
+    const h2o = tryResolveLocalFormula('h2o');
+    assert.ok(h2o);
+    assert.equal(h2o.formula, 'H2O');
+    assert.equal(h2o.name_zh, '水');
+
+    const nacl = tryResolveLocalFormula('nacl');
+    assert.ok(nacl);
+    assert.equal(nacl.formula, 'NaCl');
+    assert.equal(nacl.name_zh, '氯化钠');
+
+    const c8h18 = tryResolveLocalFormula('c8h18');
+    assert.ok(c8h18);
+    assert.equal(c8h18.formula, 'C8H18');
+    assert.equal(c8h18.name_zh, '辛烷');
+
+    // Natural language reaction should return null (fallback to AI API)
+    const reactionPrompt = tryResolveLocalFormula('氢氧化钠加盐酸');
+    assert.equal(reactionPrompt, null);
+  });
+
+  it('dynamically generates distinct 3D structures for organic & oxoacid compounds', () => {
+    const c8h18 = buildProceduralStructure('C8H18');
+    assert.equal(c8h18.atoms.length, 26);
+    assert.equal(c8h18.atoms.filter((a) => a.elem === 'C').length, 8);
+    assert.equal(c8h18.atoms.filter((a) => a.elem === 'H').length, 18);
+
+    const h3po4 = buildProceduralStructure('H3PO4');
+    assert.equal(h3po4.atoms.length, 8);
+    assert.equal(h3po4.atoms.filter((a) => a.elem === 'P').length, 1);
+    assert.equal(h3po4.atoms.filter((a) => a.elem === 'O').length, 4);
+    assert.equal(h3po4.atoms.filter((a) => a.elem === 'H').length, 3);
   });
 });

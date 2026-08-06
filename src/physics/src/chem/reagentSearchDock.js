@@ -106,5 +106,65 @@ export function setReagentSearchValue(v) {
   if (inputEl) inputEl.value = String(v || '');
 }
 
+/** @type {any} */
+let activeRecognition = null;
+
+export function toggleSpeechRecognition(onResult, onStatusChange) {
+  const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRec) {
+    onStatusChange?.('unsupported');
+    return false;
+  }
+
+  if (activeRecognition) {
+    try { activeRecognition.stop(); } catch { /* ignore */ }
+    activeRecognition = null;
+    onStatusChange?.('stopped');
+    return false;
+  }
+
+  try {
+    const recognition = new SpeechRec();
+    recognition.lang = 'zh-CN';
+    recognition.continuous = false;
+    recognition.interimResults = true;
+
+    recognition.onstart = () => {
+      onStatusChange?.('listening');
+    };
+
+    recognition.onresult = (event) => {
+      let resultText = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        resultText += event.results[i][0].transcript;
+      }
+      if (resultText) {
+        setReagentSearchValue(resultText);
+        onResult?.(resultText);
+      }
+    };
+
+    recognition.onerror = (err) => {
+      console.warn('[speech] Recognition error:', err);
+      activeRecognition = null;
+      onStatusChange?.('error', err?.error);
+    };
+
+    recognition.onend = () => {
+      activeRecognition = null;
+      onStatusChange?.('ended');
+    };
+
+    recognition.start();
+    activeRecognition = recognition;
+    return true;
+  } catch (err) {
+    console.warn('[speech] Start failed:', err);
+    activeRecognition = null;
+    onStatusChange?.('error', String(err));
+    return false;
+  }
+}
+
 
 

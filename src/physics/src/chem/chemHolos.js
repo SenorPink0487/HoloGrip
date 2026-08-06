@@ -141,15 +141,32 @@ export function makeChemHolo(THREE, opts) {
     screen.visible = !!on;
   }
 
+  let isDimmed = false;
+  function setDimmed(dimmed) {
+    dimmed = !!dimmed;
+    if (isDimmed === dimmed) return;
+    isDimmed = dimmed;
+
+    const factor = dimmed ? 0.28 : 1.0;
+    panelMat.opacity = 0.85 * factor;
+    rim.material.opacity = 0.45 * factor;
+    backMat.opacity = 0.45 * factor;
+    screenMat.opacity = 0.98 * factor;
+
+    g.userData.interactive = !dimmed;
+    screen.userData.interactive = !dimmed;
+  }
+
   function setHud(hud) {
     boundData = hud?.data || hud || {};
+    const pickerOpen = !!boundData.pickerOpen;
     if (kind === 'periodic') {
-      const open = !!boundData.pickerOpen;
-      setPresent(open);
-      if (open) draw(true);
+      setPresent(pickerOpen);
+      if (pickerOpen) draw(true);
       return;
     }
     setPresent(true);
+    setDimmed(pickerOpen);
     draw(true);
   }
 
@@ -187,6 +204,7 @@ export function makeChemHolo(THREE, opts) {
 
   function getUvFromRay(raycaster) {
     if (!g.userData.present || !g.visible) return null;
+    if (kind !== 'periodic' && boundData?.pickerOpen) return null;
     screen.updateMatrixWorld(true);
     // 1. Direct mesh intersection
     const hits = raycaster.intersectObject(screen, false);
@@ -216,21 +234,25 @@ export function makeChemHolo(THREE, opts) {
   }
 
   function pickFromRay(raycaster) {
+    if (kind !== 'periodic' && boundData?.pickerOpen) return null;
     const uvInfo = getUvFromRay(raycaster);
     if (!uvInfo) return null;
     return pickChemHits(hitRegions, uvInfo.u, uvInfo.v, CW, CH);
   }
 
   function screenAimFromRay(raycaster) {
+    if (kind !== 'periodic' && boundData?.pickerOpen) return null;
     const uvInfo = getUvFromRay(raycaster);
     if (!uvInfo) return null;
     return { distance: uvInfo.distance, point: uvInfo.point, object: screen };
   }
 
   g.userData.setPresent = setPresent;
+  g.userData.setDimmed = setDimmed;
   g.userData.setHud = setHud;
   g.userData.draw = draw;
   g.userData.pickFromRay = pickFromRay;
+  g.userData.getUvFromRay = getUvFromRay;
   g.userData.screenAimFromRay = screenAimFromRay;
   g.userData.boundData = () => boundData;
 

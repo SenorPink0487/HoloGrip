@@ -3,7 +3,7 @@
  *   interact(role) / beginManipulation / endManipulation / holdInteract / onUiAction / onKey
  */
 
-import { getReagent, getElement } from '../chem/reagentCatalog.js';
+import { getReagent, getElement, tryResolveLocalFormula, formatSubscriptFormula } from '../chem/reagentCatalog.js';
 import {
   showReagentSearchDock,
   hideReagentSearchDock,
@@ -12,6 +12,7 @@ import {
   setReagentSearchBusy,
   setReagentSearchValue,
   focusSearchInput,
+  toggleSpeechRecognition,
 } from '../chem/reagentSearchDock.js';
 import * as THREE from 'three';
 
@@ -80,6 +81,7 @@ export function createHandlers(ctx) {
     state.data.cupA = cups.cupA;
     state.data.cupB = cups.cupB;
     state.data.components = buildComponents(state.data);
+    eq()?.rig?.setDimmed?.(!!state.data.pickerOpen);
     pushHud();
   }
 
@@ -93,6 +95,7 @@ export function createHandlers(ctx) {
     state.data.condMenuOpen = false;
     setStep('pick_cup');
     toast(`烧杯 ${k} · 选择元素或主屏下方 AI 检索`);
+    eq()?.rig?.setDimmed?.(true);
     pushHud();
     return true;
   }
@@ -102,6 +105,7 @@ export function createHandlers(ctx) {
     state.data.searchFocused = false;
     state.data.condMenuOpen = false;
     hideReagentSearchDock();
+    eq()?.rig?.setDimmed?.(false);
     pushHud();
     return true;
   }
@@ -112,6 +116,58 @@ export function createHandlers(ctx) {
    */
   async function runAiReagentQuery(query, condition = '') {
     const cup = state.data.activeCup === 'B' ? 'B' : 'A';
+    const raw = String(query || '').trim();
+    if (!raw) {
+      toast('请输入化学式或说明');
+      return false;
+    }
+
+    // Try zero-latency local resolution first for determined single formulas (e.g. h2o, NaCl, C8H18)
+    const localMatch = tryResolveLocalFormula(raw);
+    if (localMatch && !condition) {
+      const formula = localMatch.formula;
+      const nameZh = localMatch.name_zh;
+      const reagent = {
+        id: `local-${Date.now().toString(36)}`,
+        formula: String(formula),
+        name_zh: String(nameZh),
+        color: colorForFormula(String(formula)),
+        query: String(formula),
+        element: String(formula).replace(/[^A-Za-z].*$/, '') || 'C',
+        local: true,
+      };
+
+      eq()?.assignReagent?.(cup, reagent);
+
+      const compItem = {
+        id: `comp-${reagent.id}`,
+        formula: formula,
+        name_zh: nameZh,
+        color: colorForFormula(String(formula)),
+        query: formula,
+        percent: 100,
+      };
+
+      syncFromRig();
+      const existing = state.data.components || [];
+      const byId = new Map(existing.map((c) => [c.id, c]));
+      byId.set(compItem.id, compItem);
+      state.data.components = [...byId.values()];
+      state.data.selectedComponentId = compItem.id;
+      state.data.hint = `已装入 ${formatSubscriptFormula(reagent.formula)} · 可倾倒或点右侧成分看 3D`;
+      state.data.pickerOpen = false;
+      hideReagentSearchDock();
+      eq()?.rig?.setDimmed?.(false);
+      setStep('pour');
+      pushHud();
+
+      void loadAndShowMolecule(eq(), compItem, toast);
+      setReagentSearchStatus(`已装入 ${formatSubscriptFormula(reagent.formula)}`, 'ok');
+      toast(`${formatSubscriptFormula(reagent.formula)} → 烧杯 ${cup}`);
+      setReagentSearchValue('');
+      return true;
+    }
+
     setReagentSearchBusy(true);
     setReagentSearchStatus('AI 正在解析…');
     toast('AI 解析中…');
@@ -278,6 +334,7 @@ export function createHandlers(ctx) {
         cupA: { reagents: [], fill: 0, color: 0x94a3b8, formula: '' },
         cupB: { reagents: [], fill: 0, color: 0x94a3b8, formula: '' },
         components: [],
+        rightPanelScrollY: 0,
         dragging: null,
         dragStartTime: 0,
         dragLifted: false,
@@ -306,6 +363,9 @@ export function createHandlers(ctx) {
      * Cup click / E → open periodic picker only if clicking black label bar.
      */
     interact(target, _t, step) {
+      if (state.data?.pickerOpen && target?.userData?.chemKind !== 'periodic') {
+        return false;
+      }
       const role = target?.userData?.role;
       const isLabel = target?.userData?.isLabel || role === 'chem_cup_a_label' || role === 'chem_cup_b_label';
       const kind = roleToKind(role);
@@ -327,9 +387,34 @@ export function createHandlers(ctx) {
     },
 
     /**
-     * Arm drag role — black label bar opens picker; beaker body drags/pours.
+     * Arm drag role — black label bar opens picker; beaker body drags/pours; right panel scrolls.
      */
-    beginManipulation(target) {
+    beginManipulation(target, context = {}) {
+      if (state.data?.pickerOpen && target?.userData?.chemKind !== 'periodic') {
+        return false;
+      }
+      const chemKind = target?.userData?.chemKind;
+      const pickRole = context?.pick?.role;
+      const pickAction = context?.pick?.action;
+      const isRightPanel = chemKind === 'right'
+        || target?.name === 'chem-holo-chem-right'
+        || pickRole === 'scrollable_components'
+        || pickAction === 'chem-scroll-right';
+
+      if (isRightPanel) {
+        state.data.dragging = 'chem_right_panel';
+        state.data.dragStartScrollY = state.data.rightPanelScrollY || 0;
+        const raycaster = context?.raycaster;
+        if (raycaster && target) {
+          const uvInfo = target.userData?.getUvFromRay?.(raycaster)
+            || target.userData?.screenAimFromRay?.(raycaster);
+          if (uvInfo?.v != null) {
+            state.data.dragStartPixelY = (1 - uvInfo.v) * 1040;
+          }
+        }
+        return true;
+      }
+
       const role = target?.userData?.role;
       const isLabel = target?.userData?.isLabel || role === 'chem_cup_a_label' || role === 'chem_cup_b_label';
       const kind = roleToKind(role);
@@ -354,6 +439,33 @@ export function createHandlers(ctx) {
 
     updateManipulation(_target, context = {}) {
       if (!state.data.dragging) return false;
+
+      if (state.data.dragging === 'chem_right_panel') {
+        const raycaster = context.raycaster;
+        if (raycaster && _target) {
+          const uvInfo = _target.userData?.getUvFromRay?.(raycaster)
+            || _target.userData?.screenAimFromRay?.(raycaster);
+          if (uvInfo?.v != null) {
+            const currentPixelY = (1 - uvInfo.v) * 1040;
+            if (state.data.dragStartPixelY != null) {
+              const dy = currentPixelY - state.data.dragStartPixelY;
+              const count = state.data?.components?.length || 0;
+              const rowH = 92;
+              const rowGap = 14;
+              const viewportH = 615;
+              const maxScroll = Math.max(0, count * (rowH + rowGap) - viewportH);
+
+              const newScroll = Math.min(Math.max(0, (state.data.dragStartScrollY || 0) + dy), maxScroll);
+              if (newScroll !== state.data.rightPanelScrollY) {
+                state.data.rightPanelScrollY = newScroll;
+                pushHud();
+              }
+            }
+          }
+        }
+        return true;
+      }
+
       const kind = roleToKind(state.data.dragging);
       if (!kind) return false;
 
@@ -397,6 +509,12 @@ export function createHandlers(ctx) {
      */
     endManipulation() {
       const role = state.data?.dragging;
+      if (role === 'chem_right_panel') {
+        state.data.dragging = null;
+        state.data.dragStartPixelY = null;
+        return true;
+      }
+
       const lifted = !!state.data?.dragLifted;
       state.data.dragging = null;
       state.data.dragLifted = false;
@@ -421,6 +539,31 @@ export function createHandlers(ctx) {
       // Click on beaker body (not label bar) -> just relax beaker, do not open selection panel
       try { eq()?.endDrag?.(); } catch { /* ignore */ }
       return true;
+    },
+
+    onWheel(delta, target, pick) {
+      const chemKind = target?.userData?.chemKind;
+      const isRightPanel = chemKind === 'right'
+        || target?.name === 'chem-holo-chem-right'
+        || pick?.role === 'scrollable_components'
+        || pick?.action === 'chem-scroll-right';
+
+      if (isRightPanel) {
+        const count = state.data?.components?.length || 0;
+        const rowH = 92;
+        const rowGap = 14;
+        const viewportH = 615;
+        const maxScroll = Math.max(0, count * (rowH + rowGap) - viewportH);
+
+        const step = delta > 0 ? 50 : -50;
+        const next = Math.min(Math.max(0, (state.data.rightPanelScrollY || 0) + step), maxScroll);
+        if (next !== state.data.rightPanelScrollY) {
+          state.data.rightPanelScrollY = next;
+          pushHud();
+        }
+        return true;
+      }
+      return false;
     },
 
     holdInteract(holding) {
@@ -488,15 +631,29 @@ export function createHandlers(ctx) {
           pushHud();
           return true;
         }
-        case 'chem-search-toggle-cond': {
-          d.condMenuOpen = !d.condMenuOpen;
-          pushHud();
-          return true;
-        }
-        case 'chem-search-set-cond': {
-          d.searchCondition = payload.condition || '';
-          d.condMenuOpen = false;
-          pushHud();
+        case 'chem-search-voice': {
+          toggleSpeechRecognition((text) => {
+            d.searchQuery = text;
+            pushHud();
+          }, (status, err) => {
+            if (status === 'listening') {
+              d.speechListening = true;
+              toast('🎙️ 正在聆听，请说出试剂名称');
+            } else if (status === 'unsupported') {
+              d.speechListening = false;
+              toast('当前浏览器环境不支持语音识别，请键盘输入');
+            } else if (status === 'error') {
+              d.speechListening = false;
+              if (err === 'not-allowed') {
+                toast('麦克风权限被拒绝，请允许访问麦克风');
+              } else {
+                toast('语音识别中断，请重试');
+              }
+            } else {
+              d.speechListening = false;
+            }
+            pushHud();
+          });
           return true;
         }
         case 'chem-search-submit': {
@@ -527,10 +684,11 @@ export function createHandlers(ctx) {
           syncFromRig();
           d.pickerOpen = false;
           hideReagentSearchDock();
-          d.hint = `已装入 ${reagent.formula} · 拖向另一杯倾倒或按 E`;
+          d.selectedComponentId = reagent.id;
+          d.hint = `已装入 ${reagent.formula} · 点右侧成分可切换 3D，或拖向另一杯倾倒`;
           toast(`${reagent.formula} → 烧杯 ${cup}`);
           setStep('pour');
-          // Show 3D with original AI/PubChem path
+          // Show 3D ball-stick on island pedestal (PubChem SDF, fallback mesh if offline)
           void loadAndShowMolecule(eq(), {
             id: reagent.id,
             formula: reagent.formula,
@@ -596,25 +754,67 @@ function colorForFormula(formula) {
   return (r << 16) | (g << 8) | b;
 }
 
+/**
+ * Extract SDF from HoloChem lookupMolecule / loadComponentStructure results.
+ * Pure lookup returns { molecule: { sdf }, components }; AI mix returns components only.
+ */
+function extractSdfFromLookup(result) {
+  if (!result) return '';
+  if (typeof result.sdf === 'string' && result.sdf.length > 20) return result.sdf;
+  if (typeof result.mol === 'string' && result.mol.length > 20) return result.mol;
+  if (result.molecule?.sdf && String(result.molecule.sdf).length > 20) {
+    return result.molecule.sdf;
+  }
+  return '';
+}
+
 async function loadAndShowMolecule(equipment, comp, toast) {
   if (!equipment || !comp) return;
-  toast?.(`加载 ${comp.formula || comp.name_zh} 结构…`);
+  const label = comp.formula || comp.name_zh || '分子';
+  toast?.(`加载 ${label} 结构…`);
   try {
-    const { lookupMolecule } = await import('../../../chem/src/pubchem.js');
-    const query = comp.query || comp.formula || comp.name_zh;
-    const mol = await lookupMolecule(query);
-    // lookupMolecule may return product with components; prefer first component sdf
-    let sdf = mol?.sdf || mol?.mol || '';
-    if (!sdf && Array.isArray(mol?.components) && mol.components[0]) {
-      const c0 = mol.components[0];
-      const sub = await lookupMolecule(c0.query || c0.formula || c0.name_zh || query);
-      sdf = sub?.sdf || sub?.mol || '';
+    const { lookupMolecule, loadComponentStructure } = await import('../../../chem/src/pubchem.js');
+    let sdf = '';
+
+    // 1) Prefer component structure loader (same as original HoloChem composition click)
+    try {
+      const structured = await loadComponentStructure({
+        name_zh: comp.name_zh,
+        name_en: comp.name_en,
+        formula: comp.formula,
+        smiles: comp.smiles,
+      });
+      sdf = extractSdfFromLookup(structured);
+    } catch (e) {
+      console.warn('[chem] loadComponentStructure miss', e?.message || e);
     }
-    equipment.showMoleculeFromSdf?.(sdf || null, comp.formula || comp.name_zh);
-    toast?.(sdf ? `已显示 ${comp.formula || comp.name_zh}` : `示意模型 · ${comp.formula || ''}`);
+
+    // 2) Full product lookup (pure → molecule.sdf)
+    if (!sdf) {
+      const query = comp.query || comp.formula || comp.name_zh || comp.name_en;
+      if (query) {
+        const product = await lookupMolecule(String(query));
+        sdf = extractSdfFromLookup(product);
+        if (!sdf && product?.molecule) sdf = extractSdfFromLookup(product.molecule);
+        // 3) First component recursive
+        if (!sdf && Array.isArray(product?.components) && product.components[0]) {
+          const c0 = product.components[0];
+          try {
+            const sub = await loadComponentStructure(c0);
+            sdf = extractSdfFromLookup(sub);
+          } catch {
+            const subProd = await lookupMolecule(c0.query || c0.formula || c0.name_zh || query);
+            sdf = extractSdfFromLookup(subProd) || extractSdfFromLookup(subProd?.molecule);
+          }
+        }
+      }
+    }
+
+    equipment.showMoleculeFromSdf?.(sdf || null, label);
+    toast?.(sdf ? `已在桌上显示 ${label}` : `桌上示意模型 · ${label}`);
   } catch (err) {
     console.warn('[chem] molecule load failed', err);
-    equipment.showMoleculeFromSdf?.(null, comp.formula);
-    toast?.(`结构加载失败 · ${comp.formula || ''}`);
+    equipment.showMoleculeFromSdf?.(null, comp.formula || comp.name_zh);
+    toast?.(`结构加载失败，已用示意模型 · ${label}`);
   }
 }
