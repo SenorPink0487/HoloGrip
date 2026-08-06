@@ -2,7 +2,9 @@
  * Canvas painters for chemistry holos: left status, right composition,
  * front periodic-table / reagent picker.
  *
- * Font sizes are intentionally large — panels are viewed from ~1–2 m in the lab.
+ * Vision Pro Light Mode Frosted Glass styling:
+ * Translucent frosted white glass background, crisp deep slate typography,
+ * specular highlights, and elegant spatial computing aesthetics.
  */
 
 import {
@@ -24,25 +26,34 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 function fillGlass(ctx, w, h) {
-  // Vision Pro style frosted glass background
+  // Vision Pro light mode frosted translucent glass background
   const g = ctx.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, 'rgba(15, 23, 42, 0.82)');
-  g.addColorStop(0.4, 'rgba(6, 78, 59, 0.78)');
-  g.addColorStop(1, 'rgba(15, 23, 42, 0.88)');
+  g.addColorStop(0, 'rgba(255, 255, 255, 0.88)');
+  g.addColorStop(0.5, 'rgba(248, 250, 252, 0.80)');
+  g.addColorStop(1, 'rgba(241, 245, 249, 0.90)');
   ctx.fillStyle = g;
-  // Large rounded rect for glass look
-  roundRect(ctx, 0, 0, w, h, 48);
+  // Smooth Vision Pro corner radius
+  roundRect(ctx, 0, 0, w, h, 44);
   ctx.fill();
-  // Soft outer rim
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)';
-  ctx.lineWidth = 2.5;
-  roundRect(ctx, 1.5, 1.5, w - 3, h - 3, 46);
+
+  // Outer soft specular glass rim
+  ctx.strokeStyle = 'rgba(203, 213, 225, 0.65)';
+  ctx.lineWidth = 2;
+  roundRect(ctx, 1.5, 1.5, w - 3, h - 3, 42);
   ctx.stroke();
-  // Inner accent rim
-  ctx.strokeStyle = 'rgba(52, 211, 153, 0.28)';
+
+  // Inner subtle highlight rim
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.95)';
   ctx.lineWidth = 1.5;
-  roundRect(ctx, 6, 6, w - 12, h - 12, 40);
+  roundRect(ctx, 5, 5, w - 10, h - 10, 39);
   ctx.stroke();
+
+  // Vision Pro window grab bar indicator at top
+  const barW = 76;
+  const barH = 5;
+  roundRect(ctx, (w - barW) / 2, 12, barW, barH, 2.5);
+  ctx.fillStyle = 'rgba(148, 163, 184, 0.45)';
+  ctx.fill();
 }
 
 function cupLabel(cup) {
@@ -51,42 +62,55 @@ function cupLabel(cup) {
 }
 
 /**
- * Left always-on status panel.
+ * Left always-on status panel (W=1200, H=920).
  * @returns {{ hits: object[] }}
  */
 export function drawChemLeftPanel(ctx, W, H, data = {}) {
   const hits = [];
   fillGlass(ctx, W, H);
-  const pad = 36;
-  ctx.fillStyle = '#34d399';
-  ctx.font = '700 42px "Outfit", "Noto Sans SC", system-ui, sans-serif';
-  ctx.fillText('化学实验台', pad, 56);
-  ctx.fillStyle = 'rgba(226, 232, 240, 0.6)';
-  ctx.font = '600 20px "Outfit", system-ui, sans-serif';
-  ctx.fillText('REAGENT MIX · CENTER ISLAND', pad, 88);
+  const pad = 40;
+  ctx.fillStyle = '#0f172a';
+  ctx.font = '700 38px "Outfit", "Noto Sans SC", system-ui, sans-serif';
+  ctx.fillText('化学实验台', pad, 64);
+  ctx.fillStyle = '#64748b';
+  ctx.font = '600 18px "Outfit", system-ui, sans-serif';
+  ctx.fillText('REAGENT MIX · CENTER ISLAND', pad, 96);
 
   const cupA = data.cupA || {};
   const cupB = data.cupB || {};
-  const cardH = 120;
+  const cardH = 135;
   const cards = [
-    { key: 'A', title: '烧杯 A', body: cupLabel(cupA), action: 'chem-select-cup', cup: 'A', y: 120 },
-    { key: 'B', title: '烧杯 B', body: cupLabel(cupB), action: 'chem-select-cup', cup: 'B', y: 120 + cardH + 24 },
+    { key: 'A', title: '烧杯 A', body: cupLabel(cupA), action: 'chem-select-cup', cup: 'A', y: 130 },
+    { key: 'B', title: '烧杯 B', body: cupLabel(cupB), action: 'chem-select-cup', cup: 'B', y: 130 + cardH + 24 },
   ];
 
   for (const card of cards) {
     const active = data.activeCup === card.cup;
-    roundRect(ctx, pad, card.y, W - pad * 2, cardH, 18);
-    ctx.fillStyle = active ? 'rgba(52, 211, 153, 0.28)' : 'rgba(15, 23, 42, 0.55)';
+    roundRect(ctx, pad, card.y, W - pad * 2, cardH, 20);
+    ctx.fillStyle = active ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.55)';
     ctx.fill();
-    ctx.strokeStyle = active ? 'rgba(52, 211, 153, 0.95)' : 'rgba(148, 163, 184, 0.4)';
-    ctx.lineWidth = active ? 3 : 2;
+    ctx.strokeStyle = active ? '#0f172a' : 'rgba(203, 213, 225, 0.60)';
+    ctx.lineWidth = active ? 3 : 1.5;
     ctx.stroke();
-    ctx.fillStyle = '#ecfdf5';
+
+    // Active status pill tag
+    if (active) {
+      roundRect(ctx, W - pad - 120, card.y + 20, 100, 32, 16);
+      ctx.fillStyle = '#0f172a';
+      ctx.fill();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 16px "Noto Sans SC", system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('当前选中', W - pad - 70, card.y + 42);
+      ctx.textAlign = 'left';
+    }
+
+    ctx.fillStyle = '#0f172a';
     ctx.font = '700 32px "Outfit", "Noto Sans SC", system-ui, sans-serif';
-    ctx.fillText(card.title, pad + 24, card.y + 44);
-    ctx.fillStyle = 'rgba(226, 232, 240, 0.88)';
+    ctx.fillText(card.title, pad + 28, card.y + 48);
+    ctx.fillStyle = active ? '#334155' : '#475569';
     ctx.font = '600 24px "Noto Sans SC", system-ui, sans-serif';
-    ctx.fillText(card.body, pad + 24, card.y + 84);
+    ctx.fillText(card.body, pad + 28, card.y + 94);
     hits.push({
       x: pad, y: card.y, w: W - pad * 2, h: cardH,
       action: card.action, cup: card.cup, role: 'chem_ui',
@@ -94,73 +118,76 @@ export function drawChemLeftPanel(ctx, W, H, data = {}) {
   }
 
   // Hint
-  ctx.fillStyle = 'rgba(167, 243, 208, 0.95)';
-  ctx.font = '600 22px "Noto Sans SC", system-ui, sans-serif';
+  ctx.fillStyle = '#475569';
+  ctx.font = '600 20px "Noto Sans SC", system-ui, sans-serif';
   const hint = data.hint || '点击烧杯选择试剂 · 拖动倾倒到另一杯';
-  wrapText(ctx, hint, pad, 420, W - pad * 2, 32);
+  wrapText(ctx, hint, pad, 480, W - pad * 2, 32);
 
-  // Reset button
-  const by = H - 96;
-  roundRect(ctx, pad, by, W - pad * 2, 60, 16);
-  ctx.fillStyle = 'rgba(248, 113, 113, 0.22)';
+  // Reset button (Vision Pro light glass pill style)
+  const by = H - 100;
+  roundRect(ctx, pad, by, W - pad * 2, 64, 20);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
   ctx.fill();
-  ctx.strokeStyle = 'rgba(248, 113, 113, 0.65)';
-  ctx.lineWidth = 2;
+  ctx.strokeStyle = 'rgba(148, 163, 184, 0.50)';
+  ctx.lineWidth = 1.5;
   ctx.stroke();
-  ctx.fillStyle = '#fecaca';
+  ctx.fillStyle = '#0f172a';
   ctx.font = '700 26px "Noto Sans SC", system-ui, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText('重置实验台', W / 2, by + 40);
+  ctx.fillText('重置实验台', W / 2, by + 42);
   ctx.textAlign = 'left';
-  hits.push({ x: pad, y: by, w: W - pad * 2, h: 60, action: 'chem-reset', role: 'chem_ui' });
+  hits.push({ x: pad, y: by, w: W - pad * 2, h: 64, action: 'chem-reset', role: 'chem_ui' });
 
   return { hits };
 }
 
 /**
- * Right always-on composition panel.
+ * Right always-on composition panel (W=1200, H=920).
  */
 export function drawChemRightPanel(ctx, W, H, data = {}) {
   const hits = [];
   fillGlass(ctx, W, H);
-  const pad = 36;
-  ctx.fillStyle = '#34d399';
-  ctx.font = '700 42px "Outfit", "Noto Sans SC", system-ui, sans-serif';
-  ctx.fillText('成分构成', pad, 56);
-  ctx.fillStyle = 'rgba(226, 232, 240, 0.6)';
-  ctx.font = '600 20px "Noto Sans SC", system-ui, sans-serif';
-  ctx.fillText('点击成分在桌上显示 3D 结构', pad, 88);
+  const pad = 40;
+  ctx.fillStyle = '#0f172a';
+  ctx.font = '700 38px "Outfit", "Noto Sans SC", system-ui, sans-serif';
+  ctx.fillText('成分构成', pad, 64);
+  ctx.fillStyle = '#64748b';
+  ctx.font = '600 18px "Noto Sans SC", system-ui, sans-serif';
+  ctx.fillText('点击成分在桌上显示 3D 结构', pad, 96);
 
   const components = data.components || [];
   if (!components.length) {
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.9)';
-    ctx.font = '600 24px "Noto Sans SC", system-ui, sans-serif';
-    wrapText(ctx, '装入试剂或倾倒混合后，成分将显示在这里。', pad, 140, W - pad * 2, 36);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '600 22px "Noto Sans SC", system-ui, sans-serif';
+    wrapText(ctx, '装入试剂或倾倒混合后，成分将显示在这里。', pad, 160, W - pad * 2, 36);
     return { hits };
   }
 
-  let y = 120;
+  let y = 130;
   components.forEach((comp) => {
-    const rowH = 88;
+    const rowH = 92;
     const active = data.selectedComponentId === comp.id;
-    roundRect(ctx, pad, y, W - pad * 2, rowH, 16);
-    ctx.fillStyle = active ? 'rgba(52, 211, 153, 0.3)' : 'rgba(15, 23, 42, 0.55)';
+    roundRect(ctx, pad, y, W - pad * 2, rowH, 20);
+    ctx.fillStyle = active ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.55)';
     ctx.fill();
-    ctx.strokeStyle = active ? 'rgba(52, 211, 153, 0.95)' : 'rgba(148, 163, 184, 0.35)';
-    ctx.lineWidth = active ? 3 : 2;
+    ctx.strokeStyle = active ? '#0f172a' : 'rgba(203, 213, 225, 0.60)';
+    ctx.lineWidth = active ? 3 : 1.5;
     ctx.stroke();
 
-    // color swatch
+    // Color swatch with specular border
     ctx.fillStyle = `#${(comp.color >>> 0).toString(16).padStart(6, '0')}`;
-    roundRect(ctx, pad + 18, y + 22, 40, 40, 10);
+    roundRect(ctx, pad + 20, y + 22, 48, 48, 12);
     ctx.fill();
+    ctx.strokeStyle = 'rgba(148, 163, 184, 0.40)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
 
-    ctx.fillStyle = '#f8fafc';
+    ctx.fillStyle = '#0f172a';
     ctx.font = '700 28px "Outfit", system-ui, sans-serif';
-    ctx.fillText(comp.formula || comp.id, pad + 76, y + 38);
-    ctx.fillStyle = 'rgba(203, 213, 225, 0.95)';
-    ctx.font = '600 22px "Noto Sans SC", system-ui, sans-serif';
-    ctx.fillText(comp.name_zh || '', pad + 76, y + 68);
+    ctx.fillText(comp.formula || comp.id, pad + 84, y + 42);
+    ctx.fillStyle = '#475569';
+    ctx.font = '600 20px "Noto Sans SC", system-ui, sans-serif';
+    ctx.fillText(comp.name_zh || '', pad + 84, y + 70);
 
     hits.push({
       x: pad, y, w: W - pad * 2, h: rowH,
@@ -176,75 +203,85 @@ export function drawChemRightPanel(ctx, W, H, data = {}) {
 }
 
 /**
- * Front floating periodic table / reagent picker.
- * data.pickerPhase: 'elements' | 'reagents'
+ * Front floating periodic table / reagent picker (W=1660, H=960).
  */
 export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
   const hits = [];
   fillGlass(ctx, W, H);
-  const pad = 32;
+  const pad = 36;
   const phase = data.pickerPhase || 'elements';
   const activeCup = data.activeCup || 'A';
 
-  ctx.fillStyle = '#34d399';
+  ctx.fillStyle = '#0f172a';
   ctx.font = '700 36px "Outfit", "Noto Sans SC", system-ui, sans-serif';
-  ctx.fillText(phase === 'elements' ? '元素周期表 · 选择元素' : '常见试剂 · 装入烧杯', pad, 52);
-  ctx.fillStyle = 'rgba(226, 232, 240, 0.75)';
-  ctx.font = '600 22px "Noto Sans SC", system-ui, sans-serif';
-  ctx.fillText(`当前烧杯 ${activeCup}`, pad, 88);
+  ctx.fillText(phase === 'elements' ? '元素周期表 · 选择元素' : '常见试剂 · 装入烧杯', pad, 58);
+  ctx.fillStyle = '#64748b';
+  ctx.font = '600 20px "Noto Sans SC", system-ui, sans-serif';
+  ctx.fillText(`当前烧杯 ${activeCup}`, pad, 92);
 
-  // Close
-  const closeW = 56;
-  roundRect(ctx, W - pad - closeW, 22, closeW, 48, 12);
-  ctx.fillStyle = 'rgba(248, 113, 113, 0.25)';
+  // Close button (Vision Pro glass pill)
+  const closeW = 52;
+  roundRect(ctx, W - pad - closeW, 26, closeW, 48, 14);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
   ctx.fill();
-  ctx.fillStyle = '#fecaca';
-  ctx.font = '700 28px system-ui';
+  ctx.strokeStyle = 'rgba(203, 213, 225, 0.60)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+  ctx.fillStyle = '#0f172a';
+  ctx.font = '700 26px system-ui';
   ctx.textAlign = 'center';
-  ctx.fillText('×', W - pad - closeW / 2, 56);
+  ctx.fillText('×', W - pad - closeW / 2, 58);
   ctx.textAlign = 'left';
   hits.push({
-    x: W - pad - closeW, y: 22, w: closeW, h: 48,
+    x: W - pad - closeW, y: 26, w: closeW, h: 48,
     action: 'chem-close-picker', role: 'chem_ui',
   });
 
   if (phase === 'reagents') {
     const el = getElement(data.pickedElement);
     const reagents = getReagentsForElement(data.pickedElement) || [];
-    // Back
-    roundRect(ctx, pad, 110, 140, 48, 12);
-    ctx.fillStyle = 'rgba(148, 163, 184, 0.25)';
+    // Back button
+    roundRect(ctx, pad, 116, 140, 48, 14);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
     ctx.fill();
-    ctx.fillStyle = '#e2e8f0';
-    ctx.font = '700 22px "Noto Sans SC", system-ui';
-    ctx.fillText('← 返回', pad + 28, 142);
+    ctx.strokeStyle = 'rgba(203, 213, 225, 0.60)';
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    ctx.fillStyle = '#0f172a';
+    ctx.font = '700 20px "Noto Sans SC", system-ui';
+    ctx.fillText('← 返回', pad + 28, 146);
     hits.push({
-      x: pad, y: 110, w: 140, h: 48,
+      x: pad, y: 116, w: 140, h: 48,
       action: 'chem-picker-back', role: 'chem_ui',
     });
 
-    ctx.fillStyle = 'rgba(167, 243, 208, 0.98)';
+    ctx.fillStyle = '#0f172a';
     ctx.font = '700 26px "Outfit", system-ui';
-    ctx.fillText(`${el?.symbol || ''} · ${el?.name_zh || ''}`, pad + 160, 142);
+    ctx.fillText(`${el?.symbol || ''} · ${el?.name_zh || ''}`, pad + 164, 146);
 
-    let y = 180;
+    let y = 188;
     reagents.forEach((r) => {
-      const rowH = 80;
-      roundRect(ctx, pad, y, W - pad * 2, rowH, 16);
-      ctx.fillStyle = 'rgba(15, 23, 42, 0.55)';
+      const rowH = 84;
+      roundRect(ctx, pad, y, W - pad * 2, rowH, 18);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.60)';
       ctx.fill();
-      ctx.strokeStyle = 'rgba(52, 211, 153, 0.5)';
-      ctx.lineWidth = 2;
+      ctx.strokeStyle = 'rgba(203, 213, 225, 0.60)';
+      ctx.lineWidth = 1.5;
       ctx.stroke();
+
       ctx.fillStyle = `#${(r.color >>> 0).toString(16).padStart(6, '0')}`;
-      roundRect(ctx, pad + 18, y + 20, 40, 40, 10);
+      roundRect(ctx, pad + 20, y + 20, 44, 44, 12);
       ctx.fill();
-      ctx.fillStyle = '#f8fafc';
+      ctx.strokeStyle = 'rgba(148, 163, 184, 0.40)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+
+      ctx.fillStyle = '#0f172a';
       ctx.font = '700 28px "Outfit", system-ui';
-      ctx.fillText(r.formula, pad + 76, y + 36);
-      ctx.fillStyle = 'rgba(203, 213, 225, 0.95)';
-      ctx.font = '600 22px "Noto Sans SC", system-ui';
-      ctx.fillText(r.name_zh, pad + 76, y + 64);
+      ctx.fillText(r.formula, pad + 80, y + 38);
+      ctx.fillStyle = '#475569';
+      ctx.font = '600 20px "Noto Sans SC", system-ui';
+      ctx.fillText(r.name_zh, pad + 80, y + 66);
       hits.push({
         x: pad, y, w: W - pad * 2, h: rowH,
         action: 'chem-pick-reagent',
@@ -256,15 +293,15 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
     return { hits };
   }
 
-  // Element grid — larger cells for readable symbols
+  // Element grid
   const cols = 17;
   const rows = 5;
-  const gridTop = 110;
+  const gridTop = 118;
   const gridLeft = pad;
   const gridW = W - pad * 2;
   const gridH = H - gridTop - pad;
   const cellW = gridW / cols;
-  const cellH = Math.min(110, gridH / rows);
+  const cellH = Math.min(125, gridH / rows);
 
   for (const el of CHEM_ELEMENTS) {
     const { col, row } = elementGridCell(el);
@@ -272,18 +309,19 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
     const y = gridTop + row * cellH + 3;
     const cw = cellW - 6;
     const ch = cellH - 6;
-    roundRect(ctx, x, y, cw, ch, 10);
-    ctx.fillStyle = 'rgba(6, 78, 59, 0.6)';
+    roundRect(ctx, x, y, cw, ch, 12);
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.65)';
     ctx.fill();
-    ctx.strokeStyle = 'rgba(52, 211, 153, 0.55)';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(203, 213, 225, 0.50)';
+    ctx.lineWidth = 1.5;
     ctx.stroke();
-    ctx.fillStyle = '#ecfdf5';
+
+    ctx.fillStyle = '#0f172a';
     const symSize = Math.max(22, Math.min(36, cw * 0.55));
     ctx.font = `700 ${symSize}px "Outfit", system-ui`;
     ctx.textAlign = 'center';
     ctx.fillText(el.symbol, x + cw / 2, y + ch * 0.48);
-    ctx.fillStyle = 'rgba(167, 243, 208, 0.9)';
+    ctx.fillStyle = '#475569';
     const nameSize = Math.max(14, Math.min(20, cw * 0.32));
     ctx.font = `600 ${nameSize}px "Noto Sans SC", system-ui`;
     ctx.fillText(el.name_zh, x + cw / 2, y + ch * 0.78);

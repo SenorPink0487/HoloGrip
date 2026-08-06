@@ -31,5 +31,5 @@ export function isChemMode(mode = resolveLabMode()) {
   return mode === 'chem';
 }
 
-export const CHEM_ACCENT = '#34d399';
-export const CHEM_ACCENT_NUM = 0x34d399;
+export const CHEM_ACCENT = '#0f172a';
+export const CHEM_ACCENT_NUM = 0x0f172a;

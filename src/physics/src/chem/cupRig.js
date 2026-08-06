@@ -5,6 +5,7 @@
 
 import { blendColors } from './reagentCatalog.js';
 import { createMoleculeMesh, createFallbackMolecule } from './moleculeMesh.js';
+import { getMoleculePanel } from './moleculePanel.js';
 
 const POUR_NEAR = 0.55;
 
@@ -316,20 +317,28 @@ export function createChemCupRig(THREE, opts = {}) {
   }
 
   function showMoleculeFromSdf(sdf, formula) {
+    // Prefer original HoloChem 3Dmol floating panel (改造前样式).
+    // Keep a lightweight Three fallback on the pedestal if panel fails.
     clearMolecule();
     try {
-      molecule = sdf
-        ? createMoleculeMesh(THREE, sdf, { scale: 0.11 })
-        : createFallbackMolecule(THREE, formula);
-    } catch {
-      molecule = createFallbackMolecule(THREE, formula);
+      getMoleculePanel().showSdf(sdf || '', formula || '');
+    } catch (err) {
+      console.warn('[chem] molecule panel failed, using scene mesh', err);
+      try {
+        molecule = sdf
+          ? createMoleculeMesh(THREE, sdf, { scale: 0.11 })
+          : createFallbackMolecule(THREE, formula);
+      } catch {
+        molecule = createFallbackMolecule(THREE, formula);
+      }
+      molecule.position.set(0, 0.35, 0);
+      molecule.scale.setScalar(1.1);
+      pedestal.add(molecule);
     }
-    molecule.position.set(0, 0.35, 0);
-    molecule.scale.setScalar(1.1);
-    pedestal.add(molecule);
   }
 
   function clearMolecule() {
+    try { getMoleculePanel().hide(); } catch { /* ignore */ }
     if (!molecule) return;
     pedestal.remove(molecule);
     molecule.traverse?.((obj) => {

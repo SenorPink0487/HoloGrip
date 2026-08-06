@@ -1,7 +1,8 @@
 /**
  * Chemistry always-on floating holos (left status / right composition / front picker).
  *
- * Vision Pro style floating window — rounded glass with soft rim glow and depth.
+ * Vision Pro style floating window — rounded translucent frosted glass with soft specular glow,
+ * light mode theme and positioned behind the desk beakers for intuitive spatial interaction.
  */
 
 import {
@@ -32,8 +33,8 @@ export function makeChemHolo(THREE, opts) {
     title,
     pos,
     rotY = 0,
-    panelW = 1.15,
-    panelH = 1.45,
+    panelW = 1.50,
+    panelH = 1.15,
     primitives,
   } = opts;
   const { rbox } = primitives;
@@ -45,32 +46,32 @@ export function makeChemHolo(THREE, opts) {
   g.position.set(...pos);
   g.rotation.y = rotY;
 
-  // Vision Pro style rounded glass panel — soft frosted glass with rim glow
+  // Vision Pro style light-mode frosted crystal glass panel
   const panelMat = new THREE.MeshPhysicalMaterial({
-    color: 0x0f172a,
-    metalness: 0.15,
-    roughness: 0.22,
-    transmission: 0.55,
+    color: 0xffffff,
+    metalness: 0.05,
+    roughness: 0.12,
+    transmission: 0.85,
     thickness: 0.04,
     transparent: true,
-    opacity: 0.92,
+    opacity: 0.85,
     side: THREE.DoubleSide,
     depthWrite: false,
   });
 
-  // Large rounded glass with generous corner radius
-  const glass = rbox(panelW, panelH, 0.01, panelMat, 0.12, 12);
+  // Large rounded glass panel with Vision Pro corner radius
+  const glass = rbox(panelW, panelH, 0.01, panelMat, 0.14, 14);
   glass.position.z = 0.004;
   g.add(glass);
 
-  // Soft outer rim glow (Vision Pro style edge light)
+  // Soft outer rim glow (luminous white specular edge light)
   const rim = rbox(panelW + 0.022, panelH + 0.022, 0.014,
     new THREE.MeshBasicMaterial({
-      color: accentNum,
+      color: 0xffffff,
       transparent: true,
-      opacity: 0.32,
+      opacity: 0.45,
     }),
-    0.14, 12);
+    0.15, 14);
   rim.position.z = -0.008;
   g.add(rim);
 
@@ -79,27 +80,27 @@ export function makeChemHolo(THREE, opts) {
     new THREE.MeshBasicMaterial({
       color: 0xffffff,
       transparent: true,
-      opacity: 0.18,
+      opacity: 0.35,
     }),
     0.008, 4);
-  highlight.position.set(0, panelH * 0.42, 0.012);
+  highlight.position.set(0, panelH * 0.43, 0.012);
   g.add(highlight);
 
-  // Back face with slight depth
+  // Back face with translucent depth
   const backMat = new THREE.MeshBasicMaterial({
-    color: 0x0f172a,
+    color: 0xf8fafc,
     transparent: true,
-    opacity: 0.55,
+    opacity: 0.45,
     side: THREE.FrontSide,
   });
-  const back = rbox(panelW, panelH, 0.012, backMat, 0.12, 12);
+  const back = rbox(panelW, panelH, 0.012, backMat, 0.14, 14);
   back.rotation.y = Math.PI;
   back.position.z = -0.014;
   g.add(back);
 
-  // Higher canvas res so large fonts stay sharp on the floating panels.
-  const CW = kind === 'periodic' ? 1600 : 900;
-  const CH = kind === 'periodic' ? 1100 : 1200;
+  // High canvas resolution matching Vision Pro ratios.
+  const CW = kind === 'periodic' ? 1660 : 1200;
+  const CH = kind === 'periodic' ? 960 : 920;
   const canvas = document.createElement('canvas');
   canvas.width = CW;
   canvas.height = CH;
@@ -115,12 +116,12 @@ export function makeChemHolo(THREE, opts) {
   const screenMat = new THREE.MeshBasicMaterial({
     map: tex,
     transparent: true,
-    opacity: 0.97,
+    opacity: 0.98,
     side: THREE.DoubleSide,
     depthWrite: false,
     toneMapped: false,
   });
-  // Plane for reliable UV picking; canvas content already has rounded glass look.
+  // Plane for UV picking
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(panelW * 0.96, panelH * 0.96), screenMat);
   screen.position.z = 0.008;
   screen.userData.stationId = 'chem';
@@ -131,7 +132,7 @@ export function makeChemHolo(THREE, opts) {
   g.add(screen);
 
   g.userData.stationId = 'chem';
-  g.userData.type = kind === 'periodic' ? 'holo_display' : 'holo_display';
+  g.userData.type = 'holo_display';
   g.userData.role = 'holo_display';
   g.userData.chemKind = kind;
   g.userData.interactive = true;
@@ -150,7 +151,6 @@ export function makeChemHolo(THREE, opts) {
 
   function setHud(hud) {
     boundData = hud?.data || hud || {};
-    // Periodic only when picker open
     if (kind === 'periodic') {
       const open = !!boundData.pickerOpen;
       setPresent(open);
@@ -211,7 +211,6 @@ export function makeChemHolo(THREE, opts) {
   g.userData.screenAimFromRay = screenAimFromRay;
   g.userData.boundData = () => boundData;
 
-  // Initial paint
   if (kind !== 'periodic') {
     setPresent(true);
     draw(true);
@@ -219,7 +218,6 @@ export function makeChemHolo(THREE, opts) {
     setPresent(false);
   }
 
-  // Face the player (soft yaw)
   const _world = new THREE.Vector3();
   const _cam = new THREE.Vector3();
   function faceCamera(camera) {
@@ -239,37 +237,37 @@ export function makeChemHolo(THREE, opts) {
 }
 
 /**
- * Create the three chem holos around the center island.
+ * Create the three chem holos positioned BEHIND the desk beakers (z=0.55).
  */
 export function createChemHoloSet(THREE, primitives, scene) {
   const left = makeChemHolo(THREE, {
     id: 'chem-left',
     kind: 'left',
     title: '状态',
-    pos: [-1.65, 1.95, 0.95],
-    rotY: Math.PI / 2,
-    panelW: 1.35,
-    panelH: 1.75,
+    pos: [-1.55, 1.72, 0.15],
+    rotY: Math.PI * 0.18,
+    panelW: 1.50,
+    panelH: 1.15,
     primitives,
   });
   const right = makeChemHolo(THREE, {
     id: 'chem-right',
     kind: 'right',
     title: '成分',
-    pos: [1.65, 1.95, 0.95],
-    rotY: -Math.PI / 2,
-    panelW: 1.35,
-    panelH: 1.75,
+    pos: [1.55, 1.72, 0.15],
+    rotY: -Math.PI * 0.18,
+    panelW: 1.50,
+    panelH: 1.15,
     primitives,
   });
   const periodic = makeChemHolo(THREE, {
     id: 'chem-periodic',
     kind: 'periodic',
     title: '周期表',
-    pos: [0, 2.2, 1.7],
+    pos: [0, 1.85, -0.10],
     rotY: 0,
-    panelW: 2.9,
-    panelH: 1.9,
+    panelW: 2.60,
+    panelH: 1.50,
     primitives,
   });
 
