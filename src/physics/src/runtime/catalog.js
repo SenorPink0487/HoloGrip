@@ -39,9 +39,24 @@ export const LAB_CATALOG = Object.freeze({
     { id: 'hall_carrier_demo', name: '霍尔效应原理', goal: '观察电流、磁场、载流子浓度、样品厚度与载流子类型如何共同改变载流子的三维运动和霍尔电压极性。' },
     { id: 'hall_effect', name: '霍尔效应测磁', goal: '调节励磁与霍尔电流，扫描探头位置并比较亥姆霍兹线圈和长螺线管的磁场分布' },
   ]),
+  chem: station('chem', '化学实验台', [
+    { id: 'reagent-mix', name: '试剂混合与结构', goal: '选元素→选试剂→装入烧杯→倾倒混合→查看成分 3D 结构' },
+  ]),
 });
 
+/** Physics corner stations only (chem is opt-in via labMode). */
+export const PHYSICS_STATION_IDS = Object.freeze(
+  Object.keys(LAB_CATALOG).filter((id) => id !== 'chem'),
+);
+
+/** All known station ids including chem. */
 export const STATION_IDS = Object.freeze(Object.keys(LAB_CATALOG));
+
+/** Active boot list depends on lab mode — chem mode only boots chem. */
+export function stationIdsForMode(labMode = 'physics') {
+  if (labMode === 'chem') return Object.freeze(['chem']);
+  return PHYSICS_STATION_IDS;
+}
 
 // The bootstrap uses this mutable view. It starts with names only and is
 // enriched with the full station module after intent prediction confirms use.

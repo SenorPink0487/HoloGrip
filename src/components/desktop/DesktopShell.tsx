@@ -12,7 +12,7 @@ interface SubjectFrameProps {
 
 const SUBJECT_IFRAMES: Record<string, { src: string; title: string }> = {
   physics: { src: '/physics.html', title: 'HoloPhysics 三维物理实验室' },
-  chem: { src: '/chem.html', title: 'HoloChem 分子结构观象台' },
+  chem: { src: '/chem.html', title: 'HoloChem 化学实验室' },
   rocket: { src: '/rocket.html', title: 'HoloRocket 火箭发射仿真' },
   pool: { src: '/pool.html', title: 'HoloPool 三维台球室' },
 };

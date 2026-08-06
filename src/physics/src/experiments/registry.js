@@ -5,6 +5,7 @@ import * as mechanics from './mechanics.js';
 import * as optics from './optics.js';
 import * as electro from './electro.js';
 import * as thermo from './thermo.js';
+import * as chem from './chem.js';
 
 /** Module map: id → { station, createHandlers } */
 export const STATION_MODULES = {
@@ -12,6 +13,7 @@ export const STATION_MODULES = {
   optics,
   electro,
   thermo,
+  chem,
 };
 
 /** Catalog used by HUD / menus */

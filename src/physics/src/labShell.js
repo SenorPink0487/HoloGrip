@@ -50,7 +50,16 @@ import {
   STATION_IDS,
   findExperiment,
   registerStationCatalog,
+  stationIdsForMode,
+  PHYSICS_STATION_IDS,
 } from './runtime/catalog.js';
+import { resolveLabMode, isChemMode, CHEM_ACCENT, CHEM_ACCENT_NUM } from './chem/labMode.js';
+import { createChemHoloSet } from './chem/chemHolos.js';
+
+/** Subject mode: physics (4 corner stations) | chem (center island only). */
+const labMode = resolveLabMode();
+const chemMode = isChemMode(labMode);
+const BOOT_STATION_IDS = stationIdsForMode(labMode);
 
 /** Continuous track or discrete action chip on the tabletop desk panel. */
 function isDeskPanelPick(pick) {
@@ -298,9 +307,15 @@ scene.background = new THREE.Color(0xd6ecff);
 scene.fog = new THREE.FogExp2(0xd6ecff, 0.018);
 
 const camera = new THREE.PerspectiveCamera(68, window.innerWidth / window.innerHeight, 0.06, 60);
-// Spawn inside the room looking toward the lab center (not against the front wall)
-camera.position.set(0, 1.65, 5.0);
-camera.lookAt(0, 1.2, 0);
+// Spawn inside the room looking toward the lab center (not against the front wall).
+// Chem mode: stand at the sitting edge of the center island.
+if (chemMode) {
+  camera.position.set(0, 1.55, 2.85);
+  camera.lookAt(0, 1.15, 0.4);
+} else {
+  camera.position.set(0, 1.65, 5.0);
+  camera.lookAt(0, 1.2, 0);
+}
 
 labLoader.setProgress(0.08, '构建实验室空间…');
 
@@ -1027,9 +1042,12 @@ const STATION_BOOT = Object.freeze({
   optics: { ratio: 0.22, status: '装配光学实验台…' },
   electro: { ratio: 0.26, status: '装配电磁学实验台…' },
   thermo: { ratio: 0.30, status: '装配热力学实验台…' },
+  chem: { ratio: 0.22, status: '装配化学实验台…' },
 });
 const stationScenes = {};
-for (const stationId of STATION_IDS) {
+// Chem mode boots only the center-island chemistry station — never pulls
+// mechanics/optics/electro/thermo modules.
+for (const stationId of BOOT_STATION_IDS) {
   const boot = STATION_BOOT[stationId] || { ratio: 0.24, status: `装配${stationId}…` };
   labLoader.setProgress(boot.ratio, boot.status);
   await yieldToBrowser(12);
@@ -1062,10 +1080,9 @@ const stationPresence = createStationPresence({ stationScenes });
 /** Legacy alias used by room decoration animators registered later. */
 const animators = roomAnimators;
 
-let hallBench = stationScenes.electro.refs.hallBench;
+let hallBench = stationScenes.electro?.refs?.hallBench || null;
 
-// Center island remains shared lab equipment.
-// Center island equipment removed
+// Center island: chemistry apparatus in chem mode; otherwise empty research console.
 sharedProps.animators.forEach(stationContext.registerAnimator);
 
 // ═══════════════════════════════════════════════
@@ -1502,12 +1519,14 @@ const STATION_LABEL = {
   optics: '光学实验台',
   electro: '电磁学实验台',
   thermo: '热力学实验台',
+  chem: '化学实验台',
 };
 const STATION_EN = {
   mechanics: 'MECHANICS',
   optics: 'OPTICS',
   electro: 'ELECTRO',
   thermo: 'THERMO',
+  chem: 'CHEMISTRY',
 };
 
 /** Shared temps for holo billboard / side tests (avoid GC in animate) */
@@ -2353,7 +2372,7 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
 
 // Wall-side table edges; hologram free-yaws toward the player from either side
 // tables: mechanics/optics w=3.4 @ x=±4.2,z=-2.8 | electro/thermo w=2.8 @ x=±4.2,z=2.6
-const holoConfigs = [
+const holoConfigs = chemMode ? [] : [
   { id: 'mechanics', title: '力学', accent: '#38bdf8', accentNum: 0x38bdf8, pos: [-5.72, 0.93, -2.8], rotY: -Math.PI / 2 },
   { id: 'electro', title: '电磁学', accent: '#f472b6', accentNum: 0xf472b6, pos: [-5.42, 0.93, 2.6], rotY: Math.PI / 2 },
   { id: 'optics', title: '光学', accent: '#fbbf24', accentNum: 0xfbbf24, pos: [5.72, 0.93, -2.8], rotY: Math.PI / 2 },
@@ -2363,7 +2382,7 @@ const holoConfigs = [
 // Offset farther from each bench so the panel clears equipment / hands more cleanly.
 // Content displays sit slightly above table height so the bench stays visible.
 // Param sliders are physical controls flush on the sitting edge (see deskSliderPanels).
-const displayConfigs = [
+const displayConfigs = chemMode ? [] : [
   { id: 'mechanics', title: '力学', accent: '#38bdf8', accentNum: 0x38bdf8, pos: [-4.2, 2.15, -4.05], rotY: 0 },
   { id: 'optics', title: '光学', accent: '#fbbf24', accentNum: 0xfbbf24, pos: [4.2, 2.15, -4.05], rotY: 0 },
   // Electro sits a bit lower so the panel clears less of the upper view / is easier to aim.
@@ -2392,6 +2411,26 @@ displayConfigs.forEach(({ id, title, accent, accentNum, pos, rotY }) => {
   if (holos[id]) holos[id].userData.display = d;
 });
 
+// Chemistry always-on L/R holos + on-demand periodic table (center island).
+/** @type {{ left?: object, right?: object, periodic?: object, list: object[] } | null} */
+const chemHoloSet = chemMode
+  ? createChemHoloSet(THREE, primitives, scene)
+  : null;
+if (chemHoloSet) {
+  // Register as chem displays so HUD push + interactables can find them.
+  stationDisplays.chem = chemHoloSet.left;
+  stationDisplays['chem-right'] = chemHoloSet.right;
+  stationDisplays['chem-periodic'] = chemHoloSet.periodic;
+  holos.chem = chemHoloSet.left;
+
+  // Always yaw L/R/periodic holos toward the player (room animator, not station-gated).
+  stationContext.registerAnimator(() => {
+    chemHoloSet.list.forEach((panel) => {
+      try { panel.userData.faceCamera?.(camera); } catch { /* ignore */ }
+    });
+  });
+}
+
 // Tabletop param sliders — flush on the sitting edge, clear of apparatus.
 // Table tops: makeTechTable h=0.88, top thickness 0.05 → surface y ≈ 0.905.
 // mechanics/optics: w=3.4 d=1.15 @ (±4.2, -2.8) → x∈[±2.5,±5.9], z∈[-3.375,-2.225]
@@ -2399,7 +2438,7 @@ displayConfigs.forEach(({ id, title, accent, accentNum, pos, rotY }) => {
 // Sitting edge = table +Z. Panel grows inward (−Z). X parks next to the nameplate
 // in the free front corner so multi-row cards don't sit under the experiment rail.
 const DESK_TOP_Y = 0.908;
-const DESK_SLIDER_LAYOUT = {
+const DESK_SLIDER_LAYOUT = chemMode ? {} : {
   // mechanics nameplate @ (-2.85, -2.32) → panel further −X (room-outer free corner)
   mechanics: {
     worldX: -4.55, worldY: DESK_TOP_Y, worldZ: -2.24,
@@ -2476,10 +2515,11 @@ const equipment = {
   holos,
   displays: stationDisplays,
   deskSliders: deskSliderPanels,
-  mechanics: stationScenes.mechanics.equipment,
-  optics: stationScenes.optics.equipment,
-  electro: stationScenes.electro.equipment,
-  thermo: stationScenes.thermo.equipment,
+  mechanics: stationScenes.mechanics?.equipment || null,
+  optics: stationScenes.optics?.equipment || null,
+  electro: stationScenes.electro?.equipment || null,
+  thermo: stationScenes.thermo?.equipment || null,
+  chem: stationScenes.chem?.equipment || null,
 };
 const loadedStationModules = {};
 
@@ -3158,6 +3198,8 @@ function pushHudToHoloScreens(hud) {
 
   Object.entries(stationDisplays).forEach(([id, d]) => {
     if (!d?.userData) return;
+    // Chem always-on holos are managed below — never force-hide them here.
+    if (d.userData.chemKind) return;
     const want = runningHere && id === activeId;
     if (!want && (d.userData.present || d.userData.active)) {
       // Hide without painting dense experiment chrome.
@@ -3173,6 +3215,18 @@ function pushHudToHoloScreens(hud) {
       d.userData.setPresent?.(true);
     }
   });
+
+  // Chemistry L/R always-on + periodic picker: push data every HUD pulse.
+  if (chemHoloSet && payload) {
+    const chemData = payload.data || {};
+    labFrameScheduler.schedule('hud:chem-holos', () => {
+      const snap = lastHudSnapshot;
+      const data = snap?.data || chemData;
+      chemHoloSet.list.forEach((panel) => {
+        try { panel.userData.setHud?.({ data, ...snap }); } catch { /* ignore */ }
+      });
+    }, { priority: 98 });
+  }
 
   if (!activeId || !payload) return;
 
@@ -3196,7 +3250,8 @@ function pushHudToHoloScreens(hud) {
 
   // ── Content display: shell first, dense layout off the open frame ──
   // Never run full drawHoloScreen on the switch frame; schedule it after.
-  if (runningHere) {
+  // Chem uses dedicated holos (not the physics display painter).
+  if (runningHere && activeId !== 'chem') {
     const display = stationDisplays[activeId];
     const expId = hud.experiment?.id || payload.expId || '';
     const hasLiveContent = !!(
@@ -4301,6 +4356,7 @@ function unlockedElectroPick(event) {
     'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
     'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
     'desk_param_panel',
+    'chem_cup_a', 'chem_cup_b',
   ];
   for (const role of preferredRoles) {
     const hit = hits.find((entry) => {
@@ -5028,6 +5084,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
     'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
     'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
     'desk_param_panel',
+    'chem_cup_a', 'chem_cup_b',
   ]);
   const directIsCharge = !!(
     directTarget
@@ -5170,6 +5227,20 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
   }
 
   if (target) {
+    const chemCup = target.userData?.role === 'chem_cup_a' || target.userData?.role === 'chem_cup_b';
+    // Chem cups: ensure experiment is running, then click opens picker / drag pours.
+    if (chemCup && chemMode && !expManager?.state?.running) {
+      void (async () => {
+        try {
+          await openStationMenuSafe('chem');
+          await startExperimentSafe('reagent-mix');
+          expManager?.interact?.(target, clock.elapsedTime);
+        } catch (err) {
+          console.warn('[lab] chem cup cold-start failed', err);
+        }
+      })();
+      return;
+    }
     if (directContext) {
       expManager.beginManipulation(target, {
         ...directContext,
@@ -6313,6 +6384,7 @@ function focusStationForMenu(stationId) {
     optics: { position: [4.15, 1.55, -1.15], target: [4.2, 1.02, -2.8] },
     electro: { position: [-4.0, 1.45, 3.65], target: [-4.0, 1.12, 2.55] },
     thermo: { position: [4.2, 1.6, 4.9], target: [4.2, 1.28, 2.6] },
+    chem: { position: [0, 1.55, 2.85], target: [0, 1.15, 0.4] },
   }[stationId];
   if (!preset) return false;
   const position = new THREE.Vector3().fromArray(preset.position);
@@ -6334,6 +6406,7 @@ const stationPredictionPoints = Object.freeze({
   optics: new THREE.Vector3(4.2, 1, -2.8),
   electro: new THREE.Vector3(-4.2, 1, 2.6),
   thermo: new THREE.Vector3(4.2, 1, 2.6),
+  chem: new THREE.Vector3(0, 1, 0.4),
 });
 const stationPredictionDirection = new THREE.Vector3();
 const stationPredictionVector = new THREE.Vector3();
@@ -6452,9 +6525,27 @@ async function bootReveal() {
     const wait = Math.max(0, MIN_BOOT_MS - (performance.now() - bootStarted));
     if (wait) await new Promise((r) => setTimeout(r, wait));
 
-    labLoader.setProgress(1, '系统就绪 · 欢迎进入实验室');
+    labLoader.setProgress(1, chemMode ? '系统就绪 · 欢迎进入化学实验室' : '系统就绪 · 欢迎进入实验室');
     await labLoader.finish();
     labPerfStats.bootMs = Number((performance.now() - bootStarted).toFixed(2));
+
+    // Chem mode: skip station menu — hot the island and start reagent-mix immediately.
+    if (chemMode) {
+      try {
+        markUserIntent?.();
+        await openStationMenuSafe('chem');
+        await startExperimentSafe('reagent-mix');
+        focusStationForMenu('chem');
+        // Keep L/R holos present after manager open (manager may hide displays).
+        chemHoloSet?.left?.userData?.setPresent?.(true);
+        chemHoloSet?.right?.userData?.setPresent?.(true);
+        invalidateStationPickables?.('chem');
+        showToast?.('化学实验台就绪 · 点击烧杯选择试剂');
+      } catch (err) {
+        console.warn('[lab] chem auto-start failed', err);
+      }
+    }
+
     if (window.__labDebug) {
       Object.assign(window.__labDebug, labPerfSnapshot());
     }

@@ -271,10 +271,21 @@ export function createExperimentManager({
     setSelectorActive(stationId, true, { paint: true });
     openTiming?.mark?.('selectorPaint', { dtMs: performance.now() - tSel });
     // Content display stays hidden until an experiment card is chosen.
+    // Chem always-on holos (chemKind) stay present.
     Object.values(equipment.displays || {}).forEach((d) => {
+      if (d?.userData?.chemKind === 'left' || d?.userData?.chemKind === 'right') return;
+      if (d?.userData?.chemKind === 'periodic') {
+        // periodic only when picker open — force hide on menu open
+        d?.userData?.setPresent?.(false);
+        return;
+      }
       d?.userData?.setPresent?.(false);
     });
-    toast(`已打开 ${stationCatalog[stationId]?.title || ''} · 请选择实验`);
+    toast(
+      stationId === 'chem'
+        ? `已打开 ${stationCatalog[stationId]?.title || ''} · 中央岛实验台`
+        : `已打开 ${stationCatalog[stationId]?.title || ''} · 请选择实验`,
+    );
     pushHud();
     openTiming?.mark?.('menuBookkeepingDone', { clickMs: performance.now() - t0 });
     openTiming?.end?.({ phase: 'menu' });

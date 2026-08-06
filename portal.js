@@ -358,15 +358,15 @@ const projectDetails = {
         `,
     },
     chemistry: {
-        title: '03 / HoloChem 原子观象台',
-        tag: 'CHEMISTRY // HOLOCHEM V1.0',
+        title: '03 / HoloChem 化学实验室',
+        tag: 'CHEMISTRY // HOLOCHEM LAB',
         desc:
-            'HoloChem 是 AI 驱动的沉浸式 3D 分子结构观象台。支持日常物品描述、化学式、中英文名与 SMILES 检索；DeepSeek 自动拆解混合物成分，PubChem 拉取真实 3D 结构，球棍模型可旋转缩放，成分圆环可切换各组分分子。',
+            'HoloChem 与物理实验室共享三维场景，以中央岛为化学实验台。左右全息屏常态显示状态与成分；点击烧杯打开元素周期表并选择常见试剂，鼠标或 AR 手势可抓取倾倒混合，右侧点击成分即可在桌上显示 3D 分子结构。',
         specs: {
-            engine: '3Dmol.js + PubChem REST',
-            perf: 'WebGL Molecule Viewer + AI Resolve',
-            algorithm: 'Mixture → Pure Molecule Decomposition',
-            version: 'v1.0.0',
+            engine: 'Three.js Lab Shell + PubChem',
+            perf: 'Shared Room · Chem-only Station Load',
+            algorithm: 'Reagent Mix · Ball-stick Structure',
+            version: 'v2.0.0',
         },
         demoColor: 'var(--accent-purple)',
         visualClass: 'chemistry-modal-demo',

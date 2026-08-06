@@ -13,6 +13,7 @@ const stationLoaders = Object.freeze({
   thermo: () => import('../scene/stations/thermo.js'),
   optics: () => import('../scene/stations/optics.js'),
   electro: () => import('../scene/stations/electro.js'),
+  chem: () => import('../scene/stations/chem.js'),
 });
 
 const experimentLoaders = Object.freeze({
@@ -20,6 +21,7 @@ const experimentLoaders = Object.freeze({
   thermo: () => import('../experiments/thermo.js'),
   optics: () => import('../experiments/optics.js'),
   electro: () => import('../experiments/electro.js'),
+  chem: () => import('../experiments/chem.js'),
 });
 
 const stationRuntimeLoaders = Object.freeze({
