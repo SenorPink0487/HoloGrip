@@ -7,8 +7,8 @@
     <img src="https://img.shields.io/badge/Three.js-r184-000000?logo=three.js" alt="Three.js" />
     <img src="https://img.shields.io/badge/Tauri-v2.11-FFC131?logo=tauri" alt="Tauri v2" />
     <img src="https://img.shields.io/badge/Rust-2021-000000?logo=rust" alt="Rust" />
-    <img src="https://img.shields.io/badge/AI-Gemini_3.5_/_Pro-4285F4?logo=google" alt="Google Gemini" />
-    <img src="https://img.shields.io/badge/Codebase-117k+_LOC-brightgreen" alt="117k+ Lines of Code" />
+    <img src="https://img.shields.io/badge/AI-Gemini_3.5_/_DeepSeek-4285F4?logo=google" alt="Google Gemini & DeepSeek" />
+    <img src="https://img.shields.io/badge/Codebase-220k+_LOC-brightgreen" alt="220k+ Lines of Code" />
     <img src="https://img.shields.io/badge/License-GPL--3.0-blue.svg" alt="GPL-3.0 License" />
   </p>
 </div>
@@ -17,45 +17,46 @@
 
 ## 🌟 项目简介
 
-**HoloGrip** 是一款前沿的**免穿戴式 AR（增强现实）空间计算与全息教辅平台**。打破传统硬件对昂贵 VR/AR 头显的依赖，HoloGrip 仅需标准网络摄像头，即可基于 **MediaPipe 21 点手势追踪** 与 **Three.js 高性能 3D 渲染**，实现自然流畅的裸眼手势空间交互。
+**HoloGrip** 是一款前沿的**免穿戴式 AR（增强现实）空间计算与全息教辅/科学仿真平台**。无需昂贵且沉重的 VR/AR 头显设备，仅凭标准电脑或平板的摄像头，通过 **MediaPipe 21 点手势追踪** 与 **Three.js 高性能 3D 渲染引擎**，即可实现自然流畅的裸眼手势空间交互。
 
-经过重大架构升级与多模块拓展，本项目已成长为代码规模超 **117,000+ 行** 的综合性全息教育与科学仿真系统。系统不仅涵盖数学立体几何与函数分析，还扩展到了**高级物理实验室**、**火箭航天动力学工坊**与**高精度 3D 物理碰撞实验室**，并深度集成了 **Google Gemini 多模态大模型** 与独立 **Rust 安全中转后端**。
+平台经过深度演进与模块扩展，全案代码规模已达 **220,000+ 行**（400+ 个源码文件），构建了涵盖**数学几何与全息白板**、**高级物理实验室**、**火箭航天动力学工坊**、**3D 刚体碰撞台球**与**化学分子观象台**的五位一体科学仿真生态系统，并深度集成了 **Google Gemini 多模态 AI** 与 **Rust (Axum + Tokio) 高性能安全后端**。
 
 ---
 
 ## 🚀 核心功能模块
 
-### 1. 📐 HoloMath 3D 几何与数学工具箱
-- **全息几何黑板 (GeometryBoard & MathModel)**：支持在三维空间中自由绘制点、线、面及复杂多面体/旋转体，实时解算边长、角度与空间关系。
-- **3D 隐/显式函数探索器 (FunctionExplorer)**：输入复杂三维数学方程，自动生成高精度动态渲染曲面，支持空间切平面推导与图像切片分析。
-- **全息 3D 计算器 (Calculator3D)**：三维矩阵、向量几何与微积分运算的可视化交互计算器。
-- **Gemini 多模态 2D 题目 3D 重构**：框选或上传 2D 几何题目截图，调用 Gemini 3.5 多模态模型解析空间拓扑关系，一键重构生成可旋转、拆解的 3D 几何实体模型。
+### 1. 📐 HoloMath 3D 几何与全息交互黑板
+- **全息几何画板 (`GeometryBoard` & `MathModel`)**：三维空间自由绘制点、线、面及立体几何实体，实时解算边长、夹角、相交与投影拓扑关系。
+- **3D 隐/显式函数探索器 (`FunctionExplorer`)**：支持三维显式方程与隐式曲面方程的实时高精度渲染、动态切平面推导与空间平面切片分析。
+- **全息 3D 可视化计算器 (`Calculator3D`)**：结合三维矩阵、向量几何与微积分运算的可视化计算器。
+- **AI 2D 题目 3D 重构引擎**：框选或上传平面几何题目图片，调用 Gemini 多模态模型解析空间拓扑，一键重构生成可旋转、拆解与度量的 3D 几何实体。
+- **全息协作白板 (`WhiteboardApp`)**：支持图层叠加、3D 组件嵌入与实时绘制协作。
 
 ### 2. ⚛️ Physics Lab 高级物理仿真实验室
-- **电磁学仿真**：
-  - **法拉第电磁感应**：实时解算磁通量变化率，动态可视化感应电流方向、安培力及空间磁感线。
-  - **霍尔效应与洛伦兹力**：粒子级演示磁场对偏转电子的洛伦兹力作用及霍尔电压形成机制。
-- **光学与热学模块**：光路折射/反射透镜仿真及热力学微观分子运动模拟。
-- **力学与流体黏度实验 (Viscosity & Mechanics)**：流体力学阻力与黏度系数动态测试。
-- **全息数据屏与公式板 (HoloScreen & FormulaBoard)**：内置高帧率数据图表与仪表盘，支持实验物理量的实时量化监测。
-- **异步性能优化**：手势追踪基于 Web Worker 双线程解算，结合 `frameBudget.js` 帧预算调度引擎，保障 60 FPS 稳定渲染。
+- **电磁学场域仿真**：
+  - **法拉第电磁感应**：磁通量变化率实时解算、感应电流方向与洛伦兹/安培力空间磁感线动态渲染。
+  - **霍尔效应与粒子偏转**：粒子级模拟磁场对偏转电子束的作用机制及霍尔电压生成。
+- **光学与热学仿真**：光路折射/反射透镜成像及热力学分子无规则运动微观模拟。
+- **力学与流体黏度试验**：流体阻力、落球法黏度系数测量与动力学曲线监测。
+- **性能调度与架构**：采用 Worker 线程解算手势与物理步进，结合 `frameBudget.js` 帧预算调度，保障 60 FPS 稳定流畅渲染。
 
 ### 3. 🚀 Rocket Launch 航天动力学与飞船工坊
-- **飞船自定义设计工坊 (Design Studio & Craft Mesh)**：模块化搭建火箭与飞船，自由调整质量分布、推进器推力向量与气动外形。
-- **星际深空与轨道力学 (Space Scene)**：多天体引力场模拟、轨道转移（霍曼转移轨道）与逃逸速度推导。
-- **气动力学与气动热测试**：在大气层穿梭与气动阻力、比冲（Isp）及热防护模拟中检验飞船设计。
+- **3D 飞船自定义搭建工坊 (`Design Studio`)**：模块化拼装火箭与宇宙飞船，自定义推力向量、比冲（Isp）、质心分布与气动外形。
+- **深空多天体引力场 (`Space Scene`)**：模拟多天体引力、霍曼转移轨道、逃逸速度推导与轨道转移捕获。
+- **大气穿梭与气动热**：模拟高空大气阻力、气动加热与热防护系统表现。
 
-### 4. 🎱 HoloPool 3D 物理碰撞实验室
-- **高精度刚体物理**：基于 Cannon-es 与自定义物理引擎，精准模拟双球碰撞、库边反弹、摩擦力衰减与旋转动量传导。
-- **裸眼手势控杆**：手势控制球杆击球角度与击球力度，实时预测击球碰撞轨迹。
+### 4. 🎱 HoloPool 3D 刚体物理碰撞实验室
+- **高精度物理引擎**：基于 Cannon-es 与自定义 Kinematics 引擎，精准解算双球碰撞、库边反弹、摩擦力衰减与旋转动量传递。
+- **裸眼手势控杆**：手势实时控制球杆击球视角、倾角与击球力度，实时预测碰撞运动轨迹。
+- **WebSocket 实时对局**：通过 Rust 后端 (`pool_live.rs`) 实现低延迟双人在线物理对战。
 
-### 5. 🧪 HoloChem 原子观象台
-- **3D 分子结构**：基于 3Dmol.js 渲染球棍/空间填充等模型，支持旋转、缩放与原子标签。
-- **PubChem + AI 拆解**：化学式 / SMILES / 中英文名直查；日常物品由 DeepSeek 拆为可检索纯分子并估算占比。
-- **成分圆环**：多组分产品可点击扇区切换对应分子结构；支持 A+B 质量比混合。
+### 5. 🧪 HoloChem 3D 分子观象台
+- **3D 分子结构渲染**：集成 3Dmol.js，支持球棍模型、空间填充模型与原子标签自由切换。
+- **PubChem + DeepSeek AI 拆解**：支持化学式 / SMILES / 名称查询；日常物品由 DeepSeek 智能拆解为分子组成并估算质量占比。
+- **多组分成分交互圆环**：交互式扇区图，点击直接切换对应三维分子结构，支持 A+B 混合配比模拟。
 
-### 6. 🌐 统一门户与多端响应式体验
-- **Portal 交互中枢**：包含控制面板 (Dashboard)、物理/化学/火箭/台球独立场景导航、管理后台 (Admin)、个人中心 (Profile) 与项目展示 (Portfolio)。
+### 6. 🌐 统一门户与后台生态
+- **Portal 交互中枢**：整合控制面板 (`Dashboard`)、用户中心 (`Profile`)、独立场景导航、项目展示 (`Portfolio`) 与管理后台 (`Admin`)。
 
 ---
 
@@ -63,32 +64,35 @@
 
 | 层级 | 技术选型 | 说明 |
 | :--- | :--- | :--- |
-| **前端框架** | `React 19` + `TypeScript 5.8` + `Vite 6` | 现代化响应式前端 UI 架构 |
-| **样式与动画** | `Tailwind CSS v4` + `Motion` + `GSAP` | 现代视觉风格与细腻微交互动画 |
-| **3D 渲染** | `Three.js r184` + `@react-three/fiber` | 高性能 WebGL/WebGPU 3D 图形渲染 |
-| **物理引擎** | `Cannon-es` + 自研 Kinematics/Astrodynamics | 刚体碰撞、流体与航天轨道力学解算 |
-| **计算机视觉** | `Google MediaPipe Hand Landmarker` | 21 点无标记裸眼手势识别（Worker 线程） |
-| **桌面客户端** | `Tauri v2.11` + `Rust` | 跨平台无边框原生桌面端 (Win/macOS) |
-| **移动/平板** | iOS / iPad 专项优化 (`HOLO_TARGET=ipad`) | 支持 iPad 触摸与移动端手势体验 |
-| **后端 API 服务** | `Rust (Axum / Tokio)` (`server/`) | 提供安全 Gemini API 转发、JWT 鉴权与 DB 迁移 |
-| **AI 大模型** | `Google Gemini 3.5 / Pro / Flash` | 多模态空间几何识别与智能解题重构 |
+| **前端 UI 框架** | `React 19` + `TypeScript 5.8` + `Vite 6` | 高性能现代化响应式前端架构 |
+| **视觉样式与动效** | `Tailwind CSS v4` + `Motion (v12)` + `GSAP` | 现代 UI 视觉风格与流畅微交互动画 |
+| **3D 渲染引擎** | `Three.js r184` + `@react-three/fiber` + `@react-three/drei` + `3Dmol.js` | WebGL/WebGPU 高帧率 3D 图形与分子渲染 |
+| **物理与碰撞解算** | `Cannon-es` + 自研 Kinematics & Astrodynamics 引擎 | 刚体碰撞、流体阻力与航天轨道力学解算 |
+| **计算机视觉 (CV)** | `Google MediaPipe Hand Landmarker` | 21 点裸眼手势识别（Web Worker 多线程解算） |
+| **桌面客户端** | `Tauri v2.11` + `Rust 2021` | 跨平台原生无边框桌面客户端 (Windows / macOS) |
+| **移动 & 平板** | iPad / iOS 专项响应式优化 (`HOLO_TARGET=ipad`) | 支持触摸屏与平板手势控制 |
+| **后端 API & 实时服务** | `Rust (Axum + Tokio + SQLx)` (`server/`) | 提供 Gemini/DeepSeek API 代理转发、JWT 鉴权与 WebSocket 实时服务 |
+| **AI 大模型集成** | `Google Gemini 3.5/Pro/Flash` + `DeepSeek V3/R1` | 多模态空间几何识别、解题重构与化学成分拆解 |
 
 ---
 
-## 📊 代码规模与工程质量
+## 📊 代码规模与语言分布
 
-根据 `scripts/count_loc.py` 代码统计数据：
+经统计，项目包含 **405 个文本源码文件**，总代码量为 **216,998 行**：
 
-- **总文件数**：275 个文件（其中源码文件 255+ 个）
-- **总代码行数**：**117,932 行**（有效代码 **107,868 行**）
-- **语言分布**：
-  - JavaScript (`.js`): 158 个文件 / 76,171 行
-  - TypeScript React (`.tsx`): 34 个文件 / 15,048 行
-  - CSS (`.css`): 7 个文件 / 9,179 行
-  - Rust (`.rs`): 20 个文件 / 4,514 行
-  - TypeScript (`.ts`): 19 个文件 / 4,171 行
-  - Python (`.py`): 4 个文件 / 1,639 行
-- **自动化测试**：内置 Physics、Rocket、Pool 三大物理核心模块的自动化测试套件 (`node --test`)。
+```text
+Language Breakdown:
+├── JavaScript (.js)       : 253 个文件 / 162,143 行
+├── TypeScript React (.tsx):  36 个文件 /  16,483 行
+├── CSS (.css)             :   7 个文件 /  10,079 行
+├── JSON (.json)           :  18 个文件 /   8,865 行
+├── HTML (.html)           :  15 个文件 /   6,971 行
+├── Rust (.rs)             :  26 个文件 /   5,649 行
+├── TypeScript (.ts)       :  20 个文件 /   4,027 行
+├── Markdown (.md)         :   8 个文件 /   1,245 行
+├── ESM Script (.mjs)      :   9 个文件 /   1,168 行
+└── SQL / TOML / JSX       :  13 个文件 /     368 行
+```
 
 ---
 
@@ -108,99 +112,92 @@
   10a959760a6c32b055ee6a96701ccb0d68bff4f7b2f52a1884775282397670a7
   ```
 
-> **macOS 摄像头权限重置说明**：若遇到摄像头权限无法正常调起，可在终端执行：
+> **macOS 摄像头权限重置说明**：若应用无法调用摄像头，请在终端执行：
 > ```bash
 > tccutil reset Camera com.hologrip.holomath
 > ```
 
 ---
 
-## 💻 本地运行与开发指南
+## 💻 本地开发与编译指南
 
-### 1. 前置环境要求
+### 1. 环境准备
 - **Node.js**: `v18.0.0` 或更高版本
-- **Rust Toolchain**: 最新稳定版 (用于编译 Server 代理或 Tauri 桌面端)
-- **Python**: 3.x (可选，用于运行 `scripts/` 工具链)
+- **Rust Toolchain**: 稳定版 `cargo` (用于后端服务器与 Tauri 编译)
+- **Python**: 3.x (可选)
 
-### 2. 前端 Web 服务启动
+### 2. 前端 Web 开发
 ```bash
-# 1. 克隆项目仓库
+# 克隆仓库
 git clone https://github.com/SenorPink0487/HoloGrip.git
 cd HoloGrip
 
-# 2. 安装项目依赖
+# 安装依赖
 npm install
 
-# 3. 配置环境变量
+# 配置环境变量
 cp .env.example .env.local
-# 在 .env.local 中填入 VITE_GEMINI_API_KEY
+# 在 .env.local 中填入 VITE_GEMINI_API_KEY 与相关配置
 
-# 4. 启动 Vite 开发服务器 (默认端口 3000)
+# 启动 Vite 开发服务 (默认端口 3000)
 npm run dev
 ```
 
-### 3. iPad / iOS 模式编译与调试
+### 3. iPad / iOS 模式
 ```bash
-# 启动 iPad 模式专属 Web 开发服务 (端口 3002)
+# 启动 iPad 开发服务 (端口 3002)
 npm run dev:ipad
 
-# 构建 iPad 资产并自动同步
+# 构建 iPad 资产
 npm run build:ipad
 ```
 
-### 4. 自动化测试套件运行
+### 4. 自动化测试套件
 ```bash
-# 运行物理实验室测试
-npm run test:physics
-
-# 运行火箭沙盒测试
-npm run test:rocket
-
-# 运行台球碰撞测试
-npm run test:pool
+npm run test:physics   # 物理实验室自动化测试
+npm run test:rocket    # 火箭沙盒测试
+npm run test:pool      # 台球碰撞测试
 ```
 
-### 5. Rust 独立后端服务 (Server)
+### 5. Rust 后端代理服务器
 ```bash
 cd server
 cp .env.example .env
-# 配置 UPSTREAM_API_KEY 与数据库连接
+# 配置 UPSTREAM_API_KEY 与 DATABASE_URL
 cargo run
 ```
 
-### 6. Tauri 桌面端开发与编译
+### 6. Tauri 桌面端构建
 ```bash
-# 启动 Tauri 桌面调试开发环境
-npm run tauri:dev
-
-# 打包 Native 桌面安装程序
-npm run tauri:build
+npm run tauri:dev     # 启动 Tauri 桌面调试
+npm run tauri:build   # 打包 Desktop 原生安装包
 ```
 
 ---
 
-## 📂 项目目录结构概览
+## 📂 项目目录结构
 
 ```text
 HoloGrip/
-├── src/                    # Web 与应用核心源码
-│   ├── components/         # React UI 组件 (GeometryBoard, Calculator3D, FunctionExplorer 等)
-│   ├── physics/            # 物理实验室核心引擎 (电磁、光学、热学、力学、Worker)
-│   ├── chem/               # HoloChem 分子观象台 (3Dmol / PubChem / DeepSeek)
-│   ├── pool/               # HoloPool 3D 台球物理碰撞引擎与测试
+├── src/                    # 前端与应用核心代码
+│   ├── apps/               # 独立子应用 (HoloMathApp, WhiteboardApp)
+│   ├── components/         # React 组件 (GeometryBoard, FunctionExplorer, Calculator3D 等)
+│   ├── physics/            # 物理实验室核心引擎 (电磁/光学/热学/力学/Worker)
+│   ├── chem/               # HoloChem 3D 分子观象台 (3Dmol / PubChem / DeepSeek)
+│   ├── pool/               # HoloPool 3D 台球物理引擎与测试
 │   ├── rocket/             # 航天动力学、飞船工坊与深空轨道仿真
-│   ├── hooks/ & lib/       # 通用 React Hooks 与工具库
-│   └── store.ts            # Zustand 全局状态管理
-├── server/                 # Rust (Axum/Tokio) 独立安全代理后端
-├── src-tauri/              # Tauri v2 桌面客户端配置与 Rust 原生绑定
-├── scripts/                # 架构生成、代码行统计与资产构建工具链
-├── index.html              # HoloGrip 门户首页
+│   ├── stores/             # Zustand 全局状态
+│   └── hooks/ & lib/       # React Hooks 与通用工具函数
+├── server/                 # Rust (Axum + Tokio + SQLx) 代理后端与 WebSocket 服务
+├── src-tauri/              # Tauri v2 桌面端工程与原生 Rust 绑定
+├── scripts/                # 编译构建与资产生成脚本
+├── index.html              # 门户首页
 ├── holomath.html           # HoloMath 全息数学入口
-├── physics.html            # 高级物理实验室入口
-├── chem.html               # HoloChem 原子观象台入口
-├── rocket.html             # 火箭沙盒入口
-├── pool.html               # HoloPool 台球实验室入口
-├── dashboard.html          # 平台控制面板
+├── physics.html            # Physics Lab 入口
+├── chem.html               # HoloChem 入口
+├── rocket.html             # Rocket Sandbox 入口
+├── pool.html               # HoloPool 入口
+├── dashboard.html          # 控制面板
 └── package.json            # 项目依赖与运行脚本
 ```
 
@@ -208,4 +205,4 @@ HoloGrip/
 
 ## 📄 许可证
 
-本项目采用 [GPL-3.0 License](./LICENSE) 开源许可证。欢迎提交 Issue 与 Pull Request！
+本项目基于 [GPL-3.0 License](./LICENSE) 许可协议开源。
