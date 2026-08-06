@@ -34,6 +34,8 @@ const el = {
   overlayTitle: $('#overlay-title'),
   overlayDesc: $('#overlay-desc'),
   overlayKicker: $('#overlay-kicker'),
+  overlayClose: $('#btn-overlay-close'),
+  overlayConfirm: $('#btn-overlay-confirm'),
   molInfo: $('#mol-info'),
   infoList: $('#info-list'),
   hudName: $('#hud-name'),
@@ -519,3 +521,10 @@ fitChemInputs()
 // 初始化 Apple 风格极简动效与触感 + 搜索岛编排
 initSpecularLighting()
 initSearchDockMotion()
+
+el.overlayClose?.addEventListener('click', () => {
+  setOverlay({ hidden: true, loading: false })
+})
+el.overlayConfirm?.addEventListener('click', () => {
+  setOverlay({ hidden: true, loading: false })
+})

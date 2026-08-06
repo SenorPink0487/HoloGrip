@@ -683,6 +683,14 @@ html, body {
   display: flex;
   align-items: center;
   gap: 8px;
+  max-width: min(52vw, 720px);
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 2px 0;
+}
+.quick-preset-bar::-webkit-scrollbar {
+  display: none;
 }
 
 .preset-chip {
@@ -815,6 +823,10 @@ html, body {
   grid-template-columns: 1fr 1fr;
   gap: 8px;
   margin-bottom: 12px;
+  max-height: min(42vh, 420px);
+  overflow-y: auto;
+  padding-right: 4px;
+  scrollbar-width: thin;
 }
 
 .quick-pill-item {

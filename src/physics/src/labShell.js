@@ -2711,6 +2711,114 @@ function showToast(msg) {
   }, 2400);
 }
 
+let aimHudEl = document.getElementById('aim-hud');
+let aimLedEl = null;
+let aimTargetEl = null;
+let aimBadgeEl = null;
+
+function ensureAimHud() {
+  if (!aimHudEl) {
+    aimHudEl = document.createElement('div');
+    aimHudEl.id = 'aim-hud';
+    aimHudEl.className = 'aim-hud';
+    aimHudEl.innerHTML = `
+      <span class="aim-hud-led" id="aim-hud-led"></span>
+      <span class="aim-hud-target" id="aim-hud-target">准星焦点: 无对准目标</span>
+      <span class="aim-hud-badge" id="aim-hud-badge">无法交互</span>
+    `;
+    document.body.appendChild(aimHudEl);
+  }
+  aimLedEl = document.getElementById('aim-hud-led');
+  aimTargetEl = document.getElementById('aim-hud-target');
+  aimBadgeEl = document.getElementById('aim-hud-badge');
+}
+
+function updateAimHud(target, canInteract) {
+  ensureAimHud();
+  if (!aimHudEl || !aimTargetEl) return;
+
+  if (!target) {
+    aimTargetEl.textContent = '准星焦点: 空置区域 / 环境';
+    if (aimLedEl) aimLedEl.className = 'aim-hud-led';
+    if (aimBadgeEl) {
+      aimBadgeEl.textContent = '无法交互';
+      aimBadgeEl.className = 'aim-hud-badge';
+    }
+    return;
+  }
+
+  const role = target.userData?.role;
+  const isLabel = target.userData?.isLabel || role === 'chem_cup_a_label' || role === 'chem_cup_b_label';
+  const kind = target.userData?.kind || (role?.includes('a') ? 'A' : role?.includes('b') ? 'B' : '');
+
+  let title = '未知设备';
+  let isInteractive = !!(target.userData?.interactive || canInteract);
+  let badgeText = isInteractive ? '可交互' : '只读';
+
+  if (isLabel) {
+    title = `烧杯 ${kind} · 黑色标签 (点击打开试剂选择面板)`;
+    isInteractive = true;
+    badgeText = '点击选择';
+  } else if (role === 'chem_cup_a' || role === 'chem_cup_b') {
+    title = `烧杯 ${kind} · 杯体 (按住拖拽移动/倾倒)`;
+    isInteractive = true;
+    badgeText = '按住拖拽';
+  } else if (target.userData?.type === 'holo_display' || target.userData?.role === 'holo_display') {
+    const chemKind = target.userData?.chemKind;
+    if (chemKind === 'periodic') {
+      const pick = target.userData?.pickFromRay?.(raycaster);
+      if (pick?.action === 'chem-close-picker' || pick?.action === 'close') {
+        title = '关闭元素周期表面板';
+        badgeText = '点击关闭';
+        isInteractive = true;
+      } else if (pick?.action === 'chem-picker-back') {
+        title = '返回元素周期表';
+        badgeText = '点击返回';
+        isInteractive = true;
+      } else if (pick?.action === 'chem-pick-element') {
+        title = `选择元素 ${pick.element || ''}`;
+        badgeText = '点击选择';
+        isInteractive = true;
+      } else if (pick?.action === 'chem-pick-reagent') {
+        title = '装入烧杯试剂';
+        badgeText = '点击装入';
+        isInteractive = true;
+      } else {
+        title = '元素周期表悬浮屏 (点选元素/试剂)';
+        badgeText = '点选试剂';
+        isInteractive = true;
+      }
+    } else if (chemKind === 'left') {
+      title = '实验状态悬浮屏';
+      badgeText = '状态显示';
+      isInteractive = false;
+    } else if (chemKind === 'right') {
+      title = '成分 3D 结构面板 (点击成分看 3D)';
+      badgeText = '查看 3D';
+    } else {
+      title = '悬浮显示屏';
+      badgeText = '点击操作';
+    }
+  } else if (target.userData?.type === 'formula_board' || role === 'formula_board') {
+    title = '公式知识卡片墙';
+    badgeText = '按 E 展开';
+  } else if (target.userData?.type === 'side_blackboard' || role === 'side_blackboard') {
+    title = '实验室黑板';
+    badgeText = '书写/擦除';
+  } else if (target.name || target.userData?.title || role) {
+    title = target.userData?.title || target.name || role;
+  }
+
+  aimTargetEl.textContent = `准星对准: ${title}`;
+  if (aimLedEl) {
+    aimLedEl.className = isInteractive ? 'aim-hud-led active' : 'aim-hud-led';
+  }
+  if (aimBadgeEl) {
+    aimBadgeEl.textContent = badgeText;
+    aimBadgeEl.className = isInteractive ? 'aim-hud-badge interactive' : 'aim-hud-badge';
+  }
+}
+
 function formatData(stationId, expId, data) {
   if (!data) return '—';
   if (stationId === 'mechanics' && Array.isArray(data.readouts)) {
@@ -3225,6 +3333,13 @@ function pushHudToHoloScreens(hud) {
       chemHoloSet.list.forEach((panel) => {
         try { panel.userData.setHud?.({ data, ...snap }); } catch { /* ignore */ }
       });
+      // Keep HTML AI search dock in sync with picker visibility
+      try {
+        import('./chem/reagentSearchDock.js').then((m) => {
+          if (data?.pickerOpen) m.showReagentSearchDock?.({ activeCup: data.activeCup || 'A', keepStatus: true });
+          else m.hideReagentSearchDock?.();
+        });
+      } catch { /* ignore */ }
     }, { priority: 98 });
   }
 
@@ -4356,7 +4471,7 @@ function unlockedElectroPick(event) {
     'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
     'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
     'desk_param_panel',
-    'chem_cup_a', 'chem_cup_b',
+    'chem_cup_a_label', 'chem_cup_b_label', 'chem_cup_a', 'chem_cup_b',
   ];
   for (const role of preferredRoles) {
     const hit = hits.find((entry) => {
@@ -4424,16 +4539,14 @@ window.addEventListener('pointermove', (event) => {
   unlockedElectroDrag.lastX = Number(event.clientX || unlockedElectroDrag.lastX);
   unlockedElectroDrag.lastY = Number(event.clientY || unlockedElectroDrag.lastY);
   accumulateMouseDrag(dx, dy, { shiftKey: !!event.shiftKey });
-  // Keep the ray under the cursor for absolute content-screen / desk slider tracking.
-  if (unlockedElectroDrag.screenUi || unlockedElectroDrag.holoControl || unlockedElectroDrag.deskSlider) {
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width >= 1 && rect.height >= 1) {
-      unlockedElectroPointer.set(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1,
-      );
-      unlockedElectroRaycaster.setFromCamera(unlockedElectroPointer, camera);
-    }
+  // Keep the ray under the cursor for absolute screen, desk slider, and 3D apparatus tracking.
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width >= 1 && rect.height >= 1) {
+    unlockedElectroPointer.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    unlockedElectroRaycaster.setFromCamera(unlockedElectroPointer, camera);
   }
   expManager?.updateManipulation(unlockedElectroDrag.target, {
     dt: 1 / 60,
@@ -4500,15 +4613,13 @@ window.addEventListener('mousemove', (event) => {
   unlockedElectroDrag.lastX = Number(event.clientX || unlockedElectroDrag.lastX);
   unlockedElectroDrag.lastY = Number(event.clientY || unlockedElectroDrag.lastY);
   accumulateMouseDrag(dx, dy, { shiftKey: !!event.shiftKey });
-  if (unlockedElectroDrag.screenUi || unlockedElectroDrag.holoControl) {
-    const rect = canvas.getBoundingClientRect();
-    if (rect.width >= 1 && rect.height >= 1) {
-      unlockedElectroPointer.set(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1,
-      );
-      unlockedElectroRaycaster.setFromCamera(unlockedElectroPointer, camera);
-    }
+  const rect = canvas.getBoundingClientRect();
+  if (rect.width >= 1 && rect.height >= 1) {
+    unlockedElectroPointer.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    unlockedElectroRaycaster.setFromCamera(unlockedElectroPointer, camera);
   }
   expManager?.updateManipulation(unlockedElectroDrag.target, {
     dt: 1 / 60,
@@ -4710,7 +4821,9 @@ function pickLiveElectroChargeHit(hits) {
               'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
               'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
             ]
-            : null;
+            : (expId === 'reagent-mix' || chemMode)
+              ? ['chem_cup_a_label', 'chem_cup_b_label', 'chem_cup_a', 'chem_cup_b']
+              : null;
   if (!preferredRoles || !hits?.length) return null;
   // Closest matching apparatus wins. Role order alone used to pick a farther
   // source charge over a nearer probe (or keep an oversized probe sphere that
@@ -5084,7 +5197,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
     'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
     'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
     'desk_param_panel',
-    'chem_cup_a', 'chem_cup_b',
+    'chem_cup_a_label', 'chem_cup_b_label', 'chem_cup_a', 'chem_cup_b',
   ]);
   const directIsCharge = !!(
     directTarget
@@ -5096,15 +5209,11 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
     ? directTarget
     : pickLiveElectroCharge(hits);
   if (directCharge) {
-    if (directContext) {
-      expManager.beginManipulation(directCharge, {
-        ...directContext,
-        time: directContext.time ?? t,
-        raycaster: inputRaycaster,
-      });
-    } else {
-      expManager.interact(directCharge, t);
-    }
+    expManager.beginManipulation(directCharge, {
+      ...(directContext || {}),
+      time: directContext?.time ?? t,
+      raycaster: inputRaycaster,
+    });
     return;
   }
 
@@ -5631,9 +5740,19 @@ document.addEventListener('mousedown', (e) => {
 document.addEventListener('mousemove', (e) => {
   if (!controls.isLocked || !holdLMB) return;
   accumulateMouseDrag(Number(e.movementX || 0), Number(e.movementY || 0), { shiftKey: !!e.shiftKey });
+  if (expManager?.state?.running) {
+    raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+    expManager.updateManipulation(null, {
+      time: clock.elapsedTime,
+      raycaster,
+    });
+  }
 });
 document.addEventListener('mouseup', (e) => {
   if (e.button === 0) {
+    if (controls.isLocked && expManager?.state?.running) {
+      expManager.endManipulation(null, { time: clock.elapsedTime });
+    }
     holdLMB = false;
     sideBlackboards.forEach((board) => board.userData.stopStroke?.());
     syncMouseDragState();
@@ -6009,11 +6128,11 @@ function animate() {
   if (expManager) {
     syncMouseDragState();
     const handInteraction = handTracking?.getPrimaryInteraction();
-    const pointerTarget = controls.isLocked ? getFocusTarget() : null;
+    const pointerTarget = getFocusTarget();
     // Once pointer lock is active, the mouse owns the central ray.  AR hands
     // remain rendered, but their hover/hold state must not shadow mouse gear
     // controls or keep a stale terminal drag alive.
-    const mouseMode = controls.isLocked;
+    const mouseMode = controls.isLocked || !handInteraction?.target;
     focusedTarget = mouseMode ? pointerTarget : (handInteraction?.target || pointerTarget);
     const handHolding = !mouseMode && !!handInteraction?.holding;
     updateExperimentIntentFocus(
@@ -6064,6 +6183,7 @@ function animate() {
       if (canInteract) crosshair.classList.add('can-interact');
       else crosshair.classList.remove('can-interact');
     }
+    updateAimHud(focusedTarget, canInteract);
   }
 
   // Room shell animators always; station animators only for the hot station.

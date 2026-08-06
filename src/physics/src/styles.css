@@ -1831,3 +1831,60 @@ body.holo-fs-open #crosshair {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+/* ── Top-Center Aim Target HUD ── */
+#aim-hud {
+  position: fixed;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 18px;
+  background: rgba(15, 23, 42, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 9999px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), 0 0 20px rgba(56, 189, 248, 0.12);
+  color: #f8fafc;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  pointer-events: none;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+.aim-hud-led {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #64748b;
+  box-shadow: 0 0 4px rgba(100, 116, 139, 0.5);
+  transition: all 0.2s ease;
+}
+.aim-hud-led.active {
+  background: #34d399;
+  box-shadow: 0 0 10px #34d399, 0 0 16px rgba(52, 211, 153, 0.6);
+}
+.aim-hud-target {
+  color: #e2e8f0;
+  letter-spacing: 0.01em;
+}
+.aim-hud-badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+.aim-hud-badge.interactive {
+  background: rgba(52, 211, 153, 0.15);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+}
+

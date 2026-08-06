@@ -1,6 +1,10 @@
 /**
  * Chemistry island cup rig: two beakers, drag/pour, liquid fill, molecule pedestal.
  * Host (labShell / chem station) owns pointer/AR; this owns geometry + pour FSM.
+ *
+ * Pour uses gravity-integrated liquid parcels (not path-sampled beads):
+ * exit velocity from tilt + head height, free-fall under g, absorb on impact,
+ * free surface stays world-horizontal, destination surface ripples on hit.
  */
 
 import { blendColors } from './reagentCatalog.js';
@@ -8,6 +12,15 @@ import { createMoleculeMesh, createFallbackMolecule } from './moleculeMesh.js';
 import { getMoleculePanel } from './moleculePanel.js';
 
 const POUR_NEAR = 0.55;
+/** Island-scale gravity (scene units ≈ meters/3). */
+const GRAVITY = 3.4;
+const STREAM_POOL = 56;
+const SPLASH_POOL = 18;
+const LIP_RADIUS = 0.17;
+const CUP_MOUTH_Y = 0.55;
+const CUP_INNER_R = 0.15;
+/** Max pour phase duration (safety); volume usually empties sooner. */
+const POUR_MAX_S = 2.2;
 
 /**
  * @param {typeof import('three')} THREE
@@ -51,26 +64,91 @@ export function createChemCupRig(THREE, opts = {}) {
   cupB.position.copy(homeB);
   root.add(cupB);
 
-  const stream = [];
-  const pGeo = new THREE.SphereGeometry(0.022, 8, 8);
-  for (let i = 0; i < 14; i += 1) {
-    const m = new THREE.Mesh(
-      pGeo,
-      new THREE.MeshStandardMaterial({
+  // —— Gravity-integrated liquid parcels (stream) + impact splash ——
+  const dropGeo = new THREE.SphereGeometry(1, 10, 10);
+  /** @type {{ mesh: any, active: boolean, x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, age: number, r: number }[]} */
+  const parcels = [];
+  for (let i = 0; i < STREAM_POOL; i += 1) {
+    const mesh = new THREE.Mesh(
+      dropGeo,
+      new THREE.MeshPhysicalMaterial({
         color: 0x34d399,
         emissive: 0x059669,
-        emissiveIntensity: 0.5,
+        emissiveIntensity: 0.35,
         transparent: true,
         opacity: 0,
+        roughness: 0.12,
+        metalness: 0.05,
+        transmission: 0.35,
+        thickness: 0.08,
         depthWrite: false,
       }),
     );
-    m.visible = false;
-    root.add(m);
-    stream.push(m);
+    mesh.visible = false;
+    mesh.scale.setScalar(0.018);
+    root.add(mesh);
+    parcels.push({
+      mesh, active: false,
+      x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
+      life: 0, age: 0, r: 0.018,
+    });
   }
 
-  /** @type {null | { from: 'A'|'B', to: 'A'|'B', phase: string, t: number, fromPos: any, fromRotZ: number }} */
+  /** @type {{ mesh: any, active: boolean, x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, age: number }[]} */
+  const splashes = [];
+  for (let i = 0; i < SPLASH_POOL; i += 1) {
+    const mesh = new THREE.Mesh(
+      dropGeo,
+      new THREE.MeshStandardMaterial({
+        color: 0x34d399,
+        emissive: 0x059669,
+        emissiveIntensity: 0.4,
+        transparent: true,
+        opacity: 0,
+        roughness: 0.2,
+        depthWrite: false,
+      }),
+    );
+    mesh.visible = false;
+    mesh.scale.setScalar(0.012);
+    root.add(mesh);
+    splashes.push({
+      mesh, active: false,
+      x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
+      life: 0, age: 0,
+    });
+  }
+
+  // Impact ripple disc on destination free surface
+  const ripple = new THREE.Mesh(
+    new THREE.RingGeometry(0.02, 0.08, 24),
+    new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    }),
+  );
+  ripple.rotation.x = -Math.PI / 2;
+  ripple.visible = false;
+  root.add(ripple);
+  let rippleT = 0;
+  let rippleStrength = 0;
+
+  let emitCarry = 0;
+  const _lip = new THREE.Vector3();
+  const _velDir = new THREE.Vector3();
+  const _up = new THREE.Vector3(0, 1, 0);
+
+  /**
+   * @type {null | {
+   *   from: 'A'|'B', to: 'A'|'B', phase: string, t: number,
+   *   fromPos: any, fromRotZ: number, toPos: any, toRotZ: number,
+   *   fillStart: number, dstFillStart: number, color: number,
+   *   transferred: number, angularVel: number
+   * }}
+   */
   let pour = null;
   /** @type {null | { cup: any, kind: 'A'|'B', lift: number, offsetX: number, offsetZ: number }} */
   let drag = null;
@@ -89,11 +167,19 @@ export function createChemCupRig(THREE, opts = {}) {
     };
   }
 
-  function applyCupVisual(kind) {
+  function applyCupVisual(kind, optsVis = {}) {
     const cup = kind === 'A' ? cupA : cupB;
     const s = state[kind];
-    setCupLevel(cup, s.fill, s.color);
-    setCupLabel(THREE, cup, s.reagents.map((r) => r.formula).join('+') || kind);
+    setCupLevel(cup, s.fill, s.color, {
+      tiltZ: optsVis.tiltZ ?? cup.rotation.z,
+      slosh: optsVis.slosh ?? 0,
+      ripple: optsVis.ripple ?? 0,
+    });
+    const label = s.reagents.map((r) => r.formula).join('+') || kind;
+    if (cup.userData.labelText !== label) {
+      cup.userData.labelText = label;
+      setCupLabel(THREE, cup, label);
+    }
   }
 
   function assignReagent(kind, reagent) {
@@ -122,7 +208,7 @@ export function createChemCupRig(THREE, opts = {}) {
     snapHome(cupB, homeB);
     pour = null;
     drag = null;
-    hideStream();
+    clearFluid();
   }
 
   function componentsList() {
@@ -138,31 +224,29 @@ export function createChemCupRig(THREE, opts = {}) {
   function beginDrag(kind, worldHit, islandLocalHit) {
     if (pour) return false;
     const cup = kind === 'A' ? cupA : cupB;
-    if (state[kind].fill <= 0.02) {
-      // Still allow drag empty cups for UX, but pour will no-op
-    }
-    const lift = 0.28;
-    cup.position.y = lift;
+    const homeZ = kind === 'A' ? homeA.z : homeB.z;
     cup.rotation.set(0, 0, 0);
     if (cup.userData.halo) cup.userData.halo.material.opacity = 0.5;
     drag = {
       cup,
       kind,
-      lift,
-      offsetX: cup.position.x - (islandLocalHit?.x ?? cup.position.x),
-      offsetZ: cup.position.z - (islandLocalHit?.z ?? cup.position.z),
+      homeZ,
+      offsetX: islandLocalHit ? cup.position.x - islandLocalHit.x : 0,
+      offsetY: islandLocalHit ? cup.position.y - islandLocalHit.y : 0,
     };
     return true;
   }
 
-  function updateDrag(localX, localZ) {
+  function updateDrag(localX, localY) {
     if (!drag) return;
-    const { cup, lift, offsetX, offsetZ } = drag;
-    cup.position.x = clamp(localX + offsetX, -1.2, 1.2);
-    cup.position.z = clamp(localZ + offsetZ, -0.55, 0.55);
-    cup.position.y = lift;
+    const { cup, offsetX, offsetY, homeZ } = drag;
+    // Horizontal (left/right) X-axis and Vertical (up/down) Y-axis (height)
+    cup.position.x = clamp(localX + offsetX, -1.5, 1.5);
+    cup.position.y = clamp(localY + offsetY, 0, 1.2);
+    cup.position.z = homeZ;
     const other = drag.kind === 'A' ? cupB : cupA;
-    const near = Math.hypot(cup.position.x - other.position.x, cup.position.z - other.position.z) < POUR_NEAR;
+    const near = Math.hypot(cup.position.x - other.position.x, cup.position.y - other.position.y) < POUR_NEAR
+      || Math.hypot(cup.position.x - other.position.x, cup.position.z - other.position.z) < POUR_NEAR;
     if (cup.userData.halo) {
       cup.userData.halo.material.opacity = near ? 0.9 : 0.45;
       cup.userData.halo.material.color.setHex(near ? 0x34d399 : accent);
@@ -191,6 +275,8 @@ export function createChemCupRig(THREE, opts = {}) {
     const cup = from === 'A' ? cupA : cupB;
     const target = to === 'A' ? cupA : cupB;
     const sign = from === 'A' ? 1 : -1;
+    clearFluid();
+    emitCarry = 0;
     pour = {
       from,
       to,
@@ -199,12 +285,17 @@ export function createChemCupRig(THREE, opts = {}) {
       fromPos: cup.position.clone(),
       fromRotZ: cup.rotation.z,
       toPos: new THREE.Vector3(
-        target.position.x + sign * 0.35,
-        0.35,
-        target.position.z,
+        target.position.x + sign * 0.38,
+        0.42,
+        target.position.z + 0.02,
       ),
-      toRotZ: sign * 0.9,
+      // ~52° tip — liquid clears the rim under gravity
+      toRotZ: sign * 0.92,
       fillStart: state[from].fill,
+      dstFillStart: state[to].fill,
+      color: state[from].color,
+      transferred: 0,
+      angularVel: 0,
     };
     if (cup.userData.halo) cup.userData.halo.material.opacity = 0;
     return true;
@@ -212,16 +303,37 @@ export function createChemCupRig(THREE, opts = {}) {
 
   function update(dt) {
     if (molecule) molecule.rotation.y += dt * 0.6;
-    if (drag || !pour) return;
+    const safeDt = Math.min(0.05, Math.max(0, dt));
+
+    // Always integrate free fluid so late drops finish after the cup returns home
+    stepFluid(safeDt);
+    if (pour?.phase === 'pouring') {
+      const target = pour.to === 'A' ? cupA : cupB;
+      resolveImpacts(target, pour.color);
+    }
+
+    if (drag || !pour) {
+      if (!pour && !drag) {
+        setCupLevel(cupA, state.A.fill, state.A.color, { tiltZ: cupA.rotation.z });
+        setCupLevel(cupB, state.B.fill, state.B.color, { tiltZ: cupB.rotation.z });
+      }
+      return;
+    }
+
     const p = pour;
     const cup = p.from === 'A' ? cupA : cupB;
-    p.t += dt;
+    const target = p.to === 'A' ? cupA : cupB;
+    p.t += safeDt;
 
     if (p.phase === 'approach') {
-      const u = Math.min(1, p.t / 0.35);
-      const e = easeOut(u);
+      const u = Math.min(1, p.t / 0.42);
+      const e = easeInOut(u);
       cup.position.lerpVectors(p.fromPos, p.toPos, e);
-      cup.rotation.z = THREE.MathUtils.lerp(p.fromRotZ, p.toRotZ * 0.35, e);
+      // Angular ramp — tip gradually so free surface can track
+      const tip = p.toRotZ * (0.22 + 0.28 * e);
+      p.angularVel = (tip - cup.rotation.z) / Math.max(1e-4, safeDt);
+      cup.rotation.z = tip;
+      applyCupVisual(p.from, { tiltZ: tip, slosh: Math.abs(p.angularVel) * 0.02 });
       if (u >= 1) {
         p.phase = 'pouring';
         p.t = 0;
@@ -232,15 +344,64 @@ export function createChemCupRig(THREE, opts = {}) {
     }
 
     if (p.phase === 'pouring') {
-      const u = Math.min(1, p.t / 0.85);
+      // Tip reaches full angle quickly, then holds while volume drains under gravity
+      const tipU = Math.min(1, p.t / 0.28);
+      const tipEase = easeOut(tipU);
+      const overshoot = Math.sin(tipU * Math.PI) * 0.05 * Math.sign(p.toRotZ) * (1 - tipU);
+      const tip = THREE.MathUtils.lerp(p.fromRotZ, p.toRotZ, tipEase) + overshoot;
+      p.angularVel = (tip - cup.rotation.z) / Math.max(1e-4, safeDt);
       cup.position.copy(p.toPos);
-      cup.rotation.z = THREE.MathUtils.lerp(p.fromRotZ, p.toRotZ, Math.min(1, u));
-      state[p.from].fill = p.fillStart * (1 - u);
-      applyCupVisual(p.from);
-      updateStream(cup, p.to === 'A' ? cupA : cupB, state[p.from].color, u);
-      if (u >= 1) {
+      cup.position.x += Math.sin(p.t * 11) * 0.004;
+      cup.position.y += Math.sin(p.t * 7.5) * 0.003;
+      cup.rotation.z = tip;
+
+      // Volume transfer ∝ √head · aperture(tilt)  (Torricelli + weir)
+      const head = Math.max(0.04, state[p.from].fill);
+      const tiltFactor = Math.max(0, Math.sin(Math.abs(tip)) - 0.16);
+      const flowRate = 1.35 * Math.sqrt(head) * tiltFactor;
+      const dV = flowRate * safeDt;
+      const remain = p.fillStart - p.transferred;
+      const step = Math.min(dV, Math.max(0, remain));
+      p.transferred += step;
+      state[p.from].fill = Math.max(0, p.fillStart - p.transferred);
+      state[p.to].fill = Math.min(0.95, p.dstFillStart + p.transferred * 0.98);
+
+      // Preview destination content as soon as liquid arrives
+      if (p.transferred > 0.02) {
+        if (!state[p.to].reagents.length && state[p.from].reagents.length) {
+          state[p.to].reagents = state[p.from].reagents.map((r) => ({ ...r }));
+          state[p.to].color = p.color;
+          state[p.to].formula = state[p.to].reagents.map((r) => r.formula).join('+');
+        } else if (state[p.to].reagents.length) {
+          const w = clamp(p.transferred / Math.max(0.01, p.fillStart), 0, 1) * 0.12;
+          state[p.to].color = blendColors(state[p.to].color, p.color, w);
+        }
+      }
+
+      applyCupVisual(p.from, {
+        tiltZ: tip,
+        slosh: Math.min(0.08, Math.abs(p.angularVel) * 0.015 + step * 0.4),
+      });
+      applyCupVisual(p.to, {
+        tiltZ: target.rotation.z,
+        ripple: rippleStrength,
+        slosh: rippleStrength * 0.05,
+      });
+
+      emitFromLip(cup, tip, p.color, state[p.from].fill, step, safeDt);
+
+      const empty = p.transferred >= p.fillStart - 0.004;
+      const timedOut = p.t >= POUR_MAX_S;
+      if (empty || timedOut) {
+        // Force remaining volume across on timeout so state stays consistent
+        if (!empty) {
+          const leftover = p.fillStart - p.transferred;
+          p.transferred = p.fillStart;
+          state[p.from].fill = 0;
+          state[p.to].fill = Math.min(0.95, p.dstFillStart + p.transferred * 0.98);
+          void leftover;
+        }
         commitPour(p.from, p.to);
-        hideStream();
         p.phase = 'return';
         p.t = 0;
         p.fromPos.copy(cup.position);
@@ -251,12 +412,15 @@ export function createChemCupRig(THREE, opts = {}) {
 
     if (p.phase === 'return') {
       const home = p.from === 'A' ? homeA : homeB;
-      const u = Math.min(1, p.t / 0.4);
+      const u = Math.min(1, p.t / 0.48);
       const e = easeOut(u);
       cup.position.lerpVectors(p.fromPos, home, e);
-      cup.rotation.z = THREE.MathUtils.lerp(p.fromRotZ, 0, Math.min(1, e * 1.5));
+      cup.rotation.z = THREE.MathUtils.lerp(p.fromRotZ, 0, Math.min(1, e * 1.35));
+      applyCupVisual(p.from, { tiltZ: cup.rotation.z, slosh: (1 - e) * 0.04 });
       if (u >= 1) {
         snapHome(cup, home);
+        applyCupVisual(p.from);
+        applyCupVisual(p.to);
         pour = null;
       }
     }
@@ -265,55 +429,252 @@ export function createChemCupRig(THREE, opts = {}) {
   function commitPour(from, to) {
     const src = state[from];
     const dst = state[to];
-    if (!src.reagents.length) return;
+    const srcReagents = src.reagents;
+    if (!srcReagents.length) {
+      src.fill = 0;
+      src.formula = '';
+      applyCupVisual(from);
+      applyCupVisual(to);
+      return;
+    }
+    const transferred = pour?.transferred ?? src.fill;
+    const dstStart = pour?.dstFillStart ?? dst.fill;
+    const pourColor = pour?.color ?? src.color;
     if (!dst.reagents.length) {
-      dst.reagents = src.reagents.map((r) => ({ ...r }));
-      dst.color = src.color;
-      dst.fill = Math.min(0.95, src.fillStart ?? 0.85);
+      dst.reagents = srcReagents.map((r) => ({ ...r }));
+      dst.color = pourColor;
+      dst.fill = Math.min(0.95, dstStart + transferred);
     } else {
-      // Merge unique reagents + blend color
       const ids = new Set(dst.reagents.map((r) => r.id));
-      for (const r of src.reagents) {
+      for (const r of srcReagents) {
         if (!ids.has(r.id)) dst.reagents.push({ ...r });
       }
-      dst.color = blendColors(dst.color, src.color, 0.5);
-      dst.fill = Math.min(0.95, Math.max(dst.fill, 0.7) + 0.15);
+      dst.color = blendColors(dst.color, pourColor, 0.5);
+      dst.fill = Math.min(0.95, dstStart + transferred);
     }
     dst.formula = dst.reagents.map((r) => r.formula).join('+');
     src.reagents = [];
     src.fill = 0;
     src.formula = '';
+    src.color = 0x38bdf8;
     applyCupVisual(from);
     applyCupVisual(to);
   }
 
-  function updateStream(fromCup, toCup, color, u) {
-    const lip = new THREE.Vector3(
-      fromCup.position.x - Math.sin(fromCup.rotation.z) * 0.55,
-      fromCup.position.y + Math.cos(fromCup.rotation.z) * 0.55,
-      fromCup.position.z,
-    );
-    const mouth = new THREE.Vector3(toCup.position.x, toCup.position.y + 0.55, toCup.position.z);
-    stream.forEach((m, i) => {
-      const t = (i / (stream.length - 1)) * Math.min(1, u * 1.2);
-      const yArc = Math.sin(t * Math.PI) * 0.12;
-      m.position.set(
-        lip.x + (mouth.x - lip.x) * t,
-        lip.y + (mouth.y - lip.y) * t + yArc,
-        lip.z + (mouth.z - lip.z) * t,
-      );
-      m.visible = u > 0.05 && u < 0.98;
-      m.material.color.setHex(color);
-      m.material.emissive.setHex(color);
-      m.material.opacity = m.visible ? 0.75 : 0;
-    });
+  // ─── Fluid mechanics (parcels) ───────────────────────────────────────────
+
+  function cupLipWorld(cup, tiltZ) {
+    // Pour-side rim in rig-local space (cup tip about local Z)
+    _lip.x = cup.position.x - Math.sin(tiltZ) * (LIP_RADIUS + 0.05);
+    _lip.y = cup.position.y + Math.cos(tiltZ) * 0.48 + 0.06;
+    _lip.z = cup.position.z;
+    return _lip;
   }
 
-  function hideStream() {
-    stream.forEach((m) => {
-      m.visible = false;
-      m.material.opacity = 0;
-    });
+  function emitFromLip(cup, tiltZ, color, fill, dV, dt) {
+    if (fill < 0.02 || dV < 1e-5) return;
+    // Exit speed from head height (Torricelli) + tilt gate
+    const vExit = 0.55 + 1.15 * Math.sqrt(Math.max(0.05, fill));
+    const gate = Math.max(0, Math.sin(Math.abs(tiltZ)) - 0.15);
+    if (gate < 0.02) return;
+
+    // Emit density tracks volume flux so the jet looks continuous
+    const rate = 70 + 120 * gate * Math.sqrt(fill);
+    emitCarry += rate * dt;
+    const n = Math.min(10, Math.floor(emitCarry));
+    emitCarry -= n;
+    if (n <= 0) return;
+
+    const lip = cupLipWorld(cup, tiltZ);
+    // Outward along pour axis (tilt plane) with slight downward bias once past lip
+    const sx = Math.sign(tiltZ) || 1;
+    const exitVx = sx * vExit * (0.55 + 0.45 * gate);
+    const exitVy = -0.15 - 0.55 * gate * vExit * 0.25;
+    const exitVz = 0;
+
+    for (let k = 0; k < n; k += 1) {
+      const p = allocParcel();
+      if (!p) break;
+      // Jet cross-section: small random offset in lip plane
+      const jx = (Math.random() - 0.5) * 0.028;
+      const jz = (Math.random() - 0.5) * 0.022;
+      p.x = lip.x + jx * Math.cos(tiltZ);
+      p.y = lip.y + (Math.random() - 0.5) * 0.012;
+      p.z = lip.z + jz;
+      // Velocity jitter for jet breakup
+      p.vx = exitVx + (Math.random() - 0.5) * 0.12;
+      p.vy = exitVy + (Math.random() - 0.5) * 0.08;
+      p.vz = exitVz + (Math.random() - 0.5) * 0.1;
+      p.life = 0.55 + Math.random() * 0.35;
+      p.age = 0;
+      p.r = 0.012 + Math.random() * 0.01 + dV * 0.15;
+      p.mesh.material.color.setHex(color);
+      p.mesh.material.emissive.setHex(color);
+      p.mesh.visible = true;
+    }
+  }
+
+  function allocParcel() {
+    for (let i = 0; i < parcels.length; i += 1) {
+      if (!parcels[i].active) {
+        parcels[i].active = true;
+        return parcels[i];
+      }
+    }
+    return null;
+  }
+
+  function allocSplash() {
+    for (let i = 0; i < splashes.length; i += 1) {
+      if (!splashes[i].active) {
+        splashes[i].active = true;
+        return splashes[i];
+      }
+    }
+    return null;
+  }
+
+  function stepFluid(dt) {
+    // Parcels under gravity
+    for (let i = 0; i < parcels.length; i += 1) {
+      const p = parcels[i];
+      if (!p.active) continue;
+      p.age += dt;
+      p.vy -= GRAVITY * dt;
+      // Mild air drag
+      const drag = Math.exp(-1.2 * dt);
+      p.vx *= drag;
+      p.vz *= drag;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.z += p.vz * dt;
+
+      // Orient + stretch along velocity (continuity: faster → longer thinner streak)
+      const spd = Math.hypot(p.vx, p.vy, p.vz) + 1e-4;
+      const stretch = clamp(0.7 + spd * 0.55, 0.8, 2.6);
+      const rad = p.r * (1 - p.age / (p.life + 0.2) * 0.25);
+      p.mesh.position.set(p.x, p.y, p.z);
+      p.mesh.scale.set(rad / stretch * 0.85, rad * stretch, rad / stretch * 0.85);
+      // Align local +Y with velocity
+      _velDir.set(p.vx / spd, p.vy / spd, p.vz / spd);
+      p.mesh.quaternion.setFromUnitVectors(_up, _velDir);
+      const fade = clamp(1 - p.age / p.life, 0, 1);
+      p.mesh.material.opacity = 0.82 * fade;
+      p.mesh.visible = fade > 0.04;
+
+      if (p.age >= p.life || p.y < -0.2) {
+        p.active = false;
+        p.mesh.visible = false;
+        p.mesh.material.opacity = 0;
+      }
+    }
+
+    // Splash droplets (bounce fragments)
+    for (let i = 0; i < splashes.length; i += 1) {
+      const s = splashes[i];
+      if (!s.active) continue;
+      s.age += dt;
+      s.vy -= GRAVITY * dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.z += s.vz * dt;
+      const fade = clamp(1 - s.age / s.life, 0, 1);
+      s.mesh.position.set(s.x, s.y, s.z);
+      s.mesh.scale.setScalar(0.008 + 0.01 * fade);
+      s.mesh.material.opacity = 0.7 * fade;
+      s.mesh.visible = fade > 0.05;
+      if (s.age >= s.life || s.y < -0.15) {
+        s.active = false;
+        s.mesh.visible = false;
+        s.mesh.material.opacity = 0;
+      }
+    }
+
+    // Surface ripple decay
+    if (rippleStrength > 0.001) {
+      rippleT += dt;
+      rippleStrength *= Math.exp(-3.2 * dt);
+      const r = 0.04 + rippleT * 0.22;
+      ripple.scale.setScalar(r / 0.08);
+      ripple.material.opacity = clamp(rippleStrength * 0.55, 0, 0.55);
+      ripple.visible = ripple.material.opacity > 0.02;
+    } else if (ripple.visible) {
+      ripple.visible = false;
+      ripple.material.opacity = 0;
+      rippleStrength = 0;
+    }
+  }
+
+  function resolveImpacts(targetCup, color) {
+    const cx = targetCup.position.x;
+    const cy = targetCup.position.y;
+    const cz = targetCup.position.z;
+    const surfY = cy + 0.12 + (state[targetCup.userData.kind]?.fill ?? 0.3) * 0.32;
+    const mouthY = cy + CUP_MOUTH_Y;
+
+    for (let i = 0; i < parcels.length; i += 1) {
+      const p = parcels[i];
+      if (!p.active) continue;
+      const dx = p.x - cx;
+      const dz = p.z - cz;
+      const radial = Math.hypot(dx, dz);
+      // Entered cup mouth cylinder and crossed free surface or fell into vessel
+      if (radial < CUP_INNER_R + 0.04 && p.y < mouthY && p.y > cy + 0.05) {
+        if (p.y <= surfY + 0.04 || p.vy < -0.3) {
+          // Absorb + splash
+          spawnSplash(p.x, Math.max(p.y, surfY), p.z, p.vx, p.vy, p.vz, color);
+          triggerRipple(cx, surfY, cz, color);
+          p.active = false;
+          p.mesh.visible = false;
+          p.mesh.material.opacity = 0;
+        }
+      }
+    }
+  }
+
+  function spawnSplash(x, y, z, vx, vy, vz, color) {
+    const n = 2 + (Math.random() * 3) | 0;
+    for (let i = 0; i < n; i += 1) {
+      const s = allocSplash();
+      if (!s) break;
+      s.x = x + (Math.random() - 0.5) * 0.03;
+      s.y = y + 0.01;
+      s.z = z + (Math.random() - 0.5) * 0.03;
+      // Rebound upward + outward
+      s.vx = vx * 0.25 + (Math.random() - 0.5) * 0.55;
+      s.vy = Math.abs(vy) * 0.35 + 0.35 + Math.random() * 0.45;
+      s.vz = vz * 0.25 + (Math.random() - 0.5) * 0.55;
+      s.life = 0.28 + Math.random() * 0.25;
+      s.age = 0;
+      s.mesh.material.color.setHex(color);
+      s.mesh.material.emissive.setHex(color);
+      s.mesh.visible = true;
+    }
+  }
+
+  function triggerRipple(x, y, z, color) {
+    ripple.position.set(x, y + 0.002, z);
+    ripple.material.color.setHex(color);
+    rippleStrength = Math.min(1, rippleStrength + 0.45);
+    rippleT = 0;
+    ripple.visible = true;
+  }
+
+  function clearFluid() {
+    for (const p of parcels) {
+      p.active = false;
+      p.mesh.visible = false;
+      p.mesh.material.opacity = 0;
+    }
+    for (const s of splashes) {
+      s.active = false;
+      s.mesh.visible = false;
+      s.mesh.material.opacity = 0;
+    }
+    ripple.visible = false;
+    ripple.material.opacity = 0;
+    rippleStrength = 0;
+    emitCarry = 0;
   }
 
   function showMoleculeFromSdf(sdf, formula) {
@@ -434,42 +795,73 @@ function makeCup(THREE, kind, tint, accent) {
   bottom.position.y = 0.1;
   g.add(bottom);
 
+  // Liquid group counter-rotates so free surface stays world-horizontal when cup tips
+  const liqGroup = new THREE.Group();
+  liqGroup.name = `chem-liq-${kind}`;
+  g.add(liqGroup);
+  g.userData.liqGroup = liqGroup;
+
   const liquid = new THREE.Mesh(
     new THREE.CylinderGeometry(rBot - 0.025, rBot - 0.03, 0.28, 24, 1, true),
-    new THREE.MeshStandardMaterial({
+    new THREE.MeshPhysicalMaterial({
       color: tint,
       emissive: tint,
-      emissiveIntensity: 0.25,
+      emissiveIntensity: 0.22,
       transparent: true,
       opacity: 0,
-      roughness: 0.2,
+      roughness: 0.18,
+      metalness: 0.05,
+      transmission: 0.25,
+      thickness: 0.06,
       depthWrite: false,
     }),
   );
   liquid.position.y = 0.22;
   liquid.visible = false;
-  g.add(liquid);
+  liqGroup.add(liquid);
   g.userData.liquid = liquid;
   g.userData.liqBaseY = 0.1;
   g.userData.liqMaxH = 0.32;
 
   const surf = new THREE.Mesh(
-    new THREE.CircleGeometry(rBot - 0.03, 24),
-    new THREE.MeshStandardMaterial({
+    new THREE.CircleGeometry(rBot - 0.03, 28),
+    new THREE.MeshPhysicalMaterial({
       color: tint,
       emissive: tint,
-      emissiveIntensity: 0.15,
+      emissiveIntensity: 0.12,
       transparent: true,
       opacity: 0,
-      roughness: 0.18,
+      roughness: 0.08,
+      metalness: 0.15,
+      transmission: 0.15,
+      thickness: 0.02,
       depthWrite: true,
     }),
   );
   surf.rotation.x = -Math.PI / 2;
   surf.position.y = 0.38;
   surf.visible = false;
-  g.add(surf);
+  liqGroup.add(surf);
   g.userData.surf = surf;
+
+  // Meniscus ring (subtle contact line)
+  const meniscus = new THREE.Mesh(
+    new THREE.TorusGeometry(rBot - 0.035, 0.006, 6, 24),
+    new THREE.MeshStandardMaterial({
+      color: tint,
+      emissive: tint,
+      emissiveIntensity: 0.1,
+      transparent: true,
+      opacity: 0,
+      roughness: 0.25,
+      depthWrite: false,
+    }),
+  );
+  meniscus.rotation.x = Math.PI / 2;
+  meniscus.position.y = 0.38;
+  meniscus.visible = false;
+  liqGroup.add(meniscus);
+  g.userData.meniscus = meniscus;
 
   const stand = new THREE.Mesh(
     new THREE.CylinderGeometry(0.2, 0.22, 0.04, 20),
@@ -480,7 +872,7 @@ function makeCup(THREE, kind, tint, accent) {
 
   const hit = new THREE.Mesh(
     new THREE.CylinderGeometry(rTop + 0.04, rBot + 0.04, h + 0.12, 14),
-    new THREE.MeshBasicMaterial({ visible: false }),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
   );
   hit.position.y = 0.08 + h / 2;
   hit.userData.role = g.userData.role;
@@ -488,6 +880,20 @@ function makeCup(THREE, kind, tint, accent) {
   hit.userData.kind = kind;
   g.add(hit);
   g.userData.hit = hit;
+
+  // Dedicated 3D recognition zone for black label bar
+  const labelHit = new THREE.Mesh(
+    new THREE.BoxGeometry(0.54, 0.16, 0.12),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false }),
+  );
+  labelHit.position.set(0, 0.52, 0);
+  const labelRole = kind === 'A' ? 'chem_cup_a_label' : 'chem_cup_b_label';
+  labelHit.userData.role = labelRole;
+  labelHit.userData.interactive = true;
+  labelHit.userData.kind = kind;
+  labelHit.userData.isLabel = true;
+  g.add(labelHit);
+  g.userData.labelHit = labelHit;
 
   const halo = new THREE.Mesh(
     new THREE.RingGeometry(0.18, 0.26, 28),
@@ -510,32 +916,56 @@ function makeCup(THREE, kind, tint, accent) {
   return g;
 }
 
-function setCupLevel(cup, level, color) {
+/**
+ * @param {any} cup
+ * @param {number} level
+ * @param {number} color
+ * @param {{ tiltZ?: number, slosh?: number, ripple?: number }} [opts]
+ */
+function setCupLevel(cup, level, color, opts = {}) {
   const liq = cup.userData.liquid;
   const surf = cup.userData.surf;
+  const meniscus = cup.userData.meniscus;
+  const liqGroup = cup.userData.liqGroup;
   if (!liq || !surf) return;
   const t = Math.max(0, Math.min(1, level));
-  if (t < 0.02) {
+  const tiltZ = opts.tiltZ ?? cup.rotation.z ?? 0;
+
+  if (t <= 0.01) {
     liq.visible = false;
     surf.visible = false;
-    liq.material.opacity = 0;
-    surf.material.opacity = 0;
+    meniscus.visible = false;
     return;
   }
+
   liq.visible = true;
   surf.visible = true;
-  const baseY = cup.userData.liqBaseY ?? 0.1;
+  meniscus.visible = true;
+
   const maxH = cup.userData.liqMaxH ?? 0.32;
+  const baseY = cup.userData.liqBaseY ?? 0.1;
   const h = maxH * t;
-  liq.scale.y = Math.max(0.05, t);
-  liq.position.y = baseY + h / 2;
-  surf.position.y = baseY + h;
+
+  liq.scale.set(1, Math.max(0.04, h / 0.28), 1);
+  liqGroup.rotation.z = -tiltZ;
+
+  const slosh = opts.slosh ?? 0;
+  const ripple = opts.ripple ?? 0;
+  const sloshY = Math.sin(slosh * 6) * 0.015;
+  const rippleY = Math.sin(ripple * 18) * 0.008;
+
+  if (meniscus) {
+    meniscus.material.color.setHex(color);
+    meniscus.material.emissive.setHex(color);
+    meniscus.material.opacity = 0.45;
+  }
+
   liq.material.color.setHex(color);
   liq.material.emissive.setHex(color);
-  liq.material.opacity = 0.82;
+  liq.material.opacity = 0.78;
   surf.material.color.setHex(color);
   surf.material.emissive.setHex(color);
-  surf.material.opacity = 0.9;
+  surf.material.opacity = 0.88;
 }
 
 function setCupLabel(THREE, cup, text) {
@@ -550,22 +980,36 @@ function setCupLabel(THREE, cup, text) {
   canvas.height = 64;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, 256, 64);
-  ctx.fillStyle = 'rgba(15, 23, 42, 0.75)';
-  roundRectPath(ctx, 12, 12, 232, 40, 10);
+  ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+  roundRectPath(ctx, 8, 8, 240, 48, 12);
   ctx.fill();
-  ctx.font = '600 22px "Outfit", "Noto Sans SC", system-ui';
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+  ctx.lineWidth = 2;
+  ctx.stroke();
+  ctx.font = '600 24px "Outfit", "Noto Sans SC", system-ui, sans-serif';
   ctx.fillStyle = '#ecfdf5';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(String(text || '').slice(0, 18), 128, 32);
+  ctx.fillText(String(text || '').slice(0, 16), 128, 32);
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false });
+  const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: true, depthWrite: false });
   const spr = new THREE.Sprite(mat);
-  spr.scale.set(0.55, 0.14, 1);
-  spr.position.set(0, 0.72, 0);
+  spr.scale.set(0.48, 0.12, 1);
+  spr.position.set(0, 0.52, 0);
+  const labelRole = cup.userData.kind === 'A' ? 'chem_cup_a_label' : 'chem_cup_b_label';
+  spr.userData.role = labelRole;
+  spr.userData.interactive = true;
+  spr.userData.kind = cup.userData.kind;
+  spr.userData.isLabel = true;
   cup.add(spr);
   cup.userData.label = spr;
+  if (cup.userData.labelHit) {
+    cup.userData.labelHit.userData.role = labelRole;
+    cup.userData.labelHit.userData.interactive = true;
+    cup.userData.labelHit.userData.kind = cup.userData.kind;
+    cup.userData.labelHit.userData.isLabel = true;
+  }
 }
 
 function snapHome(cup, home) {
@@ -580,6 +1024,10 @@ function clamp(v, lo, hi) {
 
 function easeOut(t) {
   return 1 - (1 - t) ** 3;
+}
+
+function easeInOut(t) {
+  return t < 0.5 ? 4 * t * t * t : 1 - ((-2 * t + 2) ** 3) / 2;
 }
 
 function roundRectPath(ctx, x, y, w, h, r) {

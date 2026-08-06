@@ -43,12 +43,37 @@ export function createStationEquipment(ctx) {
   }
 
   function pickSet() {
-    return [
+    const list = [
       markPick(rig.cupA, 'chem_cup_a'),
       markPick(rig.cupB, 'chem_cup_b'),
       markPick(rig.cupA?.userData?.hit, 'chem_cup_a'),
       markPick(rig.cupB?.userData?.hit, 'chem_cup_b'),
-    ].filter(Boolean);
+      markPick(rig.cupA?.userData?.labelHit, 'chem_cup_a_label'),
+      markPick(rig.cupB?.userData?.labelHit, 'chem_cup_b_label'),
+      markPick(rig.cupA?.userData?.label, 'chem_cup_a_label'),
+      markPick(rig.cupB?.userData?.label, 'chem_cup_b_label'),
+    ];
+    [rig.cupA, rig.cupB].forEach((cup) => {
+      if (!cup) return;
+      const role = cup.userData?.role;
+      const kind = cup.userData?.kind;
+      cup.traverse((child) => {
+        if (child.isMesh || child.isSprite) {
+          child.userData ||= {};
+          const isLabelNode = child === cup.userData?.label || child === cup.userData?.labelHit || child.userData?.isLabel || child.userData?.role?.includes('label');
+          if (isLabelNode) {
+            child.userData.role = kind === 'A' ? 'chem_cup_a_label' : 'chem_cup_b_label';
+            child.userData.isLabel = true;
+          } else if (!child.userData.role) {
+            child.userData.role = role;
+          }
+          child.userData.interactive = true;
+          child.userData.kind = kind;
+          list.push(child);
+        }
+      });
+    });
+    return list.filter(Boolean);
   }
 
   function setMode(expId) {

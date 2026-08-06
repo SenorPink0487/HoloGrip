@@ -33,8 +33,8 @@ export function makeChemHolo(THREE, opts) {
     title,
     pos,
     rotY = 0,
-    panelW = 1.50,
-    panelH = 1.15,
+    panelW = 1.70,
+    panelH = 1.30,
     primitives,
   } = opts;
   const { rbox } = primitives;
@@ -62,6 +62,7 @@ export function makeChemHolo(THREE, opts) {
   // Large rounded glass panel with Vision Pro corner radius
   const glass = rbox(panelW, panelH, 0.01, panelMat, 0.14, 14);
   glass.position.z = 0.004;
+  glass.raycast = () => {};
   g.add(glass);
 
   // Soft outer rim glow (luminous white specular edge light)
@@ -73,18 +74,8 @@ export function makeChemHolo(THREE, opts) {
     }),
     0.15, 14);
   rim.position.z = -0.008;
+  rim.raycast = () => {};
   g.add(rim);
-
-  // Inner highlight strip
-  const highlight = rbox(panelW * 0.92, panelH * 0.015, 0.003,
-    new THREE.MeshBasicMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.35,
-    }),
-    0.008, 4);
-  highlight.position.set(0, panelH * 0.43, 0.012);
-  g.add(highlight);
 
   // Back face with translucent depth
   const backMat = new THREE.MeshBasicMaterial({
@@ -96,11 +87,12 @@ export function makeChemHolo(THREE, opts) {
   const back = rbox(panelW, panelH, 0.012, backMat, 0.14, 14);
   back.rotation.y = Math.PI;
   back.position.z = -0.014;
+  back.raycast = () => {};
   g.add(back);
 
   // High canvas resolution matching Vision Pro ratios.
-  const CW = kind === 'periodic' ? 1660 : 1200;
-  const CH = kind === 'periodic' ? 960 : 920;
+  const CW = kind === 'periodic' ? 1920 : 1400;
+  const CH = kind === 'periodic' ? 1120 : 1040;
   const canvas = document.createElement('canvas');
   canvas.width = CW;
   canvas.height = CH;
@@ -121,9 +113,9 @@ export function makeChemHolo(THREE, opts) {
     depthWrite: false,
     toneMapped: false,
   });
-  // Plane for UV picking
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(panelW * 0.96, panelH * 0.96), screenMat);
-  screen.position.z = 0.008;
+  // Plane for UV picking - frontmost position so no sub-meshes block clicks
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), screenMat);
+  screen.position.z = 0.012;
   screen.userData.stationId = 'chem';
   screen.userData.type = 'holo_display';
   screen.userData.role = 'holo_display';
@@ -244,30 +236,30 @@ export function createChemHoloSet(THREE, primitives, scene) {
     id: 'chem-left',
     kind: 'left',
     title: '状态',
-    pos: [-1.55, 1.72, 0.15],
-    rotY: Math.PI * 0.18,
-    panelW: 1.50,
-    panelH: 1.15,
+    pos: [-1.85, 1.85, 0.05],
+    rotY: Math.PI * 0.15,
+    panelW: 1.70,
+    panelH: 1.30,
     primitives,
   });
   const right = makeChemHolo(THREE, {
     id: 'chem-right',
     kind: 'right',
     title: '成分',
-    pos: [1.55, 1.72, 0.15],
-    rotY: -Math.PI * 0.18,
-    panelW: 1.50,
-    panelH: 1.15,
+    pos: [1.85, 1.85, 0.05],
+    rotY: -Math.PI * 0.15,
+    panelW: 1.70,
+    panelH: 1.30,
     primitives,
   });
   const periodic = makeChemHolo(THREE, {
     id: 'chem-periodic',
     kind: 'periodic',
     title: '周期表',
-    pos: [0, 1.85, -0.10],
+    pos: [0, 2.05, -0.35],
     rotY: 0,
-    panelW: 2.60,
-    panelH: 1.50,
+    panelW: 2.95,
+    panelH: 1.72,
     primitives,
   });
 

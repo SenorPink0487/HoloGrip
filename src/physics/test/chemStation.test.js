@@ -12,7 +12,13 @@ import {
   findExperiment,
 } from '../src/runtime/catalog.js';
 import { resolveLabMode, isChemMode } from '../src/chem/labMode.js';
-import { getReagent, getElement, CHEM_ELEMENTS, blendColors } from '../src/chem/reagentCatalog.js';
+import {
+  getReagent,
+  getElement,
+  getReagentsForElement,
+  CHEM_ELEMENTS,
+  blendColors,
+} from '../src/chem/reagentCatalog.js';
 import { parseSdf } from '../src/chem/moleculeMesh.js';
 import { pickChemHits, drawChemPeriodicPanel } from '../src/chem/periodicTableDraw.js';
 
@@ -52,6 +58,25 @@ describe('reagent catalog', () => {
     assert.ok(getElement('Na'));
     const nacl = getReagent('nacl');
     assert.equal(nacl?.formula, 'NaCl');
+  });
+
+  it('covers expanded high-school lab set', () => {
+    // Core + transition metals + halogens + noble gases + period-6 demos
+    for (const sym of ['H', 'C', 'Na', 'Cl', 'Fe', 'Cu', 'Br', 'Ba', 'He', 'Mn', 'Pb']) {
+      assert.ok(getElement(sym), `missing element ${sym}`);
+    }
+    assert.ok(CHEM_ELEMENTS.length >= 30);
+    const kmno4 = getReagent('kmno4');
+    assert.equal(kmno4?.formula, 'KMnO4');
+    const cuso4 = getReagent('cuso4');
+    assert.equal(cuso4?.formula, 'CuSO4');
+    const br2 = getReagent('br2');
+    assert.equal(br2?.formula, 'Br2');
+    // Each listed element should expose at least one reagent
+    for (const el of CHEM_ELEMENTS) {
+      const list = getReagentsForElement(el.symbol);
+      assert.ok(list.length >= 1, `${el.symbol} has no reagents`);
+    }
   });
 
   it('blends colors', () => {
