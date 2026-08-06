@@ -156,11 +156,51 @@ export function drawChemRightPanel(ctx, W, H, data = {}) {
   ctx.fillStyle = '#0f172a';
   ctx.font = '800 48px "Outfit", "Noto Sans SC", system-ui, sans-serif';
   ctx.fillText('成分构成与比例', pad, 72);
-  ctx.fillStyle = '#64748b';
-  ctx.font = '600 22px "Noto Sans SC", system-ui, sans-serif';
-  ctx.fillText('百分比环形图 · 滚轮/拖拽列表查看 3D 结构', pad, 108);
-
   const components = data.components || [];
+
+  // --- Beaker View Selector Tabs (Top Right) ---
+  const currentView = data.viewCup || 'all';
+  const tabs = [
+    { id: 'all', label: '全部成分' },
+    { id: 'A', label: '烧杯 A' },
+    { id: 'B', label: '烧杯 B' },
+  ];
+
+  const tabW = 185;
+  const tabH = 64;
+  const tabGap = 16;
+  const totalTabsW = tabs.length * tabW + (tabs.length - 1) * tabGap;
+  let tabX = W - pad - totalTabsW;
+  const tabY = 32;
+
+  tabs.forEach((t) => {
+    const isSel = currentView === t.id;
+    ctx.fillStyle = isSel ? 'rgba(14, 165, 233, 0.95)' : 'rgba(241, 245, 249, 0.85)';
+    roundRect(ctx, tabX, tabY, tabW, tabH, 16);
+    ctx.fill();
+    ctx.strokeStyle = isSel ? '#0284c7' : 'rgba(203, 213, 225, 0.9)';
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    ctx.fillStyle = isSel ? '#ffffff' : '#334155';
+    ctx.font = '700 28px "Noto Sans SC", system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(t.label, tabX + tabW / 2, tabY + tabH / 2);
+    ctx.textAlign = 'left';
+
+    hits.push({
+      x: tabX,
+      y: tabY,
+      w: tabW,
+      h: tabH,
+      action: 'chem-select-view-cup',
+      cup: t.id,
+      role: 'chem_ui',
+    });
+
+    tabX += tabW + tabGap;
+  });
 
   // --- Circular Percentage Chart (Donut Chart) ---
   const cx = W / 2;
@@ -339,10 +379,14 @@ export function drawChemRightPanel(ctx, W, H, data = {}) {
     ctx.fillStyle = active ? '#0f172a' : 'rgba(15, 23, 42, 0.08)';
     ctx.fill();
 
-    ctx.fillStyle = active ? '#ffffff' : '#0f172a';
-    ctx.font = '700 22px "Outfit", system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(`${pct.toFixed(1)}%`, pillX + pillW / 2, pillY + 28);
+    const pctStr = pct >= 0.1
+      ? `${pct.toFixed(1)}%`
+      : pct >= 0.005
+      ? `${pct.toFixed(2)}%`
+      : pct > 0
+      ? '<0.01%'
+      : '0%';
+    ctx.fillText(pctStr, pillX + pillW / 2, pillY + 28);
     ctx.textAlign = 'left';
 
     // Clickable hit region for component item

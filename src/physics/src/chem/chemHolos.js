@@ -176,17 +176,21 @@ export function makeChemHolo(THREE, opts) {
     const key = JSON.stringify({
       kind,
       a: data.activeCup,
+      vc: data.viewCup,
       p: data.pickerOpen,
       ph: data.pickerPhase,
       el: data.pickedElement,
       ca: data.cupA?.formula,
       cb: data.cupB?.formula,
+      // Include formulas so reaction product swaps redraw even when count is unchanged
+      cf: (data.components || []).map((c) => c.formula || c.id).join('|'),
       n: data.components?.length,
       sel: data.selectedComponentId,
       sy: data.rightPanelScrollY,
       q: data.searchQuery,
       sp: data.speechListening,
       h: data.hint,
+      rx: data.cupA?.lastReaction?.name || data.cupB?.lastReaction?.name || '',
     });
     if (!force && key === lastKey) return;
     lastKey = key;

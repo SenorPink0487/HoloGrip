@@ -146,14 +146,15 @@ export function createMoleculeMesh(THREE, source, opts = {}) {
   const style = opts.style || 'ball-and-stick';
   const isSpaceFilling = style === 'space-filling';
 
-  // Target radius for the entire molecule on the pedestal (~0.30m)
-  const targetRadius = 0.30;
-  const fitScale = maxR > 0.01 ? targetRadius / (maxR + (isSpaceFilling ? 1.5 : 0)) : 0.12;
+  // Target radius for the entire molecule on the pedestal (~0.28m)
+  const targetRadius = 0.28;
+  // Fit scale clamped between 0.032 and 0.088 to avoid giant water balloons or crowded atom blobs
+  const fitScale = Math.min(0.088, Math.max(0.032, targetRadius / (maxR + 0.8)));
 
-  // Ball-and-stick: atoms are 25% of VDW radius, bonds are 0.15 Angstroms thick
-  // Space-filling: atoms are 100% of VDW radius, no bonds
-  const atomRadiusMultiplier = isSpaceFilling ? 1.0 : 0.25;
-  const bondRadius = 0.15 * fitScale;
+  // Ball-and-stick: atoms are 28% of VDW radius * fitScale, bonds are 0.16 Angstroms * fitScale
+  // Space-filling: atoms are 90% of VDW radius * fitScale, no bonds
+  const atomRadiusMultiplier = isSpaceFilling ? 0.90 : 0.28;
+  const bondRadius = isSpaceFilling ? 0.001 : 0.16 * fitScale;
 
   const atomMeshes = [];
   const atomColors = [];
@@ -167,7 +168,7 @@ export function createMoleculeMesh(THREE, source, opts = {}) {
     const r = baseR * atomRadiusMultiplier * fitScale;
     
     const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(r, 32, 32),
+      new THREE.SphereGeometry(r, 24, 24),
       new THREE.MeshPhysicalMaterial({
         color,
         emissive: color,

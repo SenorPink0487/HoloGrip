@@ -119,6 +119,36 @@ export function createChemCupRig(THREE, opts = {}) {
     });
   }
 
+  // —— Reaction effervescence bubbles pool ——
+  const BUBBLE_POOL = 64;
+  const bubbleGeo = new THREE.SphereGeometry(1, 10, 10);
+  /** @type {{ mesh: any, active: boolean, cupKind: 'A'|'B', x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, age: number, baseRadius: number, surfY: number, cupX: number, cupZ: number }[]} */
+  const bubbles = [];
+  const bubbleMat = new THREE.MeshPhysicalMaterial({
+    color: 0xffffff,
+    emissive: 0xe0f2fe,
+    emissiveIntensity: 0.5,
+    transparent: true,
+    opacity: 0.8,
+    roughness: 0.05,
+    metalness: 0.1,
+    transmission: 0.85,
+    thickness: 0.04,
+    depthWrite: false,
+  });
+
+  for (let i = 0; i < BUBBLE_POOL; i += 1) {
+    const mesh = new THREE.Mesh(bubbleGeo, bubbleMat);
+    mesh.visible = false;
+    mesh.scale.setScalar(0.01);
+    root.add(mesh);
+    bubbles.push({
+      mesh, active: false, cupKind: 'A',
+      x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
+      life: 0, age: 0, baseRadius: 0.01, surfY: 0, cupX: 0, cupZ: 0,
+    });
+  }
+
   // Impact ripple disc on destination free surface
   const ripple = new THREE.Mesh(
     new THREE.RingGeometry(0.02, 0.08, 24),
@@ -164,7 +194,209 @@ export function createChemCupRig(THREE, opts = {}) {
       fill: 0,
       color: 0x38bdf8,
       formula: '',
+      reactionEffervescence: 0,
+      lastReaction: null,
     };
+  }
+
+  function parseReagentItems(list) {
+    const res = [];
+    for (const item of list || []) {
+      if (!item) continue;
+      const formula = String(item.formula || item.name_zh || item.id || '').trim();
+      if (formula.includes('+')) {
+        const parts = formula.split('+').map((p) => p.trim()).filter(Boolean);
+        for (const p of parts) {
+          res.push({
+            id: `sub-${p}`,
+            formula: p,
+            name_zh: p,
+          });
+        }
+      } else {
+        res.push(item);
+      }
+    }
+    return res;
+  }
+
+  function detectReaction(reagents1 = [], reagents2 = []) {
+    const list1 = parseReagentItems(Array.isArray(reagents1) ? reagents1 : []);
+    const list2 = parseReagentItems(Array.isArray(reagents2) ? reagents2 : []);
+    const allReagents = [...list1, ...list2];
+    if (allReagents.length < 2) return null;
+
+    const getStr = (r) => `${r.id || ''} ${r.formula || ''} ${r.name_zh || ''}`.toUpperCase();
+    const all = allReagents.map(getStr);
+
+    const has = (key) => all.some((s) => s.includes(key.toUpperCase()));
+
+    // 1. HCl + Na2CO3 / NaHCO3 / CaCO3 / K2CO3 (酸 + 碳酸盐 -> 大量 CO2 气泡)
+    if ((has('HCL') || has('盐酸')) && (has('NA2CO3') || has('NAHCO3') || has('CACO3') || has('K2CO3') || has('碳酸钠') || has('碳酸氢钠') || has('碳酸钙'))) {
+      const isBicarb = has('NAHCO3') || has('碳酸氢钠');
+      const isCa = has('CACO3') || has('碳酸钙');
+      return {
+        reacts: true,
+        gas: true,
+        gasType: 'CO2',
+        name: '碳酸盐与酸反应',
+        equation: isCa
+          ? '2HCl + CaCO3 = CaCl2 + H2O + CO2↑'
+          : isBicarb
+          ? 'HCl + NaHCO3 = NaCl + H2O + CO2↑'
+          : '2HCl + Na2CO3 = 2NaCl + H2O + CO2↑',
+        productColor: 0x94a3b8,
+        intensity: 1.2,
+        description: '酸与碳酸盐剧烈反应，产生大量二氧化碳（CO₂）气泡！',
+        products: isCa ? [
+          { formula: 'CaCl2', name_zh: '氯化钙', color: 0x38bdf8, percent: 50 },
+          { formula: 'H2O', name_zh: '水', color: 0x60a5fa, percent: 30 },
+          { formula: 'CO2', name_zh: '二氧化碳(气)', color: 0xe2e8f0, percent: 20 },
+        ] : isBicarb ? [
+          { formula: 'NaCl', name_zh: '氯化钠', color: 0x38bdf8, percent: 50 },
+          { formula: 'H2O', name_zh: '水', color: 0x60a5fa, percent: 30 },
+          { formula: 'CO2', name_zh: '二氧化碳(气)', color: 0xe2e8f0, percent: 20 },
+        ] : [
+          { formula: 'NaCl', name_zh: '氯化钠', color: 0x38bdf8, percent: 50 },
+          { formula: 'H2O', name_zh: '水', color: 0x60a5fa, percent: 30 },
+          { formula: 'CO2', name_zh: '二氧化碳(气)', color: 0xe2e8f0, percent: 20 },
+        ],
+      };
+    }
+
+    // 2. H2SO4 + Na2CO3 / CaCO3 (硫酸 + 碳酸盐 -> CO2 气泡)
+    if ((has('H2SO4') || has('硫酸')) && (has('NA2CO3') || has('NAHCO3') || has('CACO3') || has('碳酸钠') || has('碳酸钙'))) {
+      return {
+        reacts: true,
+        gas: true,
+        gasType: 'CO2',
+        name: '碳酸盐与硫酸反应',
+        equation: 'H2SO4 + Na2CO3 = Na2SO4 + H2O + CO2↑',
+        productColor: 0x94a3b8,
+        intensity: 1.2,
+        description: '硫酸与碳酸盐反应，迅速产生大量二氧化碳（CO₂）气泡！',
+        products: [
+          { formula: 'Na2SO4', name_zh: '硫酸钠', color: 0x38bdf8, percent: 50 },
+          { formula: 'H2O', name_zh: '水', color: 0x60a5fa, percent: 30 },
+          { formula: 'CO2', name_zh: '二氧化碳(气)', color: 0xe2e8f0, percent: 20 },
+        ],
+      };
+    }
+
+    // 3. HCl / H2SO4 + Mg / Zn / Fe (酸与活泼金属 -> H2 气泡)
+    if ((has('HCL') || has('H2SO4') || has('盐酸')) && (has('MG') || has('ZN') || has('FE') || has('镁') || has('锌'))) {
+      return {
+        reacts: true,
+        gas: true,
+        gasType: 'H2',
+        name: '金属与酸置换反应',
+        equation: '2HCl + Mg = MgCl2 + H2↑',
+        productColor: 0xcbd5e1,
+        intensity: 1.0,
+        description: '活泼金属与酸置换反应，剧烈冒出氢气（H₂）气泡！',
+        products: [
+          { formula: 'MgCl2', name_zh: '氯化镁', color: 0x38bdf8, percent: 70 },
+          { formula: 'H2', name_zh: '氢气(气)', color: 0xe0f2fe, percent: 30 },
+        ],
+      };
+    }
+
+    // 4. H2O2 + MnO2 (过氧化氢催化分解 -> O2 气泡)
+    if ((has('H2O2') || has('过氧化氢')) && (has('MNO2') || has('二氧化锰'))) {
+      return {
+        reacts: true,
+        gas: true,
+        gasType: 'O2',
+        name: '过氧化氢催化分解',
+        equation: '2H2O2 = 2H2O + O2↑',
+        productColor: 0x94a3b8,
+        intensity: 1.2,
+        description: '二氧化锰催化双氧水分解，大量释放氧气（O₂）气泡！',
+        products: [
+          { formula: 'H2O', name_zh: '水', color: 0x60a5fa, percent: 70 },
+          { formula: 'O2', name_zh: '氧气(气)', color: 0xe0f2fe, percent: 30 },
+        ],
+      };
+    }
+
+    // 5. CuSO4 + NaOH (硫酸铜 + 氢氧化钠 -> 蓝色沉淀)
+    if ((has('CUSO4') || has('硫酸铜')) && (has('NAOH') || has('氢氧化钠'))) {
+      return {
+        reacts: true,
+        precipitate: true,
+        name: '铜离子沉淀反应',
+        equation: 'CuSO4 + 2NaOH = Cu(OH)2↓ + Na2SO4',
+        productColor: 0x0284c7,
+        intensity: 0.8,
+        description: '生成蓝色絮状氢氧化铜 Cu(OH)₂ 沉淀！',
+        products: [
+          { formula: 'Cu(OH)2', name_zh: '氢氧化铜(沉淀)', color: 0x0284c7, percent: 50 },
+          { formula: 'Na2SO4', name_zh: '硫酸钠', color: 0x38bdf8, percent: 50 },
+        ],
+      };
+    }
+
+    // 6. AgNO3 + NaCl (硝酸银 + 氯化钠 -> 白色沉淀)
+    if ((has('AGNO3') || has('硝酸银')) && (has('NACL') || has('氯化钠') || has('HCL'))) {
+      return {
+        reacts: true,
+        precipitate: true,
+        name: '氯离子检验反应',
+        equation: 'AgNO3 + NaCl = AgCl↓ + NaNO3',
+        productColor: 0xf8fafc,
+        intensity: 0.8,
+        description: '生成不溶于酸的白色氯化银 AgCl 沉淀！',
+        products: [
+          { formula: 'AgCl', name_zh: '氯化银(沉淀)', color: 0xf8fafc, percent: 50 },
+          { formula: 'NaNO3', name_zh: '硝酸钠', color: 0xf9a8d4, percent: 50 },
+        ],
+      };
+    }
+
+    return null;
+  }
+
+  function triggerReactionEffect(kind, opts = {}) {
+    if (kind !== 'A' && kind !== 'B') return;
+    const s = state[kind];
+    s.reactionEffervescence = opts.duration ?? 8.0;
+    if (opts.productColor) s.color = opts.productColor;
+    if (opts.equation) s.formula = opts.equation;
+    s.lastReaction = {
+      reacts: true,
+      intensity: opts.intensity ?? 1.0,
+      description: opts.description || '发生化学反应',
+    };
+    applyCupVisual(kind);
+  }
+
+  /**
+   * Replace cup content with reaction products so labels / right panel show post-reaction compounds.
+   * @returns {boolean} true if products were applied
+   */
+  function applyReactionProducts(s, reaction) {
+    if (!s || !reaction?.reacts) return false;
+    s.lastReaction = reaction;
+    s.reactionEffervescence = Math.max(s.reactionEffervescence || 0, 12.0);
+    if (reaction.productColor != null) s.color = reaction.productColor;
+    if (Array.isArray(reaction.products) && reaction.products.length) {
+      s.reagents = reaction.products.map((p, i) => ({
+        id: `prod-${i}-${p.formula}`,
+        formula: p.formula,
+        name_zh: p.name_zh || p.formula,
+        color: p.color || s.color,
+        query: p.query || p.formula,
+        percent: p.percent,
+      }));
+      s.formula = s.reagents.map((r) => r.formula).join('+');
+      return true;
+    }
+    // Fallback: show product side of equation if products list missing
+    if (reaction.equation && reaction.equation.includes('=')) {
+      const rhs = reaction.equation.split('=')[1] || '';
+      s.formula = rhs.replace(/[↑↓]/g, '').trim() || s.formula;
+    }
+    return false;
   }
 
   function applyCupVisual(kind, optsVis = {}) {
@@ -185,11 +417,27 @@ export function createChemCupRig(THREE, opts = {}) {
   function assignReagent(kind, reagent) {
     if (!reagent || (kind !== 'A' && kind !== 'B')) return false;
     const s = state[kind];
-    // Replace primary content for clarity in v1
-    s.reagents = [{ ...reagent }];
+    const formulaStr = String(reagent.formula || '').trim();
+    if (formulaStr.includes('+')) {
+      s.reagents = formulaStr.split('+').map((f, i) => ({
+        id: `r-${i}-${f.trim()}`,
+        formula: f.trim(),
+        name_zh: f.trim(),
+        color: reagent.color,
+      }));
+    } else {
+      s.reagents = [{ ...reagent }];
+    }
     s.fill = 0.85;
     s.color = reagent.color;
     s.formula = reagent.formula;
+    s.lastReaction = null;
+
+    const reaction = detectReaction(s.reagents);
+    if (reaction?.reacts) {
+      applyReactionProducts(s, reaction);
+    }
+
     applyCupVisual(kind);
     return true;
   }
@@ -305,12 +553,12 @@ export function createChemCupRig(THREE, opts = {}) {
     if (molecule) {
       molecule.rotation.y += dt * 0.6;
       if (molecule.userData?.isLoading) {
-        molecule.rotation.x += dt * 0.4;
-        molecule.rotation.z += dt * 0.2;
-        const s = 1.35 + Math.sin(performance.now() * 0.005) * 0.15;
-        molecule.scale.setScalar(s);
-      } else if (molecule.scale.x !== 1.35) {
-        molecule.scale.setScalar(1.35);
+        molecule.rotation.x += dt * 1.2;
+        if (molecule.userData.ring1) molecule.userData.ring1.rotation.z += dt * 3.5;
+        if (molecule.userData.ring2) molecule.userData.ring2.rotation.x += dt * 2.8;
+        if (molecule.userData.ring3) molecule.userData.ring3.rotation.y += dt * 3.2;
+        const pulse = 1.0 + Math.sin(Date.now() * 0.008) * 0.12;
+        molecule.scale.setScalar(pulse);
       }
     }
     const safeDt = Math.min(0.05, Math.max(0, dt));
@@ -378,13 +626,19 @@ export function createChemCupRig(THREE, opts = {}) {
 
       // Preview destination content as soon as liquid arrives
       if (p.transferred > 0.02) {
+        const rx = detectReaction(state[p.from].reagents, state[p.to].reagents);
+        if (rx?.reacts) {
+          state[p.to].reactionEffervescence = 8.0;
+          state[p.to].lastReaction = rx;
+        }
         if (!state[p.to].reagents.length && state[p.from].reagents.length) {
           state[p.to].reagents = state[p.from].reagents.map((r) => ({ ...r }));
           state[p.to].color = p.color;
           state[p.to].formula = state[p.to].reagents.map((r) => r.formula).join('+');
         } else if (state[p.to].reagents.length) {
           const w = clamp(p.transferred / Math.max(0.01, p.fillStart), 0, 1) * 0.12;
-          state[p.to].color = blendColors(state[p.to].color, p.color, w);
+          const targetCol = rx?.productColor ?? p.color;
+          state[p.to].color = blendColors(state[p.to].color, targetCol, w);
         }
       }
 
@@ -450,6 +704,7 @@ export function createChemCupRig(THREE, opts = {}) {
     const transferred = pour?.transferred ?? src.fill;
     const dstStart = pour?.dstFillStart ?? dst.fill;
     const pourColor = pour?.color ?? src.color;
+
     if (!dst.reagents.length) {
       dst.reagents = srcReagents.map((r) => ({ ...r }));
       dst.color = pourColor;
@@ -459,14 +714,24 @@ export function createChemCupRig(THREE, opts = {}) {
       for (const r of srcReagents) {
         if (!ids.has(r.id)) dst.reagents.push({ ...r });
       }
-      dst.color = blendColors(dst.color, pourColor, 0.5);
       dst.fill = Math.min(0.95, dstStart + transferred);
     }
-    dst.formula = dst.reagents.map((r) => r.formula).join('+');
+
+    const reaction = detectReaction(dst.reagents);
+    if (reaction?.reacts) {
+      // Replace mixed reagents with post-reaction compounds (right panel + cup label).
+      applyReactionProducts(dst, reaction);
+    } else {
+      dst.color = blendColors(dst.color, pourColor, 0.5);
+      dst.formula = dst.reagents.map((r) => r.formula).join('+');
+      dst.lastReaction = null;
+    }
+
     src.reagents = [];
     src.fill = 0;
     src.formula = '';
     src.color = 0x38bdf8;
+    src.lastReaction = null;
     applyCupVisual(from);
     applyCupVisual(to);
   }
@@ -544,6 +809,16 @@ export function createChemCupRig(THREE, opts = {}) {
     return null;
   }
 
+  function allocBubble() {
+    for (let i = 0; i < bubbles.length; i += 1) {
+      if (!bubbles[i].active) {
+        bubbles[i].active = true;
+        return bubbles[i];
+      }
+    }
+    return null;
+  }
+
   function stepFluid(dt) {
     // Parcels under gravity
     for (let i = 0; i < parcels.length; i += 1) {
@@ -597,6 +872,79 @@ export function createChemCupRig(THREE, opts = {}) {
         s.active = false;
         s.mesh.visible = false;
         s.mesh.material.opacity = 0;
+      }
+    }
+
+    // Reaction Effervescence Bubbles Update
+    for (const kind of ['A', 'B']) {
+      const s = state[kind];
+      if (s.reactionEffervescence > 0 && s.fill > 0.05) {
+        s.reactionEffervescence = Math.max(0, s.reactionEffervescence - dt);
+        const cup = kind === 'A' ? cupA : cupB;
+        const surfY = cup.position.y + 0.10 + s.fill * 0.32;
+        const spawnRate = 45 * Math.min(1.2, s.reactionEffervescence) * (s.lastReaction?.intensity ?? 1.0);
+        const nToSpawn = Math.floor(spawnRate * dt + Math.random() * 0.3);
+
+        for (let k = 0; k < nToSpawn; k++) {
+          const b = allocBubble();
+          if (!b) break;
+          const r = (0.16 - 0.035) * Math.sqrt(Math.random());
+          const theta = Math.random() * Math.PI * 2;
+          b.cupKind = kind;
+          b.cupX = cup.position.x;
+          b.cupZ = cup.position.z;
+          b.surfY = surfY;
+          b.x = cup.position.x + r * Math.cos(theta);
+          b.z = cup.position.z + r * Math.sin(theta);
+          b.y = cup.position.y + 0.12 + Math.random() * Math.max(0.02, surfY - cup.position.y - 0.14);
+          b.vx = (Math.random() - 0.5) * 0.08;
+          b.vy = 0.4 + Math.random() * 0.6;
+          b.vz = (Math.random() - 0.5) * 0.08;
+          b.baseRadius = 0.006 + Math.random() * 0.014;
+          b.life = 1.0 + Math.random() * 0.5;
+          b.age = 0;
+          b.mesh.position.set(b.x, b.y, b.z);
+          b.mesh.scale.setScalar(b.baseRadius);
+          b.mesh.visible = true;
+          b.mesh.material.opacity = 0.85;
+        }
+      }
+    }
+
+    for (let i = 0; i < bubbles.length; i += 1) {
+      const b = bubbles[i];
+      if (!b.active) continue;
+      b.age += dt;
+      b.vy += 2.2 * dt; // Buoyancy acceleration
+      b.vx += Math.sin(b.age * 18) * 0.08 * dt;
+      b.vz += Math.cos(b.age * 14) * 0.08 * dt;
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+      b.z += b.vz * dt;
+
+      const cup = b.cupKind === 'A' ? cupA : cupB;
+      const surfY = cup.position.y + 0.10 + state[b.cupKind].fill * 0.32;
+      const expand = 1.0 + (b.y - (cup.position.y + 0.1)) * 1.8;
+      const rad = b.baseRadius * expand;
+
+      b.mesh.position.set(b.x, b.y, b.z);
+      b.mesh.scale.setScalar(rad);
+
+      const distToSurface = surfY - b.y;
+      if (distToSurface <= 0.02) {
+        // Burst on surface
+        triggerRipple(b.cupX, surfY, b.cupZ, 0xffffff);
+        b.active = false;
+        b.mesh.visible = false;
+        b.mesh.material.opacity = 0;
+      } else {
+        b.mesh.material.opacity = Math.min(0.85, distToSurface / 0.04);
+      }
+
+      if (b.age >= b.life || b.y > surfY + 0.05) {
+        b.active = false;
+        b.mesh.visible = false;
+        b.mesh.material.opacity = 0;
       }
     }
 
@@ -692,20 +1040,71 @@ export function createChemCupRig(THREE, opts = {}) {
     molecule = new THREE.Group();
     molecule.name = 'chem-molecule';
     
+    // 1. Central glowing nucleus core
+    const core = new THREE.Mesh(
+      new THREE.SphereGeometry(0.06, 24, 24),
+      new THREE.MeshStandardMaterial({ 
+        color: 0x0284c7, 
+        emissive: 0x38bdf8,
+        emissiveIntensity: 0.8,
+        roughness: 0.2,
+        metalness: 0.1,
+      })
+    );
+    molecule.add(core);
+
+    // 2. Outer rotating wireframe quantum icosahedron
     const orb = new THREE.Mesh(
-      new THREE.IcosahedronGeometry(0.15, 1),
+      new THREE.IcosahedronGeometry(0.18, 1),
       new THREE.MeshBasicMaterial({ 
         color: 0x38bdf8, 
         wireframe: true, 
         transparent: true, 
-        opacity: 0.6 
+        opacity: 0.75 
       })
     );
     molecule.add(orb);
+
+    // 3. Three orbiting electron rings (tilted X/Y/Z)
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x7dd3fc,
+      transparent: true,
+      opacity: 0.85,
+    });
+    
+    const ring1 = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.005, 12, 48), ringMat);
+    ring1.rotation.x = Math.PI * 0.35;
+    molecule.add(ring1);
+
+    const ring2 = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.005, 12, 48), ringMat);
+    ring2.rotation.y = Math.PI * 0.35;
+    molecule.add(ring2);
+
+    const ring3 = new THREE.Mesh(new THREE.TorusGeometry(0.22, 0.005, 12, 48), ringMat);
+    ring3.rotation.z = Math.PI * 0.35;
+    molecule.add(ring3);
+
+    // 4. Glowing electron particles on the rings
+    const eMat = new THREE.MeshBasicMaterial({ color: 0xbae6fd });
+    const e1 = new THREE.Mesh(new THREE.SphereGeometry(0.016, 16, 16), eMat);
+    e1.position.set(0.22, 0, 0);
+    ring1.add(e1);
+
+    const e2 = new THREE.Mesh(new THREE.SphereGeometry(0.016, 16, 16), eMat);
+    e2.position.set(0, 0.22, 0);
+    ring2.add(e2);
+
+    const e3 = new THREE.Mesh(new THREE.SphereGeometry(0.016, 16, 16), eMat);
+    e3.position.set(0, 0, 0.22);
+    ring3.add(e3);
+
     molecule.userData.isLoading = true;
+    molecule.userData.ring1 = ring1;
+    molecule.userData.ring2 = ring2;
+    molecule.userData.ring3 = ring3;
     
     molecule.position.set(0, 0.42, 0);
-    molecule.scale.setScalar(1.35);
+    molecule.scale.setScalar(1.0);
     molecule.visible = true;
     pedestal.visible = true;
     pedestal.add(molecule);
@@ -730,7 +1129,7 @@ export function createChemCupRig(THREE, opts = {}) {
     }
     // Sit clearly above pedestal ring so it is visible from sitting edge
     molecule.position.set(0, 0.42, 0);
-    molecule.scale.setScalar(1.35);
+    molecule.scale.setScalar(1.0);
     molecule.visible = true;
     molecule.userData.role = 'chem_molecule';
     molecule.userData.interactive = true;
@@ -837,11 +1236,13 @@ export function createChemCupRig(THREE, opts = {}) {
     homeA,
     homeB,
     setDimmed,
+    detectReaction,
+    triggerReactionEffect,
   };
 }
 
 function emptyCupState() {
-  return { reagents: [], fill: 0, color: 0x38bdf8, formula: '' };
+  return { reagents: [], fill: 0, color: 0x38bdf8, formula: '', reactionEffervescence: 0, lastReaction: null };
 }
 
 function makeCup(THREE, kind, tint, accent) {

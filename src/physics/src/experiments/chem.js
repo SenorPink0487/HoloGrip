@@ -56,16 +56,29 @@ function snapshotCups(eq) {
 
 function buildComponents(data) {
   const map = new Map();
-  for (const cup of [data.cupA, data.cupB]) {
+  const viewCup = data.viewCup || 'all';
+  const targetCups = viewCup === 'A' ? [data.cupA] : viewCup === 'B' ? [data.cupB] : [data.cupA, data.cupB];
+
+  for (const cup of targetCups) {
     for (const r of cup?.reagents || []) {
       if (!r || (!r.formula && !r.id && !r.name_zh)) continue;
       const key = String(r.formula || r.id || r.name_zh || '').trim().toUpperCase();
       if (!map.has(key)) {
-        map.set(key, { ...r, percent: 100 });
+        map.set(key, { ...r, percent: r.percent || 100 });
       }
     }
   }
-  return [...map.values()];
+  const list = [...map.values()];
+  if (!list.length) return [];
+  const total = list.reduce((s, c) => s + (c.percent || 1), 0) || 1;
+  return list.map((c, i) => ({
+    id: c.id || `comp-${i}-${c.formula}`,
+    formula: c.formula || c.name_zh,
+    name_zh: c.name_zh || c.formula,
+    color: c.color || 0x38bdf8,
+    query: c.query || c.formula,
+    percent: Math.round(((c.percent || 1) / total) * 1000) / 10,
+  }));
 }
 
 function roleToKind(role) {
@@ -170,6 +183,7 @@ export function createHandlers(ctx) {
     setReagentSearchBusy(true);
     setReagentSearchStatus('AI 正在解析…');
     toast('AI 解析中…');
+    eq()?.showLoadingMolecule?.(query);
     try {
       const product = await resolveAiProduct(query, condition, (msg) => {
         setReagentSearchStatus(String(msg || ''));
@@ -291,6 +305,57 @@ export function createHandlers(ctx) {
   // Wire dock once per handler instance
   setReagentSearchHandler((query, condition) => runAiReagentQuery(query, condition));
 
+  /**
+   * After pour animation finishes: sync cup reagents → right panel components.
+   * If a reaction occurred, reagents are already replaced with products in the rig.
+   */
+  function finishPourSync(to) {
+    // Focus right panel on the destination cup that received the mixture/products
+    if (to === 'A' || to === 'B') state.data.viewCup = to;
+    syncFromRig();
+
+    const dstState = (eq()?.getCupState?.() || {})[to];
+    const comps = state.data.components || [];
+    if (comps.length) {
+      state.data.selectedComponentId = comps[0].id;
+      state.data.rightPanelScrollY = 0;
+      // Prefetch SDF for all product components so right-panel clicks are instant
+      comps.forEach((c) => { void fetchSdfForComp(c); });
+      void loadAndShowMolecule(eq(), comps[0], toast);
+    }
+
+    if (dstState?.lastReaction?.reacts) {
+      const desc = dstState.lastReaction.description || '发生化学反应';
+      const productLabel = comps.map((c) => formatSubscriptFormula(c.formula)).join(' · ')
+        || formatSubscriptFormula(dstState.formula)
+        || '产物';
+      state.data.hint = `✨ ${desc} · 右侧已更新为：${productLabel}`;
+      toast(`✨ ${desc}`);
+    } else {
+      state.data.hint = '混合完成 · 在右侧查看成分并显示 3D 结构';
+      toast('试剂已倾倒混合');
+    }
+    setStep('inspect');
+    pushHud();
+  }
+
+  /** Wait until rig pour FSM is idle, then refresh HUD / right panel. */
+  function waitPourThenSync(to) {
+    const e = eq();
+    const started = performance.now();
+    const poll = () => {
+      // Only rig.pour (FSM object) means still pouring — e.pour is the API function
+      if (e?.rig?.pour) {
+        if (performance.now() - started < 4000) {
+          requestAnimationFrame(poll);
+          return;
+        }
+      }
+      finishPourSync(to);
+    };
+    requestAnimationFrame(poll);
+  }
+
   function pourBetween(from, to) {
     const e = eq();
     if (!e) return false;
@@ -305,24 +370,9 @@ export function createHandlers(ctx) {
       toast('无法倾倒');
       return false;
     }
-    // Poll pour completion briefly then sync (rig owns animation).
-    const started = performance.now();
-    const poll = () => {
-      if (e.rig?.pour || e.pour) {
-        if (performance.now() - started < 2500) {
-          requestAnimationFrame(poll);
-          return;
-        }
-      }
-      syncFromRig();
-      state.data.hint = '混合完成 · 在右侧查看成分并显示 3D 结构';
-      setStep('inspect');
-      toast('试剂已倾倒混合');
-      pushHud();
-    };
-    requestAnimationFrame(poll);
     setStep('pour');
     toast(`烧杯 ${from} → ${to}`);
+    waitPourThenSync(to);
     return true;
   }
 
@@ -330,6 +380,7 @@ export function createHandlers(ctx) {
     initData() {
       return {
         activeCup: 'A',
+        viewCup: 'all',
         pickerOpen: false,
         pickerPhase: 'elements',
         pickedElement: null,
@@ -539,11 +590,10 @@ export function createHandlers(ctx) {
       if (lifted) {
         const result = eq()?.endDrag?.() || { poured: false };
         if (result.poured) {
-          syncFromRig();
-          state.data.hint = '混合完成 · 在右侧查看成分并显示 3D 结构';
-          setStep('inspect');
-          toast('试剂已倾倒混合');
-          pushHud();
+          setStep('pour');
+          toast(`烧杯 ${result.from || '?'} → ${result.to || '?'}`);
+          // Wait for pour animation + reaction product commit before updating right panel
+          waitPourThenSync(result.to || (result.from === 'A' ? 'B' : 'A'));
           return true;
         }
         return true;
@@ -729,6 +779,13 @@ export function createHandlers(ctx) {
           d.selectedComponentId = id;
           setStep('inspect');
           void loadAndShowMolecule(eq(), comp, toast);
+          pushHud();
+          return true;
+        }
+        case 'chem-select-view-cup': {
+          d.viewCup = payload.cup;
+          syncFromRig();
+          toast(`切换成分视角：${payload.cup === 'A' ? '烧杯 A' : payload.cup === 'B' ? '烧杯 B' : '全部成分'}`);
           pushHud();
           return true;
         }
