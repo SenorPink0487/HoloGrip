@@ -21,6 +21,7 @@ const _localRay = new THREE.Ray();
 const _deskPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const _vertPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -0.15);
 const _hitPoint = new THREE.Vector3();
+const _sdfCache = new Map();
 
 export const station = {
   id: 'chem',
@@ -57,7 +58,11 @@ function buildComponents(data) {
   const map = new Map();
   for (const cup of [data.cupA, data.cupB]) {
     for (const r of cup?.reagents || []) {
-      if (!map.has(r.id)) map.set(r.id, { ...r });
+      if (!r || (!r.formula && !r.id && !r.name_zh)) continue;
+      const key = String(r.formula || r.id || r.name_zh || '').trim().toUpperCase();
+      if (!map.has(key)) {
+        map.set(key, { ...r, percent: 100 });
+      }
     }
   }
   return [...map.values()];
@@ -138,22 +143,17 @@ export function createHandlers(ctx) {
       };
 
       eq()?.assignReagent?.(cup, reagent);
-
-      const compItem = {
-        id: `comp-${reagent.id}`,
-        formula: formula,
-        name_zh: nameZh,
-        color: colorForFormula(String(formula)),
-        query: formula,
-        percent: 100,
-      };
-
       syncFromRig();
-      const existing = state.data.components || [];
-      const byId = new Map(existing.map((c) => [c.id, c]));
-      byId.set(compItem.id, compItem);
-      state.data.components = [...byId.values()];
-      state.data.selectedComponentId = compItem.id;
+
+      const compItem = state.data.components?.find(
+        (c) => String(c.formula || c.id || '').toUpperCase() === String(reagent.formula).toUpperCase()
+      ) || state.data.components?.[0];
+
+      if (compItem) {
+        state.data.selectedComponentId = compItem.id;
+        void loadAndShowMolecule(eq(), compItem, toast);
+      }
+
       state.data.hint = `已装入 ${formatSubscriptFormula(reagent.formula)} · 可倾倒或点右侧成分看 3D`;
       state.data.pickerOpen = false;
       hideReagentSearchDock();
@@ -161,7 +161,6 @@ export function createHandlers(ctx) {
       setStep('pour');
       pushHud();
 
-      void loadAndShowMolecule(eq(), compItem, toast);
       setReagentSearchStatus(`已装入 ${formatSubscriptFormula(reagent.formula)}`, 'ok');
       toast(`${formatSubscriptFormula(reagent.formula)} → 烧杯 ${cup}`);
       setReagentSearchValue('');
@@ -213,10 +212,14 @@ export function createHandlers(ctx) {
       }));
 
       syncFromRig();
-      const existing = state.data.components || [];
-      const byId = new Map(existing.map((c) => [c.id, c]));
-      mapped.forEach((c) => byId.set(c.id, c));
-      state.data.components = [...byId.values()];
+      if (mapped.length > 1) {
+        state.data.components = mapped;
+      }
+      
+      mapped.forEach((c) => {
+        void fetchSdfForComp(c);
+      });
+      
       state.data.hint = `已装入 ${reagent.formula}（AI）· 可倾倒或点右侧成分看 3D`;
       state.data.pickerOpen = false;
       hideReagentSearchDock();
@@ -367,6 +370,16 @@ export function createHandlers(ctx) {
         return false;
       }
       const role = target?.userData?.role;
+      
+      if (role === 'chem_molecule') {
+        const mol = eq()?.rig?.molecule;
+        if (mol?.userData?.toggleStyle) {
+          mol.userData.toggleStyle();
+          eq()?.getPickSet?.();
+          return true;
+        }
+      }
+
       const isLabel = target?.userData?.isLabel || role === 'chem_cup_a_label' || role === 'chem_cup_b_label';
       const kind = roleToKind(role);
       if (kind && isLabel) return openPickerForCup(kind);
@@ -768,15 +781,16 @@ function extractSdfFromLookup(result) {
   return '';
 }
 
-async function loadAndShowMolecule(equipment, comp, toast) {
-  if (!equipment || !comp) return;
-  const label = comp.formula || comp.name_zh || '分子';
-  toast?.(`加载 ${label} 结构…`);
+async function fetchSdfForComp(comp) {
+  if (!comp) return null;
+  const key = comp.query || comp.formula || comp.name_zh || comp.name_en;
+  if (!key) return null;
+  if (_sdfCache.has(key)) return _sdfCache.get(key);
+
   try {
     const { lookupMolecule, loadComponentStructure } = await import('../../../chem/src/pubchem.js');
     let sdf = '';
 
-    // 1) Prefer component structure loader (same as original HoloChem composition click)
     try {
       const structured = await loadComponentStructure({
         name_zh: comp.name_zh,
@@ -789,27 +803,47 @@ async function loadAndShowMolecule(equipment, comp, toast) {
       console.warn('[chem] loadComponentStructure miss', e?.message || e);
     }
 
-    // 2) Full product lookup (pure → molecule.sdf)
     if (!sdf) {
-      const query = comp.query || comp.formula || comp.name_zh || comp.name_en;
-      if (query) {
-        const product = await lookupMolecule(String(query));
-        sdf = extractSdfFromLookup(product);
-        if (!sdf && product?.molecule) sdf = extractSdfFromLookup(product.molecule);
-        // 3) First component recursive
-        if (!sdf && Array.isArray(product?.components) && product.components[0]) {
-          const c0 = product.components[0];
-          try {
-            const sub = await loadComponentStructure(c0);
-            sdf = extractSdfFromLookup(sub);
-          } catch {
-            const subProd = await lookupMolecule(c0.query || c0.formula || c0.name_zh || query);
-            sdf = extractSdfFromLookup(subProd) || extractSdfFromLookup(subProd?.molecule);
-          }
+      const query = String(key);
+      const product = await lookupMolecule(query);
+      sdf = extractSdfFromLookup(product);
+      if (!sdf && product?.molecule) sdf = extractSdfFromLookup(product.molecule);
+      if (!sdf && Array.isArray(product?.components) && product.components[0]) {
+        const c0 = product.components[0];
+        try {
+          const sub = await loadComponentStructure(c0);
+          sdf = extractSdfFromLookup(sub);
+        } catch {
+          const subProd = await lookupMolecule(c0.query || c0.formula || c0.name_zh || query);
+          sdf = extractSdfFromLookup(subProd) || extractSdfFromLookup(subProd?.molecule);
         }
       }
     }
 
+    if (sdf) _sdfCache.set(key, sdf);
+    return sdf;
+  } catch (err) {
+    console.warn('[chem] fetchSdfForComp failed', err);
+    return null;
+  }
+}
+
+async function loadAndShowMolecule(equipment, comp, toast) {
+  if (!equipment || !comp) return;
+  const label = comp.formula || comp.name_zh || '分子';
+  const key = comp.query || comp.formula || comp.name_zh || comp.name_en;
+
+  if (key && _sdfCache.has(key)) {
+    equipment.showMoleculeFromSdf?.(_sdfCache.get(key), label);
+    toast?.(`已在桌上显示 ${label}`);
+    return;
+  }
+
+  toast?.(`加载 ${label} 结构…`);
+  equipment.showLoadingMolecule?.(label);
+
+  try {
+    const sdf = await fetchSdfForComp(comp);
     equipment.showMoleculeFromSdf?.(sdf || null, label);
     toast?.(sdf ? `已在桌上显示 ${label}` : `桌上示意模型 · ${label}`);
   } catch (err) {

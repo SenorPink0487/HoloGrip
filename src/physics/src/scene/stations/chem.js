@@ -53,6 +53,12 @@ export function createStationEquipment(ctx) {
       markPick(rig.cupA?.userData?.label, 'chem_cup_a_label'),
       markPick(rig.cupB?.userData?.label, 'chem_cup_b_label'),
     ];
+    if (rig.molecule) {
+      list.push(markPick(rig.molecule, 'chem_molecule'));
+      rig.molecule.traverse((child) => {
+        if (child.isMesh) list.push(markPick(child, 'chem_molecule'));
+      });
+    }
     [rig.cupA, rig.cupB].forEach((cup) => {
       if (!cup) return;
       const role = cup.userData?.role;
@@ -168,6 +174,7 @@ export function createStationEquipment(ctx) {
       resetAll: () => rig.resetAll(),
       componentsList: () => rig.componentsList(),
       showMoleculeFromSdf: (sdf, formula) => rig.showMoleculeFromSdf(sdf, formula),
+      showLoadingMolecule: (label) => rig.showLoadingMolecule(label),
       clearMolecule: () => rig.clearMolecule(),
       getCupState: () => ({
         A: { ...rig.state.A, reagents: rig.state.A.reagents.map((r) => ({ ...r })) },

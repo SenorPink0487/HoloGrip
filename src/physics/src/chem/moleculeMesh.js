@@ -29,15 +29,31 @@ const ELEMENT_COLORS = {
   LI: 0xcc80ff,
 };
 
-/** Relative van-der-Waals scale used like 3Dmol sphere.scale with stick */
-const ELEMENT_RADIUS = {
-  H: 0.22,
-  C: 0.36,
-  N: 0.34,
-  O: 0.33,
-  S: 0.40,
-  P: 0.40,
-  default: 0.35,
+/** Realistic Van der Waals Radii (in Ångströms) for space-filling and relative scaling */
+const VDW_RADIUS = {
+  H: 1.20,
+  C: 1.70,
+  N: 1.55,
+  O: 1.52,
+  F: 1.47,
+  S: 1.80,
+  P: 1.80,
+  CL: 1.75,
+  BR: 1.85,
+  I: 1.98,
+  NA: 2.27,
+  K: 2.75,
+  CA: 2.31,
+  MG: 1.73,
+  FE: 2.05,
+  CU: 1.40,
+  ZN: 1.39,
+  AG: 1.72,
+  AL: 1.84,
+  SI: 2.10,
+  B: 1.92,
+  LI: 1.82,
+  default: 1.50,
 };
 
 /**
@@ -127,30 +143,39 @@ export function createMoleculeMesh(THREE, source, opts = {}) {
     if (dist > maxR) maxR = dist;
   });
 
+  const style = opts.style || 'ball-and-stick';
+  const isSpaceFilling = style === 'space-filling';
+
   // Target radius for the entire molecule on the pedestal (~0.30m)
   const targetRadius = 0.30;
-  const fitScale = maxR > 0.01 ? targetRadius / maxR : 0.12;
+  const fitScale = maxR > 0.01 ? targetRadius / (maxR + (isSpaceFilling ? 1.5 : 0)) : 0.12;
 
-  // Scale atom sphere radius and bond radius proportionally with fitScale!
-  const atomRadiusScale = Math.max(0.016, fitScale * 0.28);
-  const bondRadius = Math.max(0.004, fitScale * 0.06);
+  // Ball-and-stick: atoms are 25% of VDW radius, bonds are 0.15 Angstroms thick
+  // Space-filling: atoms are 100% of VDW radius, no bonds
+  const atomRadiusMultiplier = isSpaceFilling ? 1.0 : 0.25;
+  const bondRadius = 0.15 * fitScale;
 
-  // Stick style like 3Dmol: stick.radius≈0.15 + sphere.scale≈0.25
   const atomMeshes = [];
   const atomColors = [];
   atoms.forEach((a) => {
     const elem = String(a.elem || 'C').toUpperCase();
     const color = ELEMENT_COLORS[elem] ?? 0x909090;
     atomColors.push(color);
-    const r = (ELEMENT_RADIUS[elem] ?? ELEMENT_RADIUS.default) * atomRadiusScale;
+    
+    // Scale by actual VDW radius * style multiplier * fitScale
+    const baseR = (VDW_RADIUS[elem] ?? VDW_RADIUS.default);
+    const r = baseR * atomRadiusMultiplier * fitScale;
+    
     const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(r, 20, 20),
-      new THREE.MeshStandardMaterial({
+      new THREE.SphereGeometry(r, 32, 32),
+      new THREE.MeshPhysicalMaterial({
         color,
         emissive: color,
         emissiveIntensity: 0.08,
-        metalness: 0.12,
-        roughness: 0.32,
+        metalness: 0.1,
+        roughness: isSpaceFilling ? 0.25 : 0.15,
+        clearcoat: 1.0,
+        clearcoatRoughness: 0.15,
       }),
     );
     mesh.position.set(
@@ -170,57 +195,88 @@ export function createMoleculeMesh(THREE, source, opts = {}) {
   const _half = new THREE.Vector3();
 
   // Half-bonds colored per atom (classic ball-and-stick / 3Dmol stick look)
-  bonds.forEach((bond) => {
-    const A = atomMeshes[bond.a];
-    const B = atomMeshes[bond.b];
-    if (!A || !B) return;
-    _dir.subVectors(B.position, A.position);
-    const len = _dir.length();
-    if (len < 1e-5) return;
-    _dir.normalize();
-    _quat.setFromUnitVectors(_up, _dir);
-    const halfLen = len * 0.5;
-    const order = Math.max(1, Math.min(3, Number(bond.order) || 1));
-    const offsets = order === 1
-      ? [0]
-      : order === 2
-        ? [-bondRadius * 1.6, bondRadius * 1.6]
-        : [-bondRadius * 2.2, 0, bondRadius * 2.2];
+  if (!isSpaceFilling) {
+    bonds.forEach((bond) => {
+      const A = atomMeshes[bond.a];
+      const B = atomMeshes[bond.b];
+      if (!A || !B) return;
+      _dir.subVectors(B.position, A.position);
+      const len = _dir.length();
+      if (len < 1e-5) return;
+      _dir.normalize();
+      _quat.setFromUnitVectors(_up, _dir);
+      const halfLen = len * 0.5;
+      const order = Math.max(1, Math.min(3, Number(bond.order) || 1));
+      const offsets = order === 1
+        ? [0]
+        : order === 2
+          ? [-bondRadius * 1.6, bondRadius * 1.6]
+          : [-bondRadius * 2.2, 0, bondRadius * 2.2];
 
-    offsets.forEach((off) => {
-      // Perpendicular offset for multi-bond
-      const side = new THREE.Vector3(0, 0, 1).cross(_dir);
-      if (side.lengthSq() < 1e-6) side.set(1, 0, 0).cross(_dir);
-      side.normalize().multiplyScalar(off);
+      offsets.forEach((off) => {
+        // Perpendicular offset for multi-bond
+        const side = new THREE.Vector3(0, 0, 1).cross(_dir);
+        if (side.lengthSq() < 1e-6) side.set(1, 0, 0).cross(_dir);
+        side.normalize().multiplyScalar(off);
 
-      const matA = new THREE.MeshStandardMaterial({
-        color: atomColors[bond.a],
-        metalness: 0.1,
-        roughness: 0.4,
+        const matA = new THREE.MeshPhysicalMaterial({
+          color: atomColors[bond.a],
+          metalness: 0.05,
+          roughness: 0.2,
+          clearcoat: 1.0,
+          clearcoatRoughness: 0.2,
+        });
+        const matB = new THREE.MeshPhysicalMaterial({
+          color: atomColors[bond.b],
+          metalness: 0.05,
+          roughness: 0.2,
+          clearcoat: 1.0,
+          clearcoatRoughness: 0.2,
+        });
+        const cylA = new THREE.Mesh(
+          new THREE.CylinderGeometry(bondRadius, bondRadius, halfLen, 16),
+          matA,
+        );
+        const cylB = new THREE.Mesh(
+          new THREE.CylinderGeometry(bondRadius, bondRadius, halfLen, 16),
+          matB,
+        );
+        cylA.quaternion.copy(_quat);
+        cylB.quaternion.copy(_quat);
+        _half.copy(A.position).addScaledVector(_dir, halfLen * 0.5).add(side);
+        cylA.position.copy(_half);
+        _half.copy(B.position).addScaledVector(_dir, -halfLen * 0.5).add(side);
+        cylB.position.copy(_half);
+        root.add(cylA);
+        root.add(cylB);
       });
-      const matB = new THREE.MeshStandardMaterial({
-        color: atomColors[bond.b],
-        metalness: 0.1,
-        roughness: 0.4,
-      });
-      const cylA = new THREE.Mesh(
-        new THREE.CylinderGeometry(bondRadius, bondRadius, halfLen, 10),
-        matA,
-      );
-      const cylB = new THREE.Mesh(
-        new THREE.CylinderGeometry(bondRadius, bondRadius, halfLen, 10),
-        matB,
-      );
-      cylA.quaternion.copy(_quat);
-      cylB.quaternion.copy(_quat);
-      _half.copy(A.position).addScaledVector(_dir, halfLen * 0.5).add(side);
-      cylA.position.copy(_half);
-      _half.copy(B.position).addScaledVector(_dir, -halfLen * 0.5).add(side);
-      cylB.position.copy(_half);
-      root.add(cylA);
-      root.add(cylB);
     });
-  });
+  }
+
+  // Attach a helper function to toggle the style
+  root.userData.currentStyle = style;
+  root.userData.toggleStyle = () => {
+    const nextStyle = root.userData.currentStyle === 'ball-and-stick' ? 'space-filling' : 'ball-and-stick';
+    const newRoot = createMoleculeMesh(THREE, parsed, { ...opts, style: nextStyle });
+    newRoot.position.copy(root.position);
+    newRoot.rotation.copy(root.rotation);
+    newRoot.scale.copy(root.scale);
+    newRoot.userData = { ...root.userData, currentStyle: nextStyle };
+    if (opts.onToggle) opts.onToggle(newRoot, root);
+    if (root.parent) {
+      root.parent.add(newRoot);
+      root.parent.remove(root);
+    }
+    // Cleanup old meshes
+    root.traverse((obj) => {
+      obj.geometry?.dispose?.();
+      if (obj.material) {
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        mats.forEach((m) => m.dispose?.());
+      }
+    });
+    return newRoot;
+  };
 
   return root;
 }
@@ -410,7 +466,7 @@ export function buildProceduralStructure(formula) {
 }
 
 /** Dynamic procedural 3D ball-and-stick model generator for any chemical formula. */
-export function createFallbackMolecule(THREE, formula = 'H2O') {
+export function createFallbackMolecule(THREE, formula = 'H2O', opts = {}) {
   const parsed = buildProceduralStructure(formula);
-  return createMoleculeMesh(THREE, parsed);
+  return createMoleculeMesh(THREE, parsed, opts);
 }

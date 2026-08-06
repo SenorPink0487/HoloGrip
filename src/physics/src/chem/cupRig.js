@@ -302,7 +302,17 @@ export function createChemCupRig(THREE, opts = {}) {
   }
 
   function update(dt) {
-    if (molecule) molecule.rotation.y += dt * 0.6;
+    if (molecule) {
+      molecule.rotation.y += dt * 0.6;
+      if (molecule.userData?.isLoading) {
+        molecule.rotation.x += dt * 0.4;
+        molecule.rotation.z += dt * 0.2;
+        const s = 1.35 + Math.sin(performance.now() * 0.005) * 0.15;
+        molecule.scale.setScalar(s);
+      } else if (molecule.scale.x !== 1.35) {
+        molecule.scale.setScalar(1.35);
+      }
+    }
     const safeDt = Math.min(0.05, Math.max(0, dt));
 
     // Always integrate free fluid so late drops finish after the cup returns home
@@ -677,23 +687,62 @@ export function createChemCupRig(THREE, opts = {}) {
     emitCarry = 0;
   }
 
+  function showLoadingMolecule(label) {
+    clearMolecule();
+    molecule = new THREE.Group();
+    molecule.name = 'chem-molecule';
+    
+    const orb = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(0.15, 1),
+      new THREE.MeshBasicMaterial({ 
+        color: 0x38bdf8, 
+        wireframe: true, 
+        transparent: true, 
+        opacity: 0.6 
+      })
+    );
+    molecule.add(orb);
+    molecule.userData.isLoading = true;
+    
+    molecule.position.set(0, 0.42, 0);
+    molecule.scale.setScalar(1.35);
+    molecule.visible = true;
+    pedestal.visible = true;
+    pedestal.add(molecule);
+    try { getMoleculePanel().hide(); } catch { /* ignore */ }
+  }
+
   function showMoleculeFromSdf(sdf, formula) {
     // Always place molecule on the island pedestal (in-scene), never a DOM white box.
     clearMolecule();
     try {
+      const opts = {
+        onToggle: (newMol) => { molecule = newMol; }
+      };
       if (sdf && String(sdf).length > 20) {
-        molecule = createMoleculeMesh(THREE, sdf);
+        molecule = createMoleculeMesh(THREE, sdf, opts);
       } else {
-        molecule = createFallbackMolecule(THREE, formula);
+        molecule = createFallbackMolecule(THREE, formula, opts);
       }
     } catch (err) {
       console.warn('[chem] molecule mesh failed', err);
-      molecule = createFallbackMolecule(THREE, formula);
+      molecule = createFallbackMolecule(THREE, formula, { onToggle: (newMol) => { molecule = newMol; } });
     }
     // Sit clearly above pedestal ring so it is visible from sitting edge
     molecule.position.set(0, 0.42, 0);
     molecule.scale.setScalar(1.35);
     molecule.visible = true;
+    molecule.userData.role = 'chem_molecule';
+    molecule.userData.interactive = true;
+    
+    // Tag all meshes inside molecule as interactive
+    molecule.traverse((child) => {
+      if (child.isMesh) {
+        child.userData.role = 'chem_molecule';
+        child.userData.interactive = true;
+      }
+    });
+
     pedestal.visible = true;
     pedestal.add(molecule);
     try { getMoleculePanel().hide(); } catch { /* ignore */ }
@@ -768,6 +817,7 @@ export function createChemCupRig(THREE, opts = {}) {
     cupB,
     pedestal,
     state,
+    get molecule() { return molecule; },
     get pour() { return pour; },
     get drag() { return drag; },
     assignReagent,
@@ -779,6 +829,7 @@ export function createChemCupRig(THREE, opts = {}) {
     endDrag,
     startPour,
     update,
+    showLoadingMolecule,
     showMoleculeFromSdf,
     clearMolecule,
     getPickables,

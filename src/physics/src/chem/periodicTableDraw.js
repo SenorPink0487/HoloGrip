@@ -28,11 +28,14 @@ function roundRect(ctx, x, y, w, h, r) {
 }
 
 function fillGlass(ctx, w, h) {
-  // Vision Pro light mode frosted translucent glass background
+  // Clear previous frame pixels to prevent ghosting / multi-layer bleeding
+  ctx.clearRect?.(0, 0, w, h);
+
+  // Vision Pro light mode frosted glass background
   const g = ctx.createLinearGradient(0, 0, 0, h);
-  g.addColorStop(0, 'rgba(255, 255, 255, 0.88)');
-  g.addColorStop(0.5, 'rgba(241, 245, 249, 0.78)');
-  g.addColorStop(1, 'rgba(226, 232, 240, 0.85)');
+  g.addColorStop(0, 'rgba(255, 255, 255, 0.98)');
+  g.addColorStop(0.5, 'rgba(248, 250, 252, 0.95)');
+  g.addColorStop(1, 'rgba(241, 245, 249, 0.98)');
   ctx.fillStyle = g;
   // Smooth Vision Pro corner radius
   roundRect(ctx, 0, 0, w, h, 48);

@@ -183,6 +183,9 @@ export function makeChemHolo(THREE, opts) {
       cb: data.cupB?.formula,
       n: data.components?.length,
       sel: data.selectedComponentId,
+      sy: data.rightPanelScrollY,
+      q: data.searchQuery,
+      sp: data.speechListening,
       h: data.hint,
     });
     if (!force && key === lastKey) return;
