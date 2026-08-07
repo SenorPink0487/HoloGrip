@@ -28,4 +28,6 @@ dump.txt
 .physics-vite*
 *.b64
 *.err
+*.docx
+
 
