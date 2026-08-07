@@ -23,3 +23,9 @@ src-tauri/icons/
 hologrip-proxy-full-replace/
 server-release 2/
 src-tauri/gen/
+dump.txt
+.codex*
+.physics-vite*
+*.b64
+*.err
+
