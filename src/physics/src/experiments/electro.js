@@ -3490,11 +3490,11 @@ export function exportHallDataReport(data) {
         <div class="subtitle">B–X 磁场分布曲线与测量数据</div>
       </div>
       <div class="btn-group no-print">
-        <button class="btn btn-primary" type="button" onclick="window.print()">🖨️ 打印 / PDF</button>
-        <button class="btn btn-excel" type="button" onclick="exportExcel()">📊 导出 Excel</button>
-        <button class="btn btn-csv" type="button" onclick="exportCSV()">📄 导出 CSV</button>
-        <button class="btn btn-json" type="button" onclick="exportJSON()">📋 导出 JSON</button>
-        <button class="btn btn-secondary" type="button" onclick="window.close()">关闭</button>
+        <button class="btn btn-primary" type="button">🖨️ 打印 / PDF</button>
+        <button class="btn btn-excel" type="button">📊 导出 Excel</button>
+        <button class="btn btn-csv" type="button">📄 导出 CSV</button>
+        <button class="btn btn-json" type="button">📋 导出 JSON</button>
+        <button class="btn btn-secondary" type="button">关闭</button>
       </div>
     </div>
 
@@ -3678,14 +3678,14 @@ export function exportHallDataReport(data) {
 
   const reportRows = records.map((r, i) => [
     i + 1,
-    r.target === 'helmholtz' ? '浜ュ闇嶅吂绾垮湀' : '闀胯灪绾跨',
+    r.target === 'helmholtz' ? '亥姆霍兹线圈' : '长螺线管',
     Number(r.pos).toFixed(1),
     Number(r.vh).toFixed(2),
     Number(r.b).toFixed(3),
     Number(r.Im).toFixed(2),
     Number(r.Is).toFixed(1),
   ]);
-  const reportHeaders = ['搴忓彿', '娴嬮噺瀵硅薄', '鎺㈠ご浣嶇疆 X (cm)', '闇嶅皵鐢靛帇 Vh (mV)', '纾佹劅搴斿己搴?B (mT)', '鍔辩鐢垫祦 Im (A)', '闇嶅皵鐢垫祦 Is (mA)'];
+  const reportHeaders = ['序号', '测量对象', '探头位置 X (cm)', '霍尔电压 VH (mV)', '磁感应强度 B (mT)', '励磁电流 Im (A)', '霍尔电流 Is (mA)'];
   const downloadReportFile = (filename, content, mimeType) => {
     const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
     const anchor = document.createElement('a');
@@ -3693,27 +3693,18 @@ export function exportHallDataReport(data) {
     anchor.download = filename;
     document.body.appendChild(anchor);
     anchor.click();
-    anchor.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setTimeout(() => {
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    }, 1000);
   };
-  const encodeExcelHtml = (content) => {
-    const bytes = new Uint8Array(2 + content.length * 2);
-    bytes[0] = 0xff;
-    bytes[1] = 0xfe;
-    for (let i = 0; i < content.length; i += 1) {
-      const code = content.charCodeAt(i);
-      bytes[2 + i * 2] = code & 0xff;
-      bytes[3 + i * 2] = code >>> 8;
-    }
-    return bytes;
-  };
-  const exportReportData = (format) => {
+  const exportReportData = async (format) => {
     const date = new Date().toISOString().slice(0, 10);
-    const stem = '闇嶅皵鏁堝簲娴嬬瀹為獙鏁版嵁_' + date;
+    const stem = '霍尔效应测磁实验数据_' + date;
     if (format === 'json') {
       downloadReportFile(stem + '.json', JSON.stringify({
-        experiment: '闇嶅皵鏁堝簲娴嬬瀹為獙',
-        instrument: 'HCC-2 鍨嬮湇灏旀晥搴旀祴纾佷华',
+        experiment: '霍尔效应测磁实验',
+        instrument: 'HCC-2 型霍尔效应测磁仪',
         hallK: kVal,
         exportedAt: new Date().toLocaleString('zh-CN'),
         records,
@@ -3727,11 +3718,130 @@ export function exportHallDataReport(data) {
       downloadReportFile(stem + '.csv', csv, 'text/csv;charset=utf-8');
       return;
     }
-    const table = [reportHeaders, ...reportRows]
-      .map((row) => '<tr>' + row.map((value) => '<td>' + String(value).replace(/[&<>]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[char])) + '</td>').join('') + '</tr>')
-      .join('');
-    const excelHtml = '<html><meta charset="UTF-16"><table>' + table + '</table></html>';
-    downloadReportFile(stem + '.xls', encodeExcelHtml(excelHtml), 'application/vnd.ms-excel');
+    const escapeXml = (value) => String(value)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+    const columnName = (index) => {
+      let value = index + 1;
+      let name = '';
+      while (value > 0) {
+        const remainder = (value - 1) % 26;
+        name = String.fromCharCode(65 + remainder) + name;
+        value = Math.floor((value - 1) / 26);
+      }
+      return name;
+    };
+    const crc32 = (bytes) => {
+      let crc = 0xffffffff;
+      for (const byte of bytes) {
+        crc ^= byte;
+        for (let bit = 0; bit < 8; bit += 1) {
+          crc = (crc >>> 1) ^ (0xedb88320 & -(crc & 1));
+        }
+      }
+      return (crc ^ 0xffffffff) >>> 0;
+    };
+    const joinBytes = (parts) => {
+      const result = new Uint8Array(parts.reduce((sum, part) => sum + part.length, 0));
+      let offset = 0;
+      for (const part of parts) {
+        result.set(part, offset);
+        offset += part.length;
+      }
+      return result;
+    };
+    const makeXlsx = (dataRows) => {
+      const encoder = new TextEncoder();
+      const sheetRows = dataRows.map((row, rowIndex) => {
+        const cells = row.map((value, columnIndex) => {
+          const ref = columnName(columnIndex) + (rowIndex + 1);
+          const isNumber = rowIndex > 0 && columnIndex !== 1;
+          return isNumber
+            ? '<c r="' + ref + '"><v>' + escapeXml(value) + '</v></c>'
+            : '<c r="' + ref + '" t="inlineStr"><is><t>' + escapeXml(value) + '</t></is></c>';
+        }).join('');
+        return '<row r="' + (rowIndex + 1) + '">' + cells + '</row>';
+      }).join('');
+      const sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
+        '<dimension ref="A1:G' + dataRows.length + '"/><sheetData>' + sheetRows + '</sheetData></worksheet>';
+      const files = {
+        '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+          '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
+          '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>' +
+          '<Default Extension="xml" ContentType="application/xml"/>' +
+          '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>' +
+          '<Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>' +
+          '</Types>',
+        '_rels/.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+          '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+          '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>' +
+          '</Relationships>',
+        'xl/workbook.xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+          '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">' +
+          '<sheets><sheet name="霍尔测磁实验数据" sheetId="1" r:id="rId1"/></sheets></workbook>',
+        'xl/_rels/workbook.xml.rels': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
+          '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">' +
+          '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>' +
+          '</Relationships>',
+        'xl/worksheets/sheet1.xml': sheetXml,
+      };
+      const localParts = [];
+      const centralParts = [];
+      let offset = 0;
+      for (const [name, content] of Object.entries(files)) {
+        const nameBytes = encoder.encode(name);
+        const data = encoder.encode(content);
+        const crc = crc32(data);
+        const local = new Uint8Array(30 + nameBytes.length + data.length);
+        const localView = new DataView(local.buffer);
+        localView.setUint32(0, 0x04034b50, true);
+        localView.setUint16(4, 20, true);
+        localView.setUint32(14, crc, true);
+        localView.setUint32(18, data.length, true);
+        localView.setUint32(22, data.length, true);
+        localView.setUint16(26, nameBytes.length, true);
+        local.set(nameBytes, 30);
+        local.set(data, 30 + nameBytes.length);
+        localParts.push(local);
+
+        const central = new Uint8Array(46 + nameBytes.length);
+        const centralView = new DataView(central.buffer);
+        centralView.setUint32(0, 0x02014b50, true);
+        centralView.setUint16(4, 20, true);
+        centralView.setUint16(6, 20, true);
+        centralView.setUint32(16, crc, true);
+        centralView.setUint32(20, data.length, true);
+        centralView.setUint32(24, data.length, true);
+        centralView.setUint16(28, nameBytes.length, true);
+        centralView.setUint32(42, offset, true);
+        central.set(nameBytes, 46);
+        centralParts.push(central);
+        offset += local.length;
+      }
+      const centralDirectory = joinBytes(centralParts);
+      const end = new Uint8Array(22);
+      const endView = new DataView(end.buffer);
+      endView.setUint32(0, 0x06054b50, true);
+      endView.setUint16(8, centralParts.length, true);
+      endView.setUint16(10, centralParts.length, true);
+      endView.setUint32(12, centralDirectory.length, true);
+      endView.setUint32(16, offset, true);
+      return joinBytes([...localParts, centralDirectory, end]);
+    };
+    const XLSX = await import('xlsx');
+    const worksheet = XLSX.utils.aoa_to_sheet([reportHeaders, ...reportRows]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '霍尔测磁实验数据');
+    const xlsxData = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' });
+    downloadReportFile(
+      stem + '.xlsx',
+      xlsxData,
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
   };
 
   const win = window.open('', '_blank');
@@ -3751,8 +3861,13 @@ export function exportHallDataReport(data) {
   const bindReportButton = (selector, handler) => {
     const button = win.document.querySelector(selector);
     if (!button) return;
+    // The report template also contains legacy inline handlers. Clear both the
+    // attribute and the DOM property so one click cannot trigger two downloads.
     button.removeAttribute('onclick');
-    button.addEventListener('click', handler);
+    button.onclick = (event) => {
+      event.preventDefault();
+      void handler(event);
+    };
   };
   bindReportButton('.btn-primary', () => win.print());
   bindReportButton('.btn-excel', () => exportReportData('excel'));

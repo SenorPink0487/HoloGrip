@@ -1,7 +1,7 @@
 //! 配置加载:环境变量 → 强类型配置结构。
 //!
 //! 加载顺序:
-//!   1. `.env` 文件(同 cwd)被 dotenvy 载入到 process env
+//!   1. `server/.env` 被 dotenvy 载入；旧配置回退到 cwd 下的 `.env`
 //!   2. envy 从 process env 反序列化到本结构体
 //!
 //! 真实环境变量优先级 > .env 文件,所以 systemd 用 `Environment=` 注入的会覆盖 .env。

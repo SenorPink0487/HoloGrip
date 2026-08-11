@@ -943,6 +943,7 @@ function createFullStationEquipment(ctx) {
     let hallFieldViewportHeight = window.innerHeight;
     let helmholtzFieldSignature = '';
     let solenoidFieldBuilt = false;
+    let hallFieldPrewarmStarted = false;
 
     function getLoopField2D(x, radial, centreX, radius) {
       let bx = 0;
@@ -1703,6 +1704,22 @@ function createFullStationEquipment(ctx) {
         prepareScene.add(g);
         g.visible = true;
         modeState.forEach(({ group }) => mountElectroMode(group, true));
+        // Start the expensive Hall field-line geometry in the background. Do
+        // not await it here: compile/open timing must stay independent from
+        // this visual cache, while the normal first interaction still gets a
+        // synchronous fallback in updateHall() if it races the idle task.
+        if (!hallFieldPrewarmStarted) {
+          hallFieldPrewarmStarted = true;
+          const warmHallField = () => {
+            rebuildHelmholtzFieldLines();
+            buildSolenoidFieldLines();
+          };
+          if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(warmHallField, { timeout: 1200 });
+          } else {
+            setTimeout(warmHallField, 0);
+          }
+        }
         g.updateWorldMatrix?.(true, true);
         if (typeof rendererArg?.compileAsync === 'function') {
           await rendererArg.compileAsync(prepareScene, prepareCamera);

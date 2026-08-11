@@ -62,7 +62,9 @@ use crate::whiteboard_live::{WhiteboardLiveAppState, WhiteboardLiveState};
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let _ = dotenvy::dotenv();
+    // Backend configuration lives beside the backend. Keep the root .env as a
+    // compatibility fallback for existing local setups and systemd deployments.
+    let _ = dotenvy::from_filename("server/.env").or_else(|_| dotenvy::dotenv());
 
     tracing_subscriber::fmt()
         .with_env_filter(

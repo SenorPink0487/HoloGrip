@@ -197,8 +197,8 @@ CARGO_BUILD_JOBS=2 cargo build --release
 
 ```bash
 cd /opt/hologrip-proxy
-cp .env.example .env
-nano .env
+cp server/.env.example server/.env
+nano server/.env
 ```
 
 至少改这几项:
@@ -230,7 +230,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/hologrip-proxy
-EnvironmentFile=/opt/hologrip-proxy/.env
+EnvironmentFile=/opt/hologrip-proxy/server/.env
 ExecStart=/opt/hologrip-proxy/target/release/hologrip-proxy
 Restart=on-failure
 RestartSec=3
