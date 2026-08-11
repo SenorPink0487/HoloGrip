@@ -12,6 +12,7 @@ import {
   PARTICLE_STRIDE_POS_VEL,
   preferredWorkerSlot,
 } from '../runtime/threading/simBackend.js';
+import * as XLSX from 'xlsx';
 
 export { K_COULOMB, EPSILON_0, chargeUiToCoulomb };
 
@@ -3687,18 +3688,21 @@ export function exportHallDataReport(data) {
   ]);
   const reportHeaders = ['序号', '测量对象', '探头位置 X (cm)', '霍尔电压 VH (mV)', '磁感应强度 B (mT)', '励磁电流 Im (A)', '霍尔电流 Is (mA)'];
   const downloadReportFile = (filename, content, mimeType) => {
-    const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
-    const anchor = document.createElement('a');
+    const reportDocument = win?.document || document;
+    const reportUrl = reportDocument.defaultView?.URL || URL;
+    const url = reportUrl.createObjectURL(new Blob([content], { type: mimeType }));
+    const anchor = reportDocument.createElement('a');
     anchor.href = url;
     anchor.download = filename;
-    document.body.appendChild(anchor);
+    anchor.style.display = 'none';
+    reportDocument.body.appendChild(anchor);
     anchor.click();
     setTimeout(() => {
       anchor.remove();
-      URL.revokeObjectURL(url);
+      reportUrl.revokeObjectURL(url);
     }, 1000);
   };
-  const exportReportData = async (format) => {
+  const exportReportData = (format) => {
     const date = new Date().toISOString().slice(0, 10);
     const stem = '霍尔效应测磁实验数据_' + date;
     if (format === 'json') {
@@ -3832,7 +3836,6 @@ export function exportHallDataReport(data) {
       endView.setUint32(16, offset, true);
       return joinBytes([...localParts, centralDirectory, end]);
     };
-    const XLSX = await import('xlsx');
     const worksheet = XLSX.utils.aoa_to_sheet([reportHeaders, ...reportRows]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '霍尔测磁实验数据');
@@ -3866,7 +3869,12 @@ export function exportHallDataReport(data) {
     button.removeAttribute('onclick');
     button.onclick = (event) => {
       event.preventDefault();
-      void handler(event);
+      try {
+        handler(event);
+      } catch (error) {
+        console.error('导出实验数据失败:', error);
+        win.alert('导出失败，请重试。');
+      }
     };
   };
   bindReportButton('.btn-primary', () => win.print());

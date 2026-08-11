@@ -507,9 +507,9 @@ export function createInducedElectricFieldEquipment() {
         const nOut = Math.min(7, Math.max(4, Math.round(3.0 + absRate * 0.8)));
 
         const radii = [];
-        // 1. 面内环 (E ∝ r)：从 ~0.3R 起起始，保持明显的非均匀间距
+        // 1. 面内环 (E ∝ r)：间距随 r 增大显著变密，呈现明显的阶梯渐变
         for (let i = 1; i <= nIn; i += 1) {
-          const frac = Math.pow(i / (nIn + 0.4), 0.68);
+          const frac = Math.pow(i / (nIn + 1), 0.42);
           radii.push(safeR * frac);
         }
         // 2. 边界环 r = R (场强最大 E_max)
