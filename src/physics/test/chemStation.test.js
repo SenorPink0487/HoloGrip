@@ -43,6 +43,7 @@ describe('catalog chem station', () => {
     assert.equal(LAB_CATALOG.chem.id, 'chem');
     assert.ok(STATION_IDS.includes('chem'));
     assert.ok(!PHYSICS_STATION_IDS.includes('chem'));
+    assert.deepEqual([...stationIdsForMode('physics')], ['electro', 'mechanics', 'thermo', 'optics']);
     assert.deepEqual([...stationIdsForMode('chem')], ['chem']);
     assert.ok(!stationIdsForMode('physics').includes('chem'));
   });

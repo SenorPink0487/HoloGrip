@@ -32,7 +32,7 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
   const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
     map: texture,
     transparent: true,
-    depthTest: false,
+    depthTest: true,
     depthWrite: false,
     opacity: 1,
   }));

@@ -16,9 +16,10 @@ import {
 import { createEquipmentRuntime, getLeafPickSet, estimateObjectBytes } from '../../runtime/experimentRuntime.js';
 
 /**
- * Lightweight station shell. The complete electro bench is deliberately
- * created only after an experiment mode is selected. This keeps menu opens
- * free of the Hall, field-line, Faraday and induced-field constructors.
+ * The electro bench is the first physics station in the boot order, so build
+ * its complete apparatus while the startup loader is still covering the lab.
+ * This prevents the first experiment click from monopolising the main thread
+ * with Hall / field-line / Faraday / induced-field constructors.
  */
 export function createStationEquipment(ctx) {
   const { THREE } = ctx;
@@ -93,6 +94,7 @@ export function createStationEquipment(ctx) {
     createRuntime,
     getHallProbePos: (...args) => call('getHallProbePos', ...args),
     setMode: (mode) => mode ? ensureFull().equipment.setMode(mode) : call('setMode', null),
+    prewarmGpu: (...args) => ensureFull().equipment.prewarmGpu?.(...args),
     showcase: () => call('showcase'),
     shutdown: () => call('shutdown'),
     suspend: () => call('suspend'),
@@ -113,8 +115,8 @@ export function createStationEquipment(ctx) {
     get activeMode() { return full?.equipment?.activeMode || null; },
     mouseDrag: { holdLMB: false, movementX: 0, movementY: 0, shiftKey: false },
   };
-  // Keep the loader's animator registration stable while the real station is
-  // still cold. The first mode selection populates full.animators in-place.
+  // Keep the loader's animator registration stable while the station is
+  // constructed and GPU-warmed during boot.
   const animators = [(_t, _dt) => {
     full?.animators?.forEach((animate) => animate(_t, _dt));
   }];
@@ -1679,6 +1681,45 @@ function createFullStationEquipment(ctx) {
       mountElectroMode(group, false);
     }
     g.userData.setMode(null);
+    g.userData.prewarmGpu = async (rendererArg = renderer, cameraArg = camera) => {
+      const prepareScene = new THREE.Scene();
+      const prepareCamera = cameraArg?.clone?.() || camera;
+      const previousParent = g.parent;
+      const previousVisible = g.visible;
+      const modeState = electroModeGroups.map(([id, group]) => ({
+        id,
+        group,
+        parent: group.parent,
+        visible: group.visible,
+      }));
+      scene.traverse((object) => {
+        if (!object.isLight) return;
+        const light = object.clone();
+        if (object.target?.isObject3D) light.target = object.target.clone();
+        prepareScene.add(light);
+      });
+      try {
+        previousParent?.remove?.(g);
+        prepareScene.add(g);
+        g.visible = true;
+        modeState.forEach(({ group }) => mountElectroMode(group, true));
+        g.updateWorldMatrix?.(true, true);
+        if (typeof rendererArg?.compileAsync === 'function') {
+          await rendererArg.compileAsync(prepareScene, prepareCamera);
+        } else {
+          rendererArg?.compile?.(prepareScene, prepareCamera);
+        }
+      } finally {
+        modeState.forEach(({ group, parent, visible }) => {
+          if (parent) parent.add(group);
+          else group.parent?.remove?.(group);
+          group.visible = visible;
+        });
+        prepareScene.remove(g);
+        if (previousParent && g.parent !== previousParent) previousParent.add(g);
+        g.visible = previousVisible;
+      }
+    };
     g.userData.updateHallDemo = (d, dt) => hallDemoGroup.userData.update?.(d, dt);
     g.userData.setHallDemoHostParticlesOwned = (owned) => {
       hallDemoGroup.userData.setHostParticlesOwned?.(owned);
@@ -1851,6 +1892,7 @@ function createFullStationEquipment(ctx) {
     getHallProbePos: (cam, target) => hallBench.userData.getHallProbePos?.(cam, target) ?? null,
     setMode: (mode) => hallBench.userData.setMode?.(mode),
     getRuntimeRoot: (mode) => hallBench.userData.getRuntimeRoot?.(mode) || hallBench,
+    prewarmGpu: (...args) => hallBench.userData.prewarmGpu?.(...args),
     /** Active Station Runtime: clear the tabletop while the station is idle. */
     showcase: () => hallBench.userData.setMode?.(null),
     shutdown: () => hallBench.userData.setMode?.(null),

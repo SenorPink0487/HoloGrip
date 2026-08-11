@@ -195,10 +195,15 @@ export function getDeskSliderConfig(stationId, expId, data = {}, experiment = nu
     if (expId === 'faraday_induction') {
       const channelX = d.animChannel === 'x';
       const animating = !!d.pendingAnim;
+      const targetChanged = channelX
+        ? (d.lastMotion && Math.abs(d.lastMotion.x1 - (d.targetX ?? d.x)) > 1e-4)
+        : (d.lastInduction && Math.abs(d.lastInduction.B1 - (d.targetB ?? d.B)) > 1e-4);
+      const hasPlayed = channelX ? !!(d.lastMotion && !targetChanged) : !!(d.lastInduction && !targetChanged);
+      const playLabel = animating ? '停止' : (hasPlayed ? '重复变化' : '播放变化');
       const fmt = (v) => (Number.isFinite(Number(v)) ? Number(v).toFixed(2) : '0.00');
       const fromLabel = channelX
         ? `x ${fmt(d.x)}→${fmt(d.targetX ?? 6.5)}`
-        : `B ${fmt(d.B)}→${fmt(d.targetB ?? 1.5)} T`;
+        : `B ${fmt(d.B)}→${fmt(d.targetB ?? 1.5)}T`;
 
       return {
         title: '法拉第电磁感应',
@@ -214,7 +219,7 @@ export function getDeskSliderConfig(stationId, expId, data = {}, experiment = nu
           range('animDuration', '时长 Δt', 0.3, 6, { unit: 's', setAction: 'faraday-set' }),
           actionGroup([
             { label: '反向 B', action: 'faraday-reverse' },
-            { label: animating ? '停止' : '播放变化', action: animating ? 'faraday-stop' : 'faraday-play', active: animating },
+            { label: playLabel, action: animating ? 'faraday-stop' : 'faraday-play', active: animating },
           ]),
           range('B', '实时 B', -3, 3, { unit: 'T', setAction: 'faraday-set' }),
           range('x', '实时 x', 1.2, 8, { setAction: 'faraday-set' }),

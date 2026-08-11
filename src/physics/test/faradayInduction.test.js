@@ -9,6 +9,7 @@ import {
   createHandlers,
 } from '../src/experiments/electro.js';
 import { faradayBFromSliderPick } from '../src/holoScreen.js';
+import { getDeskSliderConfig } from '../src/deskSliderCatalog.js';
 import { STATION_EXPERIMENTS } from '../src/experiments/registry.js';
 
 function close(actual, expected, tolerance = 1e-6) {
@@ -194,4 +195,27 @@ test('non-live faraday-set B/x does not leave a stuck gesture', () => {
   handlers.onUiAction('faraday-set', { key: 'targetB', value: -0.8 });
   handlers.onUiAction('faraday-play', {});
   assert.ok(state.data.pendingAnim);
+});
+
+test('manual parameter modification reverts played state to 播放变化', () => {
+  const { state, handlers } = faradayContext();
+  handlers.onUiAction('faraday-set', { key: 'B', value: -1 });
+  handlers.onUiAction('faraday-set', { key: 'targetB', value: 2 });
+  handlers.onUiAction('faraday-set', { key: 'animDuration', value: 1 });
+  handlers.onUiAction('faraday-play', {});
+
+  for (let i = 0; i < 30; i += 1) handlers.update(0, 0.05);
+  assert.ok(state.data.lastInduction);
+
+  let cfg = getDeskSliderConfig('electro', 'faraday_induction', state.data);
+  let actionGrp = cfg.specs.find((s) => s.kind === 'actionGroup' && s.buttons?.some((it) => it.action === 'faraday-play'));
+  let playBtn = actionGrp.buttons.find((it) => it.action === 'faraday-play');
+  assert.equal(playBtn.label, '重复变化');
+
+  // Manual parameter modification changes targetB -> reverts label to 播放变化
+  handlers.onUiAction('faraday-set', { key: 'targetB', value: 2.5 });
+  cfg = getDeskSliderConfig('electro', 'faraday_induction', state.data);
+  actionGrp = cfg.specs.find((s) => s.kind === 'actionGroup' && s.buttons?.some((it) => it.action === 'faraday-play'));
+  playBtn = actionGrp.buttons.find((it) => it.action === 'faraday-play');
+  assert.equal(playBtn.label, '播放变化');
 });

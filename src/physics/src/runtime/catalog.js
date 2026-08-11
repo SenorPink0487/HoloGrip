@@ -44,10 +44,15 @@ export const LAB_CATALOG = Object.freeze({
   ]),
 });
 
-/** Physics corner stations only (chem is opt-in via labMode). */
-export const PHYSICS_STATION_IDS = Object.freeze(
-  Object.keys(LAB_CATALOG).filter((id) => id !== 'chem'),
-);
+/**
+ * Physics corner stations only (chem is opt-in via labMode).
+ * Keep electromagnetism first because it is the primary station to warm during
+ * the physics-lab boot sequence; preserve the catalog order for the others.
+ */
+export const PHYSICS_STATION_IDS = Object.freeze([
+  'electro',
+  ...Object.keys(LAB_CATALOG).filter((id) => id !== 'chem' && id !== 'electro'),
+]);
 
 /** All known station ids including chem. */
 export const STATION_IDS = Object.freeze(Object.keys(LAB_CATALOG));

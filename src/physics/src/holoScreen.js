@@ -1061,7 +1061,7 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   const bottom = contentTop + contentH;
 
   // ── Row 0: formula left + source-charge counts (probe E/F live on the sphere) ──
-  const headH = Math.round(54 * scale);
+  const headH = Math.round(58 * scale);
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
   ctx.lineWidth = isDisplay ? 2.0 : 1.2;
@@ -1070,13 +1070,11 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   ctx.stroke();
 
   ctx.fillStyle = P.muted;
-  ctx.font = `${Math.round(16 * scale)}px "SimSun", "Microsoft YaHei", serif`;
+  ctx.font = `${Math.round(15 * scale)}px "SimSun", "Microsoft YaHei", serif`;
   ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  const kNote = d.formulaTab === 'point'
-    ? `k = 1/(4πε₀) = 9.0×10⁹ N·m²/C²`
-    : `k = 9.0×10⁹ N·m²/C²；Q 单位 μC，r 单位 m`;
-  ctx.fillText(kNote, innerX + pad, contentTop + headH * 0.35);
+  ctx.textBaseline = 'middle';
+  const kNote = `k = 9.0×10⁹ N·m²/C²`;
+  ctx.fillText(kNote, innerX + pad, contentTop + headH / 2);
 
   const stats = [
     ['N', `${charges.length}/12`],
@@ -1086,37 +1084,28 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
     const qEnc = Number(d.qEnclosed || 0);
     stats.push(
       ['Q内', `${qEnc > 0 ? '+' : ''}${fmt(qEnc, 1)}μC`],
-      ['Φ_E', formatPhysicsNumber(d.flux, { digits: 2, unit: 'N·m²/C' })],
     );
   }
-  const statBlockW = Math.round(105 * scale);
+  const statBlockW = Math.round(110 * scale);
   const statsStart = innerX + innerW - pad - stats.length * statBlockW;
   stats.forEach(([label, value], i) => {
     const x = statsStart + i * statBlockW;
-    if (/[\\_^{}]/.test(label)) {
-      drawMathFormula(ctx, label, x, contentTop + Math.round(4 * scale), {
-        fontSize: Math.round(22 * scale),
-        color: P.muted,
-        align: 'left',
-        textBaseline: 'top',
-      });
-    } else {
-      ctx.fillStyle = P.muted;
-      ctx.font = `italic bold ${Math.round(22 * scale)}px "Times New Roman", serif`;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      ctx.fillText(label, x, contentTop + Math.round(4 * scale));
-    }
+    ctx.fillStyle = P.muted;
+    ctx.font = `italic bold ${Math.round(16 * scale)}px "Times New Roman", serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(label, x, contentTop + Math.round(8 * scale));
+
     ctx.fillStyle = P.title;
-    ctx.font = `bold ${Math.round(15 * scale)}px "Times New Roman", Consolas, serif`;
-    ctx.fillText(value, x, contentTop + Math.round(34 * scale));
+    ctx.font = `bold ${Math.round(16 * scale)}px Consolas, monospace`;
+    ctx.fillText(value, x, contentTop + Math.round(30 * scale));
   });
 
   // ── Row 1: view toggles ──
   let y = contentTop + headH + gap;
   const viewItems = [
-    ['equipot', '等势', d.showEquipot === true],
-    ['gauss', '高斯球', d.showGauss === true],
+    ['equipot', '等势面', d.showEquipot === true],
+    ['gauss', '高斯面', d.showGauss === true],
     ['probe', '探针', d.showProbe !== false],
   ];
   const viewW = (innerW - (viewItems.length - 1) * gap) / viewItems.length;
@@ -1128,84 +1117,60 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   });
   y += btnH + gap;
 
-  // ── Row 2: charge list chips (wrap cleanly) ──
+  // ── Row 2: charge chips + action buttons combined ──
   const maxChips = 12;
-  const chipsPerRow = 6;
-  const chipGap = Math.round(8 * scale);
-  const chipCount = Math.max(1, Math.min(charges.length || 0, maxChips));
-  const chipW = Math.min(
-    Math.round(150 * scale),
-    (innerW - (Math.min(chipCount, chipsPerRow) - 1) * chipGap) / Math.min(Math.max(chipCount, 1), chipsPerRow),
-  );
-  if (charges.length === 0) {
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${Math.round(16 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('尚未添加点电荷 — 点击下方“+ 正/负电荷”添加', innerX + pad, y + chipH / 2);
-  } else {
-    charges.slice(0, maxChips).forEach((charge, i) => {
-      const col = i % chipsPerRow;
-      const row = Math.floor(i / chipsPerRow);
-      drawHallButton(
-        ctx, hits,
-        innerX + col * (chipW + chipGap),
-        y + row * (chipH + chipGap),
-        chipW, chipH,
-        `Q${i + 1} ${charge.q >= 0 ? '+' : ''}${fmt(charge.q, 1)}μC`,
-        'electric-select', { id: charge.id },
-        charge.q >= 0 ? '#ef4444' : '#3b82f6',
-        charge.id === d.selectedId,
-      );
-    });
-  }
-  const chipRows = Math.max(1, Math.ceil(Math.min(charges.length || 1, maxChips) / chipsPerRow));
-  y += chipRows * (chipH + chipGap) + gap - chipGap;
-
-  // ── Row 3: primary actions (probe live readouts live on the 3D sphere HUD) ──
-  const actions = [
+  const chipGap = Math.round(6 * scale);
+  const actionItems = [
     { label: '+ 正电荷', action: 'electric-add', meta: { sign: 1 }, color: '#ef4444' },
     { label: '+ 负电荷', action: 'electric-add', meta: { sign: -1 }, color: '#3b82f6' },
-    { label: 'q₀ 正', action: 'electric-probe-sign', meta: { sign: 1 }, color: '#f59e0b', active: probe.q0 >= 0 },
-    { label: 'q₀ 负', action: 'electric-probe-sign', meta: { sign: -1 }, color: '#f59e0b', active: probe.q0 < 0 },
     { label: '重置', action: 'electric-reset', meta: {}, color: accentHex },
   ];
-  const actionGap = Math.round(8 * scale);
-  const actionW = (innerW - actionGap * (actions.length - 1)) / actions.length;
-  const actionH = Math.round(44 * scale);
-  actions.forEach((a, i) => {
+
+  const chipItems = charges.slice(0, maxChips).map((charge, i) => ({
+    label: `Q${i + 1} ${charge.q >= 0 ? '+' : ''}${fmt(charge.q, 1)}μC`,
+    action: 'electric-select',
+    meta: { id: charge.id },
+    color: charge.q >= 0 ? '#ef4444' : '#3b82f6',
+    active: charge.id === d.selectedId,
+  }));
+
+  const allRowItems = [...chipItems, ...actionItems];
+  const itemsPerRow = Math.max(4, Math.min(6, allRowItems.length));
+  const itemW = (innerW - (itemsPerRow - 1) * chipGap) / itemsPerRow;
+  const itemH = Math.round(38 * scale);
+
+  allRowItems.forEach((item, i) => {
+    const col = i % itemsPerRow;
+    const row = Math.floor(i / itemsPerRow);
     drawHallButton(
       ctx, hits,
-      innerX + i * (actionW + actionGap),
-      y,
-      actionW, actionH,
-      a.label, a.action, a.meta, a.color, !!a.active,
+      innerX + col * (itemW + chipGap),
+      y + row * (itemH + chipGap),
+      itemW, itemH,
+      item.label, item.action, item.meta, item.color, !!item.active,
     );
   });
-  y += actionH + gap;
+  const totalRows = Math.ceil(allRowItems.length / itemsPerRow);
+  y += totalRows * (itemH + chipGap) + gap;
 
-  // ── Row 3b: axis locks — freeze world axes during mouse drag ──
+  // ── Row 3: probe charge sign toggle + axis locks ──
   const axisLock = d.axisLock || {};
-  const lockItems = [
-    ['x', '锁 X', axisLock.x === true],
-    ['y', '锁 Y', axisLock.y === true],
-    ['z', '锁 Z', axisLock.z === true],
+  const lockControls = [
+    { label: probe.q0 >= 0 ? '探针 q₀(+)' : '探针 q₀(−)', action: 'electric-probe-sign', meta: { sign: probe.q0 >= 0 ? -1 : 1 }, color: '#f59e0b', active: true },
+    { label: axisLock.x ? 'X · 锁' : '锁 X', action: 'electric-axis-lock', meta: { axis: 'x' }, color: axisLock.x ? '#f59e0b' : accentHex, active: axisLock.x === true },
+    { label: axisLock.y ? 'Y · 锁' : '锁 Y', action: 'electric-axis-lock', meta: { axis: 'y' }, color: axisLock.y ? '#f59e0b' : accentHex, active: axisLock.y === true },
+    { label: axisLock.z ? 'Z · 锁' : '锁 Z', action: 'electric-axis-lock', meta: { axis: 'z' }, color: axisLock.z ? '#f59e0b' : accentHex, active: axisLock.z === true },
   ];
-  const lockLabelW = Math.round(88 * scale);
-  const lockBtnW = Math.round(72 * scale);
-  const lockH = Math.round(36 * scale);
-  ctx.fillStyle = P.muted;
-  ctx.font = `bold ${Math.round(14 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('移动轴', innerX, y + lockH / 2);
-  lockItems.forEach(([axis, label, locked], i) => {
+  const lockGap = Math.round(8 * scale);
+  const lockBtnW = (innerW - lockGap * (lockControls.length - 1)) / lockControls.length;
+  const lockH = Math.round(38 * scale);
+  lockControls.forEach((item, i) => {
     drawHallButton(
       ctx, hits,
-      innerX + lockLabelW + i * (lockBtnW + gap),
+      innerX + i * (lockBtnW + lockGap),
       y,
       lockBtnW, lockH,
-      locked ? `${axis.toUpperCase()}·已锁` : label,
+      locked ? `${axis.toUpperCase()}·锁` : label,
       'electric-axis-lock', { axis },
       locked ? '#f59e0b' : accentHex,
       locked,
@@ -1213,13 +1178,13 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   });
   const freeAxes = ['x', 'y', 'z'].filter((a) => axisLock[a] !== true).map((a) => a.toUpperCase());
   ctx.fillStyle = P.muted;
-  ctx.font = `${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.font = `${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  const lockHintX = innerX + lockLabelW + 3 * (lockBtnW + gap) + Math.round(6 * scale);
+  const lockHintX = innerX + lockLabelW + 3 * (lockBtnW + gap) + Math.round(10 * scale);
   const lockHint = freeAxes.length
-    ? `可动 ${freeAxes.join('/')} · 滚轮/Shift调Z · 键X/Y/Z锁轴`
-    : '全部锁定 · 位置不可拖动';
+    ? `可动 ${freeAxes.join('/')} · Shift/滚轮调Z`
+    : '全部已锁定';
   ctx.fillText(lockHint, lockHintX, y + lockH / 2);
   y += lockH + gap;
 
@@ -1328,35 +1293,21 @@ function drawHallExperiment(ctx, W, _H, cfg) {
   ctx.lineWidth = 1.2;
   ctx.font = `bold ${Math.round(16 * scale)}px "Microsoft YaHei", sans-serif`;
   const badgeW = Math.min(innerW - Math.round(20 * scale), ctx.measureText(stepText).width + Math.round(40 * scale));
-  const badgeH = Math.round(32 * scale);
-  roundRect(ctx, innerX, contentTop, badgeW, badgeH, badgeH / 2);
-  ctx.fill();
-  ctx.stroke();
+  const badgeH = 0;
+  // roundRect(ctx, innerX, contentTop, badgeW, badgeH, badgeH / 2);
+  // ctx.fill();
+  // ctx.stroke();
   fillSoftText(isLight ? '#0369a1' : '#7dd3fc', () => {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.font = `bold ${Math.round(16 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText(stepText, innerX + Math.round(16 * scale), contentTop + badgeH / 2);
+    // ctx.fillText(stepText, innerX + Math.round(16 * scale), contentTop + badgeH / 2);
   });
 
   if (stepIndex === 0 && !allIdentified) {
-    // Identify step: only list the four apparatus (name + status). No long copy.
-    const panelY = contentTop + badgeH + gap;
-    const panelH = contentTop + contentH - panelY;
-    ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.94)' : 'rgba(10, 22, 44, 0.65)';
-    ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.45)' : 'rgba(56, 189, 248, 0.32)';
-    ctx.lineWidth = 1.4;
-    roundRect(ctx, innerX, panelY, innerW, panelH, 12);
-    ctx.fill();
-    ctx.stroke();
-
-    fillSoftText(isLight ? '#0284c7' : accentHex, () => {
-      ctx.font = `bold ${Math.round(20 * scale)}px "Microsoft YaHei", sans-serif`;
-      ctx.textBaseline = 'top';
-      ctx.textAlign = 'left';
-      ctx.fillText('实验器材识别', innerX + pad, panelY + Math.round(14 * scale));
-    });
-
+    // Identify step: only list the four apparatus (name + status). Clean layout without overlap.
+    const panelY = contentTop + Math.round(12 * scale);
+    
     // Exactly four recognition targets (order 01→04).
     const items = [
       { role: 'hall_helmholtz', n: '01', name: '亥姆霍兹线圈' },
@@ -1368,9 +1319,55 @@ function drawHallExperiment(ctx, W, _H, cfg) {
     const nextItem = items.find((item) => item.role === nextRole) || null;
     const feedback = d.identifyFeedback || null;
 
-    const btnH = Math.round(46 * scale);
-    const tipH = Math.round(38 * scale);
-    const tipY = panelY + Math.round(48 * scale);
+    const tipH = Math.round(44 * scale);
+    const tipY = panelY + Math.round(52 * scale);
+    const cardGap = Math.round(14 * scale);
+    const cardTop = tipY + tipH + Math.round(16 * scale);
+    const cardW = (innerW - pad * 2 - cardGap) / 2;
+    const cardH = Math.round(72 * scale);
+    
+    const gridH = cardH * 2 + cardGap;
+    const btnH = Math.round(48 * scale);
+    const btnY = cardTop + gridH + Math.round(20 * scale);
+    const panelH = (btnY + btnH + Math.round(18 * scale)) - panelY;
+
+    // Draw main panel background
+    ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.96)' : 'rgba(10, 22, 44, 0.75)';
+    ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.45)' : 'rgba(56, 189, 248, 0.35)';
+    ctx.lineWidth = 1.6;
+    roundRect(ctx, innerX, panelY, innerW, panelH, 16);
+    ctx.fill();
+    ctx.stroke();
+
+    // Panel Header Title
+    fillSoftText(isLight ? '#0284c7' : accentHex, () => {
+      ctx.font = `bold ${Math.round(22 * scale)}px "Microsoft YaHei", sans-serif`;
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      ctx.fillText('实验器材识别', innerX + pad, panelY + Math.round(14 * scale));
+    });
+
+    // Step tag pill on top-right of panel header
+    {
+      const stepPillText = '步骤 1/6 · 器件识别';
+      ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+      const spW = ctx.measureText(stepPillText).width + Math.round(24 * scale);
+      const spH = Math.round(26 * scale);
+      const spX = innerX + innerW - pad - spW;
+      const spY = panelY + Math.round(14 * scale);
+      ctx.fillStyle = isLight ? 'rgba(14, 165, 233, 0.12)' : 'rgba(56, 189, 248, 0.18)';
+      ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.35)' : 'rgba(56, 189, 248, 0.35)';
+      ctx.lineWidth = 1;
+      roundRect(ctx, spX, spY, spW, spH, spH / 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = isLight ? '#0369a1' : '#7dd3fc';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(stepPillText, spX + spW / 2, spY + spH / 2);
+    }
+
+    // Target Prompt Banner
     const tipText = feedback?.text
       ? `${feedback.ok !== false ? '✓' : '✗'} ${feedback.text}`
       : (nextItem
@@ -1384,8 +1381,8 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       ctx.strokeStyle = feedback
         ? (ok ? '#4ade80' : '#f87171')
         : (isLight ? 'rgba(14, 165, 233, 0.45)' : 'rgba(56, 189, 248, 0.35)');
-      ctx.lineWidth = 1.2;
-      roundRect(ctx, innerX + pad, tipY, innerW - pad * 2, tipH, 8);
+      ctx.lineWidth = 1.4;
+      roundRect(ctx, innerX + pad, tipY, innerW - pad * 2, tipH, 10);
       ctx.fill();
       ctx.stroke();
       fillSoftText(
@@ -1397,18 +1394,12 @@ function drawHallExperiment(ctx, W, _H, cfg) {
           ctx.textBaseline = 'middle';
           ctx.textAlign = 'left';
           const clipped = wrapText(ctx, tipText, innerW - pad * 2 - Math.round(24 * scale))[0] || tipText;
-          ctx.fillText(clipped, innerX + pad + Math.round(12 * scale), tipY + tipH / 2);
+          ctx.fillText(clipped, innerX + pad + Math.round(14 * scale), tipY + tipH / 2);
         },
       );
     }
 
-    // 2×2 grid of the four apparatus only (no descriptions).
-    const cardGap = Math.round(12 * scale);
-    const cardTop = tipY + tipH + gap;
-    const cardAreaH = panelH - (cardTop - panelY) - btnH - Math.round(24 * scale);
-    const cardW = (innerW - pad * 2 - cardGap) / 2;
-    const cardH = Math.max(Math.round(64 * scale), (cardAreaH - cardGap) / 2);
-
+    // 2×2 Cards Grid
     items.forEach((item, i) => {
       const col = i % 2;
       const row = Math.floor(i / 2);
@@ -1423,9 +1414,9 @@ function drawHallExperiment(ctx, W, _H, cfg) {
         ctx.shadowBlur = 16;
       }
       ctx.fillStyle = done
-        ? (isLight ? 'rgba(255, 255, 255, 0.82)' : 'rgba(34, 197, 94, 0.14)')
+        ? (isLight ? 'rgba(255, 255, 255, 0.88)' : 'rgba(34, 197, 94, 0.14)')
         : current
-          ? (isLight ? 'rgba(255, 255, 255, 0.9)' : 'rgba(56, 189, 248, 0.20)')
+          ? (isLight ? 'rgba(240, 249, 255, 0.98)' : 'rgba(56, 189, 248, 0.20)')
           : (isLight ? 'rgba(255, 255, 255, 0.75)' : 'rgba(15, 30, 56, 0.45)');
       ctx.strokeStyle = done
         ? (isLight ? '#16a34a' : '#4ade80')
@@ -1433,18 +1424,17 @@ function drawHallExperiment(ctx, W, _H, cfg) {
           ? (isLight ? '#0284c7' : accentHex)
           : (isLight ? 'rgba(14, 165, 233, 0.35)' : 'rgba(148, 163, 184, 0.24)');
       ctx.lineWidth = current ? 2.4 : 1.2;
-      roundRect(ctx, x, y, cardW, cardH, 10);
+      roundRect(ctx, x, y, cardW, cardH, 12);
       ctx.fill();
       ctx.stroke();
       ctx.restore();
 
       if (current) {
         ctx.fillStyle = isLight ? '#0284c7' : accentHex;
-        roundRect(ctx, x + Math.round(12 * scale), y + 2, cardW - Math.round(24 * scale), 3, 1.5);
+        roundRect(ctx, x + Math.round(14 * scale), y + 2, cardW - Math.round(28 * scale), 4, 2);
         ctx.fill();
       }
 
-      // Single centered line: [01] 器材名 + status pill
       ctx.save();
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
@@ -1458,7 +1448,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
         ctx.shadowColor = 'rgba(255, 255, 255, 0.98)';
         ctx.shadowBlur = 4;
       }
-      const numPx = Math.max(16, Math.min(22, Math.round(cardH * 0.36)));
+      const numPx = Math.max(16, Math.min(22, Math.round(cardH * 0.32)));
       ctx.font = `bold ${numPx}px Consolas, monospace`;
       const numLabel = done ? '✓' : `[${item.n}]`;
       ctx.fillText(numLabel, x + Math.round(14 * scale), cy);
@@ -1469,9 +1459,9 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       ctx.restore();
 
       const statusTag = done ? '已识别' : current ? '当前' : '待识别';
-      const pillW = Math.round(done ? 58 : 50) * scale;
-      const pillH = Math.round(24 * scale);
-      const pillX = x + cardW - pillW - Math.round(12 * scale);
+      const pillW = Math.round(done ? 64 : 56) * scale;
+      const pillH = Math.round(26 * scale);
+      const pillX = x + cardW - pillW - Math.round(14 * scale);
       const pillY = y + (cardH - pillH) / 2;
       ctx.fillStyle = done
         ? (isLight ? 'rgba(34,197,94,0.18)' : 'rgba(34,197,94,0.22)')
@@ -1485,7 +1475,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
         : current
           ? (isLight ? '#0369a1' : '#7dd3fc')
           : (isLight ? '#64748b' : '#94a3b8');
-      ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
+      ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(statusTag, pillX + pillW / 2, pillY + pillH / 2);
@@ -1493,9 +1483,9 @@ function drawHallExperiment(ctx, W, _H, cfg) {
 
     drawHallButton(
       ctx, hits,
-      innerX + innerW * 0.22,
-      panelY + panelH - btnH - Math.round(12 * scale),
-      innerW * 0.56,
+      innerX + innerW * 0.2,
+      btnY,
+      innerW * 0.6,
       btnH,
       nextItem ? `确认瞄准：${nextItem.n} ${nextItem.name}` : '✓ 全部器材识别完成',
       'hall-identify', {}, accentHex, true,
@@ -1910,23 +1900,21 @@ function drawHallDemoExperiment(ctx, _W, _H, cfg) {
   ctx.stroke();
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  const formulaPadX = Math.round(52 * scale);
+  const formulaPadX = Math.round(24 * scale);
   drawMathFormula(
     ctx,
-    'U_{H}=R_{H}\\frac{IB}{d}=K_{H}IB',
+    'U_{H}=R_{H}\\frac{IB}{d}',
     x + formulaPadX,
     contentTop + formulaH / 2,
-    { fontSize: Math.round(30 * scale), color: pink, align: 'left', textBaseline: 'middle' },
+    { fontSize: Math.round(28 * scale), color: pink, align: 'left', textBaseline: 'middle' },
   );
 
   const vhFormatted = (vh >= 0 ? '+' : '') + vh.toFixed(3);
-  drawMathFormula(
-    ctx,
-    `U_{H}=${vhFormatted}（相对）`,
-    x + w - formulaPadX,
-    contentTop + formulaH / 2,
-    { fontSize: Math.round(28 * scale), color: P.title, align: 'right', textBaseline: 'middle' },
-  );
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(22 * scale)}px Consolas, "Microsoft YaHei", monospace`;
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`U_H = ${vhFormatted} (相对)`, x + w - formulaPadX, contentTop + formulaH / 2);
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
 
@@ -1974,7 +1962,7 @@ function drawHallDemoExperiment(ctx, _W, _H, cfg) {
   ];
   const colGap = Math.round(8 * scale);
   const colW = (w - colGap) / 2;
-  const rowH = Math.round(48 * scale);
+  const rowH = Math.round(44 * scale);
   const rowGap = Math.round(6 * scale);
   params.forEach((p, i) => {
     const col = i % 2;
@@ -1989,17 +1977,15 @@ function drawHallDemoExperiment(ctx, _W, _H, cfg) {
     ctx.fillStyle = P.muted;
     ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'left';
-    ctx.fillText(p.label, px + Math.round(12 * scale), py + Math.round(10 * scale));
+    ctx.fillText(p.label, px + Math.round(12 * scale), py + Math.round(8 * scale));
     ctx.fillStyle = P.text;
-    ctx.font = `bold ${Math.round(20 * scale)}px Consolas, monospace`;
-    ctx.fillText(Number(p.value).toFixed(2), px + Math.round(12 * scale), py + Math.round(28 * scale));
+    ctx.font = `bold ${Math.round(18 * scale)}px Consolas, monospace`;
+    ctx.fillText(Number(p.value).toFixed(2), px + Math.round(12 * scale), py + Math.round(26 * scale));
   });
   cy += 2 * (rowH + rowGap) + gap;
 
-
-
-  // —— Type + actions ——
-  const btnH = Math.round(44 * scale);
+  // —— Type + actions (sequential stacking without overlap) ——
+  const btnH = Math.round(38 * scale);
   const typeGap = Math.round(8 * scale);
   const typeW = (w - typeGap) / 2;
   drawHallButton(
@@ -2018,9 +2004,7 @@ function drawHallDemoExperiment(ctx, _W, _H, cfg) {
   ];
   const aGap = Math.round(8 * scale);
   const aW = (w - aGap * (actions.length - 1)) / actions.length;
-  const bottomY = contentTop + contentH - btnH;
-  // Prefer fixed bottom bar if remaining space is tight
-  const actionY = Math.min(cy, bottomY);
+  const actionY = cy;
   actions.forEach((button, i) => {
     drawHallButton(
       ctx, hits,

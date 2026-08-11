@@ -264,6 +264,35 @@ test('transition controller reuses a warm runtime without preparing it again', a
   assert.deepEqual(cache.keys(), ['b', 'a']);
 });
 
+test('transition controller shares an intent prewarm with the later open', async () => {
+  let creates = 0;
+  let prepares = 0;
+  let compiles = 0;
+  const cache = createRuntimeCache();
+  const controller = createTransitionController({
+    cache,
+    createRuntime: async (id) => {
+      creates += 1;
+      return createExperimentRuntime({
+        id,
+        prepare: async () => { prepares += 1; },
+        prepareGpu: async () => { compiles += 1; },
+      });
+    },
+  });
+
+  const prewarm = controller.prewarm('a');
+  const opened = controller.open('a');
+  const [prepared, committed] = await Promise.all([prewarm, opened]);
+
+  assert.equal(prepared.prepared, true);
+  assert.equal(committed.committed, true);
+  assert.equal(creates, 1);
+  assert.equal(prepares, 1);
+  assert.equal(compiles, 1);
+  assert.equal(controller.current.id, 'a');
+});
+
 test('equipment runtime resolves a late-created root before mount and activation', async () => {
   let root = null;
   let activated = 0;

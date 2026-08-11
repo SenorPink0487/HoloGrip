@@ -224,6 +224,58 @@ export function createTransitionController({ cache, createRuntime, prepareContex
   let sessionId = 0;
   let current = null;
   let controller = null;
+  const pendingPrepares = new Map();
+
+  async function prepareRuntime(key, signal) {
+    let runtime = cache?.get(key) || null;
+    if (runtime && runtime.state !== 'cold' && runtime.state !== 'error') {
+      return runtime;
+    }
+    if (runtime) cache?.remove?.(key);
+
+    runtime = await createRuntime(key, prepareContext, signal);
+    try {
+      await runtime.prepare(prepareContext, signal);
+      await runtime.prepareGpu?.(prepareContext.renderer, prepareContext.camera, prepareScene, signal);
+      // A prepared runtime is safe to retain: it has not been mounted or
+      // activated yet, but it can be mounted immediately by open(). Keeping
+      // it in the same cache is what makes intent prewarm and click reuse the
+      // exact same apparatus and compiled GPU programs.
+      cache?.warm?.(key, runtime);
+      return runtime;
+    } catch (error) {
+      try { runtime.dispose?.(); } catch { /* best effort */ }
+      throw error;
+    }
+  }
+
+  function prewarm(key) {
+    const cached = cache?.get(key) || null;
+    if (cached && cached.state !== 'cold' && cached.state !== 'error') {
+      return Promise.resolve({ prepared: true, cached: true, runtime: cached });
+    }
+
+    const existing = pendingPrepares.get(key);
+    if (existing) return existing.promise;
+
+    const prepareController = new AbortController();
+    const entry = { controller: prepareController, promise: null };
+    entry.promise = prepareRuntime(key, prepareController.signal)
+      .then((runtime) => ({ prepared: true, cached: false, runtime }))
+      .catch((error) => ({ prepared: false, error }))
+      .finally(() => {
+        if (pendingPrepares.get(key) === entry) pendingPrepares.delete(key);
+      });
+    pendingPrepares.set(key, entry);
+    return entry.promise;
+  }
+
+  function cancelPrewarm(key) {
+    const entry = pendingPrepares.get(key);
+    if (!entry) return false;
+    entry.controller.abort();
+    return true;
+  }
 
   async function open(key, initialState) {
     const id = ++sessionId;
@@ -236,17 +288,21 @@ export function createTransitionController({ cache, createRuntime, prepareContex
       if (runtime && runtime === current) {
         return { committed: true, sessionId: id, runtime, unchanged: true };
       }
+      // If card focus already started preparation, wait for that exact
+      // runtime instead of constructing a second apparatus on click.
+      if (!runtime) {
+        const pending = pendingPrepares.get(key);
+        if (pending) {
+          const result = await pending.promise;
+          if (result.prepared) runtime = result.runtime;
+        }
+      }
       // A warm runtime can be reused, but an active runtime from an older
       // session must first move through suspend so mount/activate remain
       // transactional and idempotent.
       if (runtime?.state === 'active' && runtime !== current) runtime.suspend?.();
       if (!runtime) {
-        runtime = await createRuntime(key, prepareContext, signal);
-        await runtime.prepare(prepareContext, signal);
-        await runtime.prepareGpu?.(prepareContext.renderer, prepareContext.camera, prepareScene, signal);
-      } else if (runtime.state === 'cold' || runtime.state === 'error') {
-        await runtime.prepare(prepareContext, signal);
-        await runtime.prepareGpu?.(prepareContext.renderer, prepareContext.camera, prepareScene, signal);
+        runtime = await prepareRuntime(key, signal);
       }
       if (signal.aborted || id !== sessionId) throw abortError();
       runtime.mount(prepareContext.detachedRoot || prepareContext.parent);
@@ -265,7 +321,11 @@ export function createTransitionController({ cache, createRuntime, prepareContex
     } catch (error) {
       if (runtime && runtime !== current) {
         try { runtime.unmount?.(); } catch { /* best effort */ }
-        try { runtime.dispose?.(); } catch { /* best effort */ }
+        if (cache?.get?.(key) === runtime) {
+          cache.remove?.(key);
+        } else {
+          try { runtime.dispose?.(); } catch { /* best effort */ }
+        }
       }
       if (error?.name === 'AbortError') return { committed: false, cancelled: true, sessionId: id };
       return { committed: false, error, sessionId: id, previous };
@@ -274,6 +334,8 @@ export function createTransitionController({ cache, createRuntime, prepareContex
 
   function dispose() {
     controller?.abort();
+    for (const entry of pendingPrepares.values()) entry.controller.abort();
+    pendingPrepares.clear();
     const previous = current;
     current = null;
     cache?.clear?.();
@@ -281,7 +343,14 @@ export function createTransitionController({ cache, createRuntime, prepareContex
     if (previous && !cache?.has?.(previous.id)) previous.dispose?.();
   }
 
-  return { open, dispose, get current() { return current; }, get sessionId() { return sessionId; } };
+  return {
+    open,
+    prewarm,
+    cancelPrewarm,
+    dispose,
+    get current() { return current; },
+    get sessionId() { return sessionId; },
+  };
 }
 
 function abortError() {

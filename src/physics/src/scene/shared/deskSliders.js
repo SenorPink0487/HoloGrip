@@ -126,9 +126,16 @@ function makeActionGroupTexture(buttons, accentHex = '#ec4899') {
     ctx.fillStyle = active ? '#0284c7' : DESK_TEXT;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    const fontPx = count >= 3 ? Math.round(c.height * 0.36) : Math.round(c.height * 0.42);
+    let fontPx = count >= 3 ? Math.round(c.height * 0.36) : Math.round(c.height * 0.42);
     ctx.font = `bold ${fontPx}px "Microsoft YaHei", "Segoe UI", sans-serif`;
-    ctx.fillText(String(btn.label || ''), x + btnW / 2, y + h * 0.52);
+    const labelText = String(btn.label || '');
+    const maxW = btnW - Math.round(c.width * 0.03);
+    const measuredW = typeof ctx.measureText === 'function' ? (ctx.measureText(labelText)?.width || 0) : 0;
+    if (measuredW > maxW && measuredW > 0) {
+      fontPx = Math.max(10, Math.floor(fontPx * (maxW / measuredW)));
+      ctx.font = `bold ${fontPx}px "Microsoft YaHei", "Segoe UI", sans-serif`;
+    }
+    ctx.fillText(labelText, x + btnW / 2, y + h * 0.52);
   });
 
   const tex = new THREE.CanvasTexture(c);

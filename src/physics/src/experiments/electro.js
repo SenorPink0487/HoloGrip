@@ -1324,8 +1324,16 @@ export function createHandlers(ctx) {
       to = clamp(Number(opts.to ?? data.targetB ?? from), -3, 3);
     }
     if (Math.abs(to - from) < 1e-8) {
-      toast('目标与当前值相同，请先调整目标');
-      return false;
+      if (channel === 'x' && data.lastMotion) {
+        data.x = data.lastMotion.x0;
+        from = data.lastMotion.x0;
+      } else if (channel === 'B' && data.lastInduction) {
+        data.B = data.lastInduction.B0;
+        from = data.lastInduction.B0;
+      } else {
+        toast('目标与当前值相同，请先调整目标');
+        return false;
+      }
     }
     data.animChannel = channel;
     // Steady dΦ/dt for the whole play (linear ramp) so current arrows stay on.

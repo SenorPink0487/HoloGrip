@@ -27,6 +27,7 @@ import { labFrameScheduler } from './frameBudget.js';
 import { createStationPresence } from './runtime/stationPresence.js';
 import { labOpenTiming } from './runtime/openTiming.js';
 import { createRuntimeCache, runtimeCacheBudget } from './runtime/runtimeCache.js';
+import { createContentScreenRegistry } from './runtime/contentScreenReuse.js';
 import { normalizeJoystickInput } from '../../pool/touch-controls.js';
 import {
   createExperimentRuntime,
@@ -1349,6 +1350,11 @@ for (const stationId of BOOT_STATION_IDS) {
     minIdleMs: 24,
     maxRestMs: 64,
   });
+  if (stationId === 'electro' && typeof station.equipment?.prewarmGpu === 'function') {
+    labLoader.setProgress(0.20, '预热电磁学实验材质…');
+    await yieldToBrowser(8);
+    await station.equipment.prewarmGpu(renderer, camera);
+  }
   registeringStationId = null;
   stationScenes[stationId] = station;
   station.proxy = false;
@@ -2232,7 +2238,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
  * Shows experiment steps/controls; activated by the tabletop selector terminal.
  * Continuous param sliders live on the tabletop desk panel (not on this screen).
  */
-function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
+function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, screenRegistry = null) {
   const g = new THREE.Group();
   // Content panel sized for dense HUD layouts (not a wall-filling blank canvas).
   const panelW = 2.55;
@@ -2293,6 +2299,7 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
   g.userData.fullTitle = fullTitle;
   g.userData.enTitle = enTitle;
   g.userData.surface = SURFACE;
+  g.userData.contentScreenCategory = stationId;
 
   const createScreenTexture = () => {
     const texture = new THREE.CanvasTexture(c);
@@ -2471,6 +2478,7 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
     // Critical: HUD updates every frame while experiments run — only flip visibility
     // when presence actually changes. Never recollect the scene here.
     if (g.userData.present === present && g.visible === present) {
+      if (!present) screenRegistry?.release?.(stationId);
       g.userData.active = present;
       return;
     }
@@ -2479,6 +2487,7 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
     g.visible = present;
     panelLight.intensity = present ? 0.55 : 0;
     if (!present) {
+      screenRegistry?.release?.(stationId);
       hitRegions = [];
       g.userData.hitRegions = [];
       g.userData._contentExpId = null;
@@ -2520,6 +2529,10 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8) {
       return;
     }
     const expId = hud.experiment?.id || hud.expId || '';
+    // Bind only the content state. The registered category screen itself is
+    // retained across experiment changes and category menu visits.
+    const binding = screenRegistry?.bind?.(stationId, expId);
+    if (binding) g.userData.contentScreenBinding = binding;
     // shell: cheap placeholder; full: dense controls (caller should budget this).
     if (opts.shell) {
       // Electro (and others) throttle-push HUD every ~0.1–0.35s. Re-painting the
@@ -2678,6 +2691,7 @@ const displayConfigs = chemMode ? [] : [
 ];
 const holos = {};
 const stationDisplays = {};
+const contentScreenRegistry = createContentScreenRegistry();
 holoConfigs.forEach(({ id, title, accent, accentNum, pos, rotY }) => {
   const h = makeHoloPanel(id, title, accent, accentNum);
   h.position.set(...pos);
@@ -2686,7 +2700,7 @@ holoConfigs.forEach(({ id, title, accent, accentNum, pos, rotY }) => {
   holos[id] = h;
 });
 displayConfigs.forEach(({ id, title, accent, accentNum, pos, rotY }) => {
-  const d = makeStationDisplay(id, title, accent, accentNum);
+  const d = makeStationDisplay(id, title, accent, accentNum, contentScreenRegistry);
   d.position.set(...pos);
   d.rotation.y = rotY;
   d.userData._baseY = pos[1];
@@ -2695,6 +2709,7 @@ displayConfigs.forEach(({ id, title, accent, accentNum, pos, rotY }) => {
   d.position.y = pos[1] + (panelH * (1 - sy)) / 2;
   scene.add(d);
   stationDisplays[id] = d;
+  contentScreenRegistry.register(id, d);
   if (holos[id]) holos[id].userData.display = d;
 });
 
@@ -3007,6 +3022,42 @@ function showToast(msg) {
     toastEl.classList.remove('show');
     updateToast(null);
   }, 2400);
+}
+
+let activeExperimentSwitches = 0;
+
+function beginExperimentSwitchLoader(label = '实验') {
+  let node = document.getElementById('experiment-switch-loader');
+  if (!node) {
+    node = document.createElement('div');
+    node.id = 'experiment-switch-loader';
+    node.setAttribute('role', 'status');
+    node.setAttribute('aria-live', 'polite');
+    node.innerHTML = '<span class="experiment-switch-spinner" aria-hidden="true"></span><span data-switch-loader-label></span>';
+    document.body.appendChild(node);
+  }
+
+  const labelNode = node.querySelector('[data-switch-loader-label]');
+  if (labelNode) labelNode.textContent = `正在加载 ${label}…`;
+  activeExperimentSwitches += 1;
+  node.classList.add('show');
+  node.setAttribute('aria-busy', 'true');
+
+  let ended = false;
+  return {
+    setMessage(message) {
+      if (labelNode && message) labelNode.textContent = message;
+    },
+    end() {
+      if (ended) return;
+      ended = true;
+      activeExperimentSwitches = Math.max(0, activeExperimentSwitches - 1);
+      if (activeExperimentSwitches === 0) {
+        node.classList.remove('show');
+        node.setAttribute('aria-busy', 'false');
+      }
+    },
+  };
 }
 
 let aimHudEl = document.getElementById('aim-hud');
@@ -4131,38 +4182,6 @@ function warmInitData(stationId, expId) {
   }
   warmDataCache.set(key, data);
   return data;
-}
-
-/**
- * Seed live apparatus with the same defaults the first open will use so
- * expensive field-line / particle allocations are not first paid at click time.
- */
-function seedWarmApparatus(stationId, expId, eq) {
-  if (!eq) return;
-  const data = warmInitData(stationId, expId);
-  try {
-    if (stationId === 'electro') {
-      if (expId === 'electric_field') eq.updateElectricField?.(data, 0);
-      else if (expId === 'faraday_induction') eq.updateFaraday?.(data, 0);
-      else if (expId === 'induced_electric_field') eq.updateInducedElectric?.(data, 0);
-      else if (expId === 'hall_effect') eq.updateHall?.(data);
-      else if (expId === 'hall_carrier_demo') eq.updateHallDemo?.(data, 0);
-      return;
-    }
-    if (stationId === 'thermo') {
-      eq.updateState?.(expId, data, { forceVisual: true });
-      // One visual tick so first-open materials (thermal-expansion coils/glow)
-      // are already in the state compile will capture.
-      try {
-        const src = eq.sourceExperiments?.[expId];
-        if (src && typeof src.update === 'function') {
-          try { src.clock?.getDelta?.(); } catch { /* ignore */ }
-          src.update(1 / 60);
-        }
-      } catch { /* ignore */ }
-      return;
-    }
-  } catch { /* best-effort */ }
 }
 
 if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === 'gauss') {
@@ -6030,7 +6049,7 @@ handToggleEl?.addEventListener('click', (event) => {
 function disposeIntentPrepareResources() {
   intentPrewarmPromises.forEach((promise) => promise.catch?.(() => {}));
   intentPrewarmPromises.clear();
-  activeIntentPrewarm?.controller?.abort?.();
+  if (activeIntentPrewarm?.key) experimentTransition.cancelPrewarm(activeIntentPrewarm.key);
   activeIntentPrewarm = null;
   clearTimeout(focusedExperimentTimer);
   focusedExperimentTimer = 0;
@@ -6501,6 +6520,13 @@ function animate() {
   if (softSwitch) {
     simDriver.pause();
     frameCoordinator.frame(nowMs, { render: true });
+    // The soft-switch path returns before the normal post-render drain below.
+    // Keep draining the tiny background queue here as well; otherwise the
+    // experiment switch chain and the content-screen full-paint job can never
+    // run, leaving the display permanently on its loading shell.
+    const drainT0 = performance.now();
+    labFrameScheduler.drain(POST_RENDER_BUDGET_MS);
+    noteSwitchStage('scheduler', performance.now() - drainT0);
     switchFrameMetrics.frames += 1;
     switchFrameMetrics.maxFrameMs = Math.max(
       switchFrameMetrics.maxFrameMs,
@@ -6636,8 +6662,12 @@ async function startExperimentSafe(expId) {
   stationShowcaseGeneration += 1;
   const found = findExperiment(expId);
   const stationId = found?.stationId || expManager?.state?.stationId;
-  const loadStart = performance.now();
+  const switchLoader = beginExperimentSwitchLoader(found?.experiment?.name || expId);
   try {
+    // Let the compositor paint the indicator before the first cold runtime
+    // starts synchronous preparation / shader compilation.
+    await nextPaint();
+    const loadStart = performance.now();
     // Preview and automation callers can start from a cold manager state.
     // Establish the same station/menu contract as a terminal card click.
     if (stationId && (
@@ -6648,47 +6678,54 @@ async function startExperimentSafe(expId) {
     }
     if (stationId) await ensureStationLoaded(stationId);
     console.log(`[open-trace] ensureStationLoaded dt=${(performance.now() - loadStart).toFixed(1)}ms`);
+    switchLoader.setMessage(`正在准备 ${found?.experiment?.name || expId}…`);
     if (stationId) await ensureExperimentRuntimeLoaded(stationId, expId);
     console.log(`[open-trace] ensureExperimentRuntimeLoaded dt=${(performance.now() - loadStart).toFixed(1)}ms`);
   } catch (error) {
     showToast(`Unable to load ${stationId || 'experiment'}; retry`);
     console.warn('[lab] experiment load failed', error);
+    switchLoader.end();
     return false;
   }
-  const key = `${stationId || expManager?.state?.stationId || 'unknown'}:${expId}`;
-  // A focused card may already be compiling this exact runtime. Reuse that
-  // transaction so the click path waits for prepared GPU state instead of
-  // presenting a half-warmed apparatus and paying the compile on the first
-  // visible frame.
-  const intentPrewarm = intentPrewarmPromises.get(key);
-  if (intentPrewarm) await intentPrewarm.catch(() => false);
-  const transitionStart = performance.now();
-  const transition = await experimentTransition.open(key, {
-    stationId,
-    expId,
-  });
-  console.log(`[open-trace] transition.open dt=${(performance.now() - transitionStart).toFixed(1)}ms`);
-  if (!transition.committed) {
-    if (!transition.cancelled && transition.error) {
-      showToast('Unable to prepare experiment; retry');
-      console.warn('[lab] experiment prepare failed', transition.error);
+  try {
+    const key = `${stationId || expManager?.state?.stationId || 'unknown'}:${expId}`;
+    // A focused card may already be compiling this exact runtime. Reuse that
+    // transaction so the click path waits for prepared GPU state instead of
+    // presenting a half-warmed apparatus and paying the compile on the first
+    // visible frame.
+    const intentPrewarm = intentPrewarmPromises.get(key);
+    if (intentPrewarm) await intentPrewarm.catch(() => false);
+    switchLoader.setMessage(`正在编译 ${found?.experiment?.name || expId}…`);
+    const transitionStart = performance.now();
+    const transition = await experimentTransition.open(key, {
+      stationId,
+      expId,
+    });
+    console.log(`[open-trace] transition.open dt=${(performance.now() - transitionStart).toFixed(1)}ms`);
+    if (!transition.committed) {
+      if (!transition.cancelled && transition.error) {
+        showToast('Unable to prepare experiment; retry');
+        console.warn('[lab] experiment prepare failed', transition.error);
+      }
+      return false;
     }
-    return false;
-  }
-  // Never schedule prepareExperiment after click — Runtime prepare/prepareGpu
-  // already owns geometry + compileAsync/1x1. A post-click light prepare used
-  // to re-enter multi-second station work on the drain path.
-  const commitStart = performance.now();
-  const committed = await expManager?.startExperiment?.(expId);
-  console.log(`[open-trace] manager commit dt=${(performance.now() - commitStart).toFixed(1)}ms`);
-  if (committed !== false) {
-    preparedExperimentIds.add(expId);
-    if (stationId) {
-      preparedExperimentSignatures.set(expId, JSON.stringify(warmInitData(stationId, expId)));
+    // Never schedule prepareExperiment after click — Runtime prepare/prepareGpu
+    // already owns geometry + compileAsync/1x1. A post-click light prepare used
+    // to re-enter multi-second station work on the drain path.
+    const commitStart = performance.now();
+    const committed = await expManager?.startExperiment?.(expId);
+    console.log(`[open-trace] manager commit dt=${(performance.now() - commitStart).toFixed(1)}ms`);
+    if (committed !== false) {
+      preparedExperimentIds.add(expId);
+      if (stationId) {
+        preparedExperimentSignatures.set(expId, JSON.stringify(warmInitData(stationId, expId)));
+      }
+      ensureActiveApparatusVisible(stationId, expId);
     }
-    ensureActiveApparatusVisible(stationId, expId);
+    return committed !== false;
+  } finally {
+    switchLoader.end();
   }
-  return committed !== false;
 }
 
 /**
@@ -6757,95 +6794,23 @@ function ensureIntentPrepareScene() {
   return intentPrepareScene;
 }
 
-function experimentModeForIntent(stationId, expId) {
-  if (stationId === 'thermo') return expId;
-  if (stationId === 'mechanics') return expId;
-  return EXP_MODE_BY_ID[expId] || null;
-}
-
-async function prepareExperimentIntent(stationId, expId, signal) {
-  if (!stationId || !expId || signal?.aborted) return false;
-  await ensureStationLoaded(stationId);
-  await ensureExperimentRuntimeLoaded(stationId, expId);
-  if (signal?.aborted) return false;
-
-  const entry = stationScenes[stationId];
-  const eq = entry?.equipment;
-  if (!entry || !eq) return false;
-  const wasVisible = entry.root.visible;
-  const previousParent = entry.root.parent;
-  const mode = experimentModeForIntent(stationId, expId);
-
-  // Build the source apparatus while the station is hidden from the live
-  // scene. Constructors remain synchronous, but no user-visible frame is
-  // allowed to contain a half-built incoming rig.
-  entry.root.visible = false;
-  try {
-    eq.prepareExperiment?.(expId);
-    if (signal?.aborted) return false;
-    if (mode) {
-      if (stationId === 'mechanics') {
-        const exp = STATION_EXPERIMENTS[stationId]?.experiments?.find((item) => item.id === expId);
-        eq.setMode?.(mode, exp?.defaults || null, { reset: false, snapshot: false });
-      } else {
-        eq.setMode?.(mode);
-      }
-    }
-    seedWarmApparatus(stationId, expId, eq);
-    const prepareScene = ensureIntentPrepareScene();
-    previousParent?.remove?.(entry.root);
-    prepareScene.add(entry.root);
-    entry.root.visible = true;
-    entry.root.updateWorldMatrix?.(true, true);
-
-    if (typeof renderer.compileAsync === 'function') {
-      try { await renderer.compileAsync(prepareScene, intentPrepareCamera); } catch { /* sync draw remains fallback */ }
-    } else {
-      renderer.compile?.(prepareScene, intentPrepareCamera);
-    }
-    if (!signal?.aborted) {
-      const previousTarget = renderer.getRenderTarget?.() || null;
-      try {
-        renderer.setRenderTarget(intentPrepareTarget);
-        renderer.setViewport?.(0, 0, 1, 1);
-        renderer.setScissorTest?.(false);
-        renderer.clear?.();
-        renderer.render(prepareScene, intentPrepareCamera);
-      } finally {
-        renderer.setRenderTarget(previousTarget);
-        restoreLabFramebuffer();
-      }
-    }
-    return !signal?.aborted;
-  } finally {
-    prepareSceneRestore: {
-      intentPrepareScene?.remove?.(entry.root);
-      if (previousParent && entry.root.parent !== previousParent) previousParent.add(entry.root);
-      entry.root.visible = wasVisible;
-    }
-    // Do not hide a runtime that the user activated while preparation was in
-    // flight; otherwise a fast click would commit into a parked station.
-    if (!(expManager?.state?.running && expManager.state.expId === expId)) {
-      try { eq.suspend?.(); } catch { /* best effort */ }
-    }
-  }
-}
-
 function beginExperimentIntentPrewarm(stationId, expId) {
   if (!stationId || !expId || expManager?.state?.running) return null;
   markUserIntent();
   const key = `${stationId}:${expId}`;
   const existing = intentPrewarmPromises.get(key);
   if (existing) return existing;
-  const controller = new AbortController();
-  activeIntentPrewarm = { key, controller };
-  // Card focus is the earliest experiment-code intent: kick the handler module
-  // immediately so startExperimentSafe can share the same Promise.
-  void ensureExperimentModuleLoaded(stationId, expId).catch(() => {});
-  const promise = prepareExperimentIntent(stationId, expId, controller.signal)
-    .catch((error) => {
-      if (error?.name !== 'AbortError') console.warn('[intent-prewarm] failed', error);
-      return false;
+  activeIntentPrewarm = { key };
+  // Card focus is the earliest experiment-code intent. The transition
+  // controller owns the prepared runtime and cache entry so the click path
+  // can mount this exact object instead of creating a second apparatus.
+  const promise = ensureExperimentModuleLoaded(stationId, expId)
+    .then(() => experimentTransition.prewarm(key))
+    .then((result) => {
+      if (!result?.prepared && result?.error?.name !== 'AbortError') {
+        console.warn('[intent-prewarm] failed', result.error);
+      }
+      return !!result?.prepared;
     })
     .finally(() => {
       intentPrewarmPromises.delete(key);
@@ -6858,7 +6823,7 @@ function beginExperimentIntentPrewarm(stationId, expId) {
 function cancelExperimentIntentPrewarm(exceptKey = null) {
   clearTimeout(focusedExperimentTimer);
   if (activeIntentPrewarm && activeIntentPrewarm.key !== exceptKey) {
-    activeIntentPrewarm.controller.abort();
+    experimentTransition.cancelPrewarm(activeIntentPrewarm.key);
     activeIntentPrewarm = null;
   }
 }
@@ -6905,7 +6870,6 @@ async function openStationMenuSafe(stationId) {
   // background so the terminal responds immediately; experiment handlers load
   // only on card focus / start (authoritative await in startExperimentSafe).
   expManager?.openStationMenu?.(stationId);
-  focusStationForMenu(stationId);
   void ensureStationLoaded(stationId)
     .then(() => revealStationShowcase(stationId, generation))
     .catch((error) => {
@@ -6915,10 +6879,9 @@ async function openStationMenuSafe(stationId) {
   return true;
 }
 
-// The room starts centered so all four terminals remain discoverable. Once a
-// station is selected, bring its tabletop into the working view; otherwise a
-// valid source rig can be several meters off-screen and look like a missing
-// apparatus. Learners already working beside a station keep their camera.
+// Camera presets are used only by explicit preview/chem startup flows. Opening
+// a station menu must not call this helper: the menu is a UI action and should
+// never move the learner's position or view.
 function focusStationForMenu(stationId) {
   const preset = {
     mechanics: { position: [-4.2, 1.75, 0.35], target: [-4.2, 1.18, -2.8] },
