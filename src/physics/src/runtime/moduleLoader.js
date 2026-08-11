@@ -1,5 +1,11 @@
 import { findExperiment } from './catalog.js';
 
+// Chemistry is the startup mode of the shared lab. Keep its boot-critical
+// modules in the main lab bundle so production deployments do not depend on
+// a separately served dynamic chunk before the loader can advance past 22%.
+import * as chemStationModule from '../scene/stations/chem.js';
+import * as chemExperimentModule from '../experiments/chem.js';
+
 /**
  * Intent-gated module loaders.
  *
@@ -13,7 +19,7 @@ const stationLoaders = Object.freeze({
   thermo: () => import('../scene/stations/thermo.js'),
   optics: () => import('../scene/stations/optics.js'),
   electro: () => import('../scene/stations/electro.js'),
-  chem: () => import('../scene/stations/chem.js'),
+  chem: () => Promise.resolve(chemStationModule),
 });
 
 const experimentLoaders = Object.freeze({
@@ -21,7 +27,7 @@ const experimentLoaders = Object.freeze({
   thermo: () => import('../experiments/thermo.js'),
   optics: () => import('../experiments/optics.js'),
   electro: () => import('../experiments/electro.js'),
-  chem: () => import('../experiments/chem.js'),
+  chem: () => Promise.resolve(chemExperimentModule),
 });
 
 const stationRuntimeLoaders = Object.freeze({

@@ -11,7 +11,10 @@ interface SubjectFrameProps {
 
 const SUBJECT_IFRAMES: Record<string, { src: string; title: string }> = {
   physics: { src: '/physics.html', title: 'HoloPhysics 三维物理实验室' },
-  chem: { src: '/chem.html', title: 'HoloChem 化学实验室' },
+  // Chemistry is a mode of the shared physics laboratory shell. Keep this
+  // entry on the canonical physics page so desktop and direct web launches
+  // exercise the same scene/runtime instead of a stale HTML copy.
+  chem: { src: '/physics.html?mode=chem', title: 'HoloChem Three.js 三维化学实验室' },
   rocket: { src: '/rocket.html', title: 'HoloRocket 火箭发射仿真' },
   pool: { src: '/pool.html', title: 'HoloPool 三维台球室' },
 };

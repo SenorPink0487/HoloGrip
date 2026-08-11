@@ -23,7 +23,7 @@ const SUBJECT_TITLES: Record<string, string> = {
   calculator3d: '数学 · 空间计算器与几何模型',
   ar_3d: '数学 · 空间 AR 交互体验',
   physics: '物理 · 3D 经典力学与实验室',
-  chem: '化学 · 3D 分子结构观象台',
+  chem: '化学 · Three.js 3D 三维化学实验室',
   rocket: '航天 · 矢量轨道与推进仿真',
   pool: '台球 · 三维碰撞物理引擎',
 };

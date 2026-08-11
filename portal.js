@@ -371,7 +371,8 @@ const projectDetails = {
         demoColor: 'var(--accent-purple)',
         visualClass: 'chemistry-modal-demo',
         canLaunch: true,
-        launchUrl: 'chem.html',
+        // HoloChem runs in the shared physics laboratory shell.
+        launchUrl: 'physics.html?mode=chem',
         demoHtml: `
             <div class="chemistry-molecule-simulation" style="transform: scale(1.15); width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; position: relative;">
                 <div class="chemistry-molecule-demo">
