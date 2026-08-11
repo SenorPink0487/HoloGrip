@@ -1236,9 +1236,8 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
     [
       `|Q|=${fmt(Math.abs(selected.q), 1)} μC`,
       `x=${fmt(selected.x)} m  y=${fmt(selected.y)} m  z=${fmt(selected.z)} m`,
-      '位置 → 拖动（可锁轴）· 电荷量 → 桌侧滑条 · 探测读数在球体上方',
     ].forEach((line, i) => {
-      ctx.fillStyle = i === 2 ? P.muted : P.text;
+      ctx.fillStyle = P.text;
       ctx.fillText(line, leftX + pad, rowStart + i * Math.round(28 * scale));
     });
     drawHallButton(
@@ -1902,21 +1901,23 @@ function drawHallDemoExperiment(ctx, _W, _H, cfg) {
   ctx.stroke();
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  const formulaPadX = Math.round(24 * scale);
+  const formulaPadX = Math.round(20 * scale);
   drawMathFormula(
     ctx,
     'U_{H}=R_{H}\\frac{IB}{d}',
     x + formulaPadX,
     contentTop + formulaH / 2,
-    { fontSize: Math.round(28 * scale), color: pink, align: 'left', textBaseline: 'middle' },
+    { fontSize: Math.round(22 * scale), color: pink, align: 'left', textBaseline: 'middle' },
   );
 
   const vhFormatted = (vh >= 0 ? '+' : '') + vh.toFixed(3);
-  ctx.fillStyle = P.title;
-  ctx.font = `bold ${Math.round(22 * scale)}px Consolas, "Microsoft YaHei", monospace`;
-  ctx.textAlign = 'right';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(`U_H = ${vhFormatted} (相对)`, x + w - formulaPadX, contentTop + formulaH / 2);
+  drawMathFormula(
+    ctx,
+    `U_{H} = ${vhFormatted} (相对)`,
+    x + w - formulaPadX,
+    contentTop + formulaH / 2,
+    { fontSize: Math.round(20 * scale), color: P.title, align: 'right', textBaseline: 'middle' },
+  );
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
 
