@@ -164,10 +164,10 @@ test('desk panel actionGroup resolves discrete buttons based on local X aim', as
   panel.userData.setSpecs(config.specs);
   panel.updateMatrixWorld(true);
 
-  // Scan top row Z for actionGroup hits (感应·B / 动生·x / 播放变化)
+  // Scan top row Z for actionGroup hits (感应·B / 动生·x / B→...)
   let topZ = null;
   for (let z = -0.35; z <= 0.35; z += 0.005) {
-    const pick = panel.userData.pickFromRay(rayTowardLocal(panel, -0.15, 0.03, z));
+    const pick = panel.userData.pickFromRay(rayTowardLocal(panel, -0.18, 0.03, z));
     if (pick?.action === 'faraday-channel') {
       topZ = z;
       break;
@@ -175,14 +175,25 @@ test('desk panel actionGroup resolves discrete buttons based on local X aim', as
   }
   assert.ok(topZ != null, 'expected to find top row actionGroup Z');
 
+  // Scan bottom row Z for actionGroup hits (反向 B / 播放变化 / 重置)
+  let botZ = null;
+  for (let z = -0.35; z <= 0.35; z += 0.005) {
+    const pick = panel.userData.pickFromRay(rayTowardLocal(panel, -0.18, 0.03, z));
+    if (pick?.action === 'faraday-reverse') {
+      botZ = z;
+      break;
+    }
+  }
+  assert.ok(botZ != null, 'expected to find bottom row actionGroup Z');
+
   const leftPick = panel.userData.pickFromRay(rayTowardLocal(panel, -0.18, 0.03, topZ));
   const midPick = panel.userData.pickFromRay(rayTowardLocal(panel, 0, 0.03, topZ));
-  const rightPick = panel.userData.pickFromRay(rayTowardLocal(panel, 0.18, 0.03, topZ));
+  const botMidPick = panel.userData.pickFromRay(rayTowardLocal(panel, 0, 0.03, botZ));
 
   assert.equal(leftPick?.action, 'faraday-channel');
   assert.equal(leftPick?.payload?.channel, 'B');
   assert.equal(midPick?.action, 'faraday-channel');
   assert.equal(midPick?.payload?.channel, 'x');
-  assert.equal(rightPick?.action, 'faraday-play');
+  assert.equal(botMidPick?.action, 'faraday-play');
 });
 

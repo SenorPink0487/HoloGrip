@@ -62,9 +62,42 @@ export function formatPhysicsNumber(value, opts = {}) {
   return `${v.toFixed(digits + 1)}${unit}`;
 }
 
+function findMatchingBrace(str, openIndex) {
+  if (str[openIndex] !== '{') return -1;
+  let depth = 0;
+  for (let i = openIndex; i < str.length; i++) {
+    if (str[i] === '{') depth++;
+    else if (str[i] === '}') {
+      depth--;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+/**
+ * Calligraphic script map for standard physics notation (e.g. Electromotive Force 花体 E = ℰ).
+ */
+const SCRIPT_MAP = {
+  E: 'ℰ',
+  B: 'ℬ',
+  L: 'ℒ',
+  M: 'ℳ',
+  H: 'ℋ',
+  F: 'ℱ',
+  R: 'ℛ',
+  P: '𝒫',
+};
+
 /**
  * 将 markup 拆成绘制 token。
- * @returns {{ kind: 'var'|'text'|'sub'|'sup'|'cn', text: string }[]}
+ * 支持标准大学物理规范：
+ *   - 花体字母 \mathcal{E} 或 ℰ (感应/动生/自感电动势)
+ *   - 矢量符号 \vec{E} 或 \boldsymbol{E} (带箭头/加粗)
+ *   - 下标角标 _{...} 或 _k, _i, _B, _E, _H, _0, _m, _p, _1, _2, _A 等 (带角标)
+ *   - 上标角标 ^{...} 或 ^2, ^3
+ *   - 希腊字母与数学符号 \oint, \sum, \Delta, \varepsilon, \mu, \theta 等
+ * @returns {{ kind: 'var'|'text'|'sub'|'sup'|'cn'|'calligraphic'|'vec', text: string }[]}
  */
 export function tokenizeFormula(formula) {
   const s = String(formula || '');
@@ -72,32 +105,147 @@ export function tokenizeFormula(formula) {
   let i = 0;
 
   const isCjk = (ch) => /[\u3000-\u9fff\uff00-\uffef]/.test(ch);
-  const isVarStart = (ch) => /[A-Za-zΑ-Ωα-ωΦφθΘεεΔδπμνλρστω]/.test(ch);
+  const isVarStart = (ch) => /[A-Za-zΑ-Ωα-ωΦφθΘεεΔδπμνλρστωℰℬℒℳℋℱℛ]/.test(ch);
 
   while (i < s.length) {
-    if (s[i] === '_' && s[i + 1] === '{') {
-      const end = s.indexOf('}', i + 2);
-      if (end !== -1) {
-        tokens.push({ kind: 'sub', text: s.slice(i + 2, end) });
-        i = end + 1;
+    // 0. 分数: \frac{num}{den} (支持嵌套括号如 \mathrm{d})
+    if (s.slice(i).startsWith('\\frac{')) {
+      const numStart = i + 5;
+      const numEnd = findMatchingBrace(s, numStart);
+      if (numEnd !== -1 && s[numEnd + 1] === '{') {
+        const denStart = numEnd + 1;
+        const denEnd = findMatchingBrace(s, denStart);
+        if (denEnd !== -1) {
+          const numStr = s.slice(numStart + 1, numEnd);
+          const denStr = s.slice(denStart + 1, denEnd);
+          tokens.push(...tokenizeFormula(numStr), { kind: 'text', text: ' / ' }, ...tokenizeFormula(denStr));
+          i = denEnd + 1;
+          continue;
+        }
+      }
+    }
+
+    // 1. 花体: \mathcal{E}, \script{E}, \mathscr{E} 或 ℰ
+    if (s.slice(i).startsWith('\\mathcal{') || s.slice(i).startsWith('\\script{') || s.slice(i).startsWith('\\mathscr{')) {
+      const braceStart = s.indexOf('{', i);
+      const braceEnd = s.indexOf('}', braceStart);
+      if (braceEnd !== -1) {
+        const char = s.slice(braceStart + 1, braceEnd).trim();
+        tokens.push({ kind: 'calligraphic', text: SCRIPT_MAP[char] || char });
+        i = braceEnd + 1;
         continue;
       }
     }
-    if (s[i] === '^' && s[i + 1] === '{') {
-      const end = s.indexOf('}', i + 2);
-      if (end !== -1) {
-        tokens.push({ kind: 'sup', text: s.slice(i + 2, end) });
-        i = end + 1;
-        continue;
-      }
-    }
-    // 单字符上标 ^2
-    if (s[i] === '^' && i + 1 < s.length && /[0-9+\-−]/.test(s[i + 1])) {
-      tokens.push({ kind: 'sup', text: s[i + 1] });
-      i += 2;
+    if (s[i] === 'ℰ' || s[i] === 'ℬ' || s[i] === 'ℒ' || s[i] === 'ℳ' || s[i] === 'ℋ' || s[i] === 'ℱ' || s[i] === 'ℛ') {
+      tokens.push({ kind: 'calligraphic', text: s[i] });
+      i += 1;
       continue;
     }
 
+    // 2. 矢量: \vec{E}, \boldsymbol{E}
+    if (s.slice(i).startsWith('\\vec{') || s.slice(i).startsWith('\\boldsymbol{')) {
+      const braceStart = s.indexOf('{', i);
+      const braceEnd = s.indexOf('}', braceStart);
+      if (braceEnd !== -1) {
+        const text = s.slice(braceStart + 1, braceEnd).trim();
+        tokens.push({ kind: 'vec', text });
+        i = braceEnd + 1;
+        continue;
+      }
+    }
+
+    // 3. LaTeX 常见数学符号与变量
+    if (s[i] === '\\') {
+      // 支持 \mathrm{...} 和 \text{...} 提取正体文本
+      if (s.slice(i).startsWith('\\mathrm{') || s.slice(i).startsWith('\\text{')) {
+        const braceStart = s.indexOf('{', i);
+        const braceEnd = findMatchingBrace(s, braceStart);
+        if (braceEnd !== -1) {
+          const txt = s.slice(braceStart + 1, braceEnd);
+          tokens.push(isCjk(txt) ? { kind: 'cn', text: txt } : { kind: 'text', text: txt });
+          i = braceEnd + 1;
+          continue;
+        }
+      }
+
+      const latexCmds = [
+        ['\\oint', '∮'],
+        ['\\sum', '∑'],
+        ['\\Delta', 'Δ'],
+        ['\\nabla', '∇'],
+        ['\\partial', '∂'],
+        ['\\cdot', '·'],
+        ['\\times', '×'],
+        ['\\propto', '∝'],
+        ['\\perp', '⊥'],
+        ['\\le', '≤'],
+        ['\\ge', '≥'],
+        ['\\approx', '≈'],
+        ['\\infty', '∞'],
+        ['\\Phi', 'Φ'],
+        ['\\varepsilon', 'ε'],
+        ['\\mu', 'μ'],
+        ['\\theta', 'θ'],
+        ['\\pi', 'π'],
+        ['\\lambda', 'λ'],
+        ['\\alpha', 'α'],
+        ['\\rho', 'ρ'],
+        ['\\eta', 'η'],
+        ['\\delta', 'δ'],
+      ];
+      let matched = false;
+      for (const [cmd, rep] of latexCmds) {
+        if (s.slice(i).startsWith(cmd)) {
+          tokens.push(isVarStart(rep) ? { kind: 'var', text: rep } : { kind: 'text', text: rep });
+          i += cmd.length;
+          matched = true;
+          break;
+        }
+      }
+      if (matched) continue;
+    }
+
+    // 4. 下标 _{...} 或无括号单字符/文本下标 (如 E_k, \Phi_B, \Phi_E, U_H, K_H, q_0, \varepsilon_0, E_1, k_B)
+    if (s[i] === '_') {
+      if (s[i + 1] === '{') {
+        const end = s.indexOf('}', i + 2);
+        if (end !== -1) {
+          tokens.push({ kind: 'sub', text: s.slice(i + 2, end) });
+          i = end + 1;
+          continue;
+        }
+      } else if (i + 1 < s.length && /[A-Za-z0-9\u3000-\u9fff]/.test(s[i + 1])) {
+        let j = i + 1;
+        if (/[A-Za-z]/.test(s[j])) {
+          while (j < s.length && /[A-Za-z]/.test(s[j])) j += 1;
+        } else if (/[\u3000-\u9fff]/.test(s[j])) {
+          while (j < s.length && /[\u3000-\u9fff]/.test(s[j])) j += 1;
+        } else {
+          j += 1;
+        }
+        tokens.push({ kind: 'sub', text: s.slice(i + 1, j) });
+        i = j;
+        continue;
+      }
+    }
+
+    // 5. 上标 ^{...} 或单字符上标 ^2
+    if (s[i] === '^') {
+      if (s[i + 1] === '{') {
+        const end = s.indexOf('}', i + 2);
+        if (end !== -1) {
+          tokens.push({ kind: 'sup', text: s.slice(i + 2, end) });
+          i = end + 1;
+          continue;
+        }
+      } else if (i + 1 < s.length && /[0-9+\-−]/.test(s[i + 1])) {
+        tokens.push({ kind: 'sup', text: s[i + 1] });
+        i += 2;
+        continue;
+      }
+    }
+
+    // 6. 中文字符
     const ch = s[i];
     if (isCjk(ch)) {
       let j = i + 1;
@@ -107,21 +255,22 @@ export function tokenizeFormula(formula) {
       continue;
     }
 
+    // 7. 变量名 (如 A-Z, a-z, 希腊字母)
     if (isVarStart(ch)) {
-      // 单字母变量（物理习惯）；连续字母如 cos 作正体函数名
-      if (i + 2 < s.length && /[a-z]{2}/i.test(s.slice(i, i + 2)) && !/[A-Z]/.test(ch)) {
-        let j = i;
-        while (j < s.length && /[a-z]/.test(s[j])) j += 1;
-        tokens.push({ kind: 'text', text: s.slice(i, j) });
-        i = j;
-        continue;
+      if (i + 1 < s.length && /^[a-z]{2,}/.test(s.slice(i))) {
+        const match = s.slice(i).match(/^(cos|sin|tan|arctan|arcsin|arccos|ln|log|lim|min|max|exp)/i);
+        if (match) {
+          tokens.push({ kind: 'text', text: match[0] });
+          i += match[0].length;
+          continue;
+        }
       }
       tokens.push({ kind: 'var', text: ch });
       i += 1;
       continue;
     }
 
-    // 数字、运算符、空格、标点
+    // 8. 数字、运算符、空格、标点
     let j = i + 1;
     while (
       j < s.length
@@ -129,6 +278,7 @@ export function tokenizeFormula(formula) {
       && !isVarStart(s[j])
       && s[j] !== '_'
       && s[j] !== '^'
+      && s[j] !== '\\'
     ) {
       j += 1;
     }
@@ -144,17 +294,26 @@ export function tokenizeFormula(formula) {
 export function measureMathFormula(ctx, formula, fontSize = 18) {
   const tokens = tokenizeFormula(formula);
   const size = fontSize;
-  const subSize = Math.max(10, Math.round(size * 0.62));
+  const subSize = Math.max(10, Math.round(size * 0.65));
   let w = 0;
   for (const tok of tokens) {
-    if (tok.kind === 'var') {
+    if (tok.kind === 'calligraphic') {
+      ctx.font = `italic ${size}px "STIX Two Math", "Cambria Math", "TeX Gyre Termes Math", "Segoe Script", "Lucida Calligraphy", cursive, serif`;
+      w += ctx.measureText(tok.text).width;
+    } else if (tok.kind === 'vec') {
+      ctx.font = `bold italic ${size}px "Times New Roman", "Cambria Math", "STIX Two Math", serif`;
+      w += ctx.measureText(tok.text).width + 1;
+    } else if (tok.kind === 'var') {
       ctx.font = `italic ${size}px "Times New Roman", "Cambria Math", "STIX Two Math", serif`;
       w += ctx.measureText(tok.text).width;
     } else if (tok.kind === 'cn') {
       ctx.font = `${size}px "SimSun", "Songti SC", "Microsoft YaHei", serif`;
       w += ctx.measureText(tok.text).width;
     } else if (tok.kind === 'sub' || tok.kind === 'sup') {
-      ctx.font = `${subSize}px "Times New Roman", "SimSun", "Microsoft YaHei", serif`;
+      const font = /[\u3000-\u9fff]/.test(tok.text)
+        ? `${subSize}px "SimSun", "Songti SC", "Microsoft YaHei", serif`
+        : `${subSize}px "Times New Roman", "Cambria Math", serif`;
+      ctx.font = font;
       w += ctx.measureText(tok.text).width * 0.96;
     } else {
       ctx.font = `${size}px "Times New Roman", "Cambria Math", serif`;
@@ -165,24 +324,23 @@ export function measureMathFormula(ctx, formula, fontSize = 18) {
 }
 
 /**
- * 在 canvas 上绘制人教版风格公式。
+ * 在 canvas 上绘制大学物理规范风格公式。
  * @param {CanvasRenderingContext2D} ctx
- * @param {string} formula markup，如 "E=kQ/r^{2}"、"Φ_{E}=Q_{内}/ε_{0}"
+ * @param {string} formula markup，如 "E=kQ/r^{2}"、"\Phi_{E}=Q_{内}/\varepsilon_{0}"、"\mathcal{E}_{i}=-n\Delta\Phi_{B}/\Delta t"
  * @param {number} x 基线起点（align=left）或中心（align=center）
  * @param {number} y 字母基线 y
- * @param {{ fontSize?: number, color?: string, align?: 'left'|'center', maxWidth?: number }} [opts]
+ * @param {{ fontSize?: number, color?: string, align?: 'left'|'center', maxWidth?: number, textBaseline?: string }} [opts]
  * @returns {{ width: number, height: number }}
  */
 export function drawMathFormula(ctx, formula, x, y, opts = {}) {
   const size = opts.fontSize || 18;
   const color = opts.color || '#0c4a6e';
   const align = opts.align || 'left';
-  const subSize = Math.max(10, Math.round(size * 0.62));
+  const subSize = Math.max(10, Math.round(size * 0.65));
   const tokens = tokenizeFormula(formula);
 
   let totalW = measureMathFormula(ctx, formula, size);
   if (opts.maxWidth && totalW > opts.maxWidth) {
-    // 略缩以适配窄栏
     const scale = opts.maxWidth / totalW;
     return drawMathFormula(ctx, formula, x, y, {
       ...opts,
@@ -196,35 +354,64 @@ export function drawMathFormula(ctx, formula, x, y, opts = {}) {
 
   ctx.save();
   ctx.fillStyle = color;
+  ctx.strokeStyle = color;
   ctx.textAlign = 'left';
+
+  let baseY = y;
+  if (opts.textBaseline === 'top') {
+    baseY = y + size * 0.82;
+  } else if (opts.textBaseline === 'middle') {
+    baseY = y + size * 0.32;
+  }
   ctx.textBaseline = 'alphabetic';
 
   for (const tok of tokens) {
-    if (tok.kind === 'var') {
+    if (tok.kind === 'calligraphic') {
+      ctx.font = `italic ${size}px "STIX Two Math", "Cambria Math", "TeX Gyre Termes Math", "Segoe Script", "Lucida Calligraphy", cursive, serif`;
+      ctx.fillText(tok.text, penX, baseY);
+      penX += ctx.measureText(tok.text).width;
+    } else if (tok.kind === 'vec') {
+      ctx.font = `bold italic ${size}px "Times New Roman", "Cambria Math", "STIX Two Math", serif`;
+      const vw = ctx.measureText(tok.text).width;
+      ctx.fillText(tok.text, penX, baseY);
+
+      // 绘制顶部矢量头标 →
+      const arrowY = baseY - size * 0.85;
+      const arrowW = vw;
+      ctx.lineWidth = Math.max(1.2, size * 0.07);
+      ctx.beginPath();
+      ctx.moveTo(penX + 1, arrowY);
+      ctx.lineTo(penX + arrowW, arrowY);
+      ctx.lineTo(penX + arrowW - size * 0.18, arrowY - size * 0.12);
+      ctx.moveTo(penX + arrowW, arrowY);
+      ctx.lineTo(penX + arrowW - size * 0.18, arrowY + size * 0.12);
+      ctx.stroke();
+
+      penX += vw + 1;
+    } else if (tok.kind === 'var') {
       ctx.font = `italic ${size}px "Times New Roman", "Cambria Math", "STIX Two Math", serif`;
-      ctx.fillText(tok.text, penX, y);
+      ctx.fillText(tok.text, penX, baseY);
       penX += ctx.measureText(tok.text).width;
     } else if (tok.kind === 'cn') {
       ctx.font = `${size}px "SimSun", "Songti SC", "Microsoft YaHei", serif`;
-      ctx.fillText(tok.text, penX, y);
+      ctx.fillText(tok.text, penX, baseY);
       penX += ctx.measureText(tok.text).width;
     } else if (tok.kind === 'sub') {
-      ctx.font = `${subSize}px "Times New Roman", "SimSun", "Microsoft YaHei", serif`;
-      // 若下标含中文，用宋体更清晰
-      if (/[\u3000-\u9fff]/.test(tok.text)) {
-        ctx.font = `${subSize}px "SimSun", "Songti SC", "Microsoft YaHei", serif`;
-      }
+      const isCn = /[\u3000-\u9fff]/.test(tok.text);
+      ctx.font = isCn
+        ? `${subSize}px "SimSun", "Songti SC", "Microsoft YaHei", serif`
+        : `${subSize}px "Times New Roman", "Cambria Math", serif`;
       const sw = ctx.measureText(tok.text).width;
-      ctx.fillText(tok.text, penX, y + size * 0.28);
+      ctx.fillText(tok.text, penX, baseY + size * 0.28);
       penX += sw * 0.96;
     } else if (tok.kind === 'sup') {
       ctx.font = `${subSize}px "Times New Roman", "Cambria Math", serif`;
       const sw = ctx.measureText(tok.text).width;
-      ctx.fillText(tok.text, penX, y - size * 0.42);
+      ctx.fillText(tok.text, penX, baseY - size * 0.42);
       penX += sw * 0.96;
     } else {
       ctx.font = `${size}px "Times New Roman", "Cambria Math", serif`;
-      ctx.fillText(tok.text, penX, y);
+      ctx.fillText(tok.text, penX, baseY);
       penX += ctx.measureText(tok.text).width;
     }
   }

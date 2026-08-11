@@ -206,7 +206,7 @@ export function getDeskSliderConfig(stationId, expId, data = {}, experiment = nu
           actionGroup([
             { label: '感应·B', action: 'faraday-channel', payload: { channel: 'B' }, active: !channelX },
             { label: '动生·x', action: 'faraday-channel', payload: { channel: 'x' }, active: channelX },
-            { label: animating ? '停止' : '播放变化', action: animating ? 'faraday-stop' : 'faraday-play', active: animating },
+            { label: fromLabel },
           ]),
           channelX
             ? range('targetX', '目标 x', 1.2, 8, { setAction: 'faraday-set' })
@@ -214,8 +214,7 @@ export function getDeskSliderConfig(stationId, expId, data = {}, experiment = nu
           range('animDuration', '时长 Δt', 0.3, 6, { unit: 's', setAction: 'faraday-set' }),
           actionGroup([
             { label: '反向 B', action: 'faraday-reverse' },
-            { label: fromLabel, action: animating ? 'faraday-stop' : 'faraday-play' },
-            { label: '重置', action: 'faraday-reset' },
+            { label: animating ? '停止' : '播放变化', action: animating ? 'faraday-stop' : 'faraday-play', active: animating },
           ]),
           range('B', '实时 B', -3, 3, { unit: 'T', setAction: 'faraday-set' }),
           range('x', '实时 x', 1.2, 8, { setAction: 'faraday-set' }),

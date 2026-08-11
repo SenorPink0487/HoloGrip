@@ -37,9 +37,9 @@ import {
  * Display is only mildly larger than full — prefer density over empty padding.
  */
 export function holoUiScale(surface = 'full') {
-  if (surface === 'display') return 1.78;
-  if (surface === 'selector') return 1.08;
-  return 1.05;
+  if (surface === 'display') return 2.15;
+  if (surface === 'selector') return 1.15;
+  return 1.12;
 }
 
 /** Experiment-card height on the station menu / tabletop selector. */
@@ -474,21 +474,9 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
   const channelX = d.animChannel === 'x';
   const liveEmf = Number(d.liveEmf || 0);
 
-  // —— Formula ——
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = accentHex;
-  drawMathFormula(
-    ctx,
-    'Φ=BS，S=(x−x_{0})L；E=nΔΦ/Δt',
-    x + 2,
-    contentTop + Math.round(22 * scale),
-    { fontSize: Math.round(26 * scale), color: accentHex, align: 'left' },
-  );
-
   // —— Compact metric strip ——
-  const statY = contentTop + Math.round(40 * scale);
-  const statH = Math.round(58 * scale);
+  const statY = contentTop;
+  const statH = Math.round(66 * scale);
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
   ctx.lineWidth = isDisplay ? 1.6 : 1.2;
@@ -498,24 +486,39 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
   const stats = [
     ['B', `${fmt(d.B, 2)} T`],
     ['x', fmt(d.x, 3)],
-    ['Φ', `${fmt(d.flux)} Wb`],
-    ['E', animating || Math.abs(liveEmf) > 1e-6 ? `${fmt(liveEmf, 3)} V` : '—'],
+    ['\\Phi_B', `${fmt(d.flux)} Wb`],
+    ['\\mathcal{E}_i', `${liveEmf >= 0 ? '+' : ''}${fmt(liveEmf, 2)} V`],
   ];
   stats.forEach(([label, value], i) => {
     const colW = w / stats.length;
     const cx = x + i * colW + colW / 2;
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText(label, cx, statY + Math.round(8 * scale));
+    const labelY = statY + Math.round(statH * 0.12);
+    const valY = statY + Math.round(statH * 0.48);
+    if (/[\\_^{}]/.test(label)) {
+      drawMathFormula(ctx, label, cx, labelY, {
+        fontSize: Math.round(16 * scale),
+        color: P.muted,
+        align: 'center',
+        textBaseline: 'top',
+      });
+    } else {
+      ctx.fillStyle = P.muted;
+      ctx.font = `italic bold ${Math.round(16 * scale)}px "Times New Roman", "Cambria Math", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(label, cx, labelY);
+    }
     if (i === 3 && (animating || Math.abs(liveEmf) > 1e-6)) {
       ctx.fillStyle = _uiTheme === 'light' ? '#0284c7' : '#38bdf8';
     } else {
       ctx.fillStyle = P.text;
     }
-    ctx.font = `bold ${Math.round(16 * scale)}px Consolas, monospace`;
-    ctx.fillText(value, cx, statY + Math.round(30 * scale));
+    ctx.font = `bold ${Math.round(14 * scale)}px Consolas, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(value, cx, valY);
   });
+  ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
 
   let cy = statY + statH + gap;
@@ -523,7 +526,7 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
   // —— Dual result cards fill remaining height ——
   const cardBottom = contentTop + contentH;
   const cardW = (w - gap) / 2;
-  const cardH = Math.max(Math.round(88 * scale), cardBottom - cy);
+  const cardH = Math.max(80, cardBottom - cy);
   const cards = [
     {
       title: '动生 · x 变化',
@@ -549,19 +552,19 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = accentHex;
-    ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.font = `bold ${Math.round(18 * scale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'left';
     ctx.fillText(card.title, cx + Math.round(12 * scale), cy + Math.round(10 * scale));
-    const lineH = Math.round(22 * scale);
+    const lineH = Math.round(28 * scale);
     card.lines.forEach((line, li) => {
       if (li === 2 && card.data) {
         ctx.fillStyle = _uiTheme === 'light' ? '#0284c7' : '#38bdf8';
-        ctx.font = `bold ${Math.round(15 * scale)}px Consolas, "Microsoft YaHei", monospace`;
+        ctx.font = `bold ${Math.round(18 * scale)}px Consolas, "Microsoft YaHei", monospace`;
       } else {
         ctx.fillStyle = P.text;
-        ctx.font = `bold ${Math.round(13 * scale)}px Consolas, "Microsoft YaHei", monospace`;
+        ctx.font = `bold ${Math.round(16 * scale)}px Consolas, "Microsoft YaHei", monospace`;
       }
-      ctx.fillText(line, cx + Math.round(12 * scale), cy + Math.round(36 * scale) + li * lineH);
+      ctx.fillText(line, cx + Math.round(12 * scale), cy + Math.round(38 * scale) + li * lineH);
     });
   });
 }
@@ -585,21 +588,9 @@ function drawInducedElectricExperiment(ctx, _W, _H, cfg) {
   const senseText = d.sense === 'cw' ? '顺时针' : d.sense === 'ccw' ? '逆时针' : '无';
   const q0Pos = Number(d.probe?.q0 || 0) >= 0;
 
-  // —— Formula derivation banner (textbook Maxwell-Faraday) ——
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = accentHex;
-  drawMathFormula(
-    ctx,
-    'E·2πr=ΔΦ/Δt；r≤R时 E_k=-(r/2)dB/dt，r>R时 E_k=-(R²/2r)dB/dt',
-    x + 2,
-    contentTop + Math.round(22 * scale),
-    { fontSize: Math.round(21 * scale), color: accentHex, align: 'left' },
-  );
-
   // —— Compact metric strip ——
-  const statY = contentTop + Math.round(40 * scale);
-  const statH = Math.round(58 * scale);
+  const statY = contentTop;
+  const statH = Math.round(66 * scale);
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
   ctx.lineWidth = isDisplay ? 1.6 : 1.2;
@@ -609,32 +600,47 @@ function drawInducedElectricExperiment(ctx, _W, _H, cfg) {
   // Field drive params only — probe r / |E| / sense live on the 3D charge HUD.
   const stats = [
     ['B', `${fmt(d.B, 2)}`],
-    ['dB/dt', `${fmt(d.dBdt, 2)}`],
+    ['\\frac{\\mathrm{d}B}{\\mathrm{d}t}', `${fmt(d.dBdt, 2)}`],
     ['R', `${fmt(d.R, 2)}`],
     ['环绕', senseText],
   ];
   stats.forEach(([label, value], i) => {
     const colW = w / stats.length;
     const cx = x + i * colW + colW / 2;
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText(label, cx, statY + Math.round(8 * scale));
+    const labelY = statY + Math.round(statH * 0.12);
+    const valY = statY + Math.round(statH * 0.48);
+    if (/[\\_^{}]/.test(label)) {
+      drawMathFormula(ctx, label, cx, labelY, {
+        fontSize: Math.round(16 * scale),
+        color: P.muted,
+        align: 'center',
+        textBaseline: 'top',
+      });
+    } else {
+      ctx.fillStyle = P.muted;
+      ctx.font = `italic bold ${Math.round(16 * scale)}px "Times New Roman", "Cambria Math", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText(label, cx, labelY);
+    }
     if (label === '环绕' && d.sense !== 'none') {
       ctx.fillStyle = d.sense === 'cw' ? '#f472b6' : '#a78bfa';
     } else {
       ctx.fillStyle = P.text;
     }
-    ctx.font = `bold ${Math.round(16 * scale)}px Consolas, monospace`;
-    ctx.fillText(value, cx, statY + Math.round(30 * scale));
+    ctx.font = `bold ${Math.round(14 * scale)}px Consolas, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(value, cx, valY);
   });
+  ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
 
   // —— Params live on the tabletop desk panel; screen keeps chart ——
   let cy = statY + statH + gap;
 
   // —— E–r textbook chart fills remaining space ——
-  const chartH = Math.max(Math.round(180 * scale), contentTop + contentH - cy);
+  const chartH = Math.max(100, contentTop + contentH - cy);
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
   roundRect(ctx, x, cy, w, chartH, 12);
@@ -757,27 +763,9 @@ function drawGaussExperiment(ctx, _W, _H, cfg) {
 
   const scale = holoUiScale(cfg.surface || (isDisplay ? 'display' : 'full'));
 
-  // 1. 顶部 Hero 公式栏
-  const formulaY = contentTop;
-  const formulaH = Math.round(64 * scale);
-  ctx.fillStyle = P.theoryBg;
-  ctx.strokeStyle = P.panelStroke;
-  ctx.lineWidth = 1.2;
-  roundRect(ctx, innerX, formulaY, innerW, formulaH, 10);
-  ctx.fill();
-  ctx.stroke();
-
-  drawMathFormula(
-    ctx,
-    'Φ_{E}=Q_{内}/ε_{0}',
-    innerX + innerW / 2,
-    formulaY + formulaH / 2 + Math.round(8 * scale),
-    { fontSize: Math.round(38 * scale), color: P.text, align: 'center' },
-  );
-
-  // 2. 4 个核心物理量指标卡片 (Metrics Grid)
-  const statY = formulaY + formulaH + Math.round(10 * scale);
-  const statH = Math.round(68 * scale);
+  // 1. 4 个核心物理量指标卡片 (Metrics Grid)
+  const statY = contentTop;
+  const statH = Math.round(72 * scale);
   const statGap = Math.round(10 * scale);
   const statW = (innerW - statGap * 3) / 4;
   const qEnclosedVal = Number(d.qEnclosed || 0);
@@ -789,7 +777,7 @@ function drawGaussExperiment(ctx, _W, _H, cfg) {
       color: qEnclosedVal > 0 ? '#ef4444' : (qEnclosedVal < 0 ? '#3b82f6' : P.title),
     },
     {
-      label: '总电通量 Φ_E',
+      label: '总电通量 \\Phi_E',
       value: formatPhysicsNumber(d.flux, { digits: 2, unit: 'N·m²/C' }),
       color: P.title,
     },
@@ -1056,11 +1044,11 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   const fmt = (value, digits = 2) => Number(value || 0).toFixed(digits);
   // 人教版：E=F/q，F=qE，E=kQ/r²，叠加；SI 计算 k=9.0×10⁹
   const formula = {
-    def: 'E=F/q',
-    force: 'F=qE',
-    point: 'E=kQ/r^{2}',
-    super: 'E=E_{1}+E_{2}+…',
-    dipole: 'E∝1/r^{3}',
+    def: '\\vec{E}=\\vec{F}/q_{0}',
+    force: '\\vec{F}=q_{0}\\vec{E}',
+    point: 'E=\\frac{1}{4\\pi\\varepsilon_{0}}\\frac{Q}{r^{2}}=k\\frac{Q}{r^{2}}',
+    super: '\\vec{E}=\\sum \\vec{E}_{i}=\\vec{E}_{1}+\\vec{E}_{2}+\\dots',
+    dipole: 'E\\propto 1/r^{3}',
   }[d.formulaTab || 'def'];
   const sumQ = charges.reduce((sum, charge) => sum + Number(charge.q || 0), 0);
   const pad = Math.round(14 * scale);
@@ -1070,7 +1058,7 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   const bottom = contentTop + contentH;
 
   // ── Row 0: formula left + source-charge counts (probe E/F live on the sphere) ──
-  const headH = Math.round(78 * scale);
+  const headH = Math.round(54 * scale);
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
   ctx.lineWidth = isDisplay ? 2.0 : 1.2;
@@ -1078,22 +1066,14 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   ctx.fill();
   ctx.stroke();
 
-  const formulaBaseY = contentTop + headH * 0.40;
-  drawMathFormula(
-    ctx,
-    formula,
-    innerX + pad,
-    formulaBaseY,
-    { fontSize: Math.round(34 * scale), color: accentHex, align: 'left' },
-  );
   ctx.fillStyle = P.muted;
-  ctx.font = `${Math.round(14 * scale)}px "SimSun", "Microsoft YaHei", serif`;
+  ctx.font = `${Math.round(16 * scale)}px "SimSun", "Microsoft YaHei", serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   const kNote = d.formulaTab === 'point'
-    ? `k = 9.0×10⁹ N·m²/C²`
+    ? `k = 1/(4πε₀) = 9.0×10⁹ N·m²/C²`
     : `k = 9.0×10⁹ N·m²/C²；Q 单位 μC，r 单位 m`;
-  ctx.fillText(kNote, innerX + pad, contentTop + headH * 0.66);
+  ctx.fillText(kNote, innerX + pad, contentTop + headH * 0.35);
 
   const stats = [
     ['N', `${charges.length}/12`],
@@ -1110,14 +1090,23 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   const statsStart = innerX + innerW - pad - stats.length * statBlockW;
   stats.forEach(([label, value], i) => {
     const x = statsStart + i * statBlockW;
-    ctx.fillStyle = P.muted;
-    ctx.font = `italic ${Math.round(12 * scale)}px "Times New Roman", serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText(label, x, contentTop + Math.round(6 * scale));
+    if (/[\\_^{}]/.test(label)) {
+      drawMathFormula(ctx, label, x, contentTop + Math.round(4 * scale), {
+        fontSize: Math.round(22 * scale),
+        color: P.muted,
+        align: 'left',
+        textBaseline: 'top',
+      });
+    } else {
+      ctx.fillStyle = P.muted;
+      ctx.font = `italic bold ${Math.round(22 * scale)}px "Times New Roman", serif`;
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(label, x, contentTop + Math.round(4 * scale));
+    }
     ctx.fillStyle = P.title;
     ctx.font = `bold ${Math.round(15 * scale)}px "Times New Roman", Consolas, serif`;
-    ctx.fillText(value, x, contentTop + Math.round(28 * scale));
+    ctx.fillText(value, x, contentTop + Math.round(34 * scale));
   });
 
   // ── Row 1: view toggles ──
@@ -1305,9 +1294,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
   const { hits, innerX, innerW, contentTop, contentH, experiment, hud, accentHex } = cfg;
   _uiTheme = cfg.theme || 'dark';
   const isDisplay = cfg.surface === 'display';
-  const rawScale = holoUiScale(cfg.surface || (isDisplay ? 'display' : 'full'));
-  // Cap display scale: 1.78 overflows dual-panel rows and jams title + VH + table headers.
-  const scale = isDisplay ? Math.min(rawScale, 1.28) : rawScale;
+  const scale = holoUiScale(cfg.surface || (isDisplay ? 'display' : 'full'));
   const P = screenPalette(_uiTheme, accentHex, isDisplay);
   const d = hud?.data || {};
   const isLight = _uiTheme === 'light';
@@ -1923,10 +1910,10 @@ function drawHallDemoExperiment(ctx, _W, _H, cfg) {
   const formulaPadX = Math.round(52 * scale);
   drawMathFormula(
     ctx,
-    'U_{H}=KIB',
+    'U_{H}=R_{H}\\frac{IB}{d}=K_{H}IB',
     x + formulaPadX,
-    contentTop + formulaH / 2 + Math.round(10 * scale),
-    { fontSize: Math.round(32 * scale), color: pink, align: 'left' },
+    contentTop + formulaH / 2,
+    { fontSize: Math.round(30 * scale), color: pink, align: 'left', textBaseline: 'middle' },
   );
 
   const vhFormatted = (vh >= 0 ? '+' : '') + vh.toFixed(3);
@@ -1934,8 +1921,8 @@ function drawHallDemoExperiment(ctx, _W, _H, cfg) {
     ctx,
     `U_{H}=${vhFormatted}（相对）`,
     x + w - formulaPadX,
-    contentTop + formulaH / 2 + Math.round(10 * scale),
-    { fontSize: Math.round(30 * scale), color: P.title, align: 'right' },
+    contentTop + formulaH / 2,
+    { fontSize: Math.round(28 * scale), color: P.title, align: 'right', textBaseline: 'middle' },
   );
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
@@ -3754,6 +3741,11 @@ export function drawHoloScreen(ctx, W, H, opts) {
 
   // Shared type scale (large for readability + easy UV/AR clicks)
   const scaleF = holoUiScale(surface);
+  // Keep the layout scale available to the compact content-display chrome.
+  // The display path evaluates this value before entering each experiment
+  // drawer; leaving it undefined makes the whole canvas draw abort with a
+  // ReferenceError while the glass shell remains visible.
+  const scale = scaleF;
   const F = {
     headerMeta: Math.round(28 * scaleF),
     headerTitle: Math.round(40 * scaleF),
@@ -4109,9 +4101,9 @@ export function drawHoloScreen(ctx, W, H, opts) {
   const station = hud?.station;
   const experiment = hud?.experiment;
   const running = !!(hud?.running && experiment);
-  // Compact display: reclaim header band so experiment UI starts near the top edge.
-  const contentTop = compactChrome ? (innerY + 6) : (innerY + headerH + 12);
-  const contentH = compactChrome ? (innerH - 12) : (innerH - headerH - 16);
+  // Compact display: reserve top margin for window controls (close / maximize)
+  const contentTop = compactChrome ? (innerY + Math.round(20 * scale)) : (innerY + headerH + 12);
+  const contentH = compactChrome ? (innerH - Math.round(24 * scale)) : (innerH - headerH - 16);
 
   // Large front display only hosts running experiment content (hidden when idle).
   if (isDisplay && !running) {
