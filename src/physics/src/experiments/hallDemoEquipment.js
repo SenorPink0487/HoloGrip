@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 
 const SAMPLE = Object.freeze({ L: 4.4, W: 1.7, H: 0.5 });
+// Keep the teaching sample count stable; the packed Float32Array and Points
+// path already avoid per-particle allocations. GPU load is supplied by the
+// fixed post-processing chain instead of changing the experiment statistics.
 const PARTICLE_COUNT = 240;
 const ELECTRON_COLOR = 0x5cb89a;
 const HOLE_COLOR = 0xc49878;

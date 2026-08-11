@@ -29,5 +29,8 @@ dump.txt
 *.b64
 *.err
 *.docx
+.playwright-cli/
+output/
+
 
 

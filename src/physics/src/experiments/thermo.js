@@ -22,7 +22,7 @@ const C_WATER = 4180;
 const R_GAS = 8.314;
 
 /** Host convection paints fewer particles than the full source demo (1800). */
-const CONVECTION_SIM_COUNT = 480;
+const CONVECTION_SIM_COUNT = 1800;
 
 /** Map host expId → pure sim kind (null = no off-thread compute). */
 function simKindForExp(expId) {

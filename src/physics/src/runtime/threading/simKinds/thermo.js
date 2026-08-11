@@ -432,7 +432,7 @@ export function createIdealGasKind(initial = {}) {
  * }} [initial]
  */
 export function createConvectionKind(initial = {}) {
-  const count = Math.max(16, initial.count | 0 || 480);
+  const count = Math.max(16, initial.count | 0 || 1800);
   const stride = PARTICLE_STRIDE_POS_VEL_TEMP;
   let tPlate = Number(initial.tPlate) || 650;
   let tAir = Number(initial.tAir) || 300;

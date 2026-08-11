@@ -552,20 +552,23 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
     ctx.fill();
     ctx.stroke();
     ctx.fillStyle = accentHex;
-    ctx.font = `bold ${Math.round(18 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.font = `bold ${Math.round(17 * scale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'left';
-    ctx.fillText(card.title, cx + Math.round(12 * scale), cy + Math.round(10 * scale));
-    const lineH = Math.round(28 * scale);
+    ctx.textBaseline = 'top';
+    ctx.fillText(card.title, cx + Math.round(12 * scale), cy + Math.round(12 * scale));
+    const lineH = Math.round(26 * scale);
     card.lines.forEach((line, li) => {
       if (li === 2 && card.data) {
         ctx.fillStyle = _uiTheme === 'light' ? '#0284c7' : '#38bdf8';
-        ctx.font = `bold ${Math.round(18 * scale)}px Consolas, "Microsoft YaHei", monospace`;
+        ctx.font = `bold ${Math.round(17 * scale)}px Consolas, "Microsoft YaHei", monospace`;
       } else {
         ctx.fillStyle = P.text;
-        ctx.font = `bold ${Math.round(16 * scale)}px Consolas, "Microsoft YaHei", monospace`;
+        ctx.font = `bold ${Math.round(15 * scale)}px Consolas, "Microsoft YaHei", monospace`;
       }
-      ctx.fillText(line, cx + Math.round(12 * scale), cy + Math.round(38 * scale) + li * lineH);
+      ctx.textBaseline = 'top';
+      ctx.fillText(line, cx + Math.round(12 * scale), cy + Math.round(42 * scale) + li * lineH);
     });
+    ctx.textBaseline = 'alphabetic';
   });
 }
 

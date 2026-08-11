@@ -31,11 +31,15 @@ import { normalizeJoystickInput } from '../../pool/touch-controls.js';
 import {
   createExperimentRuntime,
   createTransitionController,
-  disposeRendererPrepareTarget,
 } from './runtime/experimentRuntime.js';
 import { createFrameCoordinator } from './runtime/frameCoordinator.js';
 import { createSimDriver } from './runtime/simDriver.js';
 import { createRenderBackend } from './runtime/threading/renderBackend.js';
+import { createPhysicsPostProcessing } from './runtime/postprocessing.js';
+import {
+  createPerformanceGovernor,
+  HIGH_QUALITY_PROFILE,
+} from './runtime/performanceGovernor.js';
 import { createDeskSliderPanel } from './scene/shared/deskSliders.js';
 import { getDeskSliderConfig, readDeskSliderValue } from './deskSliderCatalog.js';
 import {
@@ -260,6 +264,12 @@ if (isTauri()) {
 //  Renderer — bright cinematic look
 // ═══════════════════════════════════════════════
 const canvas = document.getElementById('c');
+// Keep compute off the UI thread on the web whenever Workers are available.
+// The backends still fall back to main when a browser/WebView refuses module
+// workers or SharedArrayBuffer.
+globalThis.__PHYSICS_BACKEND_MODE__ ??= 'auto';
+globalThis.__SIM_BACKEND_MODE__ ??= 'auto';
+globalThis.__SIM_WORKER_POOL_SIZE__ ??= 2;
 // iPad 11 (including the Mac-like iPadOS user agent) uses a 30 Hz present
 // budget so the GPU can spend more time on a sharper frame.
 const IS_IPAD_PERFORMANCE = navigator.maxTouchPoints > 1
@@ -280,14 +290,37 @@ const renderer = new THREE.WebGLRenderer({
   alpha: false,
   powerPreference: 'high-performance',
 });
+// EffectComposer renders several passes per frame. Accumulate renderer.info
+// across the complete frame so the performance panel reports the real scene
+// workload instead of only the final fullscreen output pass.
+renderer.info.autoReset = false;
 // Cap DPR: full 2× on 4K/HiDPI multiplies fill-rate and was a major host hitch
 // after dense source rigs (mechanics/thermo/optics) were migrated into one room.
 // Keep one stable render-target size across experiment switches. Reallocating
 // the WebGL backbuffer on every optics mount was a multi-second driver stall on
 // low-end/ANGLE GPUs, which no amount of JS task slicing can hide.
-const MAX_DPR = IS_IPAD_PERFORMANCE ? 1.5 : 1.25;
-const OPTICS_GEO_DPR = 1.25;
+// Fixed high-quality profile: DPR is intentionally not reduced in response
+// to frame pressure. Devices that cannot sustain the profile receive a warning.
+const MAX_DPR = HIGH_QUALITY_PROFILE.dprCap;
 let currentDprCap = MAX_DPR;
+let labPostProcessing = null;
+// Preserve the established HoloPhysics look by default. The new composer is
+// opt-in for visual/performance experiments; switching experiments never
+// changes the production lighting pipeline implicitly.
+const POST_PROCESSING_ENABLED = new URLSearchParams(window.location.search).has('post')
+  && !new URLSearchParams(window.location.search).has('noPost');
+const performanceGovernor = createPerformanceGovernor({
+  renderer,
+  quality: HIGH_QUALITY_PROFILE,
+  onStatusChange: (status, snapshot) => {
+    if (status !== 'warning') return;
+    showToast(
+      `固定高画质下 FPS ${snapshot.fps.toFixed(0)} · `
+      + `Render ${snapshot.renderMs.toFixed(1)}ms · `
+      + `CPU ${snapshot.frameMs.toFixed(1)}ms。建议关闭其他高负载应用。`,
+    );
+  },
+});
 
 /**
  * CSS layout box of #c — the only size that must drive camera aspect + drawing
@@ -320,6 +353,7 @@ function applyLabViewportSize({ updateCamera = true, pixelRatio = null } = {}) {
     renderer.setPixelRatio(pixelRatio);
   }
   renderer.setSize(width, height, false);
+  labPostProcessing?.resize(width, height, renderer.getPixelRatio?.() || 1);
   if (updateCamera && camera) {
     const nextAspect = width / Math.max(height, 1);
     if (Math.abs(camera.aspect - nextAspect) > 1e-6) {
@@ -359,6 +393,8 @@ if ('transmissionResolutionScale' in renderer) {
 }
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
+// Preserve the original HoloPhysics exposure; performance work must not alter
+// the established room lighting or material response.
 renderer.toneMappingExposure = 1.35;
 
 const scene = new THREE.Scene();
@@ -372,6 +408,19 @@ applyLabViewportSize({
   updateCamera: true,
   pixelRatio: Math.min(window.devicePixelRatio || 1, currentDprCap),
 });
+if (POST_PROCESSING_ENABLED) {
+  labPostProcessing = createPhysicsPostProcessing({
+    renderer,
+    scene,
+    camera,
+    quality: HIGH_QUALITY_PROFILE,
+  });
+  labPostProcessing.resize(
+    _bootView.width,
+    _bootView.height,
+    Math.min(window.devicePixelRatio || 1, currentDprCap),
+  );
+}
 // Spawn inside the room looking toward the lab center (not against the front wall).
 // Chem mode: stand at the sitting edge of the center island.
 if (chemMode) {
@@ -639,6 +688,8 @@ scene.add(hemi);
 const sun = new THREE.DirectionalLight(0xfffaf0, 1.15);
 sun.position.set(6, 16, 5);
 sun.castShadow = true;
+// Preserve the original shadow footprint; cache/reuse work must not alter
+// the established room lighting or shadow edge character.
 sun.shadow.mapSize.set(1024, 1024);
 sun.shadow.camera.near = 1;
 sun.shadow.camera.far = 40;
@@ -2788,7 +2839,15 @@ function disposeStationResources(root) {
   root.parent?.remove(root);
 }
 
-const stationRuntimeCache = createRuntimeCache(runtimeCacheBudget());
+// Keep all five station shells warm on the target desktop profile. This is a
+// bounded reuse pool: station switches toggle visibility and lifecycle state
+// without tearing down geometry/materials and rebuilding them on the next visit.
+const stationCacheBudget = runtimeCacheBudget();
+const stationRuntimeCache = createRuntimeCache({
+  ...stationCacheBudget,
+  maxWarm: Math.max(stationCacheBudget.maxWarm, 5),
+  budgetBytes: Math.max(stationCacheBudget.budgetBytes, 80 * 1024 * 1024),
+});
 
 // A menu showcase is intentionally asynchronous, but it must never win over
 // a card selection that started after the menu was opened.
@@ -3816,7 +3875,14 @@ expManager = createExperimentManager({
 // source of truth until the new experiment has loaded and passed its commit
 // gate. This makes rapid A->B->C selection cancellable without rewriting all
 // 21 scientific handlers in one release.
-const experimentRuntimeCache = createRuntimeCache(runtimeCacheBudget());
+// Keep a larger, still bounded warm set so repeated experiment changes reuse
+// prepared GPU resources instead of disposing and compiling the same rigs.
+const experimentCacheBudget = runtimeCacheBudget();
+const experimentRuntimeCache = createRuntimeCache({
+  ...experimentCacheBudget,
+  maxWarm: Math.max(experimentCacheBudget.maxWarm, 5),
+  budgetBytes: Math.max(experimentCacheBudget.budgetBytes, 384 * 1024 * 1024),
+});
 const experimentTransition = createTransitionController({
   cache: experimentRuntimeCache,
   prepareContext: { renderer, camera, detachedRoot: new THREE.Group() },
@@ -3892,6 +3958,7 @@ if (labMeasureEnabled) {
     preparedExperimentSignatures,
     openTiming: labOpenTiming,
     scheduler: labFrameScheduler,
+    performanceGovernor,
     transition: experimentTransition,
     experimentRuntimeCache,
     getPerf: () => labPerfSnapshot(),
@@ -3909,8 +3976,11 @@ if (labMeasureEnabled) {
         render: { ...renderer.info.render },
         programs: renderer.info.programs?.length || 0,
         dpr: currentDprCap,
-        adaptiveDprCap,
+        quality: { ...HIGH_QUALITY_PROFILE },
       };
+    },
+    get performance() {
+      return performanceGovernor.getSnapshot();
     },
     get memory() {
       return globalThis.performance?.memory
@@ -5986,7 +6056,6 @@ function disposeLabRuntimeResources() {
   experimentRuntimeCache.clear();
   stationRuntimeCache.clear();
   disposeIntentPrepareResources();
-  disposeRendererPrepareTarget(renderer);
   renderer.dispose?.();
 }
 
@@ -6226,6 +6295,10 @@ const renderBackend = createRenderBackend({
   renderer,
   scene,
   camera,
+  render: () => {
+    if (labPostProcessing) labPostProcessing.render();
+    else renderer.render(scene, camera);
+  },
 });
 
 /** Single fixed-step owner for live experiment simulation. */
@@ -6243,7 +6316,8 @@ const frameCoordinator = createFrameCoordinator({
   fixedDt: 1 / 60,
   maxCatchUp: 2,
   onFixedUpdate: (dt) => {
-    simDriver.fixedUpdate(dt);
+    const simResult = simDriver.fixedUpdate(dt);
+    performanceGovernor.recordSimulation(simResult?.ms || simDriver.lastFixedMs || 0);
     experimentTransition.current?.fixedUpdate?.(dt);
   },
   onVisualUpdate: (alpha) => {
@@ -6259,6 +6333,7 @@ const frameCoordinator = createFrameCoordinator({
     const renderT0 = performance.now();
     const presentResult = renderBackend.present();
     const renderMs = presentResult?.ms ?? (performance.now() - renderT0);
+    performanceGovernor.recordRender(renderMs);
     if (renderMs > 100 && slowRenderTraceCount < 12) {
       slowRenderTraceCount += 1;
       let visibleMeshes = 0;
@@ -6286,7 +6361,6 @@ const frameCoordinator = createFrameCoordinator({
       }));
     }
     noteSwitchStage('render', renderMs);
-    noteRenderBudget(renderMs, performance.now());
     {
       const sample = Number(renderMs.toFixed(2));
       if (labPerfStats.frameSamples.length < 240) labPerfStats.frameSamples.push(sample);
@@ -6305,42 +6379,6 @@ const frameCoordinator = createFrameCoordinator({
   },
 });
 
-const MIN_DPR = IS_IPAD_PERFORMANCE ? 1.0 : 0.85;
-let adaptiveDprCap = MAX_DPR;
-let dprLastAdjustment = -Infinity;
-let slowFrameStreak = 0;
-let severeFrameStreak = 0;
-let fastFrameStreak = 0;
-let dprCommitBlockedUntil = 0;
-
-function noteRenderBudget(renderMs, nowMs) {
-  if (!Number.isFinite(renderMs) || nowMs < dprCommitBlockedUntil || switchFrameMetrics.active) return;
-  slowFrameStreak = renderMs > (IS_IPAD_PERFORMANCE ? 36 : 18.5) ? slowFrameStreak + 1 : 0;
-  severeFrameStreak = renderMs > (IS_IPAD_PERFORMANCE ? 50 : 28) ? severeFrameStreak + 1 : 0;
-  fastFrameStreak = renderMs < 12.5 ? fastFrameStreak + 1 : 0;
-  if (nowMs - dprLastAdjustment < 5000) return;
-  if ((slowFrameStreak >= (IS_IPAD_PERFORMANCE ? 4 : 30)
-    || severeFrameStreak >= (IS_IPAD_PERFORMANCE ? 2 : 3)) && adaptiveDprCap > MIN_DPR) {
-    adaptiveDprCap = Math.max(MIN_DPR, Number((adaptiveDprCap - 0.1).toFixed(2)));
-    dprLastAdjustment = nowMs;
-    slowFrameStreak = severeFrameStreak = fastFrameStreak = 0;
-  } else if (fastFrameStreak >= (IS_IPAD_PERFORMANCE ? 240 : 300) && adaptiveDprCap < MAX_DPR) {
-    adaptiveDprCap = Math.min(MAX_DPR, Number((adaptiveDprCap + 0.1).toFixed(2)));
-    dprLastAdjustment = nowMs;
-    slowFrameStreak = severeFrameStreak = fastFrameStreak = 0;
-  }
-}
-
-function applyDprCap(baseCap) {
-  const nextCap = Math.max(MIN_DPR, Math.min(baseCap, adaptiveDprCap));
-  if (Math.abs(nextCap - currentDprCap) < 0.001) return;
-  currentDprCap = nextCap;
-  applyLabViewportSize({
-    updateCamera: true,
-    pixelRatio: Math.max(MIN_DPR, Math.min(window.devicePixelRatio || 1, currentDprCap)),
-  });
-}
-
 let webglContextLost = false;
 canvas.addEventListener('webglcontextlost', (event) => {
   event.preventDefault();
@@ -6352,14 +6390,21 @@ canvas.addEventListener('webglcontextlost', (event) => {
   experimentRuntimeCache.clear();
   stationRuntimeCache.clear();
   disposeIntentPrepareResources();
-  disposeRendererPrepareTarget(renderer);
   showToast('Graphics context lost; restoring the laboratory');
 });
 
 canvas.addEventListener('webglcontextrestored', () => {
   webglContextLost = false;
-  currentDprCap = 0;
-  applyDprCap(MAX_DPR);
+  currentDprCap = MAX_DPR;
+  applyLabViewportSize({
+    updateCamera: true,
+    pixelRatio: Math.min(window.devicePixelRatio || 1, currentDprCap),
+  });
+  labPostProcessing?.resize(
+    getLabViewportSize().width,
+    getLabViewportSize().height,
+    Math.min(window.devicePixelRatio || 1, currentDprCap),
+  );
   frameCoordinator.invalidate();
   showToast('Graphics restored; select an experiment to reload it');
 });
@@ -6387,6 +6432,8 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
   const nowMs = performance.now();
+  performanceGovernor.beginFrame(nowMs);
+  renderer.info.reset?.();
   const arActive = !!handTracking?.isActive();
   const softSwitch = !!labFrameScheduler.softSwitchActive?.();
   labFrameScheduler.tickSoftSwitch?.();
@@ -6459,21 +6506,19 @@ function animate() {
       switchFrameMetrics.maxFrameMs,
       performance.now() - nowMs,
     );
+    performanceGovernor.setRuntimeInfo({
+      workerMode: globalThis.__PHYSICS_BACKEND_MODE__ || 'auto',
+      sharedArrayBuffer: globalThis.crossOriginIsolated === true,
+      workerPending: labFrameScheduler.pending?.() || 0,
+    });
+    performanceGovernor.endFrame(performance.now());
     return;
   }
   simDriver.resume();
 
-  // While geometric GPU is warming, island is hidden — keep full DPR for smooth room.
-  // After reveal, slightly lower DPR to ease additive beam fill-rate.
-  const opticsGeoLive = !!equipment?.optics?.geoGpuReady
-    && (equipment?.optics?.activeMode === 'geometric'
-      || equipment?.optics?.activeMode === 'reflection'
-      || equipment?.optics?.activeMode === 'refraction'
-      || equipment?.optics?.activeMode === 'dispersion'
-      || equipment?.optics?.activeMode === 'lens');
-  const wantDpr = opticsGeoLive ? OPTICS_GEO_DPR : MAX_DPR;
-  applyDprCap(wantDpr);
-
+  // Keep the selected DPR stable while geometric optics and experiment content
+  // are active; performance pressure is reported by the governor instead of
+  // silently changing visual quality.
   // experiment simulation — every frame, same as the standalone sources
   if (expManager) {
     syncMouseDragState();
@@ -6574,6 +6619,12 @@ function animate() {
   const renderDue = !IS_IPAD_PERFORMANCE || nowMs - lastPresentAt >= (1000 / 30);
   if (renderDue) lastPresentAt = nowMs;
   frameCoordinator.frame(nowMs, { render: renderDue });
+  performanceGovernor.setRuntimeInfo({
+    workerMode: globalThis.__PHYSICS_BACKEND_MODE__ || 'auto',
+    sharedArrayBuffer: globalThis.crossOriginIsolated === true,
+    workerPending: labFrameScheduler.pending?.() || 0,
+  });
+  performanceGovernor.endFrame(performance.now());
 
   // One-shot HUD / attach work only — never block the next frame's sim.
 } 
@@ -6624,9 +6675,6 @@ async function startExperimentSafe(expId) {
     }
     return false;
   }
-  // Keep adaptive DPR decisions away from the atomic legacy-handler commit
-  // frame; the next stable frames can measure the new apparatus honestly.
-  dprCommitBlockedUntil = performance.now() + 100;
   // Never schedule prepareExperiment after click — Runtime prepare/prepareGpu
   // already owns geometry + compileAsync/1x1. A post-click light prepare used
   // to re-enter multi-second station work on the drain path.
@@ -7002,7 +7050,8 @@ async function paintReadyFrames() {
     renderer.clear?.();
     // Force a shadow map fill so the first visible frame has contact shadows.
     renderer.shadowMap.needsUpdate = true;
-    renderer.render(scene, camera);
+    if (labPostProcessing) labPostProcessing.render();
+    else renderer.render(scene, camera);
   } catch { /* animate() will keep trying */ }
 
   labPerfStats.firstFrameMs = Number((performance.now() - firstFrameT0).toFixed(2));

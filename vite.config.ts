@@ -114,9 +114,27 @@ export default defineConfig(({ mode }) => {
       target: 'es2022',
       rollupOptions: {
         input: targetInputs[target] ?? targetInputs.all,
+        output: {
+          // Station modules are loaded with dynamic import after labShell's
+          // top-level boot. Keep the lifecycle adapter in its own shared
+          // chunk; otherwise Rollup can place it in labShell and make the
+          // station chunk import the still-evaluating entry chunk, leaving
+          // the station import Promise pending forever in preview builds.
+          manualChunks(id) {
+            const normalized = id.replaceAll('\\', '/');
+            if (normalized.endsWith('/src/physics/src/runtime/experimentRuntime.js')) {
+              return 'physics-experiment-runtime';
+            }
+            return undefined;
+          },
+        },
       },
     },
     server: {
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'credentialless',
+      },
       // HMR 在 AI Studio 通过 DISABLE_HMR 关闭，避免代理刷新抖动。
       hmr: tauriDevHost
         ? {
@@ -132,6 +150,12 @@ export default defineConfig(({ mode }) => {
           ws: true,
         }
       }
+    },
+    preview: {
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'credentialless',
+      },
     },
   };
 });

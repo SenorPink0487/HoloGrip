@@ -11,10 +11,11 @@
  *   scene: unknown,
  *   camera: unknown,
  *   onAfterPresent?: (ms: number) => void,
+ *   render?: () => void,
  * }} options
  */
 export function createMainRenderBackend(options = {}) {
-  const { renderer, scene, camera, onAfterPresent } = options;
+  const { renderer, scene, camera, onAfterPresent, render } = options;
   if (!renderer || typeof renderer.render !== 'function') {
     throw new TypeError('createMainRenderBackend: renderer.render is required');
   }
@@ -65,7 +66,8 @@ export function createMainRenderBackend(options = {}) {
     present() {
       if (disposed) return { presented: false, ms: 0 };
       const t0 = typeof performance !== 'undefined' ? performance.now() : Date.now();
-      renderer.render(scene, camera);
+      if (typeof render === 'function') render();
+      else renderer.render(scene, camera);
       lastPresentMs = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - t0;
       onAfterPresent?.(lastPresentMs);
       return { presented: true, ms: lastPresentMs, deferred: false };

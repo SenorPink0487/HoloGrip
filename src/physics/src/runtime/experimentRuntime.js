@@ -1,5 +1,3 @@
-import { Vector2, WebGLRenderTarget } from 'three';
-
 /**
  * Transactional experiment lifecycle adapter. Runtime implementations may be
  * legacy handlers as long as they satisfy this boundary.
@@ -46,18 +44,12 @@ export function createEquipmentRuntime({
         } else {
           renderer?.compile?.(scene || target, camera);
         }
-        if (scene && typeof renderer?.render === 'function') {
-          const previousTarget = renderer.getRenderTarget?.() || null;
-          const previousSize = new Vector2();
-          renderer.getSize?.(previousSize);
-          const previousPr = renderer.getPixelRatio?.() || 1;
-          try {
-            renderer.setRenderTarget?.(prepareTarget(renderer));
-            renderer.setViewport?.(0, 0, 1, 1);
-            renderer.setScissorTest?.(false);
-            renderer.clear?.();
-            renderer.render(scene, camera);
-          } finally {
+        // Compilation is enough to warm shader/program state. Do not issue a
+        // hidden 1x1 render on every first experiment switch; the main frame
+        // will render the already-mounted runtime through the shared composer.
+        if (false && scene && typeof renderer?.render === 'function') {
+          /* no hidden render */
+          /*
             // Always restore the default framebuffer + full canvas viewport.
             // Leaving a 1×1 viewport after intent prewarm blanks the lab canvas
             // in Vite dev (only holos / UI chrome remain visible).
@@ -79,7 +71,7 @@ export function createEquipmentRuntime({
             if (typeof renderer.setScissor === 'function') {
               renderer.setScissor(0, 0, w, h);
             }
-          }
+          */
         }
       } finally {
         if (previousParent && target?.parent !== previousParent) previousParent.add(target);
@@ -100,27 +92,6 @@ export function createEquipmentRuntime({
     estimateBytes: estimateBytes || (() => estimateObjectBytes(resolveRoot())),
     dispose,
   });
-}
-
-function prepareTarget(renderer) {
-  const target = renderer?.__runtimePrepareTarget;
-  if (target) return target;
-  // Renderer owns the target lifetime for the duration of the page. Keeping a
-  // single 1x1 target avoids allocating one during every intent prediction.
-  const next = new WebGLRenderTarget(1, 1, { depthBuffer: true, stencilBuffer: false });
-  try { Object.defineProperty(renderer, '__runtimePrepareTarget', { value: next, configurable: true }); }
-  catch { renderer.__runtimePrepareTarget = next; }
-  return next;
-}
-
-/** Release the renderer-owned 1x1 target during context loss or shutdown. */
-export function disposeRendererPrepareTarget(renderer) {
-  const target = renderer?.__runtimePrepareTarget;
-  if (!target) return false;
-  try { target.dispose?.(); } finally {
-    try { delete renderer.__runtimePrepareTarget; } catch { /* readonly host */ }
-  }
-  return true;
 }
 
 export function getLeafPickSet(root) {
