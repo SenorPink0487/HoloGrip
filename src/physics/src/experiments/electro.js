@@ -641,6 +641,15 @@ export function createHandlers(ctx) {
   function stepSimBackend(dt) {
     const expId = state.expId;
     if (!simKindForExp(expId) || !state.data) return;
+
+    // Moving a source charge only needs the lightweight mesh/probe path while
+    // the pointer is held. Re-tracing a multi-charge field on every movement
+    // sample makes the main-thread fallback (and the worker snapshot churn)
+    // compete with input and rendering. Keep the previous decoration snapshot
+    // during the drag; the first post-release frame sees the new signature and
+    // performs one authoritative field-line step.
+    if (expId === 'electric_field' && state.data.dragging) return;
+
     const backend = ensureSimBackend(expId, state.data);
     if (!backend) return;
 

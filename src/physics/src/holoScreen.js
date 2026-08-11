@@ -1038,7 +1038,8 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   const { hits, innerX, innerW, contentTop, contentH, experiment, hud, accentHex } = cfg;
   _uiTheme = cfg.theme || 'dark';
   const isDisplay = cfg.surface === 'display';
-  const scale = holoUiScale(cfg.surface || (isDisplay ? 'display' : 'full'));
+  const rawScale = holoUiScale(cfg.surface || (isDisplay ? 'display' : 'full'));
+  const scale = isDisplay ? Math.min(rawScale, 1.30) : rawScale;
   const P = screenPalette(_uiTheme, accentHex, isDisplay);
   const d = hud?.data || {};
   const charges = Array.isArray(d.charges) ? d.charges : [];
@@ -1170,10 +1171,10 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
       innerX + i * (lockBtnW + lockGap),
       y,
       lockBtnW, lockH,
-      locked ? `${axis.toUpperCase()}·锁` : label,
-      'electric-axis-lock', { axis },
-      locked ? '#f59e0b' : accentHex,
-      locked,
+      item.label,
+      item.action, item.meta,
+      item.color,
+      !!item.active,
     );
   });
   const freeAxes = ['x', 'y', 'z'].filter((a) => axisLock[a] !== true).map((a) => a.toUpperCase());
@@ -1181,12 +1182,13 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   ctx.font = `${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
   ctx.textAlign = 'left';
   ctx.textBaseline = 'middle';
-  const lockHintX = innerX + lockLabelW + 3 * (lockBtnW + gap) + Math.round(10 * scale);
   const lockHint = freeAxes.length
     ? `可动 ${freeAxes.join('/')} · Shift/滚轮调Z`
     : '全部已锁定';
-  ctx.fillText(lockHint, lockHintX, y + lockH / 2);
-  y += lockH + gap;
+  // Keep the hint below the four full-width controls; there is no spare
+  // horizontal label column in this compact layout.
+  ctx.fillText(lockHint, innerX + pad, y + lockH + Math.round(14 * scale));
+  y += lockH + gap + Math.round(18 * scale);
 
   // ── Row 4: source-charge editor only (probe q₀ / r / E / F are on-sphere) ──
   const editorH = Math.max(Math.round(180 * scale), bottom - y - pad);

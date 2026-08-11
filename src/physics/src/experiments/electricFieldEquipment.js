@@ -929,27 +929,23 @@ export function createElectricFieldEquipment() {
     // post-render frame budget (never on the pre-render / pointerup stack).
     // Include visibility flags so toggling「等势」rebuilds even when charges are still.
     const decoSignature = `${chargeSignature}|L${data.showLines !== false ? 1 : 0}|A${data.showArrows !== false ? 1 : 0}|E${data.showEquipot === true ? 1 : 0}`;
-    const forceSyncDeco = data._forceDecorations === true;
-    if (decoSignature !== lastFieldSignature) {
-      if (dragging && !forceSyncDeco) {
+    // A worker snapshot may arrive after the drag started. It is still a
+    // stale/intermediate decoration update from the input point of view, so
+    // never let it force a synchronous geometry rebuild during the drag.
+    const forceSyncDeco = data._forceDecorations === true && !dragging;
+    const decorationDirty = decoSignature !== lastFieldSignature || forceSyncDeco;
+    if (decorationDirty) {
+      if (dragging) {
         // Drop any in-flight rebuild so release does not paint a mid-drag pose.
         cancelScheduledDecoration();
         pendingDecoration = true;
-      } else if (forceSyncDeco) {
-        cancelScheduledDecoration();
-        rebuildDecorations(charges, data);
-        lastFieldSignature = decoSignature;
       } else {
+        // Never rebuild geometry from the render/update path. Even a worker
+        // snapshot marked as forced is coalesced into the post-render job.
         scheduleDecorationRebuild(charges, data, decoSignature);
       }
     } else if (pendingDecoration && !dragging) {
       scheduleDecorationRebuild(charges, data, decoSignature);
-    } else if (!dragging) {
-      // First open / empty groups: fill immediately only when nothing is scheduled.
-      // Avoids a blank field until the next drain when decorations are empty.
-      if (data.showLines !== false && lineGroup.children.length === 0) rebuildLines(charges);
-      if (data.showArrows !== false && arrowBatch.count === 0) rebuildArrows(charges);
-      if (data.showEquipot === true && equipotGroup.children.length === 0) rebuildEquipotential(charges, data);
     }
 
     if (data.autoRotate && dt > 0) root.rotation.y += dt * 0.18;
