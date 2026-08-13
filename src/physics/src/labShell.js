@@ -1933,9 +1933,9 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   const makeFaceMat = () => new THREE.MeshBasicMaterial({
     map: tex,
     transparent: true,
-    opacity: 0.88,
+    opacity: 1.0,
     side: THREE.FrontSide,
-    depthWrite: false,
+    depthWrite: true,
     toneMapped: false,
   });
   const frontMat = makeFaceMat();
@@ -2317,10 +2317,10 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
 
   const screenMat = new THREE.MeshBasicMaterial({
     map: tex,
-    transparent: true,
-    opacity: 0.85,
+    transparent: false,
+    opacity: 1.0,
     side: THREE.FrontSide,
-    depthWrite: false,
+    depthWrite: true,
     toneMapped: false,
   });
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), screenMat);
@@ -2332,10 +2332,10 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
     color: 0xffffff,
     metalness: 0,
     roughness: 1.0,
-    transmission: 0.94,
-    thickness: 0.05,
+    transmission: 0,
+    thickness: 0,
     transparent: true,
-    opacity: 0.2,
+    opacity: 0,
     clearcoat: 0,
     clearcoatRoughness: 1.0,
     ior: 1.0,
@@ -2365,7 +2365,7 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
   );
   g.add(hit);
 
-  const panelLight = new THREE.PointLight(0xf8fafc, 0.45, 4.5, 2);
+  const panelLight = new THREE.PointLight(0xf8fafc, 0, 4.5, 2);
   panelLight.position.set(0, 0, 0.35);
   g.add(panelLight);
 
@@ -2683,10 +2683,10 @@ const holoConfigs = chemMode ? [] : [
 // Content displays sit slightly above table height so the bench stays visible.
 // Param sliders are physical controls flush on the sitting edge (see deskSliderPanels).
 const displayConfigs = chemMode ? [] : [
-  { id: 'mechanics', title: '力学', accent: '#38bdf8', accentNum: 0x38bdf8, pos: [-4.2, 2.15, -4.05], rotY: 0 },
+  { id: 'mechanics', title: '力学', accent: '#38bdf8', accentNum: 0x38bdf8, pos: [-3.4, 2.15, -4.05], rotY: 0 },
   { id: 'optics', title: '光学', accent: '#fbbf24', accentNum: 0xfbbf24, pos: [4.2, 2.15, -4.05], rotY: 0 },
   // Electro sits a bit lower so the panel clears less of the upper view / is easier to aim.
-  { id: 'electro', title: '电磁学', accent: '#f472b6', accentNum: 0xf472b6, pos: [-4.2, 1.85, 1.45], rotY: 0 },
+  { id: 'electro', title: '电磁学', accent: '#f472b6', accentNum: 0xf472b6, pos: [-3.4, 1.85, 1.45], rotY: 0 },
   { id: 'thermo', title: '热力学', accent: '#fb923c', accentNum: 0xfb923c, pos: [4.2, 2.15, 1.45], rotY: 0 },
 ];
 const holos = {};

@@ -1391,6 +1391,10 @@ body.hand-tracking-active #vr-edge-highlight {
 .vr-edge-left { left: 5px; }
 .vr-edge-right { right: 5px; transform: rotate(180deg); }
 
+.vr-corner, .hud-corner {
+  display: none !important;
+}
+
 .vr-corner {
   width: 42px;
   height: 42px;

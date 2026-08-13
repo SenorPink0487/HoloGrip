@@ -1,3 +1,4 @@
+import * as THREE from 'three';
 import { labFrameScheduler } from '../frameBudget.js';
 import {
   K_COULOMB,
@@ -1002,27 +1003,42 @@ export function createHandlers(ctx) {
     let oy = 0;
     let oz = 0;
 
+    const camera = equipment.electro?.getCamera?.();
+    let rx = 1, rz = 0;
+    let fx = 0, fz = -1;
+    if (camera) {
+      const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+      const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      rx = camRight.x;
+      rz = camRight.z;
+      const fLen = Math.hypot(camForward.x, camForward.z);
+      if (fLen > 1e-4) {
+        fx = camForward.x / fLen;
+        fz = camForward.z / fLen;
+      }
+    }
+
     const count = (freeX ? 1 : 0) + (freeY ? 1 : 0) + (freeZ ? 1 : 0);
 
     if (count === 3) {
-      if (freeX) ox = dx * scale;
       if (shiftKey) {
-        if (freeY) oy = -dy * scale;
+        if (freeY) oy = (dx * rz + dy * fz) * scale;
       } else {
+        if (freeX) ox = dx * scale;
         if (freeZ) oz = -dy * scale;
       }
     } else if (count === 2) {
       if (freeX && freeY) {
         // Z locked -> drag freely on XY plane
-        ox = dx * scale;
-        oy = -dy * scale;
+        ox = (dx * rx - dy * fx) * scale;
+        oy = (dx * rz + dy * fz) * scale;
       } else if (freeX && freeZ) {
         // Y locked -> drag freely on XZ plane
-        ox = dx * scale;
+        ox = dx * rx * scale;
         oz = -dy * scale;
       } else if (freeY && freeZ) {
         // X locked -> drag freely on YZ plane
-        oy = dx * scale;
+        oy = (dx * rz + dy * fz) * scale;
         oz = -dy * scale;
       }
     } else if (count === 1) {
@@ -1078,8 +1094,23 @@ export function createHandlers(ctx) {
     const charge = selectedGaussCharge(data);
     if (!charge || !data?.dragArmed) return false;
     data.dragging = true;
-    charge.x = clamp(Number(data.dragStartX || 0) + dx * 0.025, -5, 5);
-    charge.y = clamp(Number(data.dragStartY || 0) - dy * 0.025, -5, 5);
+    const camera = equipment.electro?.getCamera?.();
+    let rx = 1, rz = 0, fx = 0, fz = -1;
+    if (camera) {
+      const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+      const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+      rx = camRight.x;
+      rz = camRight.z;
+      const fLen = Math.hypot(camForward.x, camForward.z);
+      if (fLen > 1e-4) {
+        fx = camForward.x / fLen;
+        fz = camForward.z / fLen;
+      }
+    }
+    const ox = (dx * rx - dy * fx) * 0.025;
+    const oy = (dx * rz + dy * fz) * 0.025;
+    charge.x = clamp(Number(data.dragStartX || 0) + ox, -5, 5);
+    charge.y = clamp(Number(data.dragStartY || 0) + oy, -5, 5);
     if (state.stepIndex < 1 && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) setStep('cross');
     return true;
   }
@@ -3017,8 +3048,12 @@ export function createHandlers(ctx) {
         || Number.isFinite(context.dx)
         || Number.isFinite(context.dy)
       )) {
-        const dx = Number.isFinite(context.totalX) ? Number(context.totalX) : Number(context.dx || 0);
-        const dy = Number.isFinite(context.totalY) ? Number(context.totalY) : Number(context.dy || 0);
+        const dx = Number.isFinite(context.totalX)
+          ? Number(context.totalX) - Number(data.dragMouseX || 0)
+          : Number(context.dx || 0);
+        const dy = Number.isFinite(context.totalY)
+          ? Number(context.totalY) - Number(data.dragMouseY || 0)
+          : Number(context.dy || 0);
         applyInducedProbeDrag(data, dx, dy);
         return true;
       }
@@ -3051,7 +3086,7 @@ export function createHandlers(ctx) {
         Number.isFinite(context.totalX) || Number.isFinite(context.dx)
       )) {
         const totalX = Number.isFinite(context.totalX)
-          ? Number(context.totalX)
+          ? Number(context.totalX) - Number(data.dragMouseX || 0)
           : Number(context.dx || 0);
         data.x = clamp(data.motionStart.x0 + totalX * 0.015, data.xMin, data.xMax);
         return true;
@@ -3069,8 +3104,12 @@ export function createHandlers(ctx) {
         || Number.isFinite(context.dx)
         || Number.isFinite(context.dy)
       )) {
-        const dx = Number.isFinite(context.totalX) ? Number(context.totalX) : Number(context.dx || 0);
-        const dy = Number.isFinite(context.totalY) ? Number(context.totalY) : Number(context.dy || 0);
+        const dx = Number.isFinite(context.totalX)
+          ? Number(context.totalX) - Number(data.dragMouseX || 0)
+          : Number(context.dx || 0);
+        const dy = Number.isFinite(context.totalY)
+          ? Number(context.totalY) - Number(data.dragMouseY || 0)
+          : Number(context.dy || 0);
         data._dragShiftZ = !!(context.shiftKey || equipment.electro?.mouseDrag?.shiftKey);
         applyElectricDragDelta(data, dx, dy, context.dt || 0);
         return true;
@@ -3086,8 +3125,12 @@ export function createHandlers(ctx) {
         || Number.isFinite(context.dx)
         || Number.isFinite(context.dy)
       )) {
-        const dx = Number.isFinite(context.totalX) ? Number(context.totalX) : Number(context.dx || 0);
-        const dy = Number.isFinite(context.totalY) ? Number(context.totalY) : Number(context.dy || 0);
+        const dx = Number.isFinite(context.totalX)
+          ? Number(context.totalX) - Number(data.dragMouseX || 0)
+          : Number(context.dx || 0);
+        const dy = Number.isFinite(context.totalY)
+          ? Number(context.totalY) - Number(data.dragMouseY || 0)
+          : Number(context.dy || 0);
         applyGaussDragDelta(data, dx, dy, context.dt || 0);
         return true;
       }

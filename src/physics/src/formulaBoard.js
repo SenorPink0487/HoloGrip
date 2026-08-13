@@ -335,19 +335,6 @@ export function drawFormulaBoard(ctx, W, H, state) {
   ctx.textAlign = 'right';
   ctx.fillText('瞄准条目 · 按 E / 点击 查看概念', W - 44, headerH / 2);
 
-  // corner brackets
-  ctx.strokeStyle = '#22d3ee';
-  ctx.lineWidth = 4;
-  [[24, headerH + 14], [W - 24, headerH + 14], [24, H - 24], [W - 24, H - 24]].forEach(([x, y], i) => {
-    const dx = i % 2 === 0 ? 40 : -40;
-    const dy = i < 2 ? 40 : -40;
-    ctx.beginPath();
-    ctx.moveTo(x + dx, y);
-    ctx.lineTo(x, y);
-    ctx.lineTo(x, y + dy);
-    ctx.stroke();
-  });
-
   // category tabs — chunky touch targets
   const tabY = headerH + 16;
   const tabH = 64;

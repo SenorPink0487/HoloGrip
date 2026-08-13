@@ -1,8 +1,8 @@
 import { resolveReactionWithDeepSeek } from './deepseek.js'
 
 /**
- * Resolve arbitrary reactants through the AI service and reject malformed or
- * chemically unbalanced answers before the UI attempts to render products.
+ * Resolve reactants and reject malformed or unbalanced AI responses before
+ * the physics lab attempts to render the products.
  * @param {{ name: string }[]} parts
  * @param {string} condition
  */
@@ -11,7 +11,6 @@ export async function resolveReaction(parts, condition = '') {
   if (reactants.length < 2) throw new Error('请至少输入两种反应物。')
 
   const data = await resolveReactionWithDeepSeek(reactants, condition)
-  if (!data || typeof data !== 'object') throw new Error('AI 返回的反应数据无效。')
   if (data.reacts !== true) {
     const error = new Error(String(data.reason || '在所选条件下未预测到可观察的化学反应。'))
     error.code = 'NO_REACTION'
@@ -75,17 +74,19 @@ function countSide(side) {
 }
 
 function parseFormula(raw) {
-  const formula = raw.replace(/[₀-₉]/g, (digit) => String('₀₁₂₃₄₅₆₇₈₉'.indexOf(digit)))
   const stack = [new Map()]
-  for (let i = 0; i < formula.length;) {
-    if (formula[i] === '(') { stack.push(new Map()); i++; continue }
-    if (formula[i] === ')') {
-      const group = stack.pop(); if (!group || stack.length === 0) return null
-      const m = formula.slice(i + 1).match(/^\d*/); const factor = Number(m?.[0] || 1); i += 1 + (m?.[0].length || 0)
+  for (let i = 0; i < raw.length;) {
+    if (raw[i] === '(') { stack.push(new Map()); i++; continue }
+    if (raw[i] === ')') {
+      const group = stack.pop()
+      if (!group || stack.length === 0) return null
+      const match = raw.slice(i + 1).match(/^\d*/)
+      const factor = Number(match?.[0] || 1)
+      i += 1 + (match?.[0].length || 0)
       for (const [element, count] of group) stack.at(-1).set(element, (stack.at(-1).get(element) || 0) + count * factor)
       continue
     }
-    const match = formula.slice(i).match(/^([A-Z][a-z]?)(\d*)/)
+    const match = raw.slice(i).match(/^([A-Z][a-z]?)(\d*)/)
     if (!match) return null
     stack.at(-1).set(match[1], (stack.at(-1).get(match[1]) || 0) + Number(match[2] || 1))
     i += match[0].length

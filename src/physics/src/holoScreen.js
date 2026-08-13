@@ -238,17 +238,6 @@ function drawPremiumHoloButton(ctx, hits, x, y, w, h, label, action, meta, accen
   roundRect(ctx, x, y, w, h, 8);
   ctx.stroke();
 
-  // Sci-fi HUD L-shaped corner brackets
-  ctx.strokeStyle = active ? (isLight ? '#0284c7' : '#ffffff') : (isLight ? 'rgba(14, 165, 233, 0.65)' : `${accent}70`);
-  ctx.lineWidth = 1.6;
-  const tickSize = Math.min(8, h * 0.2);
-  ctx.beginPath();
-  ctx.moveTo(x + tickSize, y); ctx.lineTo(x, y); ctx.lineTo(x, y + tickSize);
-  ctx.moveTo(x + w - tickSize, y); ctx.lineTo(x + w, y); ctx.lineTo(x + w, y + tickSize);
-  ctx.moveTo(x + tickSize, y + h); ctx.lineTo(x, y + h); ctx.lineTo(x, y + h - tickSize);
-  ctx.moveTo(x + w - tickSize, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - tickSize);
-  ctx.stroke();
-
   if (active) {
     ctx.fillStyle = isLight ? '#0284c7' : accent;
     roundRect(ctx, x + 10, y + 2, w - 20, 3, 1.5);
@@ -676,12 +665,22 @@ function drawInducedElectricExperiment(ctx, _W, _H, cfg) {
   const profile = Array.isArray(d.profile) ? d.profile : [];
   const currR = Math.max(0.2, Number(d.R || 2));
   const absD = Math.abs(Number(d.dBdt || 0));
-  const currentSlope = 0.5 * absD;
 
-  const plotX = x + Math.round(42 * scale);
-  const plotY = cy + Math.round(20 * scale);
-  const plotW = w - Math.round(68 * scale);
-  const plotH = chartH - Math.round(44 * scale);
+  // Theoretical peak height E_max = 0.5 * R * |dBdt|
+  const theoreticalPeak = 0.5 * currR * absD;
+
+  // Probe charge position & value
+  const pr = Number(d.probeR || 0);
+  const pe = Number(d.magnitudeE || 0);
+
+  // Dynamic Y-axis scale so the curve occupies ~70-75% of plot height
+  const maxVal = Math.max(theoreticalPeak, pe, 0.1);
+  const E_SCALE_MAX = Math.max(0.5, maxVal * 1.35);
+
+  const plotX = x + Math.round(58 * scale);
+  const plotY = cy + Math.round(18 * scale);
+  const plotW = w - Math.round(84 * scale);
+  const plotH = chartH - Math.round(64 * scale);
 
   const axisColor = _uiTheme === 'light' ? 'rgba(100,116,139,.75)' : 'rgba(148,163,184,.65)';
   ctx.strokeStyle = axisColor;
@@ -735,7 +734,7 @@ function drawInducedElectricExperiment(ctx, _W, _H, cfg) {
   drawMathFormula(
     ctx,
     'r',
-    plotX + plotW + Math.round(20 * scale),
+    plotX + plotW + Math.round(18 * scale),
     plotY + plotH,
     {
       fontSize: Math.round(13 * scale),
@@ -747,57 +746,213 @@ function drawInducedElectricExperiment(ctx, _W, _H, cfg) {
 
   const rMax = 6.5;
   const rLineX = plotX + (currR / rMax) * plotW;
+  const peakPy = plotY + plotH - (theoreticalPeak / E_SCALE_MAX) * (plotH * 0.88);
+  const prx = plotX + (pr / rMax) * plotW;
+  const pry = plotY + plotH - (pe / E_SCALE_MAX) * (plotH * 0.88);
 
-  // Theoretical peak height E_max = 0.5 * R * |dBdt|
-  const theoreticalPeak = 0.5 * currR * absD;
-  const E_SCALE_UNIT = 10.0;
-  const peakPy = plotY + plotH - (theoreticalPeak / E_SCALE_UNIT) * (plotH * 0.88);
-
-  // Plot red/pink E-r curve
+  // 1. Plot E-r Curve
   if (profile.length > 1) {
     ctx.strokeStyle = '#ef4444';
     ctx.lineWidth = Math.max(2, Math.round(2.6 * scale));
     ctx.beginPath();
     profile.forEach((pt, i) => {
       const px = plotX + (pt.r / rMax) * plotW;
-      const py = plotY + plotH - (pt.E / E_SCALE_UNIT) * (plotH * 0.88);
+      const py = plotY + plotH - (pt.E / E_SCALE_MAX) * (plotH * 0.88);
       if (i === 0) ctx.moveTo(px, py);
       else ctx.lineTo(px, py);
     });
     ctx.stroke();
   }
 
-  // Peak marker dot at (R, E_max)
-  ctx.fillStyle = '#ef4444';
-  ctx.beginPath();
-  ctx.arc(rLineX, peakPy, Math.round(4.5 * scale), 0, Math.PI * 2);
-  ctx.fill();
+  // 3. Formula annotations along curve (clean & borderless, collision-free)
+  if (rLineX > plotX + Math.round(20 * scale) && absD > 0.01) {
+    const midR = currR * 0.5;
+    const midX = plotX + (midR / rMax) * plotW;
+    const midE = 0.5 * midR * absD;
+    const midY = plotY + plotH - (midE / E_SCALE_MAX) * (plotH * 0.88);
 
-  // Dashed vertical line at R
-  ctx.strokeStyle = accentHex;
-  ctx.lineWidth = 1.2;
-  ctx.setLineDash([4, 4]);
-  ctx.beginPath();
-  ctx.moveTo(rLineX, plotY);
-  ctx.lineTo(rLineX, plotY + plotH);
-  ctx.stroke();
-  ctx.setLineDash([]);
+    // Collision check with probe dot
+    const isProbeCloseToFormula = Math.hypot(prx - midX, pry - midY) < Math.round(36 * scale);
+    const labelOffsetX = isProbeCloseToFormula ? Math.round(-24 * scale) : 0;
+    const labelOffsetY = isProbeCloseToFormula ? Math.round(-18 * scale) : Math.round(-14 * scale);
 
-  // Tick R on x-axis
-  drawMathFormula(
-    ctx,
-    'R',
-    rLineX - Math.round(4 * scale),
-    plotY + plotH + Math.round(12 * scale),
-    {
-      fontSize: Math.round(13 * scale),
-      color: accentHex,
-      align: 'left',
-      textBaseline: 'top',
-    }
-  );
+    drawMathFormula(
+      ctx,
+      'E_k \\propto r',
+      midX + labelOffsetX,
+      midY + labelOffsetY,
+      {
+        fontSize: Math.round(12 * scale),
+        color: '#ef4444',
+        align: 'center',
+        textBaseline: 'bottom',
+      }
+    );
+  }
 
-  // Curve name positioned below the chart image
+  if (rLineX < plotX + plotW - Math.round(30 * scale) && absD > 0.01) {
+    const outR = Math.min(rMax * 0.88, currR * 1.8);
+    const outX = plotX + (outR / rMax) * plotW;
+    const outE = (0.5 * currR * currR * absD) / outR;
+    const outY = plotY + plotH - (outE / E_SCALE_MAX) * (plotH * 0.88);
+    drawMathFormula(
+      ctx,
+      'E_k \\propto \\frac{1}{r}',
+      outX + Math.round(10 * scale),
+      outY - Math.round(14 * scale),
+      {
+        fontSize: Math.round(12 * scale),
+        color: '#ef4444',
+        align: 'center',
+        textBaseline: 'bottom',
+      }
+    );
+  }
+
+  // 4. PEAK POINT GUIDELINES & AXIS LABELS
+  if (theoreticalPeak > 0.01) {
+    ctx.save();
+    const dashPattern = [Math.round(6 * scale), Math.round(4 * scale)];
+
+    // Background dark contrast line for peak guidelines
+    ctx.strokeStyle = _uiTheme === 'light' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(15, 23, 42, 0.85)';
+    ctx.lineWidth = Math.round(3.6 * scale);
+    ctx.setLineDash(dashPattern);
+    ctx.beginPath();
+    ctx.moveTo(plotX, peakPy);
+    ctx.lineTo(rLineX, peakPy);
+    ctx.moveTo(rLineX, plotY + plotH);
+    ctx.lineTo(rLineX, peakPy);
+    ctx.stroke();
+
+    // Solid bright red dashed line for peak guidelines
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = Math.round(2.2 * scale);
+    ctx.beginPath();
+    ctx.moveTo(plotX, peakPy);
+    ctx.lineTo(rLineX, peakPy);
+    ctx.moveTo(rLineX, plotY + plotH);
+    ctx.lineTo(rLineX, peakPy);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // Y-axis tick & label for Peak (strictly on the left of Y-axis)
+    ctx.strokeStyle = '#ef4444';
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    ctx.moveTo(plotX - Math.round(4 * scale), peakPy);
+    ctx.lineTo(plotX, peakPy);
+    ctx.stroke();
+
+    ctx.fillStyle = '#ef4444';
+    ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${fmt(theoreticalPeak, 2)} V/m`, plotX - Math.round(6 * scale), peakPy);
+
+    // X-axis tick & label for R (strictly below X-axis)
+    ctx.beginPath();
+    ctx.moveTo(rLineX, plotY + plotH);
+    ctx.lineTo(rLineX, plotY + plotH + Math.round(4 * scale));
+    ctx.stroke();
+
+    drawMathFormula(
+      ctx,
+      `R = ${fmt(currR, 2)}\\mathrm{m}`,
+      rLineX,
+      plotY + plotH + Math.round(6 * scale),
+      {
+        fontSize: Math.round(11 * scale),
+        color: accentHex,
+        align: 'center',
+        textBaseline: 'top',
+      }
+    );
+
+    // Peak Dot on curve (no floating text box!)
+    ctx.fillStyle = '#ef4444';
+    ctx.beginPath();
+    ctx.arc(rLineX, peakPy, Math.round(5 * scale), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 5. PROBE POINT GUIDELINES & AXIS LABELS
+  if (pr > 0.01) {
+    ctx.save();
+    const dashPattern = [Math.round(6 * scale), Math.round(4 * scale)];
+
+    // Background dark contrast line for probe guidelines
+    ctx.strokeStyle = _uiTheme === 'light' ? 'rgba(255, 255, 255, 0.9)' : 'rgba(15, 23, 42, 0.85)';
+    ctx.lineWidth = Math.round(3.6 * scale);
+    ctx.setLineDash(dashPattern);
+    ctx.beginPath();
+    ctx.moveTo(prx, pry);
+    ctx.lineTo(prx, plotY + plotH);
+    ctx.moveTo(prx, pry);
+    ctx.lineTo(plotX, pry);
+    ctx.stroke();
+
+    // Solid bright amber dashed line for probe guidelines
+    ctx.strokeStyle = '#d97706';
+    ctx.lineWidth = Math.round(2.2 * scale);
+    ctx.beginPath();
+    ctx.moveTo(prx, pry);
+    ctx.lineTo(prx, plotY + plotH);
+    ctx.moveTo(prx, pry);
+    ctx.lineTo(plotX, pry);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.restore();
+
+    // Y-axis Probe Tick & Label (strictly on the left of Y-axis)
+    ctx.strokeStyle = '#d97706';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(plotX - Math.round(4 * scale), pry);
+    ctx.lineTo(plotX, pry);
+    ctx.stroke();
+
+    // Check collision with Peak Y label
+    const isYTooClose = Math.abs(pry - peakPy) < Math.round(14 * scale);
+    const yLabelOffsetY = isYTooClose ? (pry > peakPy ? Math.round(10 * scale) : Math.round(-10 * scale)) : 0;
+
+    ctx.fillStyle = '#d97706';
+    ctx.font = `bold ${Math.round(10.5 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(`${fmt(pe, 2)} V/m`, plotX - Math.round(6 * scale), pry + yLabelOffsetY);
+
+    // X-axis Probe Tick & Label (strictly below X-axis)
+    ctx.beginPath();
+    ctx.moveTo(prx, plotY + plotH);
+    ctx.lineTo(prx, plotY + plotH + Math.round(4 * scale));
+    ctx.stroke();
+
+    const isXTooClose = Math.abs(prx - rLineX) < Math.round(48 * scale);
+    const xLabelOffsetY = isXTooClose ? Math.round(16 * scale) : 0;
+
+    drawMathFormula(
+      ctx,
+      `r = ${fmt(pr, 2)}\\mathrm{m}`,
+      prx,
+      plotY + plotH + Math.round(6 * scale) + xLabelOffsetY,
+      {
+        fontSize: Math.round(11 * scale),
+        color: '#d97706',
+        align: 'center',
+        textBaseline: 'top',
+      }
+    );
+
+    // Probe Dot on curve (no floating text box!)
+    ctx.fillStyle = '#fbbf24';
+    ctx.beginPath();
+    ctx.arc(prx, pry, Math.round(5 * scale), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Title positioned at bottom-center with clean vertical clearance from X-axis ticks
   drawMathFormula(
     ctx,
     'E_k-r \\text{ 关系曲线}',
@@ -805,21 +960,11 @@ function drawInducedElectricExperiment(ctx, _W, _H, cfg) {
     cy + chartH - Math.round(6 * scale),
     {
       fontSize: Math.round(13 * scale),
-      color: P.text,
+      color: P.title || P.text,
       align: 'center',
       textBaseline: 'bottom',
     }
   );
-
-  // Probe charge yellow dot on curve
-  const pr = Number(d.probeR || 0);
-  const pe = Number(d.magnitudeE || 0);
-  const prx = plotX + (pr / rMax) * plotW;
-  const pry = plotY + plotH - (pe / E_SCALE_UNIT) * (plotH * 0.88);
-  ctx.fillStyle = '#fbbf24';
-  ctx.beginPath();
-  ctx.arc(prx, pry, Math.round(5.5 * scale), 0, Math.PI * 2);
-  ctx.fill();
 }
 
 function drawGaussExperiment(ctx, _W, _H, cfg) {
@@ -3993,20 +4138,6 @@ export function drawHoloScreen(ctx, W, H, opts) {
     roundRect(ctx, 20, 20, W - 40, H - 40, 12);
     ctx.stroke();
   }
-
-  // High-Tech Cyber Corner Ticks (Precision L-brackets)
-  ctx.lineWidth = 2.4;
-  ctx.strokeStyle = theme === 'light' ? '#0284c7' : accentHex;
-  const br = isDisplay ? 24 : 28;
-  [[26, 26], [W - 26, 26], [26, H - 26], [W - 26, H - 26]].forEach(([x, y], i) => {
-    const sx = i % 2 === 0 ? 1 : -1;
-    const sy = i < 2 ? 1 : -1;
-    ctx.beginPath();
-    ctx.moveTo(x + sx * br, y);
-    ctx.lineTo(x, y);
-    ctx.lineTo(x, y + sy * br);
-    ctx.stroke();
-  });
 
   // Content display with a running experiment: no station header bar — experiment UI owns the title.
   const compactChrome = isDisplay && active && !!(hud?.running && hud?.experiment);

@@ -235,9 +235,17 @@ export function tokenizeFormula(formula) {
     // 4. 下标 _{...} 或无括号单字符/文本下标 (如 E_k, \Phi_B, \Phi_E, U_H, K_H, q_0, \varepsilon_0, E_1, k_B)
     if (s[i] === '_') {
       if (s[i + 1] === '{') {
-        const end = s.indexOf('}', i + 2);
+        const end = findMatchingBrace(s, i + 1);
         if (end !== -1) {
-          tokens.push({ kind: 'sub', text: s.slice(i + 2, end) });
+          const subContent = s.slice(i + 2, end);
+          if (subContent.startsWith('\\mathrm{') || subContent.startsWith('\\text{')) {
+            const bStart = subContent.indexOf('{');
+            const bEnd = findMatchingBrace(subContent, bStart);
+            const innerText = bEnd !== -1 ? subContent.slice(bStart + 1, bEnd) : subContent;
+            tokens.push({ kind: 'sub', text: innerText });
+          } else {
+            tokens.push({ kind: 'sub', text: subContent });
+          }
           i = end + 1;
           continue;
         }
@@ -259,7 +267,7 @@ export function tokenizeFormula(formula) {
     // 5. 上标 ^{...} 或单字符上标 ^2
     if (s[i] === '^') {
       if (s[i + 1] === '{') {
-        const end = s.indexOf('}', i + 2);
+        const end = findMatchingBrace(s, i + 1);
         if (end !== -1) {
           tokens.push({ kind: 'sup', text: s.slice(i + 2, end) });
           i = end + 1;

@@ -270,9 +270,9 @@ export function createHandlers(ctx) {
     if (!raw) throw new Error('请输入内容');
 
     const [{ parseAddExpression, expandMixtureComponents }, { resolveWithDeepSeek }, reactionMod] = await Promise.all([
-      import('../../../chem/src/pubchem.js'),
-      import('../../../chem/src/deepseek.js'),
-      import('../../../chem/src/reaction.js'),
+      import('../../../chem/pubchem.js'),
+      import('../../../chem/deepseek.js'),
+      import('../../../chem/reaction.js'),
     ]);
 
     const parts = parseAddExpression(raw);
@@ -845,7 +845,7 @@ async function fetchSdfForComp(comp) {
   if (_sdfCache.has(key)) return _sdfCache.get(key);
 
   try {
-    const { lookupMolecule, loadComponentStructure } = await import('../../../chem/src/pubchem.js');
+    const { lookupMolecule, loadComponentStructure } = await import('../../../chem/pubchem.js');
     let sdf = '';
 
     try {

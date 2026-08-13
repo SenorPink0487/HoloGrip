@@ -46,6 +46,23 @@ export async function resolveWithDeepSeek(query) {
 }
 
 /**
+ * Resolve a chemical reaction through the shared server proxy.
+ * @param {string[]} reactants
+ * @param {string} condition
+ */
+export async function resolveReactionWithDeepSeek(reactants, condition = '') {
+  const res = await fetch('/api/resolve-reaction', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reactants, condition }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.error || `AI 反应判定失败 (${res.status})`)
+  if (!data?.ok) throw new Error(data?.reason || 'AI 无法判定该反应。')
+  return data
+}
+
+/**
  * @param {string} query
  */
 async function resolveViaTauri(query) {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import * as THREE from 'three';
 
 import {
   electricFieldAt,
@@ -19,10 +20,10 @@ function close(actual, expected, tolerance = 1e-6) {
   );
 }
 
-function context() {
+function context(customEquipment = null) {
   const state = { expId: 'electric_field', stepIndex: 0, data: {} };
   const mouseDrag = { holdLMB: false, movementX: 0, movementY: 0 };
-  const equipment = { electro: { updateElectricField: () => {}, mouseDrag } };
+  const equipment = customEquipment || { electro: { updateElectricField: () => {}, mouseDrag } };
   const handlers = createHandlers({
     state,
     equipment,
@@ -269,4 +270,41 @@ test('electric-field content screen renders full controls without error', () => 
   assert.ok(actions.includes('electric-probe-sign'));
   assert.ok(actions.includes('electric-axis-lock'));
 });
+
+test('electric-field side camera view drag projects deltas without inversion', () => {
+  const mockCamera = {
+    // Camera on right side (+X) looking towards -X (quaternion rotates (0,0,-1) to (-1,0,0))
+    quaternion: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2),
+  };
+  const mockEquipment = {
+    electro: {
+      getCamera: () => mockCamera,
+      mouseDrag: {},
+    },
+  };
+  const { state, handlers } = context(mockEquipment);
+  const target = { userData: { role: 'electric_charge', chargeId: 1 } };
+  state.data.charges = [{ id: 1, q: 1, x: 0, y: 0, z: 0 }];
+  state.data.selectedId = 1;
+
+  // Lock Z so dragging moves freely on desk floor (XY plane)
+  handlers.onUiAction('electric-axis-lock', { axis: 'z', locked: true });
+  handlers.onUiAction('electric-axis-lock', { axis: 'x', locked: false });
+  handlers.onUiAction('electric-axis-lock', { axis: 'y', locked: false });
+
+  assert.equal(handlers.beginManipulation(target), true);
+
+  // Dragging mouse to the LEFT (totalX < 0) in side view (+Z is screen-left)
+  handlers.updateManipulation(target, {
+    totalX: -80,
+    totalY: 0,
+    dragged: true,
+    dt: 1 / 60,
+  });
+
+  // Since +Z is on screen-left, dragging LEFT must INCREASE charge.y (+Z delta)
+  assert.ok(state.data.charges[0].y > 0, `charge.y should increase when dragging left in side view, got ${state.data.charges[0].y}`);
+  handlers.endManipulation(target);
+});
+
 

@@ -26,8 +26,8 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
     return { sprite: new THREE.Group(), setQE: () => {} };
   }
   const canvas = document.createElement('canvas');
-  canvas.width = 512;
-  canvas.height = 280;
+  canvas.width = 440;
+  canvas.height = 160;
   const ctx = canvas.getContext('2d');
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -40,24 +40,35 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
     opacity: 1,
   }));
   sprite.center.set(0.5, 0);
-  const baseW = 0.40 * worldScale;
-  const heightFor = (n) => (0.040 + 0.038 * Math.max(1, n)) * worldScale;
+  const baseW = 0.48 * worldScale;
+  const heightFor = (n) => (0.040 + 0.045 * Math.max(1, n)) * worldScale;
   sprite.scale.set(baseW, heightFor(2), 1);
   sprite.renderOrder = 24;
   sprite.raycast = () => {};
   let lastKey = '';
 
-  function setQE(qText, eText, accent = '#fde68a', rText = null) {
+  function setQE(qText, eText, accent = '#fbbf24', rText = null) {
     const key = `${accent}|${qText}|${eText}|${rText || ''}`;
     if (key === lastKey) return;
     lastKey = key;
     const W = canvas.width;
     const H = canvas.height;
     ctx.clearRect(0, 0, W, H);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
+
+    // Frameless pure floating text (no card box / no container background)
     const drawLine = (text, y, size, color) => {
       if (!text) return;
+      // High-contrast dark outline stroke behind pure floating text
+      ctx.save();
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.95)';
+      ctx.lineWidth = 7;
+      ctx.lineJoin = 'round';
+      ctx.font = `bold ${size}px "Microsoft YaHei", sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.strokeText(text, W / 2, y);
+      ctx.restore();
+
       drawMathFormula(ctx, text, W / 2, y, {
         font: `bold ${size}px "Microsoft YaHei", sans-serif`,
         color,
@@ -67,11 +78,11 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
       });
     };
     const lines = [
-      rText ? { text: rText, color: '#7dd3fc', size: 36 } : null,
-      { text: eText, color: '#e2e8f0', size: 34 },
+      rText ? { text: rText, color: '#38bdf8', size: 44 } : null,
+      { text: eText, color: accent || '#fbbf24', size: 42 },
     ].filter(Boolean);
     sprite.scale.set(baseW, heightFor(lines.length), 1);
-    const lineSpacing = 42;
+    const lineSpacing = 50;
     const centerY = H * 0.50;
     const startY = centerY - ((lines.length - 1) * lineSpacing) / 2;
     lines.forEach((line, i) => {
