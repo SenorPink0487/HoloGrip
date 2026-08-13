@@ -22,6 +22,26 @@ export function chargeUiToCoulomb(qUi) {
   return Number(qUi || 0) * CHARGE_UI_TO_C;
 }
 
+/** 物理仿真系统字体栈标准 */
+export const FONT_STACKS = {
+  /** UI 文本、按钮、菜单、提示与动态读数 */
+  ui: '"Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", sans-serif',
+  /** 物理数学斜体变量（B, x, E, r, t, ε_i） */
+  mathVar: '"Times New Roman", "Cambria Math", "STIX Two Math", serif',
+  /** 物理正体单位与运算符（V, T, Wb, s, d） */
+  mathText: '"Times New Roman", "Cambria Math", serif',
+  /** 调试终端与纯代码控制台 */
+  code: 'Consolas, "SF Mono", monospace',
+};
+
+export function buildUiFont(size, weight = 'bold') {
+  return `${weight} ${Math.round(size)}px ${FONT_STACKS.ui}`;
+}
+
+export function buildMathVarFont(size, weight = 'bold') {
+  return `${weight} italic ${Math.round(size)}px ${FONT_STACKS.mathVar}`;
+}
+
 const SUPER_MAP = {
   '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
   '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
@@ -169,6 +189,13 @@ export function tokenizeFormula(formula) {
       }
 
       const latexCmds = [
+        ['\\rightarrow', ' → '],
+        ['\\Rightarrow', ' ⇒ '],
+        ['\\to', ' → '],
+        ['\\uparrow', '↑'],
+        ['\\downarrow', '↓'],
+        ['\\quad', '   '],
+        ['\\qquad', '     '],
         ['\\oint', '∮'],
         ['\\sum', '∑'],
         ['\\Delta', 'Δ'],
@@ -291,32 +318,35 @@ export function tokenizeFormula(formula) {
 /**
  * 测量公式像素宽度。
  */
-export function measureMathFormula(ctx, formula, fontSize = 18) {
+export function measureMathFormula(ctx, formula, fontSize = 18, opts = {}) {
   const tokens = tokenizeFormula(formula);
   const size = fontSize;
   const subSize = Math.max(10, Math.round(size * 0.65));
+  const weight = opts.fontWeight || 'bold';
+  const cnFont = opts.cnFont || '"Microsoft YaHei", "PingFang SC", sans-serif';
   let w = 0;
   for (const tok of tokens) {
     if (tok.kind === 'calligraphic') {
-      ctx.font = `italic ${size}px "STIX Two Math", "Cambria Math", "TeX Gyre Termes Math", "Segoe Script", "Lucida Calligraphy", cursive, serif`;
+      ctx.font = `${weight} italic ${size}px "STIX Two Math", "Cambria Math", "TeX Gyre Termes Math", "Segoe Script", "Lucida Calligraphy", cursive, serif`;
       w += ctx.measureText(tok.text).width;
     } else if (tok.kind === 'vec') {
-      ctx.font = `bold italic ${size}px "Times New Roman", "Cambria Math", "STIX Two Math", serif`;
+      ctx.font = `${weight} italic ${size}px "Times New Roman", "Cambria Math", "STIX Two Math", serif`;
       w += ctx.measureText(tok.text).width + 1;
     } else if (tok.kind === 'var') {
-      ctx.font = `italic ${size}px "Times New Roman", "Cambria Math", "STIX Two Math", serif`;
+      ctx.font = `${weight} italic ${size}px "Times New Roman", "Cambria Math", "STIX Two Math", serif`;
       w += ctx.measureText(tok.text).width;
     } else if (tok.kind === 'cn') {
-      ctx.font = `${size}px "SimSun", "Songti SC", "Microsoft YaHei", serif`;
+      ctx.font = `${weight} ${size}px ${cnFont}`;
       w += ctx.measureText(tok.text).width;
     } else if (tok.kind === 'sub' || tok.kind === 'sup') {
-      const font = /[\u3000-\u9fff]/.test(tok.text)
-        ? `${subSize}px "SimSun", "Songti SC", "Microsoft YaHei", serif`
-        : `${subSize}px "Times New Roman", "Cambria Math", serif`;
+      const isCn = /[\u3000-\u9fff]/.test(tok.text);
+      const font = isCn
+        ? `${weight} ${subSize}px ${cnFont}`
+        : `${weight} ${subSize}px "Times New Roman", "Cambria Math", serif`;
       ctx.font = font;
       w += ctx.measureText(tok.text).width * 0.96;
     } else {
-      ctx.font = `${size}px "Times New Roman", "Cambria Math", serif`;
+      ctx.font = `${weight} ${size}px "Times New Roman", "Cambria Math", ${cnFont}`;
       w += ctx.measureText(tok.text).width;
     }
   }
@@ -329,17 +359,19 @@ export function measureMathFormula(ctx, formula, fontSize = 18) {
  * @param {string} formula markup，如 "E=kQ/r^{2}"、"\Phi_{E}=Q_{内}/\varepsilon_{0}"、"\mathcal{E}_{i}=-n\Delta\Phi_{B}/\Delta t"
  * @param {number} x 基线起点（align=left）或中心（align=center）
  * @param {number} y 字母基线 y
- * @param {{ fontSize?: number, color?: string, align?: 'left'|'center', maxWidth?: number, textBaseline?: string }} [opts]
+ * @param {{ fontSize?: number, color?: string, align?: 'left'|'center', maxWidth?: number, textBaseline?: string, fontWeight?: string, cnFont?: string }} [opts]
  * @returns {{ width: number, height: number }}
  */
 export function drawMathFormula(ctx, formula, x, y, opts = {}) {
   const size = opts.fontSize || 18;
   const color = opts.color || '#0c4a6e';
   const align = opts.align || 'left';
+  const weight = opts.fontWeight || 'bold';
+  const cnFont = opts.cnFont || '"Microsoft YaHei", "PingFang SC", sans-serif';
   const subSize = Math.max(10, Math.round(size * 0.65));
   const tokens = tokenizeFormula(formula);
 
-  let totalW = measureMathFormula(ctx, formula, size);
+  let totalW = measureMathFormula(ctx, formula, size, opts);
   if (opts.maxWidth && totalW > opts.maxWidth) {
     const scale = opts.maxWidth / totalW;
     return drawMathFormula(ctx, formula, x, y, {
@@ -367,11 +399,11 @@ export function drawMathFormula(ctx, formula, x, y, opts = {}) {
 
   for (const tok of tokens) {
     if (tok.kind === 'calligraphic') {
-      ctx.font = `italic ${size}px "STIX Two Math", "Cambria Math", "TeX Gyre Termes Math", "Segoe Script", "Lucida Calligraphy", cursive, serif`;
+      ctx.font = `${weight} italic ${size}px "STIX Two Math", "Cambria Math", "TeX Gyre Termes Math", "Segoe Script", "Lucida Calligraphy", cursive, serif`;
       ctx.fillText(tok.text, penX, baseY);
       penX += ctx.measureText(tok.text).width;
     } else if (tok.kind === 'vec') {
-      ctx.font = `bold italic ${size}px "Times New Roman", "Cambria Math", "STIX Two Math", serif`;
+      ctx.font = `${weight} italic ${size}px "Times New Roman", "Cambria Math", "STIX Two Math", serif`;
       const vw = ctx.measureText(tok.text).width;
       ctx.fillText(tok.text, penX, baseY);
 
@@ -389,25 +421,32 @@ export function drawMathFormula(ctx, formula, x, y, opts = {}) {
 
       penX += vw + 1;
     } else if (tok.kind === 'var') {
-      ctx.font = `italic ${size}px "Times New Roman", "Cambria Math", "STIX Two Math", serif`;
+      ctx.font = `${weight} italic ${size}px "Times New Roman", "Cambria Math", "STIX Two Math", serif`;
       ctx.fillText(tok.text, penX, baseY);
       penX += ctx.measureText(tok.text).width;
     } else if (tok.kind === 'cn') {
-      ctx.font = `${size}px "SimSun", "Songti SC", "Microsoft YaHei", serif`;
+      ctx.font = `${weight} ${size}px ${cnFont}`;
       ctx.fillText(tok.text, penX, baseY);
       penX += ctx.measureText(tok.text).width;
     } else if (tok.kind === 'sub') {
       const isCn = /[\u3000-\u9fff]/.test(tok.text);
+      const isVar = /^[A-Za-z]/.test(tok.text);
+      const fontStyle = isVar ? `${weight} italic` : `${weight}`;
       ctx.font = isCn
-        ? `${subSize}px "SimSun", "Songti SC", "Microsoft YaHei", serif`
-        : `${subSize}px "Times New Roman", "Cambria Math", serif`;
+        ? `${weight} ${subSize}px ${cnFont}`
+        : `${fontStyle} ${subSize}px "Times New Roman", "Cambria Math", serif`;
       const sw = ctx.measureText(tok.text).width;
-      ctx.fillText(tok.text, penX, baseY + size * 0.28);
+      ctx.fillText(tok.text, penX, baseY + size * 0.16);
       penX += sw * 0.96;
     } else if (tok.kind === 'sup') {
-      ctx.font = `${subSize}px "Times New Roman", "Cambria Math", serif`;
+      const isCn = /[\u3000-\u9fff]/.test(tok.text);
+      const isVar = /^[A-Za-z]/.test(tok.text);
+      const fontStyle = isVar ? `${weight} italic` : `${weight}`;
+      ctx.font = isCn
+        ? `${weight} ${subSize}px ${cnFont}`
+        : `${fontStyle} ${subSize}px "Times New Roman", "Cambria Math", serif`;
       const sw = ctx.measureText(tok.text).width;
-      ctx.fillText(tok.text, penX, baseY - size * 0.42);
+      ctx.fillText(tok.text, penX, baseY - size * 0.40);
       penX += sw * 0.96;
     } else {
       ctx.font = `${size}px "Times New Roman", "Cambria Math", serif`;

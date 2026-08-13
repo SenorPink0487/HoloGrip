@@ -33,21 +33,21 @@ export const station = {
       id: 'faraday_induction',
       name: '法拉第电磁感应',
       goal: '设定 B 或铜棒位置 x 的目标值与变化时长，播放动态过程，观察磁通量变化、感应电动势与楞次定律方向。',
-      theory: 'Φ = BS，S = (x − x₀)L；E = nΔΦ/Δt（方向由楞次定律判定）',
+      theory: '\\Phi_B = BS, S = (x - x_0)L; \\varepsilon_i = n\\Delta\\Phi_B/\\Delta t（方向由楞次定律判定）',
       steps: [
         { id: 'motion', text: '设定目标 x 并播放，测量动生电动势', hint: '模式选「动生·x」，设目标位置与时长，点「播放变化」；也可手拖铜棒。' },
         { id: 'field', text: '设定目标 B 并播放，测量感生电动势', hint: '模式选「感生·B」，设目标磁场与时长，点「播放变化」；或点「反向 B」快速演示。' },
-        { id: 'conclude', text: '完成法拉第定律验证', hint: '比较 E = BLΔx/Δt 与 E = S·ΔB/Δt 的结果，并用楞次定律判定方向。' },
+        { id: 'conclude', text: '完成法拉第定律验证', hint: '比较 \\varepsilon_i = BL\\Delta x/\\Delta t 与 \\varepsilon_i = S\\cdot\\Delta B/\\Delta t 的结果，并用楞次定律判定方向。' },
       ],
     },
     {
       id: 'induced_electric_field',
       name: '感生电场',
       goal: '手动调节 B 与 dB/dt，观察涡旋感生电场：面内 E∝r，面外 E∝1/r，方向由楞次定律判定。',
-      theory: 'E·2πr = ΔΦ/Δt；r≤R 时 E=(r/2)|ΔB/Δt|，r>R 时 E=(R²/(2r))|ΔB/Δt|',
+      theory: 'E\\cdot 2\\pi r = \\Delta\\Phi/\\Delta t；r\\le R 时 E=(r/2)|\\Delta B/\\Delta t|，r>R 时 E=(R^2/(2r))|\\Delta B/\\Delta t|',
       steps: [
         { id: 'observe', text: '观察圆柱形磁场区与同心涡旋 E 线', hint: '感生电场是闭合涡旋线，不是静电场的起止线。默认手动设定 B 与 dB/dt。' },
-        { id: 'probe', text: '拖动探测电荷，比较面内/面外 E 的大小', hint: '面内 |E| 随 r 增大，面外随 r 减小。' },
+        { id: 'probe', text: '拖动试探电荷，比较面内/面外 E 的大小', hint: '面内 |E| 随 r 增大，面外随 r 减小。' },
         { id: 'lenz', text: '调节 dB/dt 或反转变化趋势，观察 E 的环绕方向', hint: '在桌右侧滑条拖 dB/dt，或点「反转 dB/dt」；需要连续交变时可开「自动振荡」。' },
         { id: 'conclude', text: '完成感生电场规律归纳', hint: '对照全息屏公式与 E–r 曲线归纳规律。' },
       ],
@@ -55,12 +55,12 @@ export const station = {
     {
       id: 'electric_field',
       name: '静电场探索',
-      goal: '拖动正负点电荷与探测电荷，观察叠加电场、受力与电势的空间分布',
-      theory: 'E=F/q；E=kQ/r²；F=qE；k=9.0×10⁹ N·m²/C²（电荷以 μC 计，位置以 m 计）',
+      goal: '拖动正负点电荷与试探电荷，观察叠加电场、受力与电势的空间分布',
+      theory: 'E=F/q；E=kQ/r^2；F=qE；k=9.0\\times 10^9 N\\cdot m^2/C^2（电荷以 \\mu C 计，位置以 m 计）',
       steps: [
         {
           id: 'explore',
-          text: '自由探索静电场与探测电荷',
+          text: '自由探索静电场与试探电荷',
           hint: '拖动调 X/Y；滚轮或 Shift+拖 调 Z；内容屏可锁轴；电荷量在桌侧滑条。',
         },
       ],
@@ -69,7 +69,7 @@ export const station = {
       id: 'hall_carrier_demo',
       name: '霍尔效应原理',
       goal: '观察电流、磁场、载流子浓度、样品厚度与载流子类型如何共同改变载流子的三维运动和霍尔电压极性。',
-      theory: '霍尔电压 U_H = K_IB·I·B ；n 型与 p 型载流子的霍尔电压极性相反（演示量为相对值）。',
+      theory: '霍尔电压 U_H = K_{\\text{IB}}\\cdot I\\cdot B ；n 型与 p 型载流子的霍尔电压极性相反（演示量为相对值）。',
       steps: [
         { id: 'observe', text: '自由调节参数并观察载流子运动', hint: '在桌右侧滑条调节 I、B、n、d，内容屏可切换 n/p 型。' },
       ],
@@ -256,7 +256,7 @@ export function electricPotentialAt(charges = [], point = {}, options = {}) {
   return potential;
 }
 
-/** 探测电荷受力 F = qE（N）；q0 为界面 μC 读数 */
+/** 试探电荷受力 F = qE（N）；q0 为界面 μC 读数 */
 export function electricForceAt(charges = [], point = {}, q0 = 1, options = {}) {
   const field = electricFieldAt(charges, point, options);
   const q = chargeUiToCoulomb(q0);
@@ -1302,7 +1302,7 @@ export function createHandlers(ctx) {
     data.currentLinger = 0;
     data.lingerSense = 'none';
     if (state.stepIndex < 1 && Math.abs(dx) > 1e-4) setStep('field');
-    toast(`动生测量完成：E = ${emf.toFixed(4)}，${faradaySenseLabel(sense)}`);
+    toast(`动生测量完成：ε_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
     return true;
   }
 
@@ -1409,7 +1409,7 @@ export function createHandlers(ctx) {
       };
       data.records.push({ type: 'motion', ...data.lastMotion });
       if (state.stepIndex < 1 && Math.abs(dx) > 1e-4) setStep('field');
-      toast(`动生测量完成：E = ${emf.toFixed(4)}，${faradaySenseLabel(sense)}`);
+      toast(`动生测量完成：ε_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
     } else {
       const dB = data.B - pending.from;
       data.lastInduction = {
@@ -1427,7 +1427,7 @@ export function createHandlers(ctx) {
       };
       data.records.push({ type: 'induction', ...data.lastInduction });
       if (state.stepIndex < 2 && Math.abs(dB) > 1e-6) setStep('conclude');
-      toast(`感生测量完成：E = ${emf.toFixed(4)}，${faradaySenseLabel(sense)}`);
+      toast(`感生测量完成：ε_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
     }
     data.records = data.records.slice(-12);
     data.pendingAnim = null;
@@ -1530,7 +1530,7 @@ export function createHandlers(ctx) {
     data.currentLinger = 0;
     data.liveEmf = 0;
     if (state.stepIndex < 2 && Math.abs(dB) > 1e-6) setStep('conclude');
-    toast(`磁场滑块测量完成：E = ${emf.toFixed(4)}，${faradaySenseLabel(sense)}`);
+    toast(`磁场滑块测量完成：ε_i = ${emf.toFixed(4)} V，${faradaySenseLabel(sense)}`);
     return true;
   }
 
@@ -2428,7 +2428,7 @@ export function createHandlers(ctx) {
         };
         data.dragMouseX = Number(equipment.electro?.mouseDrag?.movementX || 0);
         data.dragMouseY = Number(equipment.electro?.mouseDrag?.movementY || 0);
-        toast('已抓住探测电荷：在水平面拖动改变 r，观察 E∝r / E∝1/r');
+        toast('已抓住试探电荷：在水平面拖动改变 r，观察 E∝r / E∝1/r');
         if (state.stepIndex < 1) setStep('probe');
         syncInducedElectric(data);
         return true;
@@ -2480,7 +2480,7 @@ export function createHandlers(ctx) {
         data.dragStart = { ...data.probe };
         data.dragMouseX = Number(equipment.electro?.mouseDrag?.movementX || 0);
         data.dragMouseY = Number(equipment.electro?.mouseDrag?.movementY || 0);
-        toast(`已选中探测电荷 q₀；${electricAxisLockSummary(data)}`);
+        toast(`已选中试探电荷 q₀；${electricAxisLockSummary(data)}`);
         return true;
       }
       if (target?.userData?.role === 'ui_action') return onUiAction('electric-complete');

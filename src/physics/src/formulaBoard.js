@@ -101,8 +101,8 @@ export const FORMULA_CATALOG = {
       cat: 'electro',
       title: '电场强度（定义）',
       formula: '\\vec{E}=\\vec{F}/q_{0}',
-      concept: '放入电场中某点的探测电荷所受的电场力 F 跟它的电荷量 q₀ 的比值，叫做该点的电场强度。矢量方向与正电荷受力方向相同。',
-      symbols: 'E — 电场强度　F — 电场力　q₀ — 探测电荷电荷量',
+      concept: '放入电场中某点的试探电荷所受的电场力 F 跟它的电荷量 q₀ 的比值，叫做该点的电场强度。矢量方向与正电荷受力方向相同。',
+      symbols: 'E — 电场强度　F — 电场力　q₀ — 试探电荷电荷量',
     },
     {
       id: 'point_charge_e',
@@ -505,7 +505,7 @@ export function drawFormulaBoard(ctx, W, H, state) {
       ctx.font = 'bold 26px "Microsoft YaHei", sans-serif';
       ctx.fillText('符号说明', detailX + 56, symY + 14);
       ctx.fillStyle = '#0f172a';
-      ctx.font = '28px Consolas, "Microsoft YaHei", monospace';
+      ctx.font = '28px "Microsoft YaHei", sans-serif';
       ctx.fillText(selected.symbols, detailX + 56, symY + 46);
     }
   }

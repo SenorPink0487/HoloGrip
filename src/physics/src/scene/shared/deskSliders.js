@@ -71,7 +71,7 @@ function makeHeaderTexture(label, valueText, _accent = '#ec4899') {
   // Value (right, mono)
   ctx.textAlign = 'right';
   ctx.fillStyle = DESK_TEXT;
-  ctx.font = `bold ${Math.round(fontPx * 1.06)}px Consolas, "SF Mono", monospace`;
+  ctx.font = `bold ${Math.round(fontPx * 1.06)}px "Microsoft YaHei", sans-serif`;
   ctx.fillText(String(valueText || '—'), c.width - Math.round(c.width * 0.02), c.height * 0.52);
 
   const tex = new THREE.CanvasTexture(c);

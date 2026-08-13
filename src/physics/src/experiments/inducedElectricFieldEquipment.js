@@ -4,7 +4,7 @@ import {
   inducedEMagnitude,
   inducedESense,
 } from './electro.js';
-import { formatPhysicsNumber } from '../physicsFormula.js';
+import { formatPhysicsNumber, drawMathFormula } from '../physicsFormula.js';
 
 const WORLD_PER_SOURCE = 0.12;
 /** Fixed source-space radii r_source (0.45 to 4.50) for the concentric induced electric field lines.
@@ -41,8 +41,8 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
   }));
   sprite.center.set(0.5, 0);
   const baseW = 0.40 * worldScale;
-  const heightFor = (n) => (0.055 + 0.048 * Math.max(2, n)) * worldScale;
-  sprite.scale.set(baseW, heightFor(3), 1);
+  const heightFor = (n) => (0.040 + 0.038 * Math.max(1, n)) * worldScale;
+  sprite.scale.set(baseW, heightFor(2), 1);
   sprite.renderOrder = 24;
   sprite.raycast = () => {};
   let lastKey = '';
@@ -58,23 +58,24 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
     ctx.textBaseline = 'middle';
     const drawLine = (text, y, size, color) => {
       if (!text) return;
-      ctx.font = `bold ${size}px Consolas, "SF Mono", "Microsoft YaHei", sans-serif`;
-      ctx.lineWidth = 6;
-      ctx.strokeStyle = 'rgba(15, 23, 42, 0.72)';
-      ctx.strokeText(text, W / 2, y);
-      ctx.fillStyle = color;
-      ctx.fillText(text, W / 2, y);
+      drawMathFormula(ctx, text, W / 2, y, {
+        font: `bold ${size}px "Microsoft YaHei", sans-serif`,
+        color,
+        align: 'center',
+        textBaseline: 'middle',
+        fontWeight: 'bold',
+      });
     };
     const lines = [
-      { text: qText, color: accent, size: 40 },
       rText ? { text: rText, color: '#7dd3fc', size: 36 } : null,
       { text: eText, color: '#e2e8f0', size: 34 },
     ].filter(Boolean);
     sprite.scale.set(baseW, heightFor(lines.length), 1);
-    const top = 0.14;
-    const bottom = 0.88;
+    const lineSpacing = 42;
+    const centerY = H * 0.50;
+    const startY = centerY - ((lines.length - 1) * lineSpacing) / 2;
     lines.forEach((line, i) => {
-      const y = H * (top + (bottom - top) * (lines.length === 1 ? 0.5 : i / (lines.length - 1)));
+      const y = startY + i * lineSpacing;
       drawLine(line.text, y, line.size, line.color);
     });
     texture.needsUpdate = true;
@@ -370,20 +371,27 @@ export function createInducedElectricFieldEquipment() {
     new THREE.MeshStandardMaterial({
       color: 0xffd43b,
       emissive: 0xffb000,
-      emissiveIntensity: 0.85,
+      emissiveIntensity: 0.95,
       metalness: 0.2,
       roughness: 0.28,
     }),
   );
+  probeCore.renderOrder = 22;
+  probeCore.frustumCulled = false;
+
   const probeHalo = new THREE.Mesh(
     new THREE.SphereGeometry(0.20 * S, 14, 12),
     new THREE.MeshBasicMaterial({
       color: 0xffd43b,
       transparent: true,
-      opacity: 0.34,
+      opacity: 0.45,
+      depthTest: true,
       depthWrite: false,
     }),
   );
+  probeHalo.renderOrder = 21;
+  probeHalo.frustumCulled = false;
+
   const probeHit = new THREE.Mesh(
     new THREE.SphereGeometry(0.38 * S, 14, 10),
     new THREE.MeshBasicMaterial({ visible: false }),
@@ -407,7 +415,11 @@ export function createInducedElectricFieldEquipment() {
   forceArrow.raycast = () => {};
   const probeHud = createFloatingHudLabel({ worldScale: S * 11 });
   probeHud.sprite.position.set(0, 0.22 * S, 0);
+  probeHud.sprite.renderOrder = 24;
+  probeHud.sprite.frustumCulled = false;
   probe.add(probeHalo, probeCore, probeHit, forceArrow, probeHud.sprite);
+  probe.frustumCulled = false;
+  probeGroup.frustumCulled = false;
   [probe, probeCore, probeHalo, probeHit].forEach((node) => {
     node.userData.interactive = true;
     node.userData.role = 'induced_e_probe';
@@ -598,6 +610,7 @@ export function createInducedElectricFieldEquipment() {
       probeCore.material.color.setHex(qPos ? 0xffd43b : 0x60a5fa);
       probeCore.material.emissive.setHex(qPos ? 0xffb000 : 0x2563eb);
       probeHalo.material.color.setHex(qPos ? 0xffd43b : 0x60a5fa);
+      probeHud.sprite.visible = data?.showProbe !== false;
 
       const pr = Number(data?.probeR ?? Math.hypot(Number(data?.probe?.x || 0), Number(data?.probe?.z || 0)));
       probeHud.setQE(

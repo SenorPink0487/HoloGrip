@@ -179,13 +179,13 @@ function createExternalRulerMap() {
 
     if (is50) {
       ctx.fillStyle = '#0a1020';
-      ctx.font = `bold ${Math.round(h * 0.032)}px Consolas, "Segoe UI", monospace`;
+      ctx.font = `bold ${Math.round(h * 0.032)}px "Microsoft YaHei", sans-serif`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(String(mm), x0 + len + 14, y);
     } else if (is10 && mm > 0) {
       ctx.fillStyle = '#2a3a52';
-      ctx.font = `600 ${Math.round(h * 0.016)}px Consolas, monospace`;
+      ctx.font = `600 ${Math.round(h * 0.016)}px "Microsoft YaHei", sans-serif`;
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(String(mm), x0 + len + 8, y);

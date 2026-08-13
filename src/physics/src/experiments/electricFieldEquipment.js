@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { createInstancedArrowField } from '../scene/shared/instancedBatch.js';
-import { K_COULOMB, CHARGE_UI_TO_C, formatPhysicsNumber } from '../physicsFormula.js';
+import { K_COULOMB, CHARGE_UI_TO_C, formatPhysicsNumber, drawMathFormula } from '../physicsFormula.js';
 import { labFrameScheduler } from '../frameBudget.js';
 
 const WORLD_PER_SOURCE_UNIT = 0.13;
@@ -39,8 +39,8 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
   // Bottom-center pivot so the tag sits on top of the sphere.
   sprite.center.set(0.5, 0);
   const baseW = 0.40 * worldScale;
-  const heightFor = (n) => (0.055 + 0.048 * Math.max(2, n)) * worldScale;
-  sprite.scale.set(baseW, heightFor(3), 1);
+  const heightFor = (n) => (0.040 + 0.038 * Math.max(1, n)) * worldScale;
+  sprite.scale.set(baseW, heightFor(2), 1);
   sprite.renderOrder = 24;
   sprite.raycast = () => {};
   let lastKey = '';
@@ -63,7 +63,7 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
     ctx.textBaseline = 'middle';
     const drawLine = (text, y, size, color) => {
       if (!text) return;
-      ctx.font = `bold ${size}px Consolas, "SF Mono", "Microsoft YaHei", sans-serif`;
+      ctx.font = `bold ${size}px "Microsoft YaHei", sans-serif`;
       ctx.lineWidth = 6;
       ctx.strokeStyle = 'rgba(15, 23, 42, 0.72)';
       ctx.strokeText(text, W / 2, y);
@@ -71,16 +71,16 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
       ctx.fillText(text, W / 2, y);
     };
     const lines = [
-      { text: qText, color: accent, size: 40 },
       rText ? { text: rText, color: '#7dd3fc', size: 36 } : null,
       { text: eText, color: '#e2e8f0', size: 34 },
       fText ? { text: fText, color: '#86efac', size: 34 } : null,
     ].filter(Boolean);
     sprite.scale.set(baseW, heightFor(lines.length), 1);
-    const top = 0.14;
-    const bottom = 0.88;
+    const lineSpacing = 42;
+    const centerY = H * 0.50;
+    const startY = centerY - ((lines.length - 1) * lineSpacing) / 2;
     lines.forEach((line, i) => {
-      const y = H * (top + (bottom - top) * (lines.length === 1 ? 0.5 : i / (lines.length - 1)));
+      const y = startY + i * lineSpacing;
       drawLine(line.text, y, line.size, line.color);
     });
     texture.needsUpdate = true;
@@ -337,14 +337,20 @@ export function createElectricFieldEquipment() {
 
   // Probe is smaller than source charges so it reads as a test charge, not a peer source.
   const probe = new THREE.Group();
+  probe.frustumCulled = false;
+  probeGroup.frustumCulled = false;
   const probeCore = new THREE.Mesh(
     new THREE.SphereGeometry(0.028, 18, 12),
-    new THREE.MeshStandardMaterial({ color: 0xffd43b, emissive: 0xffb000, emissiveIntensity: 0.75 }),
+    new THREE.MeshStandardMaterial({ color: 0xffd43b, emissive: 0xffb000, emissiveIntensity: 0.90 }),
   );
+  probeCore.renderOrder = 22;
+  probeCore.frustumCulled = false;
   const probeHalo = new THREE.Mesh(
     new THREE.SphereGeometry(0.052, 14, 10),
-    new THREE.MeshBasicMaterial({ color: 0xffd43b, transparent: true, opacity: 0.16, depthWrite: false }),
+    new THREE.MeshBasicMaterial({ color: 0xffd43b, transparent: true, opacity: 0.35, depthTest: true, depthWrite: false }),
   );
+  probeHalo.renderOrder = 21;
+  probeHalo.frustumCulled = false;
   const probeHit = new THREE.Mesh(
     // Tight grab: ~1.7× halo so aim must land near the small sphere.
     new THREE.SphereGeometry(0.09, 14, 10),
@@ -359,6 +365,8 @@ export function createElectricFieldEquipment() {
   probe.userData.hit = probeHit;
   const probeHud = createFloatingHudLabel({ worldScale: WORLD_PER_SOURCE_UNIT * 6.8 });
   probeHud.sprite.position.set(0, 0.085, 0);
+  probeHud.sprite.renderOrder = 24;
+  probeHud.sprite.frustumCulled = false;
   probe.add(probeHud.sprite);
   probeGroup.add(probe);
 
@@ -777,7 +785,7 @@ export function createElectricFieldEquipment() {
     const fy = Number(data.force?.y || 0);
     const fz = Number(data.force?.z || 0);
     const mag = Math.hypot(fx, fy, fz);
-    // SI 下探测电荷受力约 10⁻³～10⁻¹ N；过小则不画。
+    // SI 下试探电荷受力约 10⁻³～10⁻¹ N；过小则不画。
     if (mag < 1e-12) {
       if (forceArrow) {
         forceArrow.parent?.remove(forceArrow);
@@ -878,6 +886,7 @@ export function createElectricFieldEquipment() {
     probe.position.set(probeData.x, probeData.z, probeData.y).multiplyScalar(WORLD_PER_SOURCE_UNIT);
     probe.visible = data.showProbe !== false;
     probeHit.raycast = data.showProbe !== false ? THREE.Mesh.prototype.raycast : () => {};
+    probeHud.sprite.visible = data.showProbe !== false;
     const q0 = Number(probeData.q0 || 0);
     const qPos = q0 >= 0;
     probeCore.material.color.setHex(qPos ? 0xffd43b : 0x60a5fa);

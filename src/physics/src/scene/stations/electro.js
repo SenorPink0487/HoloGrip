@@ -13,6 +13,7 @@ import {
   gaussFluxParticleSpeed,
   gaussNormalFluxDensity,
 } from '../../experiments/electro.js';
+import { drawMathFormula } from '../../physicsFormula.js';
 import { createEquipmentRuntime, getLeafPickSet, estimateObjectBytes } from '../../runtime/experimentRuntime.js';
 
 /**
@@ -613,7 +614,7 @@ function createFullStationEquipment(ctx) {
         lastValue = value;
         cx.fillStyle = '#090202'; cx.fillRect(0, 0, 320, 140);
         cx.strokeStyle = '#3f4044'; cx.lineWidth = 8; cx.strokeRect(4, 4, 312, 132);
-        cx.fillStyle = '#ff2028'; cx.font = 'bold 64px Consolas, monospace'; cx.textAlign = 'center';
+        cx.fillStyle = '#ff2028'; cx.font = 'bold 64px "Microsoft YaHei", sans-serif'; cx.textAlign = 'center';
         cx.fillText(value, 160, 78);
         cx.fillStyle = '#72757a'; cx.font = '20px "Microsoft YaHei", sans-serif'; cx.fillText(label, 160, 118);
         texture.needsUpdate = true;
@@ -1489,15 +1490,67 @@ function createFullStationEquipment(ctx) {
         }
         updatePathLine(rodX, color, true);
       }
+
+      function makeFaradayLabelSprite() {
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 128;
+        const ctx = canvas.getContext('2d');
+        const texture = new THREE.CanvasTexture(canvas);
+        texture.colorSpace = THREE.SRGBColorSpace;
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+          map: texture,
+          transparent: true,
+          depthTest: true,
+          depthWrite: false,
+        }));
+        sprite.scale.set(0.65, 0.1625, 1);
+        sprite.renderOrder = 30;
+
+        let lastFormula = '';
+        let lastColor = '';
+        const update = (formula, textColor = '#38bdf8') => {
+          if (formula === lastFormula && textColor === lastColor) return;
+          lastFormula = formula;
+          lastColor = textColor;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+          drawMathFormula(ctx, formula, 256, 64, {
+            fontSize: 48,
+            color: textColor,
+            align: 'center',
+            textBaseline: 'middle',
+            fontWeight: 'bold',
+          });
+          texture.needsUpdate = true;
+        };
+
+        return { sprite, update };
+      }
+
+      const rodXLabel = makeFaradayLabelSprite();
+      const areaFluxLabel = makeFaradayLabelSprite();
+      circuitGroup.add(rodXLabel.sprite, areaFluxLabel.sprite);
+
       root.userData.update = (data, dt = 0) => {
         const x = THREE.MathUtils.clamp(Number(data?.x ?? 4.5), 1.2, 8);
+        const B = Number(data?.B || 0);
+        const flux = Number(data?.flux ?? (B * Math.max(x - X_END, 0) * ROD_LEN));
         rod.position.set(OFFSET_X + x * S, Y * S, 0);
         hit.position.set(OFFSET_X + x * S, Y * S, 0);
         const width = Math.max(x - X_END, 0.01);
         areaMesh.scale.set(width * S, S, 1);
         areaMesh.position.x = OFFSET_X + (X_END + width / 2) * S;
-        areaMat.color.setHex(Number(data?.B || 0) >= 0 ? 0x60a5fa : 0xfb923c);
-        areaMat.opacity = 0.12 + Math.min(Math.abs(Number(data?.flux || 0)) * 0.012, 0.18);
+        areaMat.color.setHex(B >= 0 ? 0x60a5fa : 0xfb923c);
+        areaMat.opacity = 0.12 + Math.min(Math.abs(flux) * 0.012, 0.18);
+
+        // Update real-time 3D text labels (using LaTeX drawMathFormula with subscript B)
+        rodXLabel.sprite.position.set(OFFSET_X + x * S, (Y + 1.8) * S, 0);
+        rodXLabel.update(`x = ${x.toFixed(2)} \\mathrm{m}`, '#f472b6');
+
+        const areaCenterX = X_END + width / 2;
+        areaFluxLabel.sprite.position.set(OFFSET_X + areaCenterX * S, (Y + 2.5) * S, 0);
+        areaFluxLabel.update(`\\Phi_B = ${flux >= 0 ? '+' : ''}${flux.toFixed(2)} \\mathrm{Wb}`, B >= 0 ? '#38bdf8' : '#fb923c');
         rebuildField(Number(data?.B || 0), data?.showField !== false);
         buildFlow(data?.currentSense || 'none', x);
         if (flowArrows.length) {

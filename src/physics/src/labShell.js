@@ -2327,19 +2327,19 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
   screen.position.z = 0.01;
   g.add(screen);
 
-  // 3D Crystal Glass Substrate (Provides realistic physical thickness and glass reflections)
+  // Anti-glare Glass Substrate (Matte non-reflective glass substrate, eliminates glare reflections)
   const substrateMat = new THREE.MeshPhysicalMaterial({
     color: 0xffffff,
-    metalness: 0.08,
-    roughness: 0.06,
+    metalness: 0,
+    roughness: 1.0,
     transmission: 0.94,
-    thickness: 0.12,
+    thickness: 0.05,
     transparent: true,
-    opacity: 0.32,
-    clearcoat: 1.0,
-    clearcoatRoughness: 0.04,
-    ior: 1.54,
-    reflectivity: 0.9,
+    opacity: 0.2,
+    clearcoat: 0,
+    clearcoatRoughness: 1.0,
+    ior: 1.0,
+    reflectivity: 0,
   });
   const substrate = rbox(panelW, panelH, 0.006, substrateMat, 0.004);
   substrate.position.z = 0.003;
@@ -3208,9 +3208,9 @@ function formatData(stationId, expId, data) {
     const motion = data.lastMotion;
     const induction = data.lastInduction;
     const fmt = (value, digits = 3) => Number(value || 0).toFixed(digits);
-    return `B = ${fmt(data.B, 2)} T · S = ${fmt(data.area)} m² · Φ = ${fmt(data.flux)} Wb\n`
+    return `B = ${fmt(data.B, 2)} T · S = ${fmt(data.area)} m² · Φ_B = ${fmt(data.flux)} Wb\n`
       + `铜棒 x = ${fmt(data.x)} · 楞次方向: ${data.currentSense || '无'}\n`
-      + `动生 E = ${motion ? fmt(motion.emf, 4) : '—'} · 感生 E = ${induction ? fmt(induction.emf, 4) : '—'}\n`
+      + `动生 ε_i = ${motion ? fmt(motion.emf, 4) : '—'} V · 感生 ε_i = ${induction ? fmt(induction.emf, 4) : '—'} V\n`
       + `记录: ${Array.isArray(data.records) ? data.records.length : 0} 组`;
   }
   if (expId === 'induced_electric_field') {

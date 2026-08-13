@@ -10,6 +10,7 @@ import {
   K_COULOMB,
   chargeUiToCoulomb,
 } from '../src/experiments/electro.js';
+import { drawHoloScreen, getHoloScreenLayoutSize } from '../src/holoScreen.js';
 
 function close(actual, expected, tolerance = 1e-6) {
   assert.ok(
@@ -230,3 +231,42 @@ test('electric-field charge id resolves from nested hit mesh parents', () => {
   assert.equal(state.data.dragging, true);
   handlers.endManipulation(nested);
 });
+
+test('electric-field content screen renders full controls without error', () => {
+  const station = { id: 'electro', name: '电磁学实验台' };
+  const experiment = { id: 'electric_field', name: '静电场探索' };
+  const hud = {
+    station,
+    experiment,
+    running: true,
+    data: {
+      charges: [{ id: 1, q: 1, x: 0, y: 0, z: 0 }],
+      probe: { x: 0, y: 0, z: 0, q0: 1 },
+      axisLock: {},
+    },
+  };
+  const layout = getHoloScreenLayoutSize({ active: true, hud, surface: 'display' });
+  const stubCtx = {
+    clearRect() {}, fillRect() {}, strokeRect() {}, fillText() {},
+    save() {}, restore() {}, beginPath() {}, closePath() {}, moveTo() {}, lineTo() {},
+    arc() {}, arcTo() {}, fill() {}, stroke() {}, addColorStop() {},
+    createLinearGradient() { return { addColorStop() {} }; },
+    measureText(t) { return { width: t.length * 10 }; },
+  };
+  const res = drawHoloScreen(stubCtx, layout.width, layout.height, {
+    active: true,
+    hud,
+    surface: 'display',
+    fullTitle: '电磁学实验台',
+    enTitle: 'ELECTROMAGNETISM',
+  });
+  assert.ok(res.hits.length >= 10, 'content display must yield hit targets for all controls');
+  const actions = res.hits.map((h) => h.action);
+  assert.ok(actions.includes('electric-toggle'));
+  assert.ok(actions.includes('electric-select'));
+  assert.ok(actions.includes('electric-add'));
+  assert.ok(actions.includes('electric-reset'));
+  assert.ok(actions.includes('electric-probe-sign'));
+  assert.ok(actions.includes('electric-axis-lock'));
+});
+

@@ -258,7 +258,7 @@ function makeVelocityLabel(engine, { color = '#8eb6ff', label = 'v' } = {}) {
     if (text === lastText) return;
     lastText = text;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.font = 'bold 44px "Segoe UI", "Microsoft YaHei", Consolas, monospace';
+    ctx.font = 'bold 44px "Microsoft YaHei", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     const padX = 40;
