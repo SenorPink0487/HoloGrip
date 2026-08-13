@@ -517,36 +517,32 @@ export function createInducedElectricFieldEquipment() {
         const safeR = Math.max(0.6, Math.min(3.6, Number(regionR || 2)));
         const radii = [];
 
-        // 1. 内圈绝对坐标基准步长 s0 (受 |dB/dt| 调控，|dB/dt| 越大整体越密)
-        const rateFactor = THREE.MathUtils.clamp(absRate / 6.0, 0, 1);
-        const s0 = THREE.MathUtils.lerp(0.72, 0.45, rateFactor);
-
-        // 2. 面内同心圆 (r < R)：使用指数递减绝对步长 Δr_k = s0 * (0.62)^(k-1)
-        // 间距形成极陡峭的渐变比：第一间距~0.72m，第二~0.44m，第三~0.27m，第四~0.17m...
-        // 圆心区域非常开阔稀疏，越靠近柱体边缘同心圆急剧变密，间距视觉差距极其明显！
-        let currR = 0;
-        let k = 1;
-        while (k <= 10) {
-          const step = s0 * Math.pow(0.62, k - 1);
-          if (step < 0.04) break;
-          const nextR = currR + step;
-          if (nextR >= safeR - 0.06) break;
-          radii.push(nextR);
-          currR = nextR;
-          k += 1;
+        // 1. 面内同心圆 (r < R)：内圈数量随 R 增大而动态包裹增加 (N_inner = 2 ~ 6)
+        // 相对半径按非线性曲线 f_i = 1 - (1 - i/(N+1))^1.35 缩放
+        // 保证：① 增大 R 时内圈圆环随之扩缩并包裹进新圆环；② 每条线间距均不相同且渐变明显
+        const nInner = Math.max(2, Math.min(6, Math.floor(safeR / 0.52) + 1));
+        for (let i = 1; i <= nInner; i += 1) {
+          const frac = 1 - Math.pow(1 - i / (nInner + 1), 1.35);
+          const rIn = safeR * frac;
+          if (rIn > 0.10 && rIn < safeR - 0.08) {
+            radii.push(rIn);
+          }
         }
 
-        // 3. 边界环 r = R (磁场柱体边缘，感生电场强度达到峰值 E_max)
+        // 2. 边界环 r = R (磁场柱体边缘，感生电场强度达到峰值 E_max)
         radii.push(safeR);
 
-        // 4. 面外同心圆 (r > R)：随着 r 增大，间距剧烈拉开 (符合 E ∝ 1/r 导致的明显稀疏化)
-        // 外圈步长按 m^1.55 陡峭增长，呈现明显的向外疏散感
-        const outBaseStep = Math.max(0.35, s0 * 0.75);
+        // 3. 面外同心圆 (r > R)：使用指数递增步长 Δr_m = outBase * (1.52)^(m-1)
+        // 每条外圈线间距均不相同且明显扩张
+        const outBase = 0.38;
+        let lastR = safeR;
         let m = 1;
-        while (m <= 12) {
-          const outR = safeR + outBaseStep * Math.pow(m, 1.55);
+        while (m <= 6) {
+          const outStep = outBase * Math.pow(1.52, m - 1);
+          const outR = lastR + outStep;
           if (outR > Rdisk) break;
           radii.push(outR);
+          lastR = outR;
           m += 1;
         }
 
