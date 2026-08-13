@@ -512,8 +512,8 @@ export function createElectricFieldEquipment() {
   groundProjGroup.add(projLinesMesh);
   disablePick(groundProjGroup);
 
-  function updateAxisGuides(charge, axisOrigin = null) {
-    if (!charge) {
+  function updateAxisGuides(charge, axisOrigin = null, data = null) {
+    if (!charge || !data?.showAxes) {
       axisGuidesGroup.visible = false;
       groundProjGroup.visible = false;
       return;
@@ -1158,7 +1158,7 @@ export function createElectricFieldEquipment() {
     // Update 电荷 3D 坐标轴与虚线投影（拖动时坐标轴保持原位作为参照基准，拖动释放后重置中心）
     const activeCharge = charges.find((c) => c.id === data.selectedId) || charges[0] || (data.probe ? { ...data.probe, x: data.probe.x, y: data.probe.y, z: data.probe.z } : null);
     const axisOrigin = (data.dragging && data.dragStart) ? data.dragStart : activeCharge;
-    updateAxisGuides(activeCharge, axisOrigin);
+    updateAxisGuides(activeCharge, axisOrigin, data);
   };
 
 

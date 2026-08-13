@@ -809,6 +809,7 @@ export function createHandlers(ctx) {
         showEquipot: false,
         showProbe: true,
         showGauss: false,
+        showAxes: false,
         gaussShape: 'sphere',
         radius: 2.4,
         qEnclosed: 1,
@@ -2323,7 +2324,7 @@ export function createHandlers(ctx) {
         }
       } else if (action === 'electric-toggle') {
         const key = {
-          lines: 'showLines', arrows: 'showArrows', equipot: 'showEquipot', probe: 'showProbe', gauss: 'showGauss',
+          lines: 'showLines', arrows: 'showArrows', equipot: 'showEquipot', probe: 'showProbe', gauss: 'showGauss', axes: 'showAxes',
         }[payload.key];
         if (key) data[key] = !data[key];
       } else if (action === 'electric-axis-lock') {
