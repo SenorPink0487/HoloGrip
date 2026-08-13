@@ -36,7 +36,11 @@ test('single-hand empty pinch looks around; equipment pinch manipulates', () => 
   const looks = [];
   const controller = createArInteractionController({
     getHandState: (label) => hands[label],
-    beginManipulation: (event) => events.push(['begin', event.target]),
+    beginManipulation: (event) => {
+      if (!event?.target) return false;
+      events.push(['begin', event.target]);
+      return true;
+    },
     updateManipulation: (event) => events.push(['update', event.dragged]),
     endManipulation: (event) => events.push(['end', event.dragged]),
     onLook: (dx, dy) => looks.push([dx, dy]),
@@ -53,7 +57,7 @@ test('single-hand empty pinch looks around; equipment pinch manipulates', () => 
 
   // First samples seed the look filter without rotating.
   controller.onPinchStart({ hand: 'Right', target: null });
-  assert.equal(controller.update(0).phase, 'idle');
+  assert.equal(controller.update(0).phase, 'looking');
   assert.equal(looks.length, 0);
 
   // Continuous aim motion is smoothed across animation frames.
@@ -79,7 +83,11 @@ test('dual pinch has highest priority and maps spread/close to forward/back', ()
   const looks = [];
   const controller = createArInteractionController({
     getHandState: (label) => hands[label],
-    beginManipulation: (event) => events.push(['begin', event.target]),
+    beginManipulation: (event) => {
+      if (!event?.target) return false;
+      events.push(['begin', event.target]);
+      return true;
+    },
     endManipulation: (event) => events.push(['end', event.cancelled]),
     onLook: (dx, dy) => looks.push([dx, dy]),
     dollyOptions: { gain: 10, deadZone: 0.001 },

@@ -55,6 +55,10 @@ test('Hall carrier demo obeys proportionality and limiting cases', () => {
   assert.equal(hallDemoVoltage({ ...base, n: 2 }), -0.5);
   assert.equal(hallDemoVoltage({ ...base, d: 1 }), -0.5);
   assert.equal(hallDemoForce({ ...base, I: 2, B: -1.5 }), 3);
+
+  const kin1 = hallCarrierKinematics({ I: 1, B: 1, n: 1 });
+  const kin2 = hallCarrierKinematics({ I: 1, B: 1, n: 2 });
+  assert.equal(Math.abs(kin2.v0), Math.abs(kin1.v0) / 2, 'drift velocity v0 is inversely proportional to n');
 });
 
 test('n-type and p-type pile on the same geometric face for fixed I,B', () => {

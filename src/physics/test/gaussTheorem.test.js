@@ -9,6 +9,7 @@ import {
   gaussFluxParticleSpeed,
   gaussMeanNormalField,
   gaussNormalFluxDensity,
+  getIrregularBump,
   K_COULOMB,
   EPSILON_0,
   chargeUiToCoulomb,
@@ -96,3 +97,22 @@ test('Gauss content display reserves the dense control layout', () => {
   });
   assert.deepEqual(size, { width: 1280, height: 880 });
 });
+
+test('Irregular Gaussian surface bump varies with seed', () => {
+  const theta = 0.5;
+  const phi = 1.2;
+  const bump0 = getIrregularBump(theta, phi, 0);
+  const bump1 = getIrregularBump(theta, phi, 1);
+  const bump2 = getIrregularBump(theta, phi, 2);
+
+  // Seed 0 matches legacy formula
+  const expected0 = 1 + 0.24 * Math.sin(3 * theta) * Math.cos(4 * phi)
+                      + 0.15 * Math.cos(5 * theta) * Math.sin(2 * phi)
+                      + 0.08 * Math.sin(7 * phi);
+  close(bump0, expected0);
+
+  // Different seeds produce distinct bumps
+  assert.notEqual(bump1, bump0);
+  assert.notEqual(bump2, bump1);
+});
+

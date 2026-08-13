@@ -6,9 +6,9 @@ import {
 } from './electro.js';
 import { formatPhysicsNumber, drawMathFormula } from '../physicsFormula.js';
 
-const WORLD_PER_SOURCE = 0.12;
+const WORLD_PER_SOURCE = 0.13;
 /** Fixed source-space radii r_source (0.45 to 4.50) for the concentric induced electric field lines.
- *  Their spatial extent is FIXED to cover the entire black measurement disk (R_disk = 4.8)
+ *  Their spatial extent is FIXED to cover the entire black measurement disk (R_disk = 4.6)
  *  and DOES NOT change when the magnetic cylinder radius R changes.
  */
 const MAX_E_RINGS = 28;
@@ -106,9 +106,9 @@ export function createInducedElectricFieldEquipment() {
   root.add(fieldGroup, eGroup, probeGroup, labelGroup);
   const _tangentDir = new THREE.Vector3(1, 0, 0);
 
-  // Dark, emissive measurement plane: enlarged floor disk.
+  // Dark, emissive measurement plane: floor disk.
   const floor = new THREE.Mesh(
-    new THREE.CircleGeometry(6.8 * S, 64),
+    new THREE.CircleGeometry(4.6 * S, 64),
     new THREE.MeshStandardMaterial({
       color: 0x0b1630,
       transparent: true,
@@ -128,7 +128,7 @@ export function createInducedElectricFieldEquipment() {
 
   // Physical rim: retains a clear usable-probe boundary at shallow angles.
   const workRim = new THREE.Mesh(
-    new THREE.TorusGeometry(6.8 * S, 0.026 * S, 8, 96),
+    new THREE.TorusGeometry(4.6 * S, 0.026 * S, 8, 96),
     new THREE.MeshStandardMaterial({
       color: 0x334e72,
       emissive: 0x1d4ed8,
@@ -510,7 +510,7 @@ export function createInducedElectricFieldEquipment() {
       const stepDt = Math.max(0, Number(dt || 0));
       const canSpin = showSpin && sense !== 'none' && absD > 1e-4;
 
-      const dynamicRadii = (function computePhysicalRingRadii(regionR, rateD, Rdisk = 6.2) {
+      const dynamicRadii = (function computePhysicalRingRadii(regionR, rateD, Rdisk = 4.5) {
         const absRate = Math.abs(Number(rateD || 0));
         if (absRate < 0.02) return [];
 
@@ -638,7 +638,7 @@ export function createInducedElectricFieldEquipment() {
         `q₀=${qPos ? '+' : ''}${q0.toFixed(1)} μC`,
         `|E| = ${formatPhysicsNumber(data?.magnitudeE, { digits: 2, unit: 'N/C' })}`,
         qPos ? '#fbbf24' : '#60a5fa',
-        `r=${pr.toFixed(2)} m`,
+        `r = ${(pr * 10).toFixed(1)} cm`,
         fText,
       );
 

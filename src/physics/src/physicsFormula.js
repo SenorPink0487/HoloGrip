@@ -125,7 +125,7 @@ export function tokenizeFormula(formula) {
   let i = 0;
 
   const isCjk = (ch) => /[\u3000-\u9fff\uff00-\uffef]/.test(ch);
-  const isVarStart = (ch) => /[A-Za-zΑ-Ωα-ωΦφθΘεεΔδπμνλρστωℰℬℒℳℋℱℛ]/.test(ch);
+  const isVarStart = (ch) => /[A-Za-zΑ-Ωα-ωΦφθΘεεΔδπμνλρστωℰℬℒℳℋℱℛΣ∑σ]/.test(ch);
 
   while (i < s.length) {
     // 0. 分数: \frac{num}{den} (支持嵌套括号如 \mathrm{d})
@@ -198,6 +198,8 @@ export function tokenizeFormula(formula) {
         ['\\qquad', '     '],
         ['\\oint', '∮'],
         ['\\sum', '∑'],
+        ['\\Sigma', 'Σ'],
+        ['\\sigma', 'σ'],
         ['\\Delta', 'Δ'],
         ['\\nabla', '∇'],
         ['\\partial', '∂'],

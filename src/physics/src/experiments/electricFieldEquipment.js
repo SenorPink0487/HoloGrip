@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { createInstancedArrowField } from '../scene/shared/instancedBatch.js';
 import { K_COULOMB, CHARGE_UI_TO_C, formatPhysicsNumber, drawMathFormula } from '../physicsFormula.js';
 import { labFrameScheduler } from '../frameBudget.js';
+import { getIrregularBump } from './electro.js';
 
 const WORLD_PER_SOURCE_UNIT = 0.13;
 const CHARGE_LIMIT = 12;
@@ -233,22 +234,74 @@ export function createElectricFieldEquipment() {
     opacity: 0.70,
     depthWrite: false,
   });
-  const gaussSurfaceMesh = new THREE.Mesh(new THREE.SphereGeometry(0.31, 48, 32), gaussSurfaceMaterial);
-  gaussSurfaceMesh.userData.interactive = true;
-  gaussSurfaceMesh.userData.role = 'gauss_surface';
 
-  const gaussWireMesh = new THREE.LineSegments(
-    new THREE.WireframeGeometry(new THREE.SphereGeometry(0.31, 24, 16)),
-    gaussWireMaterial,
-  );
-  gaussSurfaceGroup.add(gaussSurfaceMesh, gaussWireMesh);
+  const concentricMaterials = [
+    {
+      mesh: new THREE.MeshPhysicalMaterial({
+        color: 0x00f0ff,
+        transparent: true,
+        opacity: 0.32,
+        transmission: 0.75,
+        roughness: 0.15,
+        metalness: 0.1,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+      wire: new THREE.LineBasicMaterial({
+        color: 0x67e8f9,
+        transparent: true,
+        opacity: 0.85,
+        depthWrite: false,
+      }),
+    },
+    {
+      mesh: new THREE.MeshPhysicalMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0.24,
+        transmission: 0.68,
+        roughness: 0.12,
+        metalness: 0.08,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+      wire: new THREE.LineBasicMaterial({
+        color: 0x38bdf8,
+        transparent: true,
+        opacity: 0.70,
+        depthWrite: false,
+      }),
+    },
+    {
+      mesh: new THREE.MeshPhysicalMaterial({
+        color: 0x818cf8,
+        transparent: true,
+        opacity: 0.18,
+        transmission: 0.60,
+        roughness: 0.10,
+        metalness: 0.05,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      }),
+      wire: new THREE.LineBasicMaterial({
+        color: 0xc084fc,
+        transparent: true,
+        opacity: 0.60,
+        depthWrite: false,
+      }),
+    },
+  ];
+
   disablePick(gaussSurfaceGroup);
   gaussSurfaceGroup.visible = false;
 
+  let concentricShellGroups = [];
   let lastGaussRadius = NaN;
   let lastGaussShape = '';
+  let lastGaussMode = '';
+  let lastGaussSeed = NaN;
 
-  function createGaussGeometry(shape, worldR) {
+  function createGaussGeometry(shape, worldR, seed = 0) {
     if (shape === 'cube') {
       const s = worldR * 1.7;
       return new THREE.BoxGeometry(s, s, s, 16, 16, 16);
@@ -267,9 +320,7 @@ export function createElectricFieldEquipment() {
         const dir = v.clone().normalize();
         const theta = Math.atan2(dir.z, dir.x);
         const phi = Math.acos(THREE.MathUtils.clamp(dir.y, -1, 1));
-        const bump = 1 + 0.24 * Math.sin(3 * theta) * Math.cos(4 * phi)
-                       + 0.15 * Math.cos(5 * theta) * Math.sin(2 * phi)
-                       + 0.08 * Math.sin(7 * phi);
+        const bump = getIrregularBump(theta, phi, seed);
         v.copy(dir).multiplyScalar(worldR * bump);
         pos.setXYZ(i, v.x, v.y, v.z);
       }
@@ -279,21 +330,64 @@ export function createElectricFieldEquipment() {
     return new THREE.SphereGeometry(worldR, 48, 32);
   }
 
-  function updateGaussSurface(radius, visible, shape = 'sphere') {
+  function clearGaussGroup() {
+    while (gaussSurfaceGroup.children.length > 0) {
+      const child = gaussSurfaceGroup.children[gaussSurfaceGroup.children.length - 1];
+      gaussSurfaceGroup.remove(child);
+      child.traverse?.((node) => {
+        if (node.geometry) node.geometry.dispose();
+      });
+    }
+    concentricShellGroups = [];
+  }
+
+  function updateGaussSurface(radius, visible, shape = 'sphere', mode = 'single', seed = 0) {
     gaussSurfaceGroup.visible = visible;
     if (!visible) return;
     const r = Number(radius || 2.4);
     const s = String(shape || 'sphere');
-    if (Math.abs(r - lastGaussRadius) > 1e-5 || s !== lastGaussShape) {
+    const m = String(mode || 'single');
+    const seedNum = Number(seed || 0);
+    if (Math.abs(r - lastGaussRadius) > 1e-5 || s !== lastGaussShape || m !== lastGaussMode || (s === 'irregular' && seedNum !== lastGaussSeed)) {
       const worldR = r * WORLD_PER_SOURCE_UNIT;
-      gaussSurfaceMesh.geometry?.dispose();
-      gaussWireMesh.geometry?.dispose();
+      clearGaussGroup();
 
-      const mainGeo = createGaussGeometry(s, worldR);
-      gaussSurfaceMesh.geometry = mainGeo;
-      gaussWireMesh.geometry = new THREE.WireframeGeometry(mainGeo);
+      if (m === 'concentric') {
+        const scales = [0.38, 0.68, 1.0];
+        scales.forEach((scaleFactor, idx) => {
+          const shellR = worldR * scaleFactor;
+          const geo = createGaussGeometry(s, shellR, seedNum);
+          const wireGeo = new THREE.WireframeGeometry(geo);
+          const matConfig = concentricMaterials[idx] || concentricMaterials[1];
+
+          const shellMesh = new THREE.Mesh(geo, matConfig.mesh);
+          shellMesh.userData.interactive = true;
+          shellMesh.userData.role = 'gauss_surface';
+
+          const wireMesh = new THREE.LineSegments(wireGeo, matConfig.wire);
+
+          const shellGroup = new THREE.Group();
+          shellGroup.add(shellMesh, wireMesh);
+          gaussSurfaceGroup.add(shellGroup);
+          concentricShellGroups.push(shellGroup);
+        });
+      } else {
+        const mainGeo = createGaussGeometry(s, worldR, seedNum);
+        const gaussSurfaceMesh = new THREE.Mesh(mainGeo, gaussSurfaceMaterial);
+        gaussSurfaceMesh.userData.interactive = true;
+        gaussSurfaceMesh.userData.role = 'gauss_surface';
+
+        const gaussWireMesh = new THREE.LineSegments(
+          new THREE.WireframeGeometry(mainGeo),
+          gaussWireMaterial,
+        );
+        gaussSurfaceGroup.add(gaussSurfaceMesh, gaussWireMesh);
+      }
+
       lastGaussRadius = r;
       lastGaussShape = s;
+      lastGaussMode = m;
+      lastGaussSeed = seedNum;
     }
   }
 
@@ -725,9 +819,68 @@ export function createElectricFieldEquipment() {
    * Soft-quantized bands + LinearFilter keep rings circular (no LEGO stairs)
    * while each level still reads as a distinct color (not a washed yellow slab).
    */
-  function rebuildEquipotential(charges) {
+  function rebuildEquipotential(charges, data = {}) {
     clearGroup(equipotGroup);
     if (!charges.length) return;
+
+    if (data.showEquipot === 'concentric') {
+      charges.forEach((ch) => {
+        const q = Number(ch.q || 0);
+        if (Math.abs(q) < 1e-6) return;
+        const isPos = q > 0;
+        const radiiLevels = [0.8, 1.4, 2.1, 2.9];
+
+        radiiLevels.forEach((rLevel, idx) => {
+          const worldR = rLevel * WORLD_PER_SOURCE_UNIT;
+          const shellColor = isPos
+            ? new THREE.Color().setHSL(0.08 - idx * 0.02, 0.95, 0.52)
+            : new THREE.Color().setHSL(0.60 + idx * 0.03, 0.95, 0.52);
+
+          const wireColor = shellColor.clone().offsetHSL(0, 0, 0.2);
+          const geo = new THREE.SphereGeometry(worldR, 36, 24);
+          const wireGeo = new THREE.WireframeGeometry(geo);
+
+          const mat = new THREE.MeshPhysicalMaterial({
+            color: shellColor,
+            emissive: shellColor,
+            emissiveIntensity: 0.18,
+            transparent: true,
+            opacity: 0.24 - idx * 0.04,
+            transmission: 0.65,
+            roughness: 0.15,
+            metalness: 0.08,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
+
+          const wireMat = new THREE.LineBasicMaterial({
+            color: wireColor,
+            transparent: true,
+            opacity: 0.65 - idx * 0.08,
+            depthWrite: false,
+          });
+
+          const mesh = new THREE.Mesh(geo, mat);
+          const wire = new THREE.LineSegments(wireGeo, wireMat);
+          disablePick(mesh);
+          disablePick(wire);
+
+          const shellGroup = new THREE.Group();
+          shellGroup.position.set(
+            Number(ch.x || 0),
+            Number(ch.z || 0),
+            Number(ch.y || 0),
+          ).multiplyScalar(WORLD_PER_SOURCE_UNIT);
+
+          shellGroup.add(mesh, wire);
+          shellGroup.userData.concentricEquipot = true;
+          shellGroup.userData.speed = (idx % 2 === 0 ? 1 : -1) * (0.18 - idx * 0.03);
+
+          equipotGroup.add(shellGroup);
+        });
+      });
+      return;
+    }
 
     const extent = 4.0;
     const size = 256;
@@ -911,7 +1064,7 @@ export function createElectricFieldEquipment() {
       clearGroup(arrowGroup);
     }
 
-    if (data.showEquipot === true) rebuildEquipotential(charges, data);
+    if (Boolean(data.showEquipot)) rebuildEquipotential(charges, data);
     else clearGroup(equipotGroup);
     pendingDecoration = false;
   }
@@ -934,7 +1087,7 @@ export function createElectricFieldEquipment() {
     const snapFlags = {
       showLines: data.showLines !== false,
       showArrows: data.showArrows !== false,
-      showEquipot: data.showEquipot === true,
+      showEquipot: data.showEquipot,
     };
     const gen = (decoJobGen += 1);
     // soft:false — rebuild is already post-render; do not arm soft-switch/rest
@@ -1092,7 +1245,7 @@ export function createElectricFieldEquipment() {
           Number(probeData.y || 0) - Number(src.y || 0),
           Number(probeData.z || 0) - Number(src.z || 0),
         );
-        rText = `r=${r.toFixed(2)} m`;
+        rText = `r = ${(r * 10).toFixed(1)} cm`;
       }
       const fText = `|F| = ${formatPhysicsNumber(data.magnitudeF, { digits: 2, unit: 'N' })}`;
       probeHud.setQE(
@@ -1108,11 +1261,14 @@ export function createElectricFieldEquipment() {
 
     lineGroup.visible = data.showLines !== false;
     arrowGroup.visible = data.showArrows !== false;
-    const isGaussActive = data.showGauss === true || data.showGaussSurface === true || data.isGaussTheorem === true;
+    const isGaussActive = Boolean(data.showGauss) || data.showGaussSurface === true || data.isGaussTheorem === true;
+    const gaussMode = data.showGauss === 'concentric' ? 'concentric' : 'single';
     updateGaussSurface(
       data.radius || 2.4,
       isGaussActive && data.showSurface !== false,
       data.gaussShape || 'sphere',
+      gaussMode,
+      data.gaussSeed || 0,
     );
 
     // Heavy field decorations (lines / arrows / equipotential) allocate and
@@ -1121,7 +1277,7 @@ export function createElectricFieldEquipment() {
     // previous decorations in place, and rebuild once on release via the
     // post-render frame budget (never on the pre-render / pointerup stack).
     // Include visibility flags so toggling「等势」rebuilds even when charges are still.
-    const decoSignature = `${chargeSignature}|L${data.showLines !== false ? 1 : 0}|A${data.showArrows !== false ? 1 : 0}|E${data.showEquipot === true ? 1 : 0}`;
+    const decoSignature = `${chargeSignature}|L${data.showLines !== false ? 1 : 0}|A${data.showArrows !== false ? 1 : 0}|E${data.showEquipot || 0}`;
     // A worker snapshot may arrive after the drag started. It is still a
     // stale/intermediate decoration update from the input point of view, so
     // never let it force a synchronous geometry rebuild during the drag.
@@ -1142,6 +1298,13 @@ export function createElectricFieldEquipment() {
     }
 
     if (data.autoRotate && dt > 0) root.rotation.y += dt * 0.18;
+    if (data.showEquipot === 'concentric' && equipotGroup.children.length > 0 && dt > 0) {
+      equipotGroup.children.forEach((child) => {
+        if (child.userData?.concentricEquipot) {
+          child.rotation.y += dt * (child.userData.speed || 0.15);
+        }
+      });
+    }
     if (data.resetView !== lastResetView) {
       root.rotation.set(0, 0, 0);
       lastResetView = data.resetView || 0;

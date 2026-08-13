@@ -96,7 +96,15 @@ test('electric-field controller supports add/delete, limits, toggles and probe e
   handlers.onUiAction('electric-probe-move', { axis: 'z', delta: -99 });
   assert.equal(state.data.probe.z, -5);
   handlers.onUiAction('electric-toggle', { key: 'equipot' });
-  assert.equal(state.data.showEquipot, true);
+  assert.equal(state.data.showEquipot, 'flat');
+  handlers.onUiAction('electric-toggle', { key: 'equipot' });
+  assert.equal(state.data.showEquipot, 'concentric');
+  handlers.onUiAction('electric-toggle', { key: 'equipot' });
+  assert.equal(state.data.showEquipot, false);
+  handlers.onUiAction('electric-toggle', { key: 'gauss' });
+  assert.equal(state.data.showGauss, true);
+  handlers.onUiAction('electric-toggle', { key: 'gauss' });
+  assert.equal(state.data.showGauss, false);
   handlers.onUiAction('electric-probe-sign', { sign: -1 });
   assert.equal(state.data.probe.q0, -1);
   handlers.onUiAction('electric-delete');

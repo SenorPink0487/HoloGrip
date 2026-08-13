@@ -571,7 +571,7 @@ function createFullStationEquipment(ctx) {
     hallGroup.add(hallHelm);
 
     // Transparent measuring tube runs through the Helmholtz pair.
-    const guideTube = cyl(0.032, 0.032, 1, acrylic, 32);
+    const guideTube = cyl(0.032, 0.032, 1.4, acrylic, 32);
     guideTube.rotation.z = Math.PI / 2;
     guideTube.position.set(0.04, 0.28, -0.02);
     hallGroup.add(guideTube);
@@ -579,15 +579,17 @@ function createFullStationEquipment(ctx) {
     // Sliding white ruler and red Hall sensor; probe moves between both objects.
     const hallProbe = new THREE.Group();
     hallProbe.position.set(0, 0.28, -0.02);
-    const probeRod = rbox(1, 0.016, 0.032, lab.paper, 0.002);
-    probeRod.position.x = 0.5;
+    const probeRodLen = 1.4;
+    const probeRod = rbox(probeRodLen, 0.016, 0.032, lab.paper, 0.002);
+    probeRod.position.x = probeRodLen / 2;
     hallProbe.add(probeRod);
+    const tickCount = 351;
     const tickGeometry = new THREE.BoxGeometry(0.0012, 0.0015, 0.012);
-    const ticks = new THREE.InstancedMesh(tickGeometry, blackMat, 241);
+    const ticks = new THREE.InstancedMesh(tickGeometry, blackMat, tickCount);
     const tickDummy = new THREE.Object3D();
-    for (let i = 0; i < 241; i++) {
+    for (let i = 0; i < tickCount; i++) {
       const scaleZ = i % 10 === 0 ? 2.4 : i % 5 === 0 ? 1.7 : 1;
-      tickDummy.position.set(i * (0.96 / 240), 0.009, 0);
+      tickDummy.position.set(i * (1.36 / (tickCount - 1)), 0.009, 0);
       tickDummy.scale.set(1, 1, scaleZ);
       tickDummy.updateMatrix();
       ticks.setMatrixAt(i, tickDummy.matrix);
@@ -1013,13 +1015,13 @@ function createFullStationEquipment(ctx) {
           color: 0x38bdf8,
           transparent: true,
           opacity: 0,
-          // Screen-space thickness; wider dashes read as continuous flux tubes.
-          linewidth: 5.6,
+          // Crisp 6.0px screen-space line with distance scaling
+          linewidth: 6.0,
           worldUnits: false,
           dashed: true,
           dashScale: 1,
-          dashSize: 0.2,
-          gapSize: 0.028,
+          dashSize: 0.05,
+          gapSize: 0.02,
           resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
           depthTest: true,
           depthWrite: false,
@@ -1106,8 +1108,16 @@ function createFullStationEquipment(ctx) {
           material.resolution.set(hallFieldViewportWidth, hallFieldViewportHeight);
         });
       }
+      // Camera distance attenuation: scale linewidth down as camera backs away
+      // so lines remain slender and proportionate at any distance.
+      const camDist = camera ? camera.position.distanceTo(hallGroup.position) : 1.2;
+      const baseDist = 1.2;
+      const distScale = Math.min(1.0, baseDist / Math.max(0.3, camDist));
+      const dynamicLinewidth = 6.0 * distScale;
+
       const offset = -time * hallFieldFlow.speed * hallFieldFlow.direction;
       hallFieldMaterials.forEach((material) => {
+        material.linewidth = dynamicLinewidth;
         material.dashOffset = offset;
       });
     });
@@ -1549,7 +1559,7 @@ function createFullStationEquipment(ctx) {
         rodXLabel.update(`x = ${x.toFixed(2)} \\mathrm{m}`, '#f472b6');
 
         const areaCenterX = X_END + width / 2;
-        areaFluxLabel.sprite.position.set(OFFSET_X + areaCenterX * S, (Y + 2.5) * S, 0);
+        areaFluxLabel.sprite.position.set(OFFSET_X + areaCenterX * S, (Y + 1.8) * S, 0);
         areaFluxLabel.update(`\\Phi_B = ${flux >= 0 ? '+' : ''}${flux.toFixed(2)} \\mathrm{Wb}`, B >= 0 ? '#38bdf8' : '#fb923c');
         rebuildField(Number(data?.B || 0), data?.showField !== false);
         buildFlow(data?.currentSense || 'none', x);
@@ -1605,8 +1615,8 @@ function createFullStationEquipment(ctx) {
     const hallTargets = {
       hall_helmholtz: addHallRecognitionTarget(hallHelm, 'hall_helmholtz', [0.42, 0.3, 0.3], [0.04, 0.02, 0]),
       hall_solenoid: addHallRecognitionTarget(hallSolenoid, 'hall_solenoid', [0.95, 0.24, 0.22], [0, 0.0, 0]),
-      // Full usable ruler length (rod visual is ~1 m starting near x=0)
-      hall_probe: addHallRecognitionTarget(hallProbe, 'hall_probe', [0.92, 0.07, 0.08], [0.52, 0.02, 0]),
+      // Full usable ruler length (rod visual is ~1.4 m starting near x=0)
+      hall_probe: addHallRecognitionTarget(hallProbe, 'hall_probe', [1.32, 0.07, 0.08], [0.72, 0.02, 0]),
       // Keep this tight: a broad console proxy sits in front of the coils and
       // can otherwise swallow AR recognition rays meant for the other parts.
       hall_console: addHallRecognitionTarget(hallGroup, 'hall_console', [0.72, 0.11, 0.22], [0, 0.06, 0.18]),
@@ -1847,7 +1857,6 @@ function createFullStationEquipment(ctx) {
       hallFieldMaterials.forEach((material) => {
         material.opacity = fieldOpacity;
         material.color.setHex(fieldColor);
-        material.linewidth = 5.6;
       });
       readoutDefs[0].paint(Number(d.Im || 0).toFixed(3));
       readoutDefs[1].paint(Number(d.Is || 0).toFixed(2));

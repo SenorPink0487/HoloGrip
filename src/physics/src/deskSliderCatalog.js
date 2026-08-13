@@ -61,7 +61,7 @@ function inducedSpecs(d) {
     ]),
     range('bStart', '起点 B', -2.5, 2.5, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
     range('bEnd', '终点 B', -2.5, 2.5, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
-    range('R', '半径 R', 0.8, 3.2, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
+    range('R', '半径 R', 0.8, 3.2, { unit: 'cm', setAction: 'induced-e-set', action: 'induced-e-slider' }),
     range('dBdt', 'dB/dt', -6.25, 6.25, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
   ];
 }
@@ -72,7 +72,7 @@ function electricSpecs(d) {
   const selected = charges.find((c) => c.id === d?.selectedId) || null;
   const out = [];
   const currentShape = d?.gaussShape || 'sphere';
-  if (d?.showGauss === true) {
+  if (Boolean(d?.showGauss)) {
     out.push(
       actionGroup([
         { label: '球形', action: 'electric-gauss-shape', payload: { shape: 'sphere' }, shape: 'sphere', active: currentShape === 'sphere' },
@@ -80,7 +80,7 @@ function electricSpecs(d) {
         { label: '圆柱体', action: 'electric-gauss-shape', payload: { shape: 'cylinder' }, shape: 'cylinder', active: currentShape === 'cylinder' },
         { label: '不规则', action: 'electric-gauss-shape', payload: { shape: 'irregular' }, shape: 'irregular', active: currentShape === 'irregular' },
       ], { key: 'gaussShape' }),
-      range('radius', '高斯面 R', 1.2, 4.2, { setAction: 'electric-set' }),
+      range('radius', '高斯面 R', 1.2, 4.2, { unit: 'cm', setAction: 'electric-set' }),
     );
   }
   if (selected) {

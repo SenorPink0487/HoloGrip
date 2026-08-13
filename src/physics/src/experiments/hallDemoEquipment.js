@@ -19,13 +19,15 @@ const DRIFT_SPEED = 1.55;
 export function hallCarrierKinematics({
   I = 1,
   B = 1,
+  n = 1,
   nType = true,
 } = {}) {
   const carrierSign = nType === false ? 1 : -1;
   const flowDirection = nType === false ? 1 : -1;
   const i = Math.max(0, Number(I) || 0);
+  const nConc = Math.max(0.3, Number(n) || 1);
   const bz = Number(B) || 0;
-  const v0 = DRIFT_SPEED * i * flowDirection;
+  const v0 = (DRIFT_SPEED * i / nConc) * flowDirection;
   // F_y ∝ q (−v0 Bz) with teaching q = carrierSign
   const forceY = -carrierSign * v0 * bz;
   return {
@@ -421,9 +423,9 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     const halfH = Math.max(0.02, Number(state.d || 0.5) / 2 - 0.04);
     const halfL = SAMPLE.L / 2;
 
-    // Drift speed scales with current; scattering time sets mobility.
+    // Drift speed scales with current and inversely with carrier density: v_d = I / (n * q * S).
     const tau = 0.18;
-    const v0 = DRIFT_SPEED * I * flowDirection;
+    const v0 = (DRIFT_SPEED * I / n) * flowDirection;
     // |q|/m scale — large enough that Lorentz is visible, small enough to stay stable.
     const qOverM = carrierSign * 3.6;
     // Thermal noise (kept constant so drift speed vx is decoupled from n).

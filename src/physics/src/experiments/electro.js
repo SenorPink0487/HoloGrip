@@ -92,9 +92,48 @@ export const station = {
   ],
 };
 
-export function gaussEnclosedCharge(charges = [], radius = 2.4, shape = 'sphere') {
+export function getIrregularBump(theta, phi, seed = 0) {
+  const s = Number(seed || 0);
+  if (!s) {
+    return 1 + 0.24 * Math.sin(3 * theta) * Math.cos(4 * phi)
+             + 0.15 * Math.cos(5 * theta) * Math.sin(2 * phi)
+             + 0.08 * Math.sin(7 * phi);
+  }
+  const r1 = Math.sin(s * 12.9898 + 1.2) * 43758.5453;
+  const r2 = Math.sin(s * 78.2330 + 3.4) * 43758.5453;
+  const r3 = Math.sin(s * 45.1640 + 5.6) * 43758.5453;
+  const r4 = Math.sin(s * 93.8190 + 7.8) * 43758.5453;
+  const r5 = Math.sin(s * 27.1820 + 9.0) * 43758.5453;
+  const r6 = Math.sin(s * 31.4150 + 2.4) * 43758.5453;
+
+  const p1 = Math.abs(r1 - Math.floor(r1));
+  const p2 = Math.abs(r2 - Math.floor(r2));
+  const p3 = Math.abs(r3 - Math.floor(r3));
+  const p4 = Math.abs(r4 - Math.floor(r4));
+  const p5 = Math.abs(r5 - Math.floor(r5));
+  const p6 = Math.abs(r6 - Math.floor(r6));
+
+  const f1 = 2 + Math.floor(p1 * 4);
+  const f2 = 2 + Math.floor(p2 * 4);
+  const f3 = 2 + Math.floor(p3 * 4);
+  const f4 = 2 + Math.floor(p4 * 4);
+
+  const a1 = 0.12 + p1 * 0.16;
+  const a2 = 0.08 + p2 * 0.14;
+  const a3 = 0.05 + p3 * 0.08;
+
+  const phase1 = p5 * Math.PI * 2;
+  const phase2 = p6 * Math.PI * 2;
+
+  return 1 + a1 * Math.sin(f1 * theta + phase1) * Math.cos(f2 * phi)
+           + a2 * Math.cos(f3 * theta) * Math.sin(f4 * phi + phase2)
+           + a3 * Math.sin((f1 + f3) * phi + phase1);
+}
+
+export function gaussEnclosedCharge(charges = [], radius = 2.4, shape = 'sphere', seed = 0) {
   const r = Number(radius || 2.4);
   const s = String(shape || 'sphere');
+  const seedNum = Number(seed || 0);
   return charges.reduce((sum, charge) => {
     const x = Number(charge?.x || 0);
     const y = Number(charge?.y || 0);
@@ -112,9 +151,7 @@ export function gaussEnclosedCharge(charges = [], radius = 2.4, shape = 'sphere'
       const dist = Math.hypot(x, y, z);
       const theta = Math.atan2(z, x);
       const phi = Math.acos(THREE.MathUtils.clamp(y / (dist || 1), -1, 1));
-      const bump = 1 + 0.24 * Math.sin(3 * theta) * Math.cos(4 * phi)
-                     + 0.15 * Math.cos(5 * theta) * Math.sin(2 * phi)
-                     + 0.08 * Math.sin(7 * phi);
+      const bump = getIrregularBump(theta, phi, seedNum);
       enclosed = dist < r * bump - 1e-4;
     } else {
       enclosed = Math.hypot(x, y, z) < r - 1e-4;
@@ -125,8 +162,8 @@ export function gaussEnclosedCharge(charges = [], radius = 2.4, shape = 'sphere'
 }
 
 /** Φ_E = Q内/ε₀（Q 由界面 μC 换算为 C） */
-export function gaussFlux(charges = [], radius = 2.4, epsilon0 = EPSILON_0, shape = 'sphere') {
-  const qC = chargeUiToCoulomb(gaussEnclosedCharge(charges, radius, shape));
+export function gaussFlux(charges = [], radius = 2.4, epsilon0 = EPSILON_0, shape = 'sphere', seed = 0) {
+  const qC = chargeUiToCoulomb(gaussEnclosedCharge(charges, radius, shape, seed));
   return qC / Number(epsilon0 || EPSILON_0);
 }
 
@@ -284,15 +321,19 @@ const HALL_SOLENOID_RADIUS_M = 0.014;
 
 export function hallDemoVoltage(data) {
   const carrierSign = data?.nType === false ? 1 : -1;
-  const thicknessNorm = Math.max(0.05, Number(data?.d || 0) / 0.5);
-  const numerator = Number(data?.I || 0) * Number(data?.B || 0);
+  const current = Number(data?.I ?? data?.i ?? data?.Is ?? 0);
+  const bField = Number(data?.B ?? 0);
+  const nConc = Math.max(0.3, Number(data?.n ?? 1));
+  const thicknessNorm = Math.max(0.05, Number(data?.d ?? 0.5) / 0.5);
+  const numerator = current * bField;
   if (numerator === 0) return 0;
-  return (numerator * carrierSign)
-    / (Math.max(0.3, Number(data?.n || 0)) * thicknessNorm);
+  return (numerator * carrierSign) / (nConc * thicknessNorm);
 }
 
 export function hallDemoForce(data) {
-  return Math.abs(Number(data?.I || 0) * Number(data?.B || 0));
+  const current = Number(data?.I ?? data?.i ?? data?.Is ?? 0);
+  const bField = Number(data?.B ?? 0);
+  return Math.abs(current * bField);
 }
 
 // Source apparatus constants (physical coordinates, before the scene adapter's
@@ -811,6 +852,7 @@ export function createHandlers(ctx) {
         showGauss: false,
         showAxes: false,
         gaussShape: 'sphere',
+        gaussSeed: 0,
         radius: 2.4,
         qEnclosed: 1,
         flux: 1 * 1e-6 / EPSILON_0,
@@ -909,18 +951,18 @@ export function createHandlers(ctx) {
       if (snap?.deferred) applySimSnapshot(backend.getSnapshot?.() || snap, data);
     }
     if (!Number.isFinite(data.qEnclosed)) {
-      data.qEnclosed = gaussEnclosedCharge(data.charges, data.radius);
+      data.qEnclosed = gaussEnclosedCharge(data.charges, data.radius, data.gaussShape || 'sphere', data.gaussSeed || 0);
     }
     if (!Number.isFinite(data.flux)) {
-      data.flux = gaussFlux(data.charges, data.radius);
+      data.flux = gaussFlux(data.charges, data.radius, EPSILON_0, data.gaussShape || 'sphere', data.gaussSeed || 0);
     }
     if (!Number.isFinite(data.meanField)) {
       data.meanField = gaussMeanNormalField(data.charges, data.radius);
     }
     // Fallback if backend didn't populate yet.
     if (!simBackend || simBackendExpId !== 'gauss_theorem') {
-      data.qEnclosed = gaussEnclosedCharge(data.charges, data.radius);
-      data.flux = gaussFlux(data.charges, data.radius);
+      data.qEnclosed = gaussEnclosedCharge(data.charges, data.radius, data.gaussShape || 'sphere', data.gaussSeed || 0);
+      data.flux = gaussFlux(data.charges, data.radius, EPSILON_0, data.gaussShape || 'sphere', data.gaussSeed || 0);
       data.meanField = gaussMeanNormalField(data.charges, data.radius);
     }
     equipment.electro?.updateGauss?.(data, dt);
@@ -1289,10 +1331,10 @@ export function createHandlers(ctx) {
     data.magnitudeF = Math.hypot(data.force.x, data.force.y, data.force.z);
     data.potential = electricPotentialAt(data.charges, probe);
     // Optional Gauss overlay on the field bench — only when the toggle is on.
-    if (data.showGauss === true) {
+    if (Boolean(data.showGauss)) {
       const radius = Number(data.radius || 2.4);
-      data.qEnclosed = gaussEnclosedCharge(data.charges, radius);
-      data.flux = gaussFlux(data.charges, radius);
+      data.qEnclosed = gaussEnclosedCharge(data.charges, radius, data.gaussShape || 'sphere', data.gaussSeed || 0);
+      data.flux = gaussFlux(data.charges, radius, EPSILON_0, data.gaussShape || 'sphere', data.gaussSeed || 0);
       data.meanField = gaussMeanNormalField(data.charges, radius);
     }
     // Field-line pack via SimBackend only when charge/flag signature changes
@@ -2316,17 +2358,33 @@ export function createHandlers(ctx) {
       } else if (action === 'electric-gauss-shape') {
         const shape = String(payload.shape || payload.key || payload.id || 'sphere');
         if (['sphere', 'cube', 'cylinder', 'irregular'].includes(shape)) {
+          if (shape === 'irregular') {
+            data.gaussSeed = (data.gaussSeed || 0) + 1;
+          }
           data.gaussShape = shape;
-          data.qEnclosed = gaussEnclosedCharge(data.charges, data.radius, shape);
-          data.flux = gaussFlux(data.charges, data.radius, EPSILON_0, shape);
+          data.qEnclosed = gaussEnclosedCharge(data.charges, data.radius, shape, data.gaussSeed || 0);
+          data.flux = gaussFlux(data.charges, data.radius, EPSILON_0, shape, data.gaussSeed || 0);
           const labels = { sphere: '球形', cube: '立方体', cylinder: '圆柱体', irregular: '不规则体' };
-          toast(`高斯面形状: ${labels[shape] || '球形'}`);
+          toast(`高斯面形状: ${labels[shape] || '球形'}${shape === 'irregular' ? ` (变体 #${data.gaussSeed})` : ''}`);
         }
       } else if (action === 'electric-toggle') {
-        const key = {
-          lines: 'showLines', arrows: 'showArrows', equipot: 'showEquipot', probe: 'showProbe', gauss: 'showGauss', axes: 'showAxes',
-        }[payload.key];
-        if (key) data[key] = !data[key];
+        if (payload.key === 'equipot') {
+          if (!data.showEquipot) {
+            data.showEquipot = 'flat';
+            toast('等势面模式: 平面 (2D)');
+          } else if (data.showEquipot === 'flat' || data.showEquipot === true) {
+            data.showEquipot = 'concentric';
+            toast('等势面模式: 立体同心球包裹');
+          } else {
+            data.showEquipot = false;
+            toast('等势面已关闭');
+          }
+        } else {
+          const key = {
+            lines: 'showLines', arrows: 'showArrows', gauss: 'showGauss', probe: 'showProbe', axes: 'showAxes',
+          }[payload.key];
+          if (key) data[key] = !data[key];
+        }
       } else if (action === 'electric-axis-lock') {
         const axis = String(payload.axis || payload.key || '').toLowerCase();
         if (!['x', 'y', 'z'].includes(axis)) return true;
@@ -3578,12 +3636,9 @@ export function exportHallDataReport(data) {
   const rowsHtml = records.map((r, i) => `
     <tr>
       <td>${i + 1}</td>
-      <td>${r.target === 'helmholtz' ? '亥姆霍兹线圈' : '长螺线管'}</td>
       <td>${Number(r.pos).toFixed(1)}</td>
       <td>${Number(r.vh).toFixed(2)}</td>
       <td>${Number(r.b).toFixed(3)}</td>
-      <td>${Number(r.Im).toFixed(2)}</td>
-      <td>${Number(r.Is).toFixed(1)}</td>
     </tr>
   `).join('');
 
@@ -3753,12 +3808,9 @@ export function exportHallDataReport(data) {
       <thead>
         <tr>
           <th>序号</th>
-          <th>测量对象</th>
           <th>探头位置 X (cm)</th>
           <th>霍尔电压 V<sub>H</sub> (mV)</th>
           <th>磁感应强度 B (mT)</th>
-          <th>励磁电流 I<sub>m</sub> (A)</th>
-          <th>霍尔电流 I<sub>s</sub> (mA)</th>
         </tr>
       </thead>
       <tbody>
@@ -3799,15 +3851,12 @@ export function exportHallDataReport(data) {
     }
 
     function exportExcel() {
-      const headers = ['序号', '测量对象', '探头位置 X (cm)', '霍尔电压 Vh (mV)', '磁感应强度 B (mT)', '励磁电流 Im (A)', '霍尔电流 Is (mA)'];
+      const headers = ['序号', '探头位置 X (cm)', '霍尔电压 Vh (mV)', '磁感应强度 B (mT)'];
       const rows = rawRecords.map((r, i) => [
         i + 1,
-        r.target === 'helmholtz' ? '亥姆霍兹线圈' : '长螺线管',
         Number(r.pos).toFixed(1),
         Number(r.vh).toFixed(2),
-        Number(r.b).toFixed(3),
-        Number(r.Im).toFixed(2),
-        Number(r.Is).toFixed(1)
+        Number(r.b).toFixed(3)
       ]);
 
       let xmlRows = '<Row ss:StyleID="Header">\n' +
@@ -3842,13 +3891,10 @@ export function exportHallDataReport(data) {
 ' </Styles>\n' +
 ' <Worksheet ss:Name="霍尔测磁实验数据">\n' +
 '  <Table>\n' +
-'   <Column ss:Width="50"/>\n' +
-'   <Column ss:Width="100"/>\n' +
-'   <Column ss:Width="120"/>\n' +
-'   <Column ss:Width="120"/>\n' +
-'   <Column ss:Width="130"/>\n' +
-'   <Column ss:Width="110"/>\n' +
-'   <Column ss:Width="110"/>\n' +
+'   <Column ss:Width="60"/>\n' +
+'   <Column ss:Width="140"/>\n' +
+'   <Column ss:Width="140"/>\n' +
+'   <Column ss:Width="150"/>\n' +
     xmlRows +
 '  </Table>\n' +
 ' </Worksheet>\n' +
@@ -3859,15 +3905,12 @@ export function exportHallDataReport(data) {
     }
 
     function exportCSV() {
-      const headers = ['序号', '测量对象', '探头位置 X (cm)', '霍尔电压 Vh (mV)', '磁感应强度 B (mT)', '励磁电流 Im (A)', '霍尔电流 Is (mA)'];
+      const headers = ['序号', '探头位置 X (cm)', '霍尔电压 Vh (mV)', '磁感应强度 B (mT)'];
       const rows = rawRecords.map((r, i) => [
         i + 1,
-        r.target === 'helmholtz' ? '亥姆霍兹线圈' : '长螺线管',
         Number(r.pos).toFixed(1),
         Number(r.vh).toFixed(2),
-        Number(r.b).toFixed(3),
-        Number(r.Im).toFixed(2),
-        Number(r.Is).toFixed(1)
+        Number(r.b).toFixed(3)
       ]);
       const csvContent = '\uFEFF' + [headers, ...rows].map(row => row.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(',')).join('\r\n');
       const filename = '霍尔效应测磁实验数据_' + new Date().toISOString().slice(0, 10) + '.csv';
@@ -3892,14 +3935,11 @@ export function exportHallDataReport(data) {
 
   const reportRows = records.map((r, i) => [
     i + 1,
-    r.target === 'helmholtz' ? '亥姆霍兹线圈' : '长螺线管',
     Number(r.pos).toFixed(1),
     Number(r.vh).toFixed(2),
     Number(r.b).toFixed(3),
-    Number(r.Im).toFixed(2),
-    Number(r.Is).toFixed(1),
   ]);
-  const reportHeaders = ['序号', '测量对象', '探头位置 X (cm)', '霍尔电压 VH (mV)', '磁感应强度 B (mT)', '励磁电流 Im (A)', '霍尔电流 Is (mA)'];
+  const reportHeaders = ['序号', '探头位置 X (cm)', '霍尔电压 VH (mV)', '磁感应强度 B (mT)'];
   const downloadReportFile = (filename, content, mimeType) => {
     const reportDocument = win?.document || document;
     const reportUrl = reportDocument.defaultView?.URL || URL;
@@ -3975,7 +4015,7 @@ export function exportHallDataReport(data) {
       const sheetRows = dataRows.map((row, rowIndex) => {
         const cells = row.map((value, columnIndex) => {
           const ref = columnName(columnIndex) + (rowIndex + 1);
-          const isNumber = rowIndex > 0 && columnIndex !== 1;
+          const isNumber = rowIndex > 0;
           return isNumber
             ? '<c r="' + ref + '"><v>' + escapeXml(value) + '</v></c>'
             : '<c r="' + ref + '" t="inlineStr"><is><t>' + escapeXml(value) + '</t></is></c>';
@@ -3984,7 +4024,7 @@ export function exportHallDataReport(data) {
       }).join('');
       const sheetXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">' +
-        '<dimension ref="A1:G' + dataRows.length + '"/><sheetData>' + sheetRows + '</sheetData></worksheet>';
+        '<dimension ref="A1:D' + dataRows.length + '"/><sheetData>' + sheetRows + '</sheetData></worksheet>';
       const files = {
         '[Content_Types].xml': '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
           '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">' +
