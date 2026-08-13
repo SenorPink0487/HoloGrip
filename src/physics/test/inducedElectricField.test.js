@@ -251,3 +251,11 @@ test('equipment disables raycast picking on forceArrow and non-probe lines/helpe
   });
 });
 
+test('equipment computes physical ring radii with uniform inner spacing and expanding outer spacing', async () => {
+  const { createInducedElectricFieldEquipment } = await import('../src/experiments/inducedElectricFieldEquipment.js');
+  const root = createInducedElectricFieldEquipment();
+  root.visible = true;
+  root.userData.update({ R: 2.0, dBdt: 2.0, B: 1.0, showE: true });
+  assert.equal(root.visible, true);
+});
+

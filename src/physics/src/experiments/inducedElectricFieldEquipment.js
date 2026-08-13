@@ -26,8 +26,8 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
     return { sprite: new THREE.Group(), setQE: () => {} };
   }
   const canvas = document.createElement('canvas');
-  canvas.width = 440;
-  canvas.height = 160;
+  canvas.width = 512;
+  canvas.height = 280;
   const ctx = canvas.getContext('2d');
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -40,49 +40,41 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
     opacity: 1,
   }));
   sprite.center.set(0.5, 0);
-  const baseW = 0.48 * worldScale;
-  const heightFor = (n) => (0.040 + 0.045 * Math.max(1, n)) * worldScale;
+  const baseW = 0.40 * worldScale;
+  const heightFor = (n) => (0.040 + 0.038 * Math.max(1, n)) * worldScale;
   sprite.scale.set(baseW, heightFor(2), 1);
   sprite.renderOrder = 24;
   sprite.raycast = () => {};
   let lastKey = '';
 
-  function setQE(qText, eText, accent = '#fbbf24', rText = null) {
-    const key = `${accent}|${qText}|${eText}|${rText || ''}`;
+  function setQE(qText, eText, accent = '#fde68a', rText = null, fText = null) {
+    const key = `${accent}|${qText}|${eText}|${rText || ''}|${fText || ''}`;
     if (key === lastKey) return;
     lastKey = key;
     const W = canvas.width;
     const H = canvas.height;
     ctx.clearRect(0, 0, W, H);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
 
-    // Frameless pure floating text (no card box / no container background)
     const drawLine = (text, y, size, color) => {
       if (!text) return;
-      // High-contrast dark outline stroke behind pure floating text
-      ctx.save();
-      ctx.strokeStyle = 'rgba(15, 23, 42, 0.95)';
-      ctx.lineWidth = 7;
-      ctx.lineJoin = 'round';
       ctx.font = `bold ${size}px "Microsoft YaHei", sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
+      ctx.lineWidth = 6;
+      ctx.strokeStyle = 'rgba(15, 23, 42, 0.72)';
       ctx.strokeText(text, W / 2, y);
-      ctx.restore();
-
-      drawMathFormula(ctx, text, W / 2, y, {
-        font: `bold ${size}px "Microsoft YaHei", sans-serif`,
-        color,
-        align: 'center',
-        textBaseline: 'middle',
-        fontWeight: 'bold',
-      });
+      ctx.fillStyle = color;
+      ctx.fillText(text, W / 2, y);
     };
+
     const lines = [
-      rText ? { text: rText, color: '#38bdf8', size: 44 } : null,
-      { text: eText, color: accent || '#fbbf24', size: 42 },
+      rText ? { text: rText, color: '#7dd3fc', size: 36 } : null,
+      { text: eText, color: '#e2e8f0', size: 34 },
+      fText ? { text: fText, color: '#86efac', size: 34 } : null,
     ].filter(Boolean);
+
     sprite.scale.set(baseW, heightFor(lines.length), 1);
-    const lineSpacing = 50;
+    const lineSpacing = 42;
     const centerY = H * 0.50;
     const startY = centerY - ((lines.length - 1) * lineSpacing) / 2;
     lines.forEach((line, i) => {
@@ -518,31 +510,46 @@ export function createInducedElectricFieldEquipment() {
       const stepDt = Math.max(0, Number(dt || 0));
       const canSpin = showSpin && sense !== 'none' && absD > 1e-4;
 
-      const dynamicRadii = (function computePhysicalRingRadii(regionR, rateD, Rdisk = 6.5) {
+      const dynamicRadii = (function computePhysicalRingRadii(regionR, rateD, Rdisk = 6.2) {
         const absRate = Math.abs(Number(rateD || 0));
         if (absRate < 0.02) return [];
 
         const safeR = Math.max(0.6, Math.min(3.6, Number(regionR || 2)));
-        // 物理规律：电场线密度 ∝ 局部场强 E
-        // 面内 E ∝ r：从约 0.3R 起起始，越靠近边界 R 越紧密（避免圆心过空，同时展现渐变）
-        // 面外 E ∝ 1/r：边界 R 处最紧密，向外延伸间距逐渐拉开
-        const nIn = Math.min(6, Math.max(3, Math.round(2.0 + absRate * 0.7)));
-        const nOut = Math.min(7, Math.max(4, Math.round(3.0 + absRate * 0.8)));
-
         const radii = [];
-        // 1. 面内环 (E ∝ r)：间距随 r 增大显著变密，呈现明显的阶梯渐变
-        for (let i = 1; i <= nIn; i += 1) {
-          const frac = Math.pow(i / (nIn + 1), 0.42);
-          radii.push(safeR * frac);
+
+        // 1. 内圈绝对坐标基准步长 s0 (受 |dB/dt| 调控，|dB/dt| 越大整体越密)
+        const rateFactor = THREE.MathUtils.clamp(absRate / 6.0, 0, 1);
+        const s0 = THREE.MathUtils.lerp(0.72, 0.45, rateFactor);
+
+        // 2. 面内同心圆 (r < R)：使用指数递减绝对步长 Δr_k = s0 * (0.62)^(k-1)
+        // 间距形成极陡峭的渐变比：第一间距~0.72m，第二~0.44m，第三~0.27m，第四~0.17m...
+        // 圆心区域非常开阔稀疏，越靠近柱体边缘同心圆急剧变密，间距视觉差距极其明显！
+        let currR = 0;
+        let k = 1;
+        while (k <= 10) {
+          const step = s0 * Math.pow(0.62, k - 1);
+          if (step < 0.04) break;
+          const nextR = currR + step;
+          if (nextR >= safeR - 0.06) break;
+          radii.push(nextR);
+          currR = nextR;
+          k += 1;
         }
-        // 2. 边界环 r = R (场强最大 E_max)
+
+        // 3. 边界环 r = R (磁场柱体边缘，感生电场强度达到峰值 E_max)
         radii.push(safeR);
-        // 3. 面外环 (E ∝ 1/r)：随半径增大间距平滑拉开
-        const ratio = Math.max(1.12, Rdisk / safeR);
-        for (let k = 1; k <= nOut; k += 1) {
-          const frac = k / nOut;
-          radii.push(safeR * Math.pow(ratio, Math.pow(frac, 1.25)));
+
+        // 4. 面外同心圆 (r > R)：随着 r 增大，间距剧烈拉开 (符合 E ∝ 1/r 导致的明显稀疏化)
+        // 外圈步长按 m^1.55 陡峭增长，呈现明显的向外疏散感
+        const outBaseStep = Math.max(0.35, s0 * 0.75);
+        let m = 1;
+        while (m <= 12) {
+          const outR = safeR + outBaseStep * Math.pow(m, 1.55);
+          if (outR > Rdisk) break;
+          radii.push(outR);
+          m += 1;
         }
+
         return radii;
       }(R, dBdt));
 
@@ -621,19 +628,20 @@ export function createInducedElectricFieldEquipment() {
       probeCore.material.color.setHex(qPos ? 0xffd43b : 0x60a5fa);
       probeCore.material.emissive.setHex(qPos ? 0xffb000 : 0x2563eb);
       probeHalo.material.color.setHex(qPos ? 0xffd43b : 0x60a5fa);
-      probeHud.sprite.visible = data?.showProbe !== false;
-
       const pr = Number(data?.probeR ?? Math.hypot(Number(data?.probe?.x || 0), Number(data?.probe?.z || 0)));
+      const fx = Number(data?.force?.x || 0);
+      const fz = Number(data?.force?.z || 0);
+      const fMag = Math.hypot(fx, fz);
+      const fText = fMag > 1e-6 ? `|F| = ${formatPhysicsNumber(fMag, { digits: 2, unit: 'N' })}` : null;
+
       probeHud.setQE(
         `q₀=${qPos ? '+' : ''}${q0.toFixed(1)} μC`,
         `|E| = ${formatPhysicsNumber(data?.magnitudeE, { digits: 2, unit: 'N/C' })}`,
         qPos ? '#fbbf24' : '#60a5fa',
-        `r = ${pr.toFixed(2)} m`,
+        `r=${pr.toFixed(2)} m`,
+        fText,
       );
 
-      const fx = Number(data?.force?.x || 0);
-      const fz = Number(data?.force?.z || 0);
-      const fMag = Math.hypot(fx, fz);
       if (fMag > 1e-5) {
         forceArrow.visible = true;
         forceArrow.setDirection(new THREE.Vector3(fx / fMag, 0, fz / fMag));

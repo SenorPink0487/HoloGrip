@@ -144,7 +144,7 @@ test('electric-field axis locks freeze locked world axes during drag; wheel is d
   });
   assert.equal(state.data.charges[0].x, 2); // 0 + 80 * 0.025
   assert.equal(state.data.charges[0].z, 0); // Z frozen
-  // vertical→Y with scale 0.025: -(-120) * 0.025 = 3.0
+  // vertical→Y with scale 0.025: (-120) * (-1) * 0.025 = 3.0 (mouse up moves towards +Z / screen left)
   assert.equal(state.data.charges[0].y, 3);
   handlers.endManipulation(target);
 
@@ -203,7 +203,7 @@ test('electric-field axis locks freeze locked world axes during drag; wheel is d
     dt: 1 / 60,
   });
   assert.equal(state.data.charges[0].z, 1); // Z unchanged under Shift
-  close(state.data.charges[0].y, 1.0, 1e-9); // 0 + (-(-40)) * 0.025 = 1.0 (mouse up pushes deeper Y)
+  close(state.data.charges[0].y, 1.0, 1e-9); // 0 + (-40) * (-1) * 0.025 = 1.0 (mouse up moves towards +Z / screen left)
   handlers.endManipulation(target);
 
   // Wheel adjusts Z when unlocked.
@@ -221,6 +221,51 @@ test('electric-field axis locks freeze locked world axes during drag; wheel is d
   const beforeX = state.data.axisLock.x;
   handlers.onKey('KeyX');
   assert.equal(state.data.axisLock.x, !beforeX);
+});
+
+test('electric-field raycaster drag maps crosshair 3D ray directly to charge position', () => {
+  const { state, handlers } = context();
+  const target = { userData: { role: 'electric_charge', chargeId: 1 } };
+  state.data.charges[0].x = 0;
+  state.data.charges[0].y = 0;
+  state.data.charges[0].z = 0;
+  state.data.axisLock = { x: false, y: false, z: false };
+
+  assert.equal(handlers.beginManipulation(target), true);
+
+  // Mock raycaster pointing down at (1.3, y=0, 2.6) in local space (scaled by 0.13: hit=(0.169, 0, 0.338))
+  const raycaster = {
+    ray: {
+      origin: new THREE.Vector3(0.169, 10, 0.338),
+      direction: new THREE.Vector3(0, -1, 0),
+    },
+  };
+
+  assert.equal(handlers.updateManipulation(target, { raycaster }), true);
+  close(state.data.charges[0].x, 1.3, 1e-4);
+  close(state.data.charges[0].y, 2.6, 1e-4);
+
+  handlers.endManipulation(target);
+});
+
+test('electric-field coordinate axes remain anchored during drag and update on release', () => {
+  const { state, handlers } = context();
+  const chargeTarget = { userData: { role: 'electric_charge', chargeId: state.data.charges[0].id } };
+  state.data.charges[0].x = 1;
+  state.data.charges[0].y = 2;
+  state.data.charges[0].z = 0;
+
+  assert.equal(handlers.beginManipulation(chargeTarget), true);
+  assert.equal(state.data.dragging, true);
+  assert.deepEqual(state.data.dragStart, { x: 1, y: 2, z: 0 });
+
+  // During drag, charge moves but dragStart remains fixed as axis anchor
+  state.data.charges[0].x = 3.5;
+  assert.deepEqual(state.data.dragStart, { x: 1, y: 2, z: 0 });
+
+  // On release, drag clears and new position becomes active axis center
+  handlers.endManipulation(chargeTarget);
+  assert.equal(state.data.dragging, false);
 });
 
 test('electric-field charge id resolves from nested hit mesh parents', () => {
@@ -302,8 +347,29 @@ test('electric-field side camera view drag projects deltas without inversion', (
     dt: 1 / 60,
   });
 
-  // Since +Z is on screen-left, dragging LEFT must INCREASE charge.y (+Z delta)
+  // In this side-view projection, dragging LEFT must increase experiment Y.
   assert.ok(state.data.charges[0].y > 0, `charge.y should increase when dragging left in side view, got ${state.data.charges[0].y}`);
+  handlers.endManipulation(target);
+});
+
+test('electric-field side camera keeps single free Y axis under the cursor', () => {
+  const mockCamera = {
+    // Camera on +X looking toward -X: scene +Z / experiment +Y is screen-left.
+    quaternion: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2),
+  };
+  const { state, handlers } = context({
+    electro: { getCamera: () => mockCamera, mouseDrag: {} },
+  });
+  const target = { userData: { role: 'electric_charge', chargeId: 1 } };
+  state.data.charges = [{ id: 1, q: 1, x: 0, y: 0, z: 0 }];
+  state.data.selectedId = 1;
+  handlers.onUiAction('electric-axis-lock', { axis: 'x', locked: true });
+  handlers.onUiAction('electric-axis-lock', { axis: 'z', locked: true });
+  handlers.onUiAction('electric-axis-lock', { axis: 'y', locked: false });
+
+  assert.equal(handlers.beginManipulation(target), true);
+  handlers.updateManipulation(target, { totalX: -80, totalY: 0, dragged: true, dt: 1 / 60 });
+  assert.ok(state.data.charges[0].y > 0, `left drag should increase Y in side view, got ${state.data.charges[0].y}`);
   handlers.endManipulation(target);
 });
 

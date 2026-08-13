@@ -999,56 +999,189 @@ export function createHandlers(ctx) {
     const freeZ = !lock.z;
     const scale = 0.025;
     const shiftKey = electricDragWantsShiftZ(data);
-    let ox = 0;
-    let oy = 0;
-    let oz = 0;
 
     const camera = equipment.electro?.getCamera?.();
-    let rx = 1, rz = 0;
-    let fx = 0, fz = -1;
+    let rx = 1, ry = 0, rz = 0;
+    let ux = 0, uy = 0, uz = -1;
     if (camera) {
-      const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-      const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-      rx = camRight.x;
-      rz = camRight.z;
-      const fLen = Math.hypot(camForward.x, camForward.z);
-      if (fLen > 1e-4) {
-        fx = camForward.x / fLen;
-        fz = camForward.z / fLen;
-      }
+      const q = new THREE.Quaternion();
+      if (typeof camera.getWorldQuaternion === 'function') camera.getWorldQuaternion(q);
+      else if (camera.quaternion) q.copy(camera.quaternion);
+      const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+      const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+      rx = camRight.x; ry = camRight.y; rz = camRight.z;
+      ux = -camUp.x; uy = -camUp.y; uz = -camUp.z;
     }
+
+    let ox = (dx * rx + dy * ux) * scale;
+    // Experiment Y is rendered on the scene Z axis. With the side camera,
+    // scene +Z projects to screen-left, so a leftward mouse drag increases Y.
+    let oy = (dx * rz + dy * uz) * scale;
+    let oz = (dx * ry + dy * uy) * scale;
 
     const count = (freeX ? 1 : 0) + (freeY ? 1 : 0) + (freeZ ? 1 : 0);
 
     if (count === 3) {
       if (shiftKey) {
-        if (freeY) oy = (dx * rz + dy * fz) * scale;
+        oz = 0;
       } else {
-        if (freeX) ox = dx * scale;
-        if (freeZ) oz = -dy * scale;
-      }
-    } else if (count === 2) {
-      if (freeX && freeY) {
-        // Z locked -> drag freely on XY plane
-        ox = (dx * rx - dy * fx) * scale;
-        oy = (dx * rz + dy * fz) * scale;
-      } else if (freeX && freeZ) {
-        // Y locked -> drag freely on XZ plane
-        ox = dx * rx * scale;
+        ox = dx * scale;
         oz = -dy * scale;
-      } else if (freeY && freeZ) {
-        // X locked -> drag freely on YZ plane
-        oy = (dx * rz + dy * fz) * scale;
-        oz = -dy * scale;
+        oy = 0;
       }
-    } else if (count === 1) {
+    }
+
+    if (count === 1) {
       const drive = Math.abs(dy) >= Math.abs(dx) ? -dy : dx;
       if (freeX) ox = drive * scale;
-      if (freeY) oy = drive * scale;
+      // When Y is the only free experiment axis, use the camera-projected
+      // component. This is essential in side view: +experiment-Y is scene +Z
+      // and may be controlled by horizontal mouse movement rather than raw dy.
+      if (freeY && !camera) oy = drive * scale;
       if (freeZ) oz = drive * scale;
+    } else {
+      if (!freeX) ox = 0;
+      if (!freeY) oy = 0;
+      if (!freeZ) oz = 0;
     }
 
     return { ox, oy, oz, freeX, freeY, freeZ, lock };
+  }
+
+  const _invMat = new THREE.Matrix4();
+  const _localRay = new THREE.Ray();
+
+  /**
+   * Directly map 3D crosshair/pointer ray onto the charge target plane.
+   * Ensures 1:1 crosshair tracking ("指哪打哪",跟手).
+   */
+  function applyElectricDragRaycast(data, raycaster, context = {}) {
+    if (!data?.dragStart || !raycaster?.ray) return false;
+    const lock = electricAxisLock(data);
+    const freeX = !lock.x;
+    const freeY = !lock.y;
+    const freeZ = !lock.z;
+    if (!freeX && !freeY && !freeZ) return false;
+
+    const shiftKey = electricDragWantsShiftZ(data) || !!context.shiftKey;
+    const s = data.dragStart;
+    const WORLD_SCALE = 0.13;
+
+    const root = equipment.electro;
+    if (root && root.matrixWorld) {
+      _invMat.copy(root.matrixWorld).invert();
+      _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
+    } else {
+      _localRay.copy(raycaster.ray);
+    }
+
+    const plane = new THREE.Plane();
+    const hit = new THREE.Vector3();
+    let hitFound = false;
+
+    if (freeX || freeY) {
+      if (!shiftKey || lock.z) {
+        // Horizontal plane: Y_local = s.z * WORLD_SCALE
+        const planeY = (s.z || 0) * WORLD_SCALE;
+        plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 1, 0), new THREE.Vector3(0, planeY, 0));
+        if (_localRay.intersectPlane(plane, hit)) {
+          hitFound = true;
+        }
+      } else {
+        // Shift+drag: Vertical depth plane Z_local = s.y * WORLD_SCALE for height adjust
+        const planeZ = (s.y || 0) * WORLD_SCALE;
+        plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, planeZ));
+        if (_localRay.intersectPlane(plane, hit)) {
+          hitFound = true;
+        }
+      }
+    } else if (freeZ) {
+      const planeZ = (s.y || 0) * WORLD_SCALE;
+      plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, planeZ));
+      if (_localRay.intersectPlane(plane, hit)) {
+        hitFound = true;
+      }
+    }
+
+    if (!hitFound) return false;
+
+    const targetObj = data.dragTarget === 'probe' ? data.probe : selectedElectricCharge(data);
+    if (!targetObj) return false;
+
+    const lo = data.dragTarget === 'probe' ? -5 : -4.5;
+    const hi = data.dragTarget === 'probe' ? 5 : 4.5;
+
+    if (freeX) targetObj.x = clamp(hit.x / WORLD_SCALE, lo, hi);
+    if (freeY) {
+      if (!shiftKey || lock.z) {
+        // Experiment Y is rendered as local/world +Z. Preserve that sign so
+        // the charge follows the crosshair on the side-view Y axis.
+        targetObj.y = clamp(hit.z / WORLD_SCALE, lo, hi);
+      }
+    }
+    if (freeZ) {
+      if (shiftKey || (!freeX && !freeY)) {
+        targetObj.z = clamp(hit.y / WORLD_SCALE, lo, hi);
+      }
+    }
+    data.dragging = true;
+    data._aimPoint = { x: hit.x, y: hit.y, z: hit.z };
+    data._aimVisible = true;
+    return true;
+  }
+
+  function applyGaussDragRaycast(data, raycaster) {
+    const charge = selectedGaussCharge(data);
+    if (!charge || !data?.dragArmed || !raycaster?.ray) return false;
+    data.dragging = true;
+    const root = equipment.electro;
+    if (root && root.matrixWorld) {
+      _invMat.copy(root.matrixWorld).invert();
+      _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
+    } else {
+      _localRay.copy(raycaster.ray);
+    }
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const hit = new THREE.Vector3();
+    if (_localRay.intersectPlane(plane, hit)) {
+      charge.x = clamp(hit.x / 0.13, -5, 5);
+      charge.y = clamp(hit.z / 0.13, -5, 5);
+      data._aimPoint = { x: hit.x, y: hit.y, z: hit.z };
+      data._aimVisible = true;
+      if (state.stepIndex < 1 && (Math.abs(hit.x) > 0.1 || Math.abs(hit.z) > 0.1)) setStep('cross');
+      return true;
+    }
+    return false;
+  }
+
+  function applyInducedProbeDragRaycast(data, raycaster) {
+    if (!data?.dragStart || !data.probe || !raycaster?.ray) return false;
+    const root = equipment.electro;
+    if (root && root.matrixWorld) {
+      _invMat.copy(root.matrixWorld).invert();
+      _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
+    } else {
+      _localRay.copy(raycaster.ray);
+    }
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const hit = new THREE.Vector3();
+    if (_localRay.intersectPlane(plane, hit)) {
+      data.probe.x = clamp(hit.x / 0.13, -INDUCED_E_PROBE_R_MAX, INDUCED_E_PROBE_R_MAX);
+      data.probe.z = clamp(hit.z / 0.13, -INDUCED_E_PROBE_R_MAX, INDUCED_E_PROBE_R_MAX);
+      data.probe.y = 0;
+      data._aimPoint = { x: hit.x, y: hit.y, z: hit.z };
+      data._aimVisible = true;
+      const r = Math.hypot(data.probe.x, data.probe.z);
+      if (r > INDUCED_E_PROBE_R_MAX) {
+        const s = INDUCED_E_PROBE_R_MAX / r;
+        data.probe.x *= s;
+        data.probe.z *= s;
+      }
+      if (state.stepIndex < 1 && (Math.abs(data.probe.x) > 0.1 || Math.abs(data.probe.z) > 0.1)) setStep('probe');
+      syncInducedElectric(data, false);
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -1095,20 +1228,18 @@ export function createHandlers(ctx) {
     if (!charge || !data?.dragArmed) return false;
     data.dragging = true;
     const camera = equipment.electro?.getCamera?.();
-    let rx = 1, rz = 0, fx = 0, fz = -1;
+    let rx = 1, rz = 0, ux = 0, uz = -1;
     if (camera) {
-      const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-      const camForward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
-      rx = camRight.x;
-      rz = camRight.z;
-      const fLen = Math.hypot(camForward.x, camForward.z);
-      if (fLen > 1e-4) {
-        fx = camForward.x / fLen;
-        fz = camForward.z / fLen;
-      }
+      const q = new THREE.Quaternion();
+      if (typeof camera.getWorldQuaternion === 'function') camera.getWorldQuaternion(q);
+      else if (camera.quaternion) q.copy(camera.quaternion);
+      const camRight = new THREE.Vector3(1, 0, 0).applyQuaternion(q);
+      const camUp = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+      rx = camRight.x; rz = camRight.z;
+      ux = -camUp.x; uz = -camUp.z;
     }
-    const ox = (dx * rx - dy * fx) * 0.025;
-    const oy = (dx * rz + dy * fz) * 0.025;
+    const ox = (dx * rx + dy * ux) * 0.025;
+    const oy = (dx * rz + dy * uz) * 0.025;
     charge.x = clamp(Number(data.dragStartX || 0) + ox, -5, 5);
     charge.y = clamp(Number(data.dragStartY || 0) + oy, -5, 5);
     if (state.stepIndex < 1 && (Math.abs(dx) > 3 || Math.abs(dy) > 3)) setStep('cross');
@@ -2434,6 +2565,19 @@ export function createHandlers(ctx) {
       refreshHallIdentifyVisuals(HALL_PART_NAMES[role] ? role : null);
       return;
     }
+    if (state.expId === 'electric_field' && state.data) {
+      const role = target?.userData?.role;
+      if (role !== state.data._lastFocusRole) {
+        state.data._lastFocusRole = role;
+        if (role === 'electric_charge') {
+          const id = resolveChargeId(target);
+          const idx = state.data.charges.findIndex((item) => item.id === id);
+          if (idx >= 0) toast(`已瞄准源电荷 Q${idx + 1}；按住拖动或滚轮微调`);
+        } else if (role === 'electric_probe') {
+          toast('已瞄准试探电荷 q₀；按住拖动移动位置');
+        }
+      }
+    }
   }
 
   function armHallCameraDrag(kind, value) {
@@ -2758,6 +2902,9 @@ export function createHandlers(ctx) {
         return;
       }
       if (holding && data.dragging && data.dragStart) {
+        if (raycaster && applyInducedProbeDragRaycast(data, raycaster)) {
+          return;
+        }
         const dx = Number(equipment.electro?.mouseDrag?.movementX || 0) - Number(data.dragMouseX || 0);
         const dy = Number(equipment.electro?.mouseDrag?.movementY || 0) - Number(data.dragMouseY || 0);
         applyInducedProbeDrag(data, dx, dy);
@@ -2798,6 +2945,9 @@ export function createHandlers(ctx) {
     if (state.expId === 'electric_field') {
       const data = state.data;
       if (holding && data.dragging && data.dragStart) {
+        if (raycaster && applyElectricDragRaycast(data, raycaster)) {
+          return;
+        }
         const { dx, dy } = mouseDragDelta(data);
         data._dragShiftZ = !!equipment.electro?.mouseDrag?.shiftKey;
         // Position only; update() owns the single per-frame visual sync.
@@ -2817,6 +2967,9 @@ export function createHandlers(ctx) {
     if (state.expId === 'gauss_theorem') {
       const data = state.data;
       if (holding && data.dragArmed) {
+        if (raycaster && applyGaussDragRaycast(data, raycaster)) {
+          return;
+        }
         const { dx, dy } = mouseDragDelta(data);
         // Position only; update() owns the single per-frame visual sync.
         applyGaussDragDelta(data, dx, dy, dt);
@@ -3042,22 +3195,27 @@ export function createHandlers(ctx) {
         applyInducedSliderRelative(data, totalX - origin);
         return true;
       }
-      if (data?.dragging && data.dragStart && (
-        Number.isFinite(context.totalX)
-        || Number.isFinite(context.totalY)
-        || Number.isFinite(context.dx)
-        || Number.isFinite(context.dy)
-      )) {
-        const dx = Number.isFinite(context.totalX)
-          ? Number(context.totalX) - Number(data.dragMouseX || 0)
-          : Number(context.dx || 0);
-        const dy = Number.isFinite(context.totalY)
-          ? Number(context.totalY) - Number(data.dragMouseY || 0)
-          : Number(context.dy || 0);
-        applyInducedProbeDrag(data, dx, dy);
-        return true;
+      if (data?.dragging && data.dragStart) {
+        if (context.raycaster && applyInducedProbeDragRaycast(data, context.raycaster)) {
+          return true;
+        }
+        if (
+          Number.isFinite(context.totalX)
+          || Number.isFinite(context.totalY)
+          || Number.isFinite(context.dx)
+          || Number.isFinite(context.dy)
+        ) {
+          const dx = Number.isFinite(context.totalX)
+            ? Number(context.totalX) - Number(data.dragMouseX || 0)
+            : Number(context.dx || 0);
+          const dy = Number.isFinite(context.totalY)
+            ? Number(context.totalY) - Number(data.dragMouseY || 0)
+            : Number(context.dy || 0);
+          applyInducedProbeDrag(data, dx, dy);
+          return true;
+        }
       }
-      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget);
+      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget, context.raycaster || null);
       return !!data?.dragging || !!data?.sliderDragging;
     }
     if (state.expId === 'faraday_induction') {
@@ -3091,50 +3249,60 @@ export function createHandlers(ctx) {
         data.x = clamp(data.motionStart.x0 + totalX * 0.015, data.xMin, data.xMax);
         return true;
       }
-      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget);
+      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget, context.raycaster || null);
       return !!data?.dragging;
     }
     if (state.expId === 'electric_field') {
       const data = state.data;
-      // Prefer AR / direct-manipulation totals when present so drag works even
-      // if the shared mouseDrag facade was not forwarded for this frame.
-      if (data?.dragging && data.dragStart && (
-        Number.isFinite(context.totalX)
-        || Number.isFinite(context.totalY)
-        || Number.isFinite(context.dx)
-        || Number.isFinite(context.dy)
-      )) {
-        const dx = Number.isFinite(context.totalX)
-          ? Number(context.totalX) - Number(data.dragMouseX || 0)
-          : Number(context.dx || 0);
-        const dy = Number.isFinite(context.totalY)
-          ? Number(context.totalY) - Number(data.dragMouseY || 0)
-          : Number(context.dy || 0);
-        data._dragShiftZ = !!(context.shiftKey || equipment.electro?.mouseDrag?.shiftKey);
-        applyElectricDragDelta(data, dx, dy, context.dt || 0);
-        return true;
+      // Prefer 3D raycast target tracking when raycaster is present so the charge
+      // sticks 1:1 to the crosshair / mouse pointer.
+      if (data?.dragging && data.dragStart) {
+        if (context.raycaster && applyElectricDragRaycast(data, context.raycaster, context)) {
+          return true;
+        }
+        if (
+          Number.isFinite(context.totalX)
+          || Number.isFinite(context.totalY)
+          || Number.isFinite(context.dx)
+          || Number.isFinite(context.dy)
+        ) {
+          const dx = Number.isFinite(context.totalX)
+            ? Number(context.totalX) - Number(data.dragMouseX || 0)
+            : Number(context.dx || 0);
+          const dy = Number.isFinite(context.totalY)
+            ? Number(context.totalY) - Number(data.dragMouseY || 0)
+            : Number(context.dy || 0);
+          data._dragShiftZ = !!(context.shiftKey || equipment.electro?.mouseDrag?.shiftKey);
+          applyElectricDragDelta(data, dx, dy, context.dt || 0);
+          return true;
+        }
       }
-      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget);
+      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget, context.raycaster || null);
       return !!data?.dragging;
     }
     if (state.expId === 'gauss_theorem') {
       const data = state.data;
-      if (data?.dragArmed && (
-        Number.isFinite(context.totalX)
-        || Number.isFinite(context.totalY)
-        || Number.isFinite(context.dx)
-        || Number.isFinite(context.dy)
-      )) {
-        const dx = Number.isFinite(context.totalX)
-          ? Number(context.totalX) - Number(data.dragMouseX || 0)
-          : Number(context.dx || 0);
-        const dy = Number.isFinite(context.totalY)
-          ? Number(context.totalY) - Number(data.dragMouseY || 0)
-          : Number(context.dy || 0);
-        applyGaussDragDelta(data, dx, dy, context.dt || 0);
-        return true;
+      if (data?.dragArmed) {
+        if (context.raycaster && applyGaussDragRaycast(data, context.raycaster)) {
+          return true;
+        }
+        if (
+          Number.isFinite(context.totalX)
+          || Number.isFinite(context.totalY)
+          || Number.isFinite(context.dx)
+          || Number.isFinite(context.dy)
+        ) {
+          const dx = Number.isFinite(context.totalX)
+            ? Number(context.totalX) - Number(data.dragMouseX || 0)
+            : Number(context.dx || 0);
+          const dy = Number.isFinite(context.totalY)
+            ? Number(context.totalY) - Number(data.dragMouseY || 0)
+            : Number(context.dy || 0);
+          applyGaussDragDelta(data, dx, dy, context.dt || 0);
+          return true;
+        }
       }
-      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget);
+      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget, context.raycaster || null);
       return !!data?.dragArmed;
     }
     if (state.expId !== 'hall_effect') return false;
@@ -3161,6 +3329,7 @@ export function createHandlers(ctx) {
   }
 
   function endManipulation(_target, context = {}) {
+    if (state.data) state.data._aimVisible = false;
     if (state.expId === 'induced_electric_field') {
       if (state.data.sliderDragging) {
         finishInducedSlider(state.data);

@@ -4799,7 +4799,8 @@ function unlockedElectroPick(event) {
   // Invisible apparatus from other electro modes still raycasts in Three.js,
   // so only accept targets that belong to a currently visible hierarchy.
   const preferredRoles = [
-    'electric_charge', 'electric_probe', 'gauss_charge', 'faraday_rod', 'induced_e_probe',
+    'electric_charge', 'electric_probe',
+    'gauss_charge', 'faraday_rod', 'induced_e_probe',
     'hall_knob_im', 'hall_knob_is', 'hall_knob_zero',
     'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
     'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',

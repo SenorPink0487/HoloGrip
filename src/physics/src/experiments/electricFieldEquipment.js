@@ -370,6 +370,187 @@ export function createElectricFieldEquipment() {
   probe.add(probeHud.sprite);
   probeGroup.add(probe);
 
+  const aimMarkerGroup = new THREE.Group();
+  aimMarkerGroup.name = 'aim-marker-ring';
+  aimMarkerGroup.visible = false;
+
+  const ringGeo = new THREE.RingGeometry(0.024, 0.034, 32);
+  ringGeo.rotateX(-Math.PI / 2);
+  const ringMesh = new THREE.Mesh(
+    ringGeo,
+    new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthWrite: false }),
+  );
+  const dotGeo = new THREE.CircleGeometry(0.008, 16);
+  dotGeo.rotateX(-Math.PI / 2);
+  const dotMesh = new THREE.Mesh(
+    dotGeo,
+    new THREE.MeshBasicMaterial({ color: 0x38bdf8, side: THREE.DoubleSide, transparent: true, opacity: 0.95, depthWrite: false }),
+  );
+  aimMarkerGroup.add(ringMesh, dotMesh);
+  disablePick(aimMarkerGroup);
+
+  const axisGuidesGroup = new THREE.Group();
+  axisGuidesGroup.name = 'charge-axis-guides';
+  disablePick(axisGuidesGroup);
+
+  const axisRadius = 0.0035;
+  const axisLength = 0.55;
+
+  // Bold X Axis (Red)
+  const xAxisGeo = new THREE.CylinderGeometry(axisRadius, axisRadius, axisLength, 12);
+  xAxisGeo.rotateZ(-Math.PI / 2);
+  const xAxisMat = new THREE.MeshStandardMaterial({
+    color: 0xef4444,
+    emissive: 0x991b1b,
+    emissiveIntensity: 0.6,
+    roughness: 0.3,
+    metalness: 0.2,
+    transparent: true,
+    opacity: 0.88,
+  });
+  const xAxisMesh = new THREE.Mesh(xAxisGeo, xAxisMat);
+
+  // Bold Y Axis (Depth, Green)
+  const yAxisGeo = new THREE.CylinderGeometry(axisRadius, axisRadius, axisLength, 12);
+  yAxisGeo.rotateX(Math.PI / 2);
+  const yAxisMat = new THREE.MeshStandardMaterial({
+    color: 0x22c55e,
+    emissive: 0x166534,
+    emissiveIntensity: 0.6,
+    roughness: 0.3,
+    metalness: 0.2,
+    transparent: true,
+    opacity: 0.88,
+  });
+  const yAxisMesh = new THREE.Mesh(yAxisGeo, yAxisMat);
+
+  // Bold Z Axis (Height, Blue)
+  const zAxisGeo = new THREE.CylinderGeometry(axisRadius, axisRadius, axisLength, 12);
+  const zAxisMat = new THREE.MeshStandardMaterial({
+    color: 0x3b82f6,
+    emissive: 0x1e40af,
+    emissiveIntensity: 0.6,
+    roughness: 0.3,
+    metalness: 0.2,
+    transparent: true,
+    opacity: 0.88,
+  });
+  const zAxisMesh = new THREE.Mesh(zAxisGeo, zAxisMat);
+  const coneGeo = new THREE.ConeGeometry(axisRadius * 2.2, 0.024, 12);
+
+  const xCone = new THREE.Mesh(coneGeo, xAxisMat);
+  xCone.rotation.z = -Math.PI / 2;
+  xCone.position.x = axisLength / 2;
+
+  const yCone = new THREE.Mesh(coneGeo, yAxisMat);
+  yCone.rotation.x = Math.PI / 2;
+  yCone.position.z = axisLength / 2;
+
+  const zCone = new THREE.Mesh(coneGeo, zAxisMat);
+  zCone.position.y = axisLength / 2;
+
+  function createAxisLabelSprite(text, colorStr = '#ffffff') {
+    const canvas = document.createElement('canvas');
+    canvas.width = 128;
+    canvas.height = 128;
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, 128, 128);
+
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.82)';
+    ctx.beginPath();
+    ctx.arc(64, 64, 52, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = colorStr;
+    ctx.lineWidth = 6;
+    ctx.stroke();
+
+    ctx.fillStyle = colorStr;
+    ctx.font = 'bold 64px system-ui, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, 64, 66);
+
+    const texture = new THREE.CanvasTexture(canvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const mat = new THREE.SpriteMaterial({ map: texture, transparent: true, depthWrite: false });
+    const sprite = new THREE.Sprite(mat);
+    sprite.scale.set(0.065, 0.065, 1);
+    sprite.raycast = () => {};
+    return sprite;
+  }
+
+  const xLabel = createAxisLabelSprite('X', '#ef4444');
+  xLabel.position.set(axisLength / 2 + 0.035, 0, 0);
+
+  const yLabel = createAxisLabelSprite('Y', '#22c55e');
+  yLabel.position.set(0, 0, axisLength / 2 + 0.035);
+
+  const zLabel = createAxisLabelSprite('Z', '#3b82f6');
+  zLabel.position.set(0, axisLength / 2 + 0.035, 0);
+
+  axisGuidesGroup.add(xAxisMesh, yAxisMesh, zAxisMesh, xCone, yCone, zCone, xLabel, yLabel, zLabel);
+
+  // Ground drop & projection lines (Yellow dashed)
+  const projPositions = new Float32Array(18);
+  const projGeo = new THREE.BufferGeometry();
+  projGeo.setAttribute('position', new THREE.BufferAttribute(projPositions, 3));
+  const projLinesMesh = new THREE.LineSegments(
+    projGeo,
+    new THREE.LineDashedMaterial({
+      color: 0xfde047,
+      dashSize: 0.015,
+      gapSize: 0.01,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    }),
+  );
+
+  const groundProjGroup = new THREE.Group();
+  groundProjGroup.name = 'ground-proj-lines';
+  groundProjGroup.add(projLinesMesh);
+  disablePick(groundProjGroup);
+
+  function updateAxisGuides(charge, axisOrigin = null) {
+    if (!charge) {
+      axisGuidesGroup.visible = false;
+      groundProjGroup.visible = false;
+      return;
+    }
+    axisGuidesGroup.visible = true;
+    groundProjGroup.visible = true;
+
+    // Anchor axis frame at axisOrigin (start position during drag, re-centers on drag end)
+    const originSrc = axisOrigin || charge;
+    const ox = Number(originSrc.x || 0) * WORLD_PER_SOURCE_UNIT;
+    const oy = Number(originSrc.z || 0) * WORLD_PER_SOURCE_UNIT;
+    const oz = Number(originSrc.y || 0) * WORLD_PER_SOURCE_UNIT;
+
+    axisGuidesGroup.position.set(ox, oy, oz);
+
+    // Current dynamic charge position
+    const cx = Number(charge.x || 0) * WORLD_PER_SOURCE_UNIT;
+    const cy = Number(charge.z || 0) * WORLD_PER_SOURCE_UNIT;
+    const cz = Number(charge.y || 0) * WORLD_PER_SOURCE_UNIT;
+
+    const pos = projGeo.attributes.position.array;
+    // Charge (cx, cy, cz) down to Ground (cx, 0, cz)
+    pos[0] = cx; pos[1] = cy; pos[2] = cz;
+    pos[3] = cx; pos[4] = 0;  pos[5] = cz;
+
+    // Ground (cx, 0, cz) to Origin X-axis line (cx, 0, oz)
+    pos[6] = cx; pos[7] = 0; pos[8] = cz;
+    pos[9] = cx; pos[10] = 0; pos[11] = oz;
+
+    // Ground (cx, 0, cz) to Origin Y-axis line (ox, 0, cz)
+    pos[12] = cx; pos[13] = 0; pos[14] = cz;
+    pos[15] = ox; pos[16] = 0; pos[17] = cz;
+
+    projGeo.attributes.position.needsUpdate = true;
+    projLinesMesh.computeLineDistances();
+  }
+
   // The station activates this root as a single mode group. All visual layers
   // must be parented here or their state will update without reaching render.
   root.add(
@@ -379,6 +560,9 @@ export function createElectricFieldEquipment() {
     chargeGroup,
     gaussSurfaceGroup,
     probeGroup,
+    aimMarkerGroup,
+    axisGuidesGroup,
+    groundProjGroup,
   );
 
   let forceArrow = null;
@@ -962,6 +1146,19 @@ export function createElectricFieldEquipment() {
       root.rotation.set(0, 0, 0);
       lastResetView = data.resetView || 0;
     }
+
+    // Update 准星瞄准圆圈位置
+    if (data._aimVisible && data._aimPoint) {
+      aimMarkerGroup.position.set(data._aimPoint.x, 0.002, data._aimPoint.z);
+      aimMarkerGroup.visible = true;
+    } else {
+      aimMarkerGroup.visible = false;
+    }
+
+    // Update 电荷 3D 坐标轴与虚线投影（拖动时坐标轴保持原位作为参照基准，拖动释放后重置中心）
+    const activeCharge = charges.find((c) => c.id === data.selectedId) || charges[0] || (data.probe ? { ...data.probe, x: data.probe.x, y: data.probe.y, z: data.probe.z } : null);
+    const axisOrigin = (data.dragging && data.dragStart) ? data.dragStart : activeCharge;
+    updateAxisGuides(activeCharge, axisOrigin);
   };
 
 
@@ -971,6 +1168,9 @@ export function createElectricFieldEquipment() {
       if (child.isMesh) child.raycast = raycast;
     }));
     probeHit.raycast = enabled && probe.visible ? THREE.Mesh.prototype.raycast : () => {};
+    axisGuidesGroup.traverse((child) => {
+      if (child.isMesh) child.raycast = raycast;
+    });
   };
   return root;
 }

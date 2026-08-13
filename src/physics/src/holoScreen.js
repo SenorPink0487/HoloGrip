@@ -1528,8 +1528,9 @@ function drawHallExperiment(ctx, W, _H, cfg) {
   });
 
   if (stepIndex === 0 && !allIdentified) {
-    // Identify step: only list the four apparatus (name + status). Clean layout without overlap.
-    const panelY = contentTop + Math.round(12 * scale);
+    // Identify step: list the four apparatus (name + status). Compact vertical layout (no bottom overflow).
+    const panelY = contentTop + Math.round(4 * scale);
+    const availH = contentH - Math.round(8 * scale);
     
     // Exactly four recognition targets (order 01→04).
     const items = [
@@ -1542,23 +1543,25 @@ function drawHallExperiment(ctx, W, _H, cfg) {
     const nextItem = items.find((item) => item.role === nextRole) || null;
     const feedback = d.identifyFeedback || null;
 
-    const tipH = Math.round(44 * scale);
-    const tipY = panelY + Math.round(52 * scale);
-    const cardGap = Math.round(14 * scale);
-    const cardTop = tipY + tipH + Math.round(16 * scale);
+    const headH = Math.round(36 * scale);
+    const tipH = Math.round(36 * scale);
+    const tipY = panelY + headH + Math.round(4 * scale);
+    const cardGap = Math.round(10 * scale);
+    const cardTop = tipY + tipH + Math.round(10 * scale);
     const cardW = (innerW - pad * 2 - cardGap) / 2;
-    const cardH = Math.round(72 * scale);
+    const cardH = Math.round(52 * scale);
     
     const gridH = cardH * 2 + cardGap;
-    const btnH = Math.round(48 * scale);
-    const btnY = cardTop + gridH + Math.round(20 * scale);
-    const panelH = (btnY + btnH + Math.round(18 * scale)) - panelY;
+    const btnH = Math.round(38 * scale);
+    const btnY = cardTop + gridH + Math.round(10 * scale);
+    const calculatedPanelH = (btnY + btnH + Math.round(10 * scale)) - panelY;
+    const panelH = Math.min(availH, calculatedPanelH);
 
     // Draw main panel background
     ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.96)' : 'rgba(10, 22, 44, 0.75)';
     ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.45)' : 'rgba(56, 189, 248, 0.35)';
     ctx.lineWidth = 1.6;
-    roundRect(ctx, innerX, panelY, innerW, panelH, 16);
+    roundRect(ctx, innerX, panelY, innerW, panelH, 14);
     ctx.fill();
     ctx.stroke();
 
@@ -1662,6 +1665,15 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       const cy = y + cardH / 2;
+
+      // Status Tag Pill layout calculations
+      const statusTag = done ? '已识别' : current ? '当前' : '待识别';
+      const pillW = Math.round(done ? 64 : 56) * scale;
+      const pillH = Math.round(26 * scale);
+      const pillX = x + cardW - pillW - Math.round(10 * scale);
+      const pillY = y + (cardH - pillH) / 2;
+
+      // Number tag [01] / ✓
       ctx.fillStyle = done
         ? (isLight ? '#15803d' : '#4ade80')
         : current
@@ -1671,21 +1683,28 @@ function drawHallExperiment(ctx, W, _H, cfg) {
         ctx.shadowColor = 'rgba(255, 255, 255, 0.98)';
         ctx.shadowBlur = 4;
       }
-      const numPx = Math.max(16, Math.min(22, Math.round(cardH * 0.32)));
+      const numPx = Math.max(14, Math.min(20, Math.round(cardH * 0.28)));
       ctx.font = `bold ${numPx}px "Microsoft YaHei", sans-serif`;
       const numLabel = done ? '✓' : `[${item.n}]`;
-      ctx.fillText(numLabel, x + Math.round(14 * scale), cy);
+      const numW = ctx.measureText(numLabel).width;
+      const numX = x + Math.round(12 * scale);
+      ctx.fillText(numLabel, numX, cy);
 
+      // Device Name text with dynamic width protection (prevents overlap with status pill)
+      const nameX = numX + numW + Math.round(8 * scale);
+      const maxNameW = pillX - nameX - Math.round(6 * scale);
       ctx.fillStyle = isLight ? '#0f172a' : '#f8fafc';
-      ctx.font = `bold ${numPx}px "Microsoft YaHei", sans-serif`;
-      ctx.fillText(item.name, x + Math.round(62 * scale), cy);
+      let namePx = Math.max(12, Math.min(18, Math.round(cardH * 0.28)));
+      ctx.font = `bold ${namePx}px "Microsoft YaHei", sans-serif`;
+      const actualNameW = ctx.measureText(item.name).width;
+      if (actualNameW > maxNameW && maxNameW > 10) {
+        namePx = Math.max(10, Math.floor(namePx * (maxNameW / actualNameW)));
+        ctx.font = `bold ${namePx}px "Microsoft YaHei", sans-serif`;
+      }
+      ctx.fillText(item.name, nameX, cy, Math.max(10, maxNameW));
       ctx.restore();
 
-      const statusTag = done ? '已识别' : current ? '当前' : '待识别';
-      const pillW = Math.round(done ? 64 : 56) * scale;
-      const pillH = Math.round(26 * scale);
-      const pillX = x + cardW - pillW - Math.round(14 * scale);
-      const pillY = y + (cardH - pillH) / 2;
+      // Right status pill badge
       ctx.fillStyle = done
         ? (isLight ? 'rgba(34,197,94,0.18)' : 'rgba(34,197,94,0.22)')
         : current
@@ -1698,7 +1717,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
         : current
           ? (isLight ? '#0369a1' : '#7dd3fc')
           : (isLight ? '#64748b' : '#94a3b8');
-      ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+      ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(statusTag, pillX + pillW / 2, pillY + pillH / 2);
@@ -2152,7 +2171,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
  * Avoids the old dual-panel layout that let status text collide with hints.
  */
 function drawHallDemoExperiment(ctx, _W, _H, cfg) {
-  const { hits, innerX, innerW, contentTop, contentH, hud, accentHex } = cfg;
+  const { hits, innerX, innerW, contentTop, hud, accentHex } = cfg;
   _uiTheme = cfg.theme || 'dark';
   const isDisplay = cfg.surface === 'display';
   const scale = holoUiScale(cfg.surface || (isDisplay ? 'display' : 'full'));
@@ -2163,133 +2182,151 @@ function drawHallDemoExperiment(ctx, _W, _H, cfg) {
   const w = innerW;
   const pink = _uiTheme === 'light' ? '#be185d' : '#f9a8d4';
   const vh = Number(d.vh || 0);
-  const polarity = Math.abs(vh) < 0.005 ? '—' : (vh < 0 ? '负极性' : '正极性');
-  const carrier = d.nType !== false ? 'n 型 · e⁻' : 'p 型 · h⁺';
-
-  // —— Formula + live Vₕ (one strip) ——
-  const formulaH = Math.round(72 * scale);
-  ctx.fillStyle = P.panel;
-  ctx.strokeStyle = 'rgba(244, 114, 182, 0.4)';
-  ctx.lineWidth = 1.4;
-  roundRect(ctx, x, contentTop, w, formulaH, 12);
-  ctx.fill();
-  ctx.stroke();
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  const formulaPadX = Math.round(20 * scale);
-  drawMathFormula(
-    ctx,
-    'U_{H}=R_{H}\\frac{IB}{d}',
-    x + formulaPadX,
-    contentTop + formulaH / 2,
-    { fontSize: Math.round(22 * scale), color: pink, align: 'left', textBaseline: 'middle' },
-  );
-
-  const vhFormatted = (vh >= 0 ? '+' : '') + vh.toFixed(3);
-  drawMathFormula(
-    ctx,
-    `U_{H} = ${vhFormatted} (相对)`,
-    x + w - formulaPadX,
-    contentTop + formulaH / 2,
-    { fontSize: Math.round(20 * scale), color: P.title, align: 'right', textBaseline: 'middle' },
-  );
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-
-  // —— Compact status metrics ——
-  let cy = contentTop + formulaH + gap;
-  const statH = Math.round(56 * scale);
-  ctx.fillStyle = P.panel;
-  ctx.strokeStyle = P.panelStroke;
-  ctx.lineWidth = 1.2;
-  roundRect(ctx, x, cy, w, statH, 10);
-  ctx.fill();
-  ctx.stroke();
+  const isNType = d.nType !== false;
 
   const nVal = Math.max(0.01, Number(d.n || 1));
   const dVal = Math.max(0.01, Number(d.d || 0.5));
-  const sign = d.nType !== false ? -1 : 1;
+  const sign = isNType ? -1 : 1;
   const kVal = sign / (nVal * (dVal / 0.5));
   const kFormatted = (kVal >= 0 ? '+' : '') + kVal.toFixed(3);
+  const vhFormatted = (vh >= 0 ? '+' : '') + vh.toFixed(3);
+  const qFormatted = isNType ? '-e' : '+e';
 
-  const stats = [
-    ['载流子', carrier],
-    ['霍尔极性', polarity],
-    ['灵敏度 K', kFormatted],
-  ];
-  stats.forEach(([label, value], i) => {
-    const colW = w / stats.length;
-    const cx = x + i * colW + colW / 2;
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText(label, cx, cy + Math.round(8 * scale));
-    ctx.fillStyle = i === 1 ? pink : P.text;
-    ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText(String(value), cx, cy + Math.round(28 * scale));
-  });
+  let cy = contentTop;
+
+  // ── 顶部栏：电流 I · 磁场 B · 霍尔电压 U_H ──
+  const topH = Math.round(60 * scale);
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = 1.2;
+  roundRect(ctx, x, cy, w, topH, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  const colW1 = w / 3;
+
+  // 电流 I
+  ctx.fillStyle = P.muted;
+  ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('电流 I', x + colW1 * 0.5, cy + Math.round(9 * scale));
+  ctx.fillStyle = P.text;
+  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText(`${Number(d.I || 0).toFixed(2)} A`, x + colW1 * 0.5, cy + Math.round(30 * scale));
+
+  // 磁场 B
+  ctx.fillStyle = P.muted;
+  ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('磁场 B', x + colW1 * 1.5, cy + Math.round(9 * scale));
+  ctx.fillStyle = P.text;
+  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText(`${Number(d.B || 0).toFixed(2)} T`, x + colW1 * 1.5, cy + Math.round(30 * scale));
+
+  // 霍尔电压 U_H（下角标 H）
+  drawMathFormula(
+    ctx,
+    '霍尔电压 U_{H}',
+    x + colW1 * 2.5,
+    cy + Math.round(9 * scale),
+    { fontSize: Math.round(12 * scale), color: P.muted, align: 'center', textBaseline: 'top' },
+  );
+  drawMathFormula(
+    ctx,
+    `U_{H} = ${vhFormatted}`,
+    x + colW1 * 2.5,
+    cy + Math.round(30 * scale),
+    { fontSize: Math.round(15 * scale), color: pink, align: 'center', textBaseline: 'top' },
+  );
+
+  cy += topH + gap;
+
+  // ── 中间主体框（草稿中的重点框）：载流子类型 ──
+  const boxH = Math.round(108 * scale);
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = 'rgba(244, 114, 182, 0.45)'; // 突出手稿框选效果
+  ctx.lineWidth = 1.6;
+  roundRect(ctx, x, cy, w, boxH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  const titlePadX = Math.round(16 * scale);
+  const titlePadY = Math.round(12 * scale);
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
   ctx.textAlign = 'left';
-  cy += statH + gap;
+  ctx.textBaseline = 'top';
+  ctx.fillText('载流子类型', x + titlePadX, cy + titlePadY);
 
-  // —— Live param readout (continuous tracks on the tabletop) ——
-  const params = [
-    { key: 'I', label: '电流 I', value: Number(d.I || 0) },
-    { key: 'B', label: '磁场 B', value: Number(d.B || 0) },
-    { key: 'n', label: '浓度 n', value: Number(d.n || 0) },
-    { key: 'd', label: '厚度 d', value: Number(d.d || 0) },
-  ];
-  const colGap = Math.round(8 * scale);
-  const colW = (w - colGap) / 2;
-  const rowH = Math.round(44 * scale);
-  const rowGap = Math.round(6 * scale);
-  params.forEach((p, i) => {
-    const col = i % 2;
-    const row = Math.floor(i / 2);
-    const px = x + col * (colW + colGap);
-    const py = cy + row * (rowH + rowGap);
-    ctx.fillStyle = P.panel;
-    ctx.strokeStyle = P.panelStroke;
-    roundRect(ctx, px, py, colW, rowH, 8);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.fillText(p.label, px + Math.round(12 * scale), py + Math.round(8 * scale));
-    ctx.fillStyle = P.text;
-    ctx.font = `bold ${Math.round(18 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText(Number(p.value).toFixed(2), px + Math.round(12 * scale), py + Math.round(26 * scale));
-  });
-  cy += 2 * (rowH + rowGap) + gap;
+  const btnH = Math.round(44 * scale);
+  const btnY = cy + titlePadY + Math.round(28 * scale);
+  const btnGap = Math.round(12 * scale);
+  const innerPadX = Math.round(16 * scale);
+  const typeW = (w - innerPadX * 2 - btnGap) / 2;
 
-  // —— Type + actions (sequential stacking without overlap) ——
-  const btnH = Math.round(38 * scale);
-  const typeGap = Math.round(8 * scale);
-  const typeW = (w - typeGap) / 2;
+  // 上角标 e^- / h^+
   drawHallButton(
-    ctx, hits, x, cy, typeW, btnH,
-    'n 型 · 电子', 'hall-demo-type', { nType: true }, accentHex, d.nType !== false,
+    ctx, hits, x + innerPadX, btnY, typeW, btnH,
+    'n型电子 (e^{-})', 'hall-demo-type', { nType: true }, accentHex, isNType,
   );
   drawHallButton(
-    ctx, hits, x + typeW + typeGap, cy, typeW, btnH,
-    'p 型 · 空穴', 'hall-demo-type', { nType: false }, accentHex, d.nType === false,
+    ctx, hits, x + innerPadX + typeW + btnGap, btnY, typeW, btnH,
+    'p型·空穴 (h^{+})', 'hall-demo-type', { nType: false }, accentHex, !isNType,
   );
-  cy += btnH + Math.round(8 * scale);
 
-  const actions = [
-    { label: '反转 B', action: 'hall-demo-flip', active: false },
-    { label: Math.abs(d.B || 0) < 0.01 ? 'B 关' : 'B 开', action: 'hall-demo-field', active: Math.abs(d.B || 0) >= 0.01 },
-  ];
-  const aGap = Math.round(8 * scale);
-  const aW = (w - aGap * (actions.length - 1)) / actions.length;
-  const actionY = cy;
-  actions.forEach((button, i) => {
-    drawHallButton(
-      ctx, hits,
-      x + i * (aW + aGap), actionY, aW, btnH,
-      button.label, button.action, {}, accentHex, button.active,
-    );
-  });
+  cy += boxH + gap;
+
+  // ── 底部栏：载流子电量 q · 载流子浓度 n · 元件厚度 d · 元件灵敏度 K ──
+  const botH = Math.round(60 * scale);
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = 1.2;
+  roundRect(ctx, x, cy, w, botH, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  const colW3 = w / 4;
+
+  // 1. 载流子电量 q
+  ctx.fillStyle = P.muted;
+  ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('载流子电量 q', x + colW3 * 0.5, cy + Math.round(9 * scale));
+  ctx.fillStyle = P.text;
+  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText(qFormatted, x + colW3 * 0.5, cy + Math.round(30 * scale));
+
+  // 2. 载流子浓度 n
+  ctx.fillStyle = P.muted;
+  ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('载流子浓度 n', x + colW3 * 1.5, cy + Math.round(9 * scale));
+  ctx.fillStyle = P.text;
+  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText(nVal.toFixed(2), x + colW3 * 1.5, cy + Math.round(30 * scale));
+
+  // 3. 元件厚度 d
+  ctx.fillStyle = P.muted;
+  ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('元件厚度 d', x + colW3 * 2.5, cy + Math.round(9 * scale));
+  ctx.fillStyle = P.text;
+  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText(dVal.toFixed(2), x + colW3 * 2.5, cy + Math.round(30 * scale));
+
+  // 4. 元件灵敏度 K_H（下角标 H）
+  drawMathFormula(
+    ctx,
+    '元件灵敏度 K_{H}',
+    x + colW3 * 3.5,
+    cy + Math.round(9 * scale),
+    { fontSize: Math.round(11 * scale), color: P.muted, align: 'center', textBaseline: 'top' },
+  );
+  drawMathFormula(
+    ctx,
+    `K_{H} = ${kFormatted}`,
+    x + colW3 * 3.5,
+    cy + Math.round(30 * scale),
+  );
 }
 
 function drawOptButton(ctx, hits, x, y, w, h, label, action, meta, accent, active = false) {
