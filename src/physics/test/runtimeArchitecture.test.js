@@ -373,6 +373,7 @@ test('thermo ideal-gas runtime owns its rig and exposes a bounded pick set', asy
   runtime.activate({});
   assert.equal(runtime.getPickSet()[0].userData.role, 'thermo_piston');
   assert.equal(runtime.getPickSet()[0].parent?.parent, station.root);
+  assert.equal(station.equipment.ensureActiveRuntime('ideal-gas'), true);
 
   runtime.suspend();
   assert.equal(station.root.children.length, 0);
@@ -434,7 +435,7 @@ test('mechanics showcase clears tabletop and active runtime mounts source appara
   runtime.dispose();
 });
 
-test('all thermo native runtimes expose source-faithful pick sets and dispose idempotently', async () => {
+test('all thermo runtimes expose source-faithful pick sets and dispose idempotently', async () => {
   const classes = {
     calorimetry: CalorimetryExperiment,
     convection: ConvectionExperiment,
@@ -466,6 +467,29 @@ test('all thermo native runtimes expose source-faithful pick sets and dispose id
     assert.equal(runtime.dispose(), true);
     assert.equal(runtime.dispose(), false);
   }
+});
+
+test('thermo runtimes use the shared GPU compile path without an offscreen render', async () => {
+  const renderer = {
+    compileCalls: 0,
+    renderCalls: 0,
+    async compileAsync() { this.compileCalls += 1; },
+    render() { this.renderCalls += 1; },
+  };
+  const station = createStationEquipment({
+    THREE,
+    renderer,
+    camera: new THREE.PerspectiveCamera(),
+    experimentClasses: { 'ideal-gas': IdealGasExperiment },
+  });
+  const runtime = station.equipment.createRuntime('ideal-gas');
+
+  await runtime.prepare({}, new AbortController().signal);
+  await runtime.prepareGpu(renderer, new THREE.PerspectiveCamera(), new THREE.Scene(), new AbortController().signal);
+
+  assert.equal(renderer.compileCalls, 1);
+  assert.equal(renderer.renderCalls, 0);
+  runtime.dispose();
 });
 
 test('manager cleanup receives the previous session snapshot', async () => {

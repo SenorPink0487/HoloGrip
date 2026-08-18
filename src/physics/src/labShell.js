@@ -3948,24 +3948,6 @@ const experimentTransition = createTransitionController({
       throw error;
     }
     const stationRuntime = equipment?.[stationId]?.createRuntime?.(expId);
-    if (stationId === 'thermo' && stationRuntime) {
-      return createExperimentRuntime({
-        id: key,
-        prepare: (ctx, prepareSignal) => stationRuntime.prepare(ctx, prepareSignal),
-        prepareGpu: (activeRenderer, activeCamera, prepareScene, prepareSignal) => (
-          stationRuntime.prepareGpu(activeRenderer, activeCamera, prepareScene, prepareSignal)
-        ),
-        mount: (parent) => stationRuntime.mount(parent),
-        activate: (initialState) => stationRuntime.activate(initialState),
-        fixedUpdate: (dt) => stationRuntime.fixedUpdate?.(dt),
-        visualUpdate: (alpha) => stationRuntime.visualUpdate?.(alpha),
-        getPickSet: () => stationRuntime.getPickSet(),
-        suspend: () => stationRuntime.suspend(),
-        unmount: () => stationRuntime.unmount(),
-        estimateBytes: () => stationRuntime.estimateBytes(),
-        dispose: () => stationRuntime.dispose(),
-      });
-    }
     if (!stationRuntime) {
       throw new Error(`Experiment runtime is not registered: ${stationId}/${expId}`);
     }
@@ -6749,15 +6731,8 @@ function ensureActiveApparatusVisible(stationId, expId) {
     return runtime.root.parent === entry.root && runtime.root.visible === true;
   }
 
-  if (stationId === 'thermo') {
-    const experiment = equipmentForStation.sourceExperiments?.[expId];
-    const rig = experiment?.rig;
-    if (!rig) return false;
-    if (rig.parent !== entry.root) entry.root.add(rig);
-    equipmentForStation.setMode?.(expId);
-    rig.visible = true;
-    return rig.parent === entry.root && rig.visible === true;
-  }
+  const ensured = equipmentForStation.ensureActiveRuntime?.(expId);
+  if (ensured != null) return !!ensured;
 
   return true;
 }

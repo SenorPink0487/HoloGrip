@@ -1,6 +1,6 @@
 /** Host adapter for the original reli-source thermodynamics apparatus. */
 
-import { createResourceScope } from '../../runtime/resourceScope.js';
+import { createEquipmentRuntime } from '../../runtime/experimentRuntime.js';
 
 const THERMO_EXPERIMENT_IDS = Object.freeze([
   'calorimetry',
@@ -70,7 +70,7 @@ export function createStationEquipment(ctx) {
   const experimentIds = THERMO_EXPERIMENT_IDS;
   const animators = [];
   const lastParamSignatures = new Map();
-  const nativeRuntimeRecords = new Map();
+  const runtimeRecords = new Map();
   /** @type {string | null} */
   let activeId = null;
 
@@ -114,7 +114,10 @@ export function createStationEquipment(ctx) {
     const textures = new Set();
     let geometryBytes = 0;
     let textureBytes = 0;
-    experiment?.scene?.traverse?.((object) => {
+    // The source scene owns legacy scaffolding, while the host renders only
+    // `rig`. Measure the mounted graph so cache eviction reflects the same
+    // resource surface as every other station runtime.
+    (experiment?.rig || experiment?.scene)?.traverse?.((object) => {
       if (object.geometry && !geometries.has(object.geometry)) {
         geometries.add(object.geometry);
         for (const attribute of Object.values(object.geometry.attributes || {})) {
@@ -196,128 +199,56 @@ export function createStationEquipment(ctx) {
     while (object.children?.length) object.remove(object.children[0]);
   }
 
-  function createNativeRuntime(id) {
+  /**
+   * Give every source apparatus the same runtime boundary as mechanics,
+   * optics and electro. The legacy class still owns its visual state; the
+   * host owns its lifecycle, GPU compile and cache membership.
+   */
+  function createRuntime(id) {
     if (!THERMO_EXPERIMENT_IDS.includes(id)) return null;
-    const existing = nativeRuntimeRecords.get(id);
-    if (existing) return existing.api;
+    const existing = runtimeRecords.get(id);
+    if (existing) return existing;
 
-    let experiment = null;
-    let scope = null;
-    let disposed = false;
-
-    const api = {
+    const experiment = ensureExperiment(id);
+    if (!experiment) return null;
+    const runtime = createEquipmentRuntime({
       id,
-      async prepare(_ctx, signal) {
-        if (disposed) throw new Error(`Thermo runtime ${id} is disposed`);
+      root: experiment.rig,
+      getRoot: () => experiment.rig,
+      prepare: async (_prepareContext, signal) => {
         if (signal?.aborted) throw abortError();
-        experiment = ensureExperiment(id);
-        if (!experiment) throw new Error(`Thermo experiment runtime is not loaded: ${id}`);
-        scope ||= createResourceScope(`thermo:${id}`);
-        if (scope.size === 0) {
-          // The host mounts rig outside the source scene. Release it first,
-          // then let the source dispose its remaining detached scene objects.
-          scope.own(experiment.rig, disposeObjectTree);
-          scope.own(experiment, (resource) => resource.dispose?.());
-        }
-        experiment.rig.visible = false;
-        experiment.rig.parent?.remove(experiment.rig);
+        // Source setup happens once in ensureExperiment. Keep this rig out of
+        // the live graph until the shared prepareGpu path has compiled it.
+        mountRig(root, experiment.rig, false);
         if (signal?.aborted) throw abortError();
       },
-      async prepareGpu(renderer, camera, prepareScene, signal) {
-        if (!experiment) throw new Error(`Thermo runtime ${id} is not prepared`);
-        const scene = typeof prepareScene === 'function' ? prepareScene() : prepareScene;
-        const previousParent = experiment.rig.parent || null;
-        const previousVisible = experiment.rig.visible;
-        if (scene?.add && experiment.rig.parent !== scene) scene.add(experiment.rig);
-        experiment.rig.visible = true;
-        experiment.rig.updateWorldMatrix?.(true, true);
-        try {
-          if (typeof renderer?.compileAsync === 'function') {
-            try { await renderer.compileAsync(scene || experiment.rig, camera); }
-            catch { renderer?.compile?.(scene || experiment.rig, camera); }
-          } else {
-            renderer?.compile?.(scene || experiment.rig, camera);
-          }
-          if (scene && typeof renderer?.render === 'function') {
-            const previousTarget = renderer.getRenderTarget?.() || null;
-            const previousSize = new THREE.Vector2();
-            renderer.getSize?.(previousSize);
-            const previousPr = renderer.getPixelRatio?.() || 1;
-            const target = new THREE.WebGLRenderTarget(1, 1, {
-              depthBuffer: true,
-              stencilBuffer: false,
-            });
-            try {
-              renderer.setRenderTarget?.(target);
-              renderer.setViewport?.(0, 0, 1, 1);
-              renderer.setScissorTest?.(false);
-              renderer.clear?.();
-              renderer.render(scene, camera);
-            } finally {
-              target.dispose();
-              renderer.setRenderTarget?.(previousTarget);
-              // Logical CSS px only — Three.js multiplies by pixelRatio inside setViewport.
-              const w = Math.max(1, previousSize.x || 0);
-              const h = Math.max(1, previousSize.y || 0);
-              if (previousSize.x > 0 && previousSize.y > 0) {
-                if (typeof renderer.setPixelRatio === 'function' && previousPr > 0) {
-                  renderer.setPixelRatio(previousPr);
-                }
-                renderer.setSize?.(w, h, false);
-              }
-              renderer.setViewport?.(0, 0, w, h);
-              renderer.setScissorTest?.(false);
-              if (typeof renderer.setScissor === 'function') {
-                renderer.setScissor(0, 0, w, h);
-              }
-            }
-          }
-        } finally {
-          if (previousParent && experiment.rig.parent !== previousParent) previousParent.add(experiment.rig);
-          else if (!previousParent && experiment.rig.parent === scene) scene?.remove?.(experiment.rig);
-          experiment.rig.visible = previousVisible;
-        }
-        if (signal?.aborted) throw abortError();
-      },
-      mount() {
-        if (!experiment) throw new Error(`Thermo runtime ${id} is not prepared`);
-        mountRig(root, experiment.rig, true);
-      },
-      activate() {
-        setMode(id);
-      },
-      fixedUpdate() {},
-      visualUpdate() {},
-      getPickSet() {
-        return pickSetFor(id, experiment);
-      },
-      suspend() {
+      prepareRoot: () => experiment.rig,
+      mount: (_parent, rig) => mountRig(root, rig, true),
+      activate: () => setMode(id),
+      suspend: () => {
         if (activeId === id) setMode(null);
       },
-      unmount() {
+      unmount: () => {
         if (activeId === id) setMode(null);
-        else if (experiment?.rig) mountRig(root, experiment.rig, false);
+        else mountRig(root, experiment.rig, false);
       },
-      estimateBytes() {
-        return estimateRuntimeBytes(experiment);
-      },
-      dispose() {
-        if (disposed) return false;
-        disposed = true;
+      getPickSet: () => pickSetFor(id, experiment),
+      estimateBytes: () => estimateRuntimeBytes(experiment),
+      dispose: () => {
         if (activeId === id) setMode(null);
-        else if (experiment?.rig) mountRig(root, experiment.rig, false);
-        scope?.dispose();
+        else mountRig(root, experiment.rig, false);
+        // The source scene contains supporting objects outside the host rig.
+        // Release the rig first, then allow the original class to dispose its
+        // private scene and controls.
+        disposeObjectTree(experiment.rig);
+        experiment.dispose?.();
         delete experiments[id];
         lastParamSignatures.delete(id);
-        nativeRuntimeRecords.delete(id);
-        experiment = null;
-        scope = null;
-        return true;
+        runtimeRecords.delete(id);
       },
-    };
-
-    nativeRuntimeRecords.set(id, { api });
-    return api;
+    });
+    runtimeRecords.set(id, runtime);
+    return runtime;
   }
 
   function setMode(expId) {
@@ -483,8 +414,18 @@ export function createStationEquipment(ctx) {
       classes[id] = Klass;
       return true;
     },
-    createRuntime: createNativeRuntime,
+    createRuntime,
     setMode,
+    // Host-level recovery hook used after a legacy handler commits. Keeping it
+    // on the station contract avoids a thermo-only lifecycle branch in the
+    // lab shell.
+    ensureActiveRuntime: (id) => {
+      const experiment = ensureExperiment(id);
+      if (!experiment) return false;
+      setMode(id);
+      experiment.rig.visible = true;
+      return experiment.rig.parent === root;
+    },
     // Intent prediction may construct a source rig without mounting it.
     prepareExperiment: (id) => ensureExperiment(id)?.rig || null,
     getExperimentRig: (id) => experiments[id]?.rig || null,

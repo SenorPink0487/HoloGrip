@@ -510,44 +510,48 @@ export function createInducedElectricFieldEquipment() {
       const stepDt = Math.max(0, Number(dt || 0));
       const canSpin = showSpin && sense !== 'none' && absD > 1e-4;
 
-      const dynamicRadii = (function computePhysicalRingRadii(regionR, rateD, Rdisk = 4.5) {
+      const dynamicRadii = (function computePhysicalRingRadii(regionR, rateD, bVal = 0, Rdisk = 4.5) {
         const absRate = Math.abs(Number(rateD || 0));
-        if (absRate < 0.02) return [];
+        const absB = Math.abs(Number(bVal || 0));
+        if (absRate < 0.02 && absB < 0.02) return [];
 
         const safeR = Math.max(0.6, Math.min(3.6, Number(regionR || 2)));
         const radii = [];
 
-        // 1. 面内同心圆 (r < R)：内圈数量随 R 增大而动态包裹增加 (N_inner = 2 ~ 6)
-        // 相对半径按非线性曲线 f_i = 1 - (1 - i/(N+1))^1.35 缩放
-        // 保证：① 增大 R 时内圈圆环随之扩缩并包裹进新圆环；② 每条线间距均不相同且渐变明显
-        const nInner = Math.max(2, Math.min(6, Math.floor(safeR / 0.52) + 1));
-        for (let i = 1; i <= nInner; i += 1) {
-          const frac = 1 - Math.pow(1 - i / (nInner + 1), 1.35);
-          const rIn = safeR * frac;
-          if (rIn > 0.10 && rIn < safeR - 0.08) {
-            radii.push(rIn);
-          }
+        // 1. 面内同心圆 (r < R)：内圈独立计算，控制环数清爽（3~5圈），避免密集糊成一片
+        // 间距严格按 1.47 倍几何比递减：0.72 -> 0.49 -> 0.33 -> 0.23 -> 0.20
+        // 既保持圆心到边缘清晰显著的递减疏密感，又确保每条圆环和箭头有足够的呼吸空间
+        let currR = 0;
+        let k = 1;
+        while (k <= 8) {
+          const step = Math.max(0.20, 0.72 * Math.pow(0.68, k - 1));
+          const nextR = currR + step;
+          if (nextR >= safeR - 0.16) break;
+          radii.push(nextR);
+          currR = nextR;
+          k += 1;
         }
 
         // 2. 边界环 r = R (磁场柱体边缘，感生电场强度达到峰值 E_max)
         radii.push(safeR);
 
-        // 3. 面外同心圆 (r > R)：使用指数递增步长 Δr_m = outBase * (1.52)^(m-1)
-        // 每条外圈线间距均不相同且明显扩张
-        const outBase = 0.38;
-        let lastR = safeR;
+        // 3. 面外同心圆 (r > R)：外圈独立计算，间距与密度受 B / dBdt 强度动态调控
+        // b 强度越大，外圈基准间距越紧密 (outBase: 0.65 -> 0.28)，外圈分布越密集；
+        // b 强度越小，外圈越稀疏；同时外圈随 r 增大间距平滑拉开 (E ∝ 1/r)
+        const bDrive = Math.max(absB, absRate);
+        const bNorm = THREE.MathUtils.clamp(bDrive / 2.5, 0, 1);
+        const outBase = THREE.MathUtils.lerp(0.65, 0.28, bNorm);
         let m = 1;
-        while (m <= 6) {
-          const outStep = outBase * Math.pow(1.52, m - 1);
-          const outR = lastR + outStep;
+        while (m <= 8) {
+          const outStep = outBase * Math.pow(m, 1.40);
+          const outR = safeR + outStep;
           if (outR > Rdisk) break;
           radii.push(outR);
-          lastR = outR;
           m += 1;
         }
 
         return radii;
-      }(R, dBdt));
+      }(R, dBdt, B));
 
       eRings.forEach(({ ring, line, mat, markers }, index) => {
         if (index >= dynamicRadii.length || absD < 0.02) {
@@ -560,7 +564,7 @@ export function createInducedElectricFieldEquipment() {
         const mag = inducedEMagnitude(sourceR, R, dBdt);
         line.scale.set(rWorld, 1, rWorld);
 
-        const isBoundary = Math.abs(sourceR - R) < 0.08;
+        const isBoundary = Math.abs(sourceR - R) < 0.06;
         const isInside = sourceR <= R + 1e-6;
         const ringColor = isBoundary
           ? 0xf43f5e
