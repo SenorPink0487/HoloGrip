@@ -9,6 +9,7 @@
     "dev:web": "vite",
     "dev:tauri": "tauri dev",
     "test": "node --test",
+    "test:physics": "node --test",
     "build": "vite build",
     "build:tauri": "tauri build",
     "preview": "vite preview",

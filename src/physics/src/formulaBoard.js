@@ -1,12 +1,14 @@
 /**
- * Interactive classroom formula board — browse formulas & concepts.
- * Drawn on canvas texture; UV hit-test like a touch screen.
+ * Interactive classroom formula board — clean sub-page hierarchical design.
+ * Level 1: 实验室大厅 / 5大实验台总览 (Home Hub View)
+ * Level 2: 实验台子页面 / 实验项目精选列表 (Clean Directory Cards — 无密集公式文本堆叠)
+ * Level 3: 单实验深度解析看板 (Deep Dive — 完整展开公式、理论机理、SI量纲与3D实测)
  *
- * 公式采用人教版写法：斜体变量 + 下标/上标（见 physicsFormula.drawMathFormula）。
- * Layout/fonts sized for wall-scale readability (~1.4× classroom poster scale).
+ * Drawn on 1920x900 canvas texture; UV hit-test like a touch screen.
+ * 严格遵循人教版/大学物理标准，字体规范使用 FONT_STACKS 与 buildUiFont。
  */
 
-import { drawMathFormula } from './physicsFormula.js';
+import { FONT_STACKS, buildUiFont, drawMathFormula } from './physicsFormula.js';
 
 function roundRect(ctx, x, y, w, h, r) {
   const rr = Math.min(r, w / 2, h / 2);
@@ -19,6 +21,16 @@ function roundRect(ctx, x, y, w, h, r) {
   ctx.closePath();
 }
 
+function hexToRgba(hex, alpha = 1) {
+  if (!hex || typeof hex !== 'string' || !hex.startsWith('#')) return `rgba(14, 165, 233, ${alpha})`;
+  const cleanHex = hex.slice(1);
+  const num = parseInt(cleanHex.length === 3 ? cleanHex.split('').map((c) => c + c).join('') : cleanHex, 16);
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+}
+
 function wrapText(ctx, text, maxWidth) {
   const s = String(text || '');
   if (!s) return [''];
@@ -29,290 +41,1469 @@ function wrapText(ctx, text, maxWidth) {
     if (ctx.measureText(test).width > maxWidth && line) {
       lines.push(line);
       line = ch;
-    } else line = test;
+    } else {
+      line = test;
+    }
   }
   if (line) lines.push(line);
   return lines;
 }
 
-/** Catalog: categories + formula/concept entries for school lab */
+/** 5 大实验台与 25 项项目实装实验知识库 */
 export const FORMULA_CATALOG = {
-  categories: [
-    { id: 'all', name: '全部', en: 'ALL' },
-    { id: 'mechanics', name: '力学', en: 'MECH' },
-    { id: 'electro', name: '电磁', en: 'EM' },
-    { id: 'optics', name: '光学', en: 'OPT' },
-    { id: 'thermo', name: '热学', en: 'THERM' },
-    { id: 'quantum', name: '量子', en: 'QM' },
-  ],
-  items: [
-    // 力学（人教版高中）
+  stations: [
     {
-      id: 'newton2',
-      cat: 'mechanics',
-      title: '牛顿第二定律',
-      formula: 'F=ma',
-      concept: '物体的加速度跟作用力成正比，跟物体的质量成反比，加速度的方向跟作用力的方向相同。',
-      symbols: 'F — 合外力 (N)　m — 质量 (kg)　a — 加速度 (m/s²)',
+      id: 'mechanics',
+      name: '力学实验台',
+      en: 'MECHANICS STATION',
+      color: '#0ea5e9',
+      badge: '6 个实验项目',
+      iconText: '🚀',
+      desc: '自由落体 · 斜面动力学 · 单摆简谐 · 碰撞动量 · 抛体运动 · 液体粘度',
+      expList: [
+        '自由落体实验',
+        '斜面运动实验',
+        '单摆实验',
+        '碰撞与动能实验',
+        '抛体运动实验',
+        '落球法测粘滞系数',
+      ],
     },
     {
-      id: 'kinetic',
+      id: 'electro',
+      name: '电磁学实验台',
+      en: 'ELECTRO STATION',
+      color: '#ec4899',
+      badge: '6 个实验项目',
+      iconText: '⚡',
+      desc: '法拉第感应 · 感生电场 · 静电场探索 · 高斯定理 · 霍尔效应 · 螺线管测磁',
+      expList: [
+        '法拉第电磁感应',
+        '感生电场实验',
+        '静电场探索实验',
+        '静电场高斯定理',
+        '霍尔效应原理',
+        '霍尔效应测磁',
+      ],
+    },
+    {
+      id: 'optics',
+      name: '光学实验台',
+      en: 'OPTICS STATION',
+      color: '#f59e0b',
+      badge: '5 个实验项目',
+      iconText: '🌈',
+      desc: '光的反射 · 折射全反射 · 棱镜色散 · 透镜光路 · 单多缝衍射干涉',
+      expList: [
+        '光的反射实验',
+        '光的折射实验',
+        '光的色散实验',
+        '透镜光路实验',
+        '单缝衍射 · 多缝干涉',
+      ],
+    },
+    {
+      id: 'thermo',
+      name: '热力学实验台',
+      en: 'THERMO STATION',
+      color: '#fb923c',
+      badge: '5 个实验项目',
+      iconText: '🔥',
+      desc: '混合量热 · 固体热膨胀 · 稳态热传导 · 理想气体定律 · 自然对流换热',
+      expList: [
+        '混合量热实验',
+        '固体热膨胀实验',
+        '稳态热传导实验',
+        '理想气体定律',
+        '自然对流实验',
+      ],
+    },
+    {
+      id: 'chem',
+      name: '化学微观台',
+      en: 'CHEMISTRY STATION',
+      color: '#8b5cf6',
+      badge: '3 个实验项目',
+      iconText: '🧪',
+      desc: '试剂混合浓度 · 周期律与分子空间立体构型 · 质量守恒与化学计量',
+      expList: [
+        '试剂混合与溶液配制',
+        '周期律与分子 3D 构型',
+        '质量守恒与化学计量',
+      ],
+    },
+  ],
+  get categories() {
+    return [
+      { id: 'all', name: '全部实验', en: 'ALL LABS', color: '#0284c7', count: 25 },
+      ...this.stations.map((s) => ({
+        id: s.id,
+        name: s.name,
+        en: s.en,
+        color: s.color,
+        count: this.items.filter((it) => it.cat === s.id).length,
+      })),
+    ];
+  },
+  items: [
+    // ════════════ 1. 力学实验台 ════════════
+    {
+      id: 'free_fall',
       cat: 'mechanics',
-      title: '动能',
-      formula: 'E_{k}=(1/2)mv^{2}',
-      concept: '物体由于运动而具有的能。动能定理：合外力做的功等于物体动能的变化。',
-      symbols: 'E_k — 动能　m — 质量　v — 速率',
+      expId: 'free-fall',
+      expName: '自由落体实验',
+      code: 'MECH-01',
+      goal: '探究真空中重力加速度与物体质量无关规律及匀加速运动方程',
+      tags: ['自由下落', '重力加速度 g', '光电测速'],
+      title: '自由落体运动与重力加速度',
+      formula: 'h=\\frac{1}{2}gt^{2}；v=\\sqrt{2gh}；t=\\sqrt{\\frac{2h}{g}}',
+      concept: '物体只在重力作用下由静止开始下落的匀加速直线运动。真空中所有物体下落加速度相同，均等于当地重力加速度 g，与物体质量无关。',
+      symbols: 'h — 下落高度 (m)　g — 重力加速度 (m/s²)　t — 下落时间 (s)　v — 落地瞬时速率 (m/s)',
+      labLink: '力学实验台 · 自由落体：调节释放高度 h 与红蓝球质量 m₁/m₂，通过光电门测量时间并验证 g。',
+    },
+    {
+      id: 'inclined_plane',
+      cat: 'mechanics',
+      expId: 'inclined-plane',
+      expName: '斜面运动实验',
+      code: 'MECH-02',
+      goal: '测量斜面下滑加速度、摩擦因数及木块临界下滑倾角',
+      tags: ['斜面动力学', '动摩擦因数 μ', '临界下滑角'],
+      title: '斜面动力学与临界下滑角',
+      formula: 'a=g(\\sin\\theta-\\mu\\cos\\theta)；\\tan\\theta_{c}=\\mu',
+      concept: '物体在斜面上运动受重力分力与动摩擦力。当倾角增大至 tanθ_c = μ 时木块由静止转为加速下滑。',
+      symbols: 'a — 下滑加速度 (m/s²)　θ — 斜面倾角 (°)　μ — 动摩擦因数　θ_c — 临界下滑角',
+      labLink: '力学实验台 · 斜面运动：调节倾角 θ 与摩擦因数 μ，观察运动加速度并寻找临界角。',
     },
     {
       id: 'pendulum',
       cat: 'mechanics',
-      title: '单摆周期',
-      formula: 'T=2π√(l/g)',
-      concept: '在偏角很小的情况下，单摆做简谐运动，周期与振幅无关，只与摆长 l 和重力加速度 g 有关。可用来测定 g。',
-      symbols: 'T — 周期　l — 摆长　g — 重力加速度',
+      expId: 'pendulum',
+      expName: '单摆实验',
+      code: 'MECH-03',
+      goal: '研究单摆振动周期的等时性，验证摆长与重力加速度关系',
+      tags: ['单摆周期', '摆长与 g', '小角简谐振动'],
+      title: '单摆周期与小角简谐振动',
+      formula: 'T=2\\pi\\sqrt{\\frac{l}{g}}；\\alpha=-\\frac{g}{l}\\sin\\theta',
+      concept: '小摆角（θ ≤ 5°）下单摆做简谐运动，振动周期具有等时性，仅与摆长 l 和重力加速度 g 有关，与摆球质量无关。',
+      symbols: 'T — 振动周期 (s)　l — 摆长 (m)　g — 重力加速度 (m/s²)　α — 角加速度',
+      labLink: '力学实验台 · 单摆实验：改变摆长 L 与初始摆角 θ₀，对比小角简谐理论与阻尼大角度运动。',
     },
     {
-      id: 'hooke',
+      id: 'collision',
       cat: 'mechanics',
-      title: '胡克定律',
-      formula: 'F=−kx',
-      concept: '弹簧发生弹性形变时，弹力的大小跟弹簧伸长（或缩短）的长度成正比，方向与形变方向相反。',
-      symbols: 'k — 劲度系数　x — 形变量',
+      expId: 'collision',
+      expName: '碰撞与动能实验',
+      code: 'MECH-04',
+      goal: '在气垫导轨上检验一维碰撞中的动量守恒、能量转化与恢复系数',
+      tags: ['动量守恒', '恢复系数 e', '速度交换'],
+      title: '动量守恒定律与碰撞恢复系数',
+      formula: 'm_{1}v_{1}+m_{2}v_{2}=m_{1}v_{1}\'+m_{2}v_{2}\'；e=\\frac{v_{2}\'-v_{1}\'}{v_{1}-v_{2}}',
+      concept: '系统合外力为零时总动量守恒。完全弹性碰撞动能守恒（e = 1）；等质量完全弹性碰撞发生速度完全交换。',
+      symbols: 'm — 质量 (kg)　v — 碰前速度 (m/s)　v\' — 碰后速度 (m/s)　e — 恢复系数',
+      labLink: '力学实验台 · 碰撞实验：在气垫导轨切换弹性/非弹性模式，检验动量与动能变化。',
     },
     {
-      id: 'shm',
+      id: 'projectile',
       cat: 'mechanics',
-      title: '简谐运动周期',
-      formula: 'T=2π√(m/k)',
-      concept: '弹簧振子的周期由质量与劲度系数决定，与振幅无关。',
-      symbols: 'm — 质量　k — 劲度系数',
+      expId: 'projectile',
+      expName: '抛体运动实验',
+      code: 'MECH-05',
+      goal: '研究平抛与斜抛的正交分运动、飞行轨迹、射高与射程规律',
+      tags: ['正交分运动', '初速度与仰角', '射高与射程'],
+      title: '斜抛与平抛分运动轨迹',
+      formula: 'x=v_{0}\\cos\\theta\\cdot t；y=v_{0}\\sin\\theta\\cdot t-\\frac{1}{2}gt^{2}',
+      concept: '抛体运动可分解为水平匀速运动与竖直匀变速运动。发射仰角 45° 时射程最大；互补角射程相等。',
+      symbols: 'v₀ — 初速度 (m/s)　θ — 发射仰角 (°)　x — 水平射程 (m)　y — 飞行高度 (m)',
+      labLink: '力学实验台 · 抛体运动：开启频闪采样与分运动辅助线，对比射高、射程和飞行时间。',
     },
     {
-      id: 'momentum',
+      id: 'viscosity',
       cat: 'mechanics',
-      title: '动量与冲量',
-      formula: 'p=mv；I=FΔt=Δp',
-      concept: '动量是矢量。物体所受合外力的冲量等于它的动量变化（动量定理）。封闭系统碰撞中动量守恒。',
-      symbols: 'p — 动量　I — 冲量',
+      expId: 'viscosity',
+      expName: '落球法测粘滞系数',
+      code: 'MECH-06',
+      goal: '利用斯托克斯公式测定液体收尾速度与液体动力粘度',
+      tags: ['液体粘滞阻力', '收尾速度', '管壁边界修正'],
+      title: '斯托克斯公式与液体粘度测定',
+      formula: '\\eta=\\frac{2r^{2}(\\rho-\\rho_{0})g}{9v(1+2.4r/R)}；v=\\frac{S}{\\Delta t}',
+      concept: '小球在粘滞液体中达到收尾速度时重力、浮力与粘滞阻力平衡。采用 Stokes 定律结合管壁修正计算粘度。',
+      symbols: 'η — 粘滞系数 (Pa·s)　r — 钢球半径 (m)　ρ — 钢球密度　ρ₀ — 液体密度　v — 终端速度',
+      labLink: '力学实验台 · 粘滞系数：选择甘油/机油并释放钢球，通过双光电门测定终端速度。',
     },
-    // 电磁（大学/高中物理标准规范）
+
+    // ════════════ 2. 电磁学实验台 ════════════
     {
-      id: 'e_field_def',
+      id: 'faraday_induction',
       cat: 'electro',
-      title: '电场强度（定义）',
-      formula: '\\vec{E}=\\vec{F}/q_{0}',
-      concept: '放入电场中某点的试探电荷所受的电场力 F 跟它的电荷量 q₀ 的比值，叫做该点的电场强度。矢量方向与正电荷受力方向相同。',
-      symbols: 'E — 电场强度　F — 电场力　q₀ — 试探电荷电荷量',
-    },
-    {
-      id: 'point_charge_e',
-      cat: 'electro',
-      title: '点电荷的场强',
-      formula: 'E=\\frac{1}{4\\pi\\varepsilon_{0}}\\frac{Q}{r^{2}}',
-      concept: '真空中点电荷 Q 在距离 r 处产生的电场强度。ε₀ 为真空介电常量，静电力常量 k = 1/(4πε₀) = 9.0×10⁹ N·m²/C²。',
-      symbols: 'ε₀ — 真空介电常量　Q — 场源电荷　r — 距离',
-    },
-    {
-      id: 'coulomb',
-      cat: 'electro',
-      title: '库仑定律',
-      formula: 'F=\\frac{1}{4\\pi\\varepsilon_{0}}\\frac{Q_{1}Q_{2}}{r^{2}}',
-      concept: '真空中两个静止点电荷之间的相互作用力，跟它们的电荷量的乘积成正比，跟它们的距离的二次方成反比，作用力的方向在它们的连线上。',
-      symbols: 'ε₀ — 真空介电常量　Q₁、Q₂ — 电荷量　r — 距离',
+      expId: 'faraday_induction',
+      expName: '法拉第电磁感应实验',
+      code: 'EM-01',
+      goal: '研究动生与感生电动势，验证磁通量变化率与楞次定律方向',
+      tags: ['磁通量变化', '感生/动生电动势', '楞次定律'],
+      title: '法拉第电磁感应与楞次定律',
+      formula: '\\mathcal{E}_{i}=-n\\frac{\\Delta\\Phi_{B}}{\\Delta t}；\\mathcal{E}=BLv',
+      concept: '穿过闭合回路磁通量变化产生感应电动势。导体切割磁感线产生动生电动势；感应电流阻碍原磁通变化。',
+      symbols: 'ℰ_i — 感应电动势 (V)　n — 线圈匝数　Φ_B — 磁通量 (Wb)　B — 磁感应强度 (T)',
+      labLink: '电磁学实验台 · 电磁感应：拖动铜棒滑行或改变磁场强度，观察感生/动生电动势读数。',
     },
     {
-      id: 'faraday',
+      id: 'induced_electric_field',
       cat: 'electro',
-      title: '法拉第电磁感应定律',
-      formula: '\\mathcal{E}_{i}=-n\\frac{\\Delta\\Phi_{B}}{\\Delta t}',
-      concept: '电路中感应电动势 ℰ_i 的大小，跟穿过这一电路的磁通量 Φ_B 的变化率成正比。符号表示感应电动势阻碍磁通量的变化（楞次定律）。',
-      symbols: 'ℰ_i — 感应电动势 (花体)　n — 匝数　Φ_B — 磁通量',
+      expId: 'induced_electric_field',
+      expName: '感生电场实验',
+      code: 'EM-02',
+      goal: '观测随时间变化的磁场激发的闭合涡旋感生电场空间分布',
+      tags: ['麦克斯韦方程', '涡旋电场', '柱内外场强'],
+      title: '麦克斯韦涡旋感生电场',
+      formula: '\\oint \\vec{E}_{k}\\cdot \\mathrm{d}\\vec{l}=-\\frac{\\mathrm{d}\\Phi_{B}}{\\mathrm{d}t}；E=\\frac{r}{2}\\left|\\frac{\\mathrm{d}B}{\\mathrm{d}t}\\right|',
+      concept: '变化磁场激发闭合涡旋感生电场。圆柱磁场区内部场强与半径 r 成正比，外部与 1/r 成反比。',
+      symbols: 'E_k — 感生电场强度 (V/m)　Φ_B — 磁通量 (Wb)　r — 离轴距离 (m)　dB/dt — 磁场变化率',
+      labLink: '电磁学实验台 · 感生电场：拖动试探电荷在磁场柱内外移动，观察涡旋电场线与受力。',
     },
     {
-      id: 'induced_e',
+      id: 'electric_field',
       cat: 'electro',
-      title: '感生电场（麦克斯韦-法拉第）',
-      formula: '\\mathcal{E}_{i}=\\oint \\vec{E}_{k}\\cdot \\mathrm{d}\\vec{l}=-\\frac{\\mathrm{d}\\Phi_{B}}{\\Delta t}',
-      concept: '变化的磁场激发涡旋感生电场 E_k。闭合回路上的感应电动势等于涡旋电场的线积分。',
-      symbols: 'E_k — 涡旋感生电场强度　ℰ_i — 感应电动势　Φ_B — 磁通量',
+      expId: 'electric_field',
+      expName: '静电场探索实验',
+      code: 'EM-03',
+      goal: '放置点电荷与试探电荷，观察空间电场线、等势面与库仑力',
+      tags: ['库仑定律', '电场矢量叠加', '空间等势面'],
+      title: '点电荷电场叠加与空间电势',
+      formula: '\\vec{E}=\\frac{\\vec{F}}{q_{0}}；E=\\frac{1}{4\\pi\\varepsilon_{0}}\\frac{Q}{r^{2}}；\\varphi=\\frac{1}{4\\pi\\varepsilon_{0}}\\frac{Q}{r}',
+      concept: '点电荷场强与距离平方成反比。空间多电荷满足电场矢量叠加原理；电场线与等势面处处正交。',
+      symbols: 'E — 电场强度 (V/m)　Q — 场源电荷 (C)　φ — 电势 (V)　ε₀ — 真空介电常量',
+      labLink: '电磁学实验台 · 静电场：放置点电荷与试探电荷，观察电力线、等势面与电势阱。',
     },
     {
-      id: 'flux',
+      id: 'gauss_theorem',
       cat: 'electro',
-      title: '磁通量',
-      formula: '\\Phi_{B}=BS\\cos\\theta',
-      concept: '在磁感应强度为 B 的匀强磁场中，穿过与磁场方向夹角为 θ 的平面 S 的磁通量 Φ_B = B S cosθ。',
-      symbols: 'Φ_B — 磁通量　B — 磁感应强度　S — 面积',
-    },
-    {
-      id: 'gauss',
-      cat: 'electro',
-      title: '高斯定理',
+      expId: 'electric_field',
+      expName: '静电场高斯定理实验',
+      code: 'EM-04',
+      goal: '构建闭合高斯曲面，检验总电通量与内部包围净电荷的守恒关系',
+      tags: ['高斯曲面', '电通量积分', '净电荷守恒'],
+      title: '静电场高斯定理与通量守恒',
       formula: '\\Phi_{E}=\\oint \\vec{E}\\cdot \\mathrm{d}\\vec{S}=\\frac{Q_{内}}{\\varepsilon_{0}}',
-      concept: '通过任意闭合曲面的电通量 Φ_E，等于包围在该闭合曲面内的电荷的代数和除以 ε₀，与面外电荷无关。',
-      symbols: 'Φ_E — 电通量　Q内 — 面内净电荷　ε₀ — 真空介电常量',
+      concept: '穿过任意闭合曲面的总电通量等于曲面所包围的净电荷代数和除以 ε₀，与面外电荷无关。',
+      symbols: 'Φ_E — 电通量 (V·m)　E — 电场强度　Q内 — 闭合面内净电荷 (C)　S — 闭合高斯面',
+      labLink: '电磁学实验台 · 静电场：构建闭合高斯面，检验电通量与内部净电荷量守恒关系。',
     },
     {
-      id: 'lorentz',
+      id: 'hall_carrier_demo',
       cat: 'electro',
-      title: '洛伦兹力',
-      formula: '\\vec{F}=q\\vec{v}\\times\\vec{B}',
-      concept: '运动电荷在磁场中所受的力。大小 F = qvB sinθ；方向由右手螺旋定则判定。洛伦兹力不做功，只改变运动方向。',
-      symbols: 'F — 洛伦兹力　q — 电荷量　v — 速度　B — 磁感应强度',
+      expId: 'hall_carrier_demo',
+      expName: '霍尔效应原理实验',
+      code: 'EM-05',
+      goal: '观察载流子受洛伦兹力偏转机理，判定 n 型电子与 p 型空穴导电极性',
+      tags: ['洛伦兹力偏转', '横向霍尔电场', 'n/p 极性判定'],
+      title: '霍尔效应微观机理与载流子',
+      formula: 'U_{H}=K_{IB}\\cdot I\\cdot B；\\vec{F}=q(\\vec{E}+\\vec{v}\\times\\vec{B})',
+      concept: '通电载流片置于磁场中，载流子受洛伦兹力偏转积累建立横向霍尔电场。正负判定 n/p 型。',
+      symbols: 'U_H — 霍尔电势差 (V)　I — 工作电流 (A)　B — 磁感应强度 (T)　K_IB — 灵敏度',
+      labLink: '电磁学实验台 · 霍尔原理：调节 I 与 B，切换 n/p 型半导体观察载流子偏转方向。',
     },
     {
-      id: 'right_hand',
+      id: 'hall_effect',
       cat: 'electro',
-      title: '安培定则（右手螺旋定则）',
-      formula: '四指电流 → 拇指 N 极',
-      concept: '通电螺线管：用右手握住螺线管，让四指弯向螺线管中电流的方向，大拇指所指的那端就是螺线管的 N 极。',
-      symbols: '螺线管 · 电流 · 磁极',
+      expId: 'hall_effect',
+      expName: '霍尔效应测磁实验',
+      code: 'EM-06',
+      goal: '沿轴线移动标定霍尔探头，扫描亥姆霍兹线圈与长螺线管的磁场分布',
+      tags: ['霍尔测磁仪', '亥姆霍兹匀强磁场', '轴线磁场扫描'],
+      title: '亥姆霍兹线圈与螺线管磁场',
+      formula: 'U_{H}=K_{H}I_{s}B；B_{H}=\\mu_{0}\\left(\\frac{4}{5}\\right)^{3/2}\\frac{NI}{R}',
+      concept: '利用标定霍尔探头测量空间磁场。亥姆霍兹线圈中心区域高度均匀；长螺线管内部磁场均匀。',
+      symbols: 'K_H — 探头灵敏度 (mV/(mA·T))　I_s — 霍尔电流 (mA)　B — 磁感应强度 (T)',
+      labLink: '电磁学实验台 · 霍尔测磁：沿轴线移动探头，扫描线圈与螺线管的 B–X 空间曲线。',
     },
+
+    // ════════════ 3. 光学实验台 ════════════
     {
-      id: 'ohm',
-      cat: 'electro',
-      title: '欧姆定律',
-      formula: 'I=U/R',
-      concept: '导体中的电流跟导体两端的电压成正比，跟导体的电阻成反比。',
-      symbols: 'I — 电流　U — 电压　R — 电阻',
-    },
-    // 光学
-    {
-      id: 'lens',
+      id: 'optics_reflection',
       cat: 'optics',
-      title: '薄透镜成像公式',
-      formula: '1/u+1/v=1/f',
-      concept: '物距 u、像距 v 与焦距 f 满足此关系。凸透镜焦距 f 取正；实像像距为正，虚像像距为负（符号规则依教材）。',
-      symbols: 'u — 物距　v — 像距　f — 焦距',
+      expId: 'reflection',
+      expName: '光的反射实验',
+      code: 'OPT-01',
+      goal: '验证光的反射定律，探究反射镜面旋转时出射光线的偏转倍率',
+      tags: ['反射定律', '平面镜成像', '镜面旋转偏转'],
+      title: '光的反射定律与镜面旋转偏转',
+      formula: 'i=i\'；\\Delta\\theta_{r}=2\\alpha',
+      concept: '反射角等于入射角。当平面镜绕法线垂直轴旋转 α 角时，反射光线偏转 2α 角。',
+      symbols: 'i — 入射角 (°)　i\' — 反射角 (°)　α — 镜面旋转角 (°)　Δθ_r — 反射偏转角',
+      labLink: '光学实验台 · 光的反射：旋转反射镜台并切换多光束/凸面镜，记录入射角与反射角。',
     },
     {
-      id: 'lens_conj',
+      id: 'optics_refraction',
       cat: 'optics',
-      title: '共轭法测焦距',
-      formula: 'f=(L^{2}−d^{2})/(4L)',
-      concept: '物屏与像屏距离 L>4f 固定时，透镜有两个成像清晰的位置，间距为 d。两位置物像共轭互换。',
-      symbols: 'L — 物屏像屏距　d — 两透镜位置间距　f — 焦距',
+      expId: 'refraction',
+      expName: '光的折射实验',
+      code: 'OPT-02',
+      goal: '测量不同透明介质折射率，观察全反射临界角及平板玻璃侧移',
+      tags: ['斯涅尔折射', '全反射临界角', '平板平行侧移'],
+      title: '斯涅尔折射定律与全反射',
+      formula: 'n_{1}\\sin i = n_{2}\\sin r；\\sin C=\\frac{n_{2}}{n_{1}}',
+      concept: '光由光疏介质进入光密介质向法线偏折。入射角大于临界角 C 时折射光消失，发生全反射。',
+      symbols: 'n₁、n₂ — 介质折射率　i — 入射角 (°)　r — 折射角 (°)　C — 全反射临界角',
+      labLink: '光学实验台 · 光的折射：切换介质预设，观察光束偏折、全反射临界角及平板玻璃侧移。',
     },
     {
-      id: 'snell',
+      id: 'optics_dispersion',
       cat: 'optics',
-      title: '折射定律',
-      formula: 'n_{1} sin i = n_{2} sin r',
-      concept: '光从一种介质射入另一种介质时，入射角的正弦与折射角的正弦之比是一个常数，等于两种介质折射率之比。',
-      symbols: 'n — 折射率　i — 入射角　r — 折射角',
+      expId: 'dispersion',
+      expName: '光的色散实验',
+      code: 'OPT-03',
+      goal: '观察白光通过等边三棱镜的光谱展宽，测量三棱镜最小偏向角',
+      tags: ['三棱镜分光', '折射率色散 n(λ)', '最小偏向角'],
+      title: '三棱镜色散与最小偏向角',
+      formula: 'n=n(\\lambda)；n=\\frac{\\sin[(A+\\delta_{m})/2]}{\\sin(A/2)}',
+      concept: '透明介质对短波长紫光折射率大于长波长红光。白光经三棱镜色散成彩虹光谱。',
+      symbols: 'n(λ) — 色散关系　A — 棱镜顶角 (°)　δ_m — 最小偏向角 (°)　λ — 光波长 (nm)',
+      labLink: '光学实验台 · 光的色散：点亮白光入射等边三棱镜，在接收屏观察红到紫光谱展宽。',
     },
     {
-      id: 'prism',
+      id: 'optics_lens',
       cat: 'optics',
-      title: '色散',
-      formula: 'n = n(λ)',
-      concept: '同一介质对不同色光的折射率不同，白光经三棱镜后色散成光谱。一般紫光偏折更大。',
-      symbols: 'λ — 波长　n — 折射率',
+      expId: 'lens',
+      expName: '透镜光路实验',
+      code: 'OPT-04',
+      goal: '观察球透镜与柱面透镜光束会聚，采用共轭两次成像法精确测定焦距',
+      tags: ['薄透镜成像', '共轭法测焦距', '柱面平行光会聚'],
+      title: '薄透镜成像与共轭法测焦距',
+      formula: '\\frac{1}{u}+\\frac{1}{v}=\\frac{1}{f}；f=\\frac{L^{2}-d^{2}}{4L}',
+      concept: '凸透镜使平行光会聚。当物屏与像屏距离 L > 4f 时，存在两处清晰成像位置，间距为 d。',
+      symbols: 'u — 物距 (m)　v — 像距 (m)　f — 透镜焦距 (m)　L — 物像屏距 (m)　d — 共轭位移',
+      labLink: '光学实验台 · 透镜光路：选用球透镜与柱面透镜，观察光束会聚焦点并测量焦距。',
     },
     {
-      id: 'prism_min',
+      id: 'optics_diffraction',
       cat: 'optics',
-      title: '最小偏向角测折射率',
-      formula: 'n=sin[(A+δ_{m})/2]/sin(A/2)',
-      concept: '三棱镜在最小偏向时入射、出射对称。测得顶角 A 与最小偏向角 δ_m 即可求折射率 n。',
-      symbols: 'A — 顶角　δ_m — 最小偏向角　n — 折射率',
+      expId: 'multi_slit_diffraction',
+      expName: '单缝衍射 · 多缝干涉',
+      code: 'OPT-05',
+      goal: '研究光的波动性：调节缝宽、缝间距与波长，观察衍射与干涉图样',
+      tags: ['夫琅禾费衍射', '双缝/多缝干涉', '明暗条纹光强'],
+      title: '夫琅禾费衍射与多缝干涉条纹',
+      formula: '\\sin\\theta=\\frac{\\lambda}{a}；\\Delta x=\\frac{\\lambda L}{d}；I(\\theta)=I_{0}\\left(\\frac{\\sin\\alpha}{\\alpha}\\right)^{2}\\left(\\frac{\\sin N\\beta}{\\sin\\beta}\\right)^{2}',
+      concept: '单缝衍射中央亮纹由缝宽 a 决定；多缝干涉条纹间距由 d 决定。多缝受单缝衍射包络调制。',
+      symbols: 'λ — 光波长 (nm)　a — 单缝宽度 (μm)　d — 双缝间距 (μm)　L — 屏距 (m)　Δx — 条纹间距',
+      labLink: '光学实验台 · 衍射干涉：调节波长、缝宽与缝间距，在观察屏与强度曲线对照规律。',
     },
+
+    // ════════════ 4. 热力学实验台 ════════════
     {
-      id: 'wave',
-      cat: 'optics',
-      title: '波速、波长与频率',
-      formula: 'v=λf',
-      concept: '波速等于波长与频率的乘积。真空中光速 c = 3.00×10⁸ m/s。',
-      symbols: 'v — 波速　λ — 波长　f — 频率',
-    },
-    // 热学
-    {
-      id: 'calorimetry',
+      id: 'thermo_calorimetry',
       cat: 'thermo',
-      title: '热平衡（量热）',
-      formula: 'Q=cmΔt；Q_{放}=Q_{吸}',
-      concept: '忽略热损失时，高温物体放出的热量等于低温物体吸收的热量。可用来测定未知比热容。',
-      symbols: 'c — 比热容　m — 质量　Δt — 温度变化',
+      expId: 'calorimetry',
+      expName: '混合量热实验',
+      code: 'THERM-01',
+      goal: '冷热水绝热混合，监测热平衡演化曲线并测定待测液体比热容',
+      tags: ['热量传递', '热平衡温度', '比热容测定'],
+      title: '热平衡方程与混合平衡温度',
+      formula: 'Q=cm\\Delta t；Q_{放}=Q_{吸}；T_{eq}=\\frac{c_{1}m_{1}T_{1}+c_{2}m_{2}T_{2}}{c_{1}m_{1}+c_{2}m_{2}}',
+      concept: '绝热系统内不同温度物质混合时发生热交换，高温放热等于低温吸热，达到平衡终温 T_eq。',
+      symbols: 'Q — 热量 (J)　c — 比热容 (J/(kg·K))　m — 质量 (kg)　T_eq — 平衡终温 (°C)',
+      labLink: '热力学实验台 · 混合量热：倒入冷热水，实时监测温度曲线并计算混合热平衡。',
     },
     {
-      id: 'fourier',
+      id: 'thermo_expansion',
       cat: 'thermo',
-      title: '热传导',
-      formula: 'Q/t∝kA(ΔT/Δx)',
-      concept: '单位时间内通过导体的热量，与横截面积、两端温度差成正比，与长度成反比；比例系数 k 为热导率。',
-      symbols: 'k — 热导率　A — 横截面积　ΔT — 温差　Δx — 厚度',
+      expId: 'thermal-expansion',
+      expName: '固体热膨胀实验',
+      code: 'THERM-02',
+      goal: '加热金属试样棒，测量微米级受热伸长量并测定线膨胀系数',
+      tags: ['晶格热膨胀', '固体线膨胀定律', '金属材料对比'],
+      title: '固体线膨胀定律与膨胀系数',
+      formula: '\\Delta l=\\alpha l_{0}\\Delta t；l=l_{0}(1+\\alpha\\Delta t)',
+      concept: '固体受热后原子点阵振动加剧使晶格膨胀。铝、铜、钢、殷钢等材料膨胀系数差异显著。',
+      symbols: 'α — 线膨胀系数 (1/K)　l₀ — 试样初始长度 (m)　Δl — 伸长量 (mm)　Δt — 温升 (°C)',
+      labLink: '热力学实验台 · 热膨胀：选择铝/铜/钢/殷钢试样棒加热，观察微米级伸长与读数。',
     },
     {
-      id: 'ideal_gas',
+      id: 'thermo_conduction',
       cat: 'thermo',
-      title: '理想气体状态方程',
-      formula: 'pV=nRT',
-      concept: '一定质量的理想气体，压强 p、体积 V 与热力学温度 T 满足 pV = nRT（或 pV/T = 常量）。',
-      symbols: 'p — 压强　V — 体积　T — 热力学温度　R — 气体常量',
-    },
-    // 近代物理（高中选修）
-    {
-      id: 'debroglie',
-      cat: 'quantum',
-      title: '德布罗意波长',
-      formula: 'λ=h/p',
-      concept: '任何一个运动的物体，都有一种波与它对应，波长等于普朗克常量与动量之比。体现波粒二象性。',
-      symbols: 'h — 普朗克常量　p — 动量　λ — 物质波波长',
+      expId: 'heat-conduction',
+      expName: '稳态热传导实验',
+      code: 'THERM-03',
+      goal: '设定热端与冷端恒温源，观测一维稳态线性温度分布与热通量',
+      tags: ['傅里叶导热定律', '导热系数 k', '稳态温度分布'],
+      title: '傅里叶导热定律与一维温度梯度',
+      formula: '\\frac{\\mathrm{d}Q}{\\mathrm{d}t}=-kA\\frac{\\mathrm{d}T}{\\mathrm{d}x}；q=k\\frac{\\Delta T}{\\Delta x}',
+      concept: '物体内部存在温度梯度时发生热传导。稳态下一维金属导热棒温度呈理想线性分布。',
+      symbols: 'k — 导热系数 (W/(m·K))　A — 截面积 (m²)　dT/dx — 温度梯度 (K/m)　q — 热流密度',
+      labLink: '热力学实验台 · 热传导：设定热冷端恒温源，观察试样管内稳态线性温度分布。',
     },
     {
-      id: 'photon',
-      cat: 'quantum',
-      title: '光子的能量',
-      formula: 'E=hν',
-      concept: '光是一份一份地传播的，每一份叫做一个光子，光子的能量 E = hν，与光的频率成正比。',
-      symbols: 'h — 普朗克常量　ν — 频率　E — 光子能量',
+      id: 'thermo_ideal_gas',
+      cat: 'thermo',
+      expId: 'ideal-gas',
+      expName: '理想气体定律实验',
+      code: 'THERM-04',
+      goal: '推拉活塞改变气体体积与温度，验证 p-V-T 理想气体状态方程',
+      tags: ['状态方程 pV=nRT', '分子平均动能', '等温/等容过程'],
+      title: '理想气体状态方程与分子动能',
+      formula: 'pV=nRT；p=\\frac{2}{3}n_{0}\\bar{\\varepsilon}_{k}；\\bar{\\varepsilon}_{k}=\\frac{3}{2}k_{B}T',
+      concept: '一定质量理想气体满足 pV = nRT。温度是分子平均平动动能的标志，压强源于分子碰撞。',
+      symbols: 'p — 气体压强 (Pa)　V — 气体体积 (m³)　T — 热力学温度 (K)　R — 摩尔气体常量',
+      labLink: '热力学实验台 · 理想气体：推拉活塞改变体积，调节温度，验证 p-V-T 等温等压规律。',
     },
     {
-      id: 'photoelectric',
-      cat: 'quantum',
-      title: '光电效应方程',
-      formula: 'E_{k}=hν−W_{0}',
-      concept: '光电子的最大初动能等于光子能量减去金属的逸出功。只有 ν > ν₀（极限频率）时才能发生光电效应。',
-      symbols: 'E_k — 最大初动能　W₀ — 逸出功　ν — 入射光频率',
+      id: 'thermo_convection',
+      cat: 'thermo',
+      expId: 'convection',
+      expName: '自然对流实验',
+      code: 'THERM-05',
+      goal: '调节热底板温度，观察封闭腔体内热浮力驱动的循环对流流动',
+      tags: ['热浮力驱动', '牛顿冷却换热', '热羽流与 Ra 数'],
+      title: '牛顿冷却定律与自然对流',
+      formula: 'Q=hA\\Delta T；Ra=Gr\\cdot Pr',
+      concept: '流体受热膨胀上升、遇冷收缩下沉，形成热浮力驱动对流。瑞利数 Ra 决定流动形态。',
+      symbols: 'h — 换热系数 (W/(m²·K))　A — 换热面积 (m²)　ΔT — 壁面温差 (°C)　Ra — 瑞利数',
+      labLink: '热力学实验台 · 自然对流：调节热底板温度，观察封闭腔体内热羽流演化与回流。',
     },
     {
-      id: 'planck',
-      cat: 'quantum',
-      title: '能量子',
-      formula: 'ε=hν',
-      concept: '物体发射或吸收能量时，能量不是连续的，而是一份一份的，每一份就是一个能量子。',
-      symbols: 'ε — 能量子　h — 普朗克常量　ν — 频率',
+      id: 'chem_molar',
+      cat: 'chem',
+      expId: 'reagent-mix',
+      expName: '试剂混合与结构实验',
+      code: 'CHEM-01',
+      goal: '学习物质的量计量方法，完成不同浓度标准溶液的定量配制与混合',
+      tags: ['物质的量 n', '物质的量浓度 c', '溶液稀释定理'],
+      title: '物质的量与溶液浓度配制',
+      formula: 'n=\\frac{m}{M}=\\frac{N}{N_{A}}；c=\\frac{n}{V}；c_{1}V_{1}=c_{2}V_{2}',
+      concept: '物质的量 n 连接微观与宏观。溶液稀释前后溶质物质的量守恒，用于精准配制标准溶液。',
+      symbols: 'n — 物质的量 (mol)　M — 摩尔质量 (g/mol)　c — 物质的量浓度 (mol/L)　V — 溶液体积',
+      labLink: '化学实验台 · 试剂混合：在烧杯中添加无机试剂与溶剂，倾倒混合并查看成分浓度。',
+    },
+    {
+      id: 'chem_structure',
+      cat: 'chem',
+      expId: 'reagent-mix',
+      expName: '试剂混合与结构实验',
+      code: 'CHEM-02',
+      goal: '点选元素周期表试剂，在实验台生成并观察分子空间 3D 球棍立体构型',
+      tags: ['元素周期律', '分子 3D 空间构型', 'SDF 势场模型'],
+      title: '元素周期律与分子空间立体构型',
+      formula: '\\Delta E = h\\nu；\\phi(\\vec{r})=\\text{SDF}(\\vec{r})',
+      concept: '元素性质随原子序数递增呈周期性变化。分子空间构型由原子共价键与价层电子对互斥决定。',
+      symbols: 'Z — 原子序数　h — 普朗克常量　ν — 跃迁频率　SDF — 空间带符号距离场',
+      labLink: '化学实验台 · 分子结构：点选元素周期表试剂，在实验台全息展示分子的 3D 球棍立体构型。',
+    },
+    {
+      id: 'chem_reaction',
+      cat: 'chem',
+      expId: 'reagent-mix',
+      expName: '试剂混合与结构实验',
+      code: 'CHEM-03',
+      goal: '混合反应试剂验证质量守恒定律及反应物产物化学计量数配比',
+      tags: ['质量守恒定律', '化学计量数配平', '沉淀反应平衡'],
+      title: '质量守恒定律与化学计量反应',
+      formula: '\\sum m_{\\text{反应物}}=\\sum m_{\\text{生成物}}；\\frac{\\Delta n_{A}}{\\nu_{A}}=\\frac{\\Delta n_{B}}{\\nu_{B}}',
+      concept: '化学反应前后原子的种类、数目与质量守恒。反应物消耗量与生成物按化学计量比转化。',
+      symbols: 'm — 质量 (g)　ν_A, ν_B — 化学计量数　Δn — 反应消耗/生成的物质的量 (mol)',
+      labLink: '化学实验台 · 反应实验：混合酸碱或沉淀反应试剂，观察颜色变化与沉淀生成产物平衡。',
     },
   ],
 };
 
-/**
- * @param {CanvasRenderingContext2D} ctx
- * @param {number} W
- * @param {number} H
- * @param {{ category: string, selectedId: string|null }} state
- */
-export function drawFormulaBoard(ctx, W, H, state) {
-  const hits = [];
-  const category = state.category || 'all';
-  const selectedId = state.selectedId || null;
-  const items = FORMULA_CATALOG.items.filter(
-    (it) => category === 'all' || it.cat === category,
-  );
-  const selected = selectedId
-    ? FORMULA_CATALOG.items.find((it) => it.id === selectedId)
-    : null;
+function drawHomeView(ctx, W, H, hits) {
+  const stations = FORMULA_CATALOG.stations;
+  const headerH = 100;
+  const padX = 40;
+  const cardTop = 128;
+  const gapX = 20;
+  const cardW = (W - padX * 2 - gapX * (stations.length - 1)) / stations.length;
+  const cardH = H - cardTop - 36;
 
-  // background glass
-  const grad = ctx.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, 'rgba(240,250,255,0.97)');
-  grad.addColorStop(1, 'rgba(200,230,255,0.94)');
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(14, 165, 233, 0.14)';
+  ctx.fillRect(0, 0, W, headerH);
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.35)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, headerH); ctx.lineTo(W, headerH); ctx.stroke();
+  ctx.fillStyle = '#10b981';
+  ctx.beginPath(); ctx.arc(44, headerH / 2, 8, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#0369a1';
+  ctx.font = buildUiFont(36, 'bold');
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('PHYSICS LABORATORY  ·  物理实验知识大厅', 64, headerH / 2);
 
-  // grid
-  ctx.strokeStyle = 'rgba(14,165,233,0.10)';
+  stations.forEach((st, i) => {
+    const x = padX + i * (cardW + gapX);
+    const y = cardTop;
+
+    // 卡片背景
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.strokeStyle = hexToRgba(st.color, 0.45);
+    ctx.lineWidth = 2.5;
+    roundRect(ctx, x, y, cardW, cardH, 22);
+    ctx.fill();
+    ctx.stroke();
+
+    // 顶部主题色带
+    ctx.fillStyle = st.color;
+    roundRect(ctx, x + 4, y + 4, cardW - 8, 10, 5);
+    ctx.fill();
+
+    // 居中大图标外圈圆盘 (直径 130px)
+    const iconCenterY = y + 160;
+    const iconR = 65;
+    ctx.fillStyle = hexToRgba(st.color, 0.12);
+    ctx.strokeStyle = st.color;
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(x + cardW / 2, iconCenterY, iconR, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // 实验台大图标
+    ctx.font = buildUiFont(64, 'bold');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(st.iconText, x + cardW / 2, iconCenterY);
+
+    // 实验台主标题 (38px 超大号醒目字体)
+    ctx.fillStyle = '#0f172a';
+    ctx.font = buildUiFont(38, 'bold');
+    ctx.fillText(st.name, x + cardW / 2, y + 280);
+
+    // 英文标识 (18px)
+    ctx.fillStyle = '#64748b';
+    ctx.font = buildUiFont(18, 'bold');
+    ctx.fillText(st.en, x + cardW / 2, y + 330);
+
+    // 实验数量大胶囊徽章 (22px，采用主题色)
+    const badgeW = 190;
+    const badgeH = 50;
+    const badgeY = y + 380;
+    ctx.fillStyle = hexToRgba(st.color, 0.14);
+    ctx.strokeStyle = hexToRgba(st.color, 0.4);
+    ctx.lineWidth = 1.8;
+    roundRect(ctx, x + (cardW - badgeW) / 2, badgeY, badgeW, badgeH, 25);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = st.color;
+    ctx.font = buildUiFont(22, 'bold');
+    ctx.fillText(st.badge, x + cardW / 2, badgeY + badgeH / 2);
+
+    // 底部超大高亮进入按钮 (76px 高度，采用实验台主题色纯色填充 + 纯白文字，色彩准确醒目)
+    const btnW = cardW - 44;
+    const btnH = 76;
+    const btnX = x + 22;
+    const btnY = y + cardH - btnH - 32;
+
+    ctx.fillStyle = st.color;
+    ctx.strokeStyle = st.color;
+    ctx.lineWidth = 2;
+    roundRect(ctx, btnX, btnY, btnW, btnH, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = buildUiFont(26, 'bold');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('进入实验台 ➔', btnX + btnW / 2, btnY + btnH / 2);
+
+    hits.push({
+      id: `station-${st.id}`,
+      x,
+      y,
+      w: cardW,
+      h: cardH,
+      action: 'station',
+      stationId: st.id,
+    });
+  });
+}
+
+// ═════════════════════════════════════════════════════════
+// 页面 2：实验台子页面 (Station Sub-page View) — 纯净目录卡片、大字号大按钮
+// ═════════════════════════════════════════════════════════
+function drawStationSubpageView(ctx, W, H, stationId, hits) {
+  const st = FORMULA_CATALOG.stations.find((s) => s.id === stationId) || FORMULA_CATALOG.stations[0];
+  const items = FORMULA_CATALOG.items.filter((it) => it.cat === st.id);
+  const headerH = 92;
+  const padX = 40;
+
+  // 顶部导航栏背景
+  ctx.fillStyle = hexToRgba(st.color, 0.12);
+  ctx.fillRect(0, 0, W, headerH);
+  ctx.strokeStyle = hexToRgba(st.color, 0.35);
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, headerH); ctx.lineTo(W, headerH); ctx.stroke();
+
+  // 返回大厅按钮 (加大，主题色描边与文字)
+  const backW = 210;
+  const backH = 52;
+  const backX = padX;
+  const backY = (headerH - backH) / 2;
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.strokeStyle = st.color;
+  ctx.lineWidth = 2.2;
+  roundRect(ctx, backX, backY, backW, backH, 14);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(22, 'bold');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('← 返回大厅', backX + backW / 2, backY + backH / 2);
+
+  hits.push({
+    id: 'back-home',
+    x: backX,
+    y: backY,
+    w: backW,
+    h: backH,
+    action: 'home',
+  });
+
+  // 面包屑导航与当前实验台标题 (加大)
+  ctx.fillStyle = '#64748b';
+  ctx.font = buildUiFont(20, 'bold');
+  ctx.textAlign = 'left';
+  ctx.fillText('实验室大厅  /  ', backX + backW + 28, headerH / 2);
+
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(28, 'bold');
+  const breadcrumbText = `${st.name} · ${st.badge}`;
+  ctx.fillText(breadcrumbText, backX + backW + 155, headerH / 2);
+
+  // 右侧快速横向切换实验台 Tab (加大)
+  const quickStations = FORMULA_CATALOG.stations;
+  const qGap = 10;
+  const qW = 115;
+  const qH = 46;
+  const qTotalW = quickStations.length * qW + (quickStations.length - 1) * qGap;
+  let qX = W - padX - qTotalW;
+  const qY = (headerH - qH) / 2;
+
+  quickStations.forEach((otherSt) => {
+    const isCur = otherSt.id === st.id;
+    ctx.fillStyle = isCur ? otherSt.color : 'rgba(255, 255, 255, 0.85)';
+    ctx.strokeStyle = isCur ? otherSt.color : hexToRgba(otherSt.color, 0.4);
+    ctx.lineWidth = 2;
+    roundRect(ctx, qX, qY, qW, qH, 12);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = isCur ? '#ffffff' : otherSt.color;
+    ctx.font = buildUiFont(18, isCur ? 'bold' : '600');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(otherSt.name.slice(0, 3), qX + qW / 2, qY + qH / 2);
+
+    hits.push({
+      id: `tab-st-${otherSt.id}`,
+      x: qX,
+      y: qY,
+      w: qW,
+      h: qH,
+      action: 'station',
+      stationId: otherSt.id,
+    });
+    qX += qW + qGap;
+  });
+
+  // 实验卡片大尺寸网格（3 列 × 2 行，极简纯净，超大标题与超大按钮）
+  const gridTop = headerH + 28;
+  const cols = 3;
+  const rows = 2;
+  const gapX = 24;
+  const gapY = 24;
+  const cardW = (W - padX * 2 - gapX * (cols - 1)) / cols;
+  const cardH = (H - gridTop - 32 - gapY * (rows - 1)) / rows;
+
+  items.forEach((it, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = padX + col * (cardW + gapX);
+    const y = gridTop + row * (cardH + gapY);
+
+    // 卡片外框
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.strokeStyle = hexToRgba(st.color, 0.45);
+    ctx.lineWidth = 2.5;
+    roundRect(ctx, x, y, cardW, cardH, 22);
+    ctx.fill();
+    ctx.stroke();
+
+    // 顶部主题小色带
+    ctx.fillStyle = st.color;
+    roundRect(ctx, x + 4, y + 4, cardW - 8, 8, 4);
+    ctx.fill();
+
+    // 顶部编号胶囊 (居左，采用主题色)
+    ctx.font = buildUiFont(16, 'bold');
+    const codeText = `${it.code}`;
+    const codeW = ctx.measureText(codeText).width + 24;
+    const codeH = 34;
+    ctx.fillStyle = hexToRgba(st.color, 0.14);
+    ctx.strokeStyle = hexToRgba(st.color, 0.4);
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, x + 24, y + 24, codeW, codeH, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = st.color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(codeText, x + 24 + codeW / 2, y + 24 + codeH / 2);
+
+    // 实验主标题 (42px 超大号醒目粗体字，绝对居中)
+    ctx.fillStyle = '#0f172a';
+    ctx.font = buildUiFont(40, 'bold');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(it.expName, x + cardW / 2, y + 148);
+
+    // 底部超大高亮进入按钮 (72px 高度，采用主题色纯色填充 + 纯白文字)
+    const btnW = cardW - 56;
+    const btnH = 72;
+    const btnX = x + 28;
+    const btnY = y + cardH - btnH - 28;
+
+    ctx.fillStyle = st.color;
+    ctx.strokeStyle = st.color;
+    ctx.lineWidth = 2;
+    roundRect(ctx, btnX, btnY, btnW, btnH, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = buildUiFont(26, 'bold');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('进入实验 ➔', btnX + btnW / 2, btnY + btnH / 2);
+
+    hits.push({
+      id: `item-${it.id}`,
+      x,
+      y,
+      w: cardW,
+      h: cardH,
+      action: 'select',
+      itemId: it.id,
+    });
+  });
+}
+
+// ═════════════════════════════════════════════════════════
+// 页面 3：单实验深度解析页 (Experiment Detail View) — 唯一展开完整公式与实测细节的页面
+// ═════════════════════════════════════════════════════════
+function drawExperimentDetailView(ctx, W, H, state, hits) {
+  const selected = FORMULA_CATALOG.items.find((it) => it.id === state.selectedId) || FORMULA_CATALOG.items[0];
+  const st = FORMULA_CATALOG.stations.find((s) => s.id === selected.cat) || FORMULA_CATALOG.stations[0];
+  const itemsInSt = FORMULA_CATALOG.items.filter((it) => it.cat === selected.cat);
+  const curIdx = itemsInSt.findIndex((it) => it.id === selected.id);
+
+  const headerH = 88;
+  const padX = 40;
+
+  // 顶部 Header
+  ctx.fillStyle = hexToRgba(st.color, 0.12);
+  ctx.fillRect(0, 0, W, headerH);
+  ctx.strokeStyle = hexToRgba(st.color, 0.35);
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, headerH); ctx.lineTo(W, headerH); ctx.stroke();
+
+  // 返回实验列表按钮 (主题色)
+  const backW = 200;
+  const backH = 46;
+  const backX = padX;
+  const backY = (headerH - backH) / 2;
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.strokeStyle = st.color;
+  ctx.lineWidth = 2;
+  roundRect(ctx, backX, backY, backW, backH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(19, 'bold');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('← 返回实验列表', backX + backW / 2, backY + backH / 2);
+
+  hits.push({
+    id: 'back-station',
+    x: backX,
+    y: backY,
+    w: backW,
+    h: backH,
+    action: 'back',
+  });
+
+  // 面包屑
+  ctx.fillStyle = '#64748b';
+  ctx.font = buildUiFont(18, 'bold');
+  ctx.textAlign = 'left';
+  ctx.fillText('大厅  /  ', backX + backW + 20, headerH / 2);
+
+  ctx.fillStyle = st.color;
+  ctx.fillText(`${st.name}  /  `, backX + backW + 80, headerH / 2);
+
+  ctx.fillStyle = '#0c4a6e';
+  ctx.font = buildUiFont(24, 'bold');
+  ctx.fillText(`${selected.expName} · ${selected.title}`, backX + backW + 210, headerH / 2);
+
+  // 右侧上一实验 / 下一实验切换按钮 (主题色)
+  const navBtnW = 120;
+  const navBtnH = 40;
+  const nextX = W - padX - navBtnW;
+  const prevX = nextX - navBtnW - 12;
+  const navY = (headerH - navBtnH) / 2;
+
+  const hasPrev = curIdx > 0;
+  ctx.fillStyle = hasPrev ? st.color : 'rgba(203, 213, 225, 0.3)';
+  ctx.strokeStyle = hasPrev ? st.color : 'rgba(148, 163, 184, 0.3)';
   ctx.lineWidth = 1.5;
+  roundRect(ctx, prevX, navY, navBtnW, navBtnH, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = hasPrev ? '#ffffff' : '#94a3b8';
+  ctx.font = buildUiFont(16, 'bold');
+  ctx.textAlign = 'center';
+  ctx.fillText('◀ 上一实验', prevX + navBtnW / 2, navY + navBtnH / 2);
+
+  if (hasPrev) {
+    hits.push({
+      id: 'nav-prev',
+      x: prevX,
+      y: navY,
+      w: navBtnW,
+      h: navBtnH,
+      action: 'nav',
+      itemId: itemsInSt[curIdx - 1].id,
+    });
+  }
+
+  const hasNext = curIdx < itemsInSt.length - 1;
+  ctx.fillStyle = hasNext ? st.color : 'rgba(203, 213, 225, 0.3)';
+  ctx.strokeStyle = hasNext ? st.color : 'rgba(148, 163, 184, 0.3)';
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, nextX, navY, navBtnW, navBtnH, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = hasNext ? '#ffffff' : '#94a3b8';
+  ctx.font = buildUiFont(16, 'bold');
+  ctx.fillText('下一实验 ▶', nextX + navBtnW / 2, navY + navBtnH / 2);
+
+  if (hasNext) {
+    hits.push({
+      id: 'nav-next',
+      x: nextX,
+      y: navY,
+      w: navBtnW,
+      h: navBtnH,
+      action: 'nav',
+      itemId: itemsInSt[curIdx + 1].id,
+    });
+  }
+
+  // 左右双主卡片分栏布局 (左侧公式与物理量，右侧理论与实测指引)
+  const contentTop = headerH + 24;
+  const contentH = H - contentTop - 28;
+  const leftW = 760;
+  const gap = 24;
+  const rightW = W - padX * 2 - leftW - gap;
+
+  // 左侧卡片：公式高亮展示区
+  const leftX = padX;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.strokeStyle = hexToRgba(st.color, 0.45);
+  ctx.lineWidth = 2;
+  roundRect(ctx, leftX, contentTop, leftW, contentH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  // 左侧顶部标头
+  ctx.fillStyle = st.color;
+  roundRect(ctx, leftX + 3, contentTop + 3, leftW - 6, 6, 3);
+  ctx.fill();
+
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(18, 'bold');
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`【${selected.code} · ${selected.expName}】`, leftX + 28, contentTop + 24);
+
+  ctx.fillStyle = '#0f172a';
+  ctx.font = buildUiFont(28, 'bold');
+  ctx.fillText(selected.title, leftX + 28, contentTop + 56);
+
+  // 公式高亮居中大盒
+  const fBoxX = leftX + 28;
+  const fBoxY = contentTop + 104;
+  const fBoxW = leftW - 56;
+  const fBoxH = 220;
+
+  ctx.fillStyle = hexToRgba(st.color, 0.08);
+  ctx.strokeStyle = hexToRgba(st.color, 0.35);
+  ctx.lineWidth = 1.8;
+  roundRect(ctx, fBoxX, fBoxY, fBoxW, fBoxH, 14);
+  ctx.fill();
+  ctx.stroke();
+
+  drawMathFormula(
+    ctx,
+    selected.formula,
+    fBoxX + 24,
+    fBoxY + fBoxH / 2,
+    {
+      fontSize: 46,
+      color: '#0c4a6e',
+      align: 'left',
+      textBaseline: 'middle',
+      maxWidth: fBoxW - 48,
+    },
+  );
+
+  // 左侧下方：📐 物理量与符号说明
+  const symBoxY = fBoxY + fBoxH + 20;
+  const symBoxH = contentH - (symBoxY - contentTop) - 24;
+
+  ctx.fillStyle = hexToRgba(st.color, 0.05);
+  ctx.strokeStyle = hexToRgba(st.color, 0.25);
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, fBoxX, symBoxY, fBoxW, symBoxH, 14);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(22, 'bold');
+  ctx.fillText('📐 物理量与符号说明 (SI 标准)', fBoxX + 22, symBoxY + 18);
+
+  ctx.fillStyle = '#1e293b';
+  ctx.font = buildUiFont(19, '500');
+  const symTokens = (selected.symbols || '').split('　');
+  symTokens.forEach((sym, sIdx) => {
+    const itemY = symBoxY + 60 + sIdx * 34;
+    if (itemY < symBoxY + symBoxH - 12) {
+      ctx.fillStyle = st.color;
+      ctx.fillRect(fBoxX + 22, itemY + 4, 6, 6);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillText(sym, fBoxX + 38, itemY);
+    }
+  });
+
+  // 右侧卡片：📘 物理理论 + 🔬 实验室实测指引
+  const rightX = leftX + leftW + gap;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.strokeStyle = hexToRgba(st.color, 0.45);
+  ctx.lineWidth = 2;
+  roundRect(ctx, rightX, contentTop, rightW, contentH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = st.color;
+  roundRect(ctx, rightX + 3, contentTop + 3, rightW - 6, 6, 3);
+  ctx.fill();
+
+  // 右上模块：📘 实验理论与物理机理
+  const mechBoxY = contentTop + 24;
+  const mechBoxH = 300;
+  const mechBoxW = rightW - 48;
+  const mechBoxX = rightX + 24;
+
+  ctx.fillStyle = hexToRgba(st.color, 0.05);
+  ctx.strokeStyle = hexToRgba(st.color, 0.25);
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, mechBoxX, mechBoxY, mechBoxW, mechBoxH, 14);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(24, 'bold');
+  ctx.fillText('📘 实验理论与物理机理', mechBoxX + 22, mechBoxY + 20);
+
+  ctx.fillStyle = '#1e293b';
+  ctx.font = buildUiFont(22, '500');
+  const conceptLines = wrapText(ctx, selected.concept, mechBoxW - 44);
+  conceptLines.forEach((ln, idx) => {
+    ctx.fillText(ln, mechBoxX + 22, mechBoxY + 68 + idx * 34);
+  });
+
+  // 右下模块：🔬 对应实验台实测与操作指引
+  const labBoxY = mechBoxY + mechBoxH + 20;
+  const labBoxH = contentH - (labBoxY - contentTop) - 24;
+
+  ctx.fillStyle = hexToRgba(st.color, 0.05);
+  ctx.strokeStyle = hexToRgba(st.color, 0.25);
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, mechBoxX, labBoxY, mechBoxW, labBoxH, 14);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(24, 'bold');
+  ctx.fillText('🔬 3D 实验室实测与操作指引', mechBoxX + 22, labBoxY + 20);
+
+  ctx.fillStyle = '#1e293b';
+  ctx.font = buildUiFont(22, '500');
+  const labLines = wrapText(ctx, selected.labLink, mechBoxW - 44);
+  labLines.forEach((ln, idx) => {
+    ctx.fillText(ln, mechBoxX + 22, labBoxY + 68 + idx * 34);
+  });
+}
+if (false) {
+function drawStationSubpageView(ctx, W, H, stationId, hits) {
+  const st = FORMULA_CATALOG.stations.find((s) => s.id === stationId) || FORMULA_CATALOG.stations[0];
+  const items = FORMULA_CATALOG.items.filter((it) => it.cat === st.id);
+  const headerH = 92;
+  const padX = 40;
+
+  // 顶部导航栏背景
+  ctx.fillStyle = 'rgba(14, 165, 233, 0.14)';
+  ctx.fillRect(0, 0, W, headerH);
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.35)';
+  ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(0, headerH); ctx.lineTo(W, headerH); ctx.stroke();
+
+  // 返回大厅按钮 (加大)
+  const backW = 210;
+  const backH = 52;
+  const backX = padX;
+  const backY = (headerH - backH) / 2;
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.strokeStyle = '#0284c7';
+  ctx.lineWidth = 2.2;
+  roundRect(ctx, backX, backY, backW, backH, 14);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#0369a1';
+  ctx.font = buildUiFont(22, 'bold');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('← 返回大厅', backX + backW / 2, backY + backH / 2);
+
+  hits.push({
+    id: 'back-home',
+    x: backX,
+    y: backY,
+    w: backW,
+    h: backH,
+    action: 'home',
+  });
+
+  // 面包屑导航与当前实验台标题 (加大)
+  ctx.fillStyle = '#64748b';
+  ctx.font = buildUiFont(20, 'bold');
+  ctx.textAlign = 'left';
+  ctx.fillText('实验室大厅  /  ', backX + backW + 28, headerH / 2);
+
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(28, 'bold');
+  const breadcrumbText = `${st.name} · ${st.badge}`;
+  ctx.fillText(breadcrumbText, backX + backW + 155, headerH / 2);
+
+  // 右侧快速横向切换实验台 Tab (加大)
+  const quickStations = FORMULA_CATALOG.stations;
+  const qGap = 10;
+  const qW = 115;
+  const qH = 46;
+  const qTotalW = quickStations.length * qW + (quickStations.length - 1) * qGap;
+  let qX = W - padX - qTotalW;
+  const qY = (headerH - qH) / 2;
+
+  quickStations.forEach((otherSt) => {
+    const isCur = otherSt.id === st.id;
+    ctx.fillStyle = isCur ? otherSt.color : 'rgba(255, 255, 255, 0.85)';
+    ctx.strokeStyle = isCur ? otherSt.color : 'rgba(14, 165, 233, 0.35)';
+    ctx.lineWidth = 2;
+    roundRect(ctx, qX, qY, qW, qH, 12);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = isCur ? '#ffffff' : '#334155';
+    ctx.font = buildUiFont(18, isCur ? 'bold' : '600');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(otherSt.name.slice(0, 3), qX + qW / 2, qY + qH / 2);
+
+    hits.push({
+      id: `tab-st-${otherSt.id}`,
+      x: qX,
+      y: qY,
+      w: qW,
+      h: qH,
+      action: 'station',
+      stationId: otherSt.id,
+    });
+    qX += qW + qGap;
+  });
+
+  // 实验卡片大尺寸网格（3 列 × 2 行，极简纯净，超大标题与超大按钮，无任何冗余文字）
+  const gridTop = headerH + 28;
+  const cols = 3;
+  const rows = 2;
+  const gapX = 24;
+  const gapY = 24;
+  const cardW = (W - padX * 2 - gapX * (cols - 1)) / cols;
+  const cardH = (H - gridTop - 32 - gapY * (rows - 1)) / rows;
+
+  items.forEach((it, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = padX + col * (cardW + gapX);
+    const y = gridTop + row * (cardH + gapY);
+
+    // 卡片外框
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+    ctx.strokeStyle = 'rgba(14, 165, 233, 0.4)';
+    ctx.lineWidth = 2.5;
+    roundRect(ctx, x, y, cardW, cardH, 22);
+    ctx.fill();
+    ctx.stroke();
+
+    // 顶部主题小色带
+    ctx.fillStyle = st.color;
+    roundRect(ctx, x + 4, y + 4, cardW - 8, 8, 4);
+    ctx.fill();
+
+    // 顶部编号胶囊 (居左)
+    ctx.font = buildUiFont(16, 'bold');
+    const codeText = `${it.code}`;
+    const codeW = ctx.measureText(codeText).width + 24;
+    const codeH = 34;
+    ctx.fillStyle = 'rgba(14, 165, 233, 0.14)';
+    ctx.strokeStyle = 'rgba(14, 165, 233, 0.3)';
+    ctx.lineWidth = 1.5;
+    roundRect(ctx, x + 24, y + 24, codeW, codeH, 8);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#0284c7';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(codeText, x + 24 + codeW / 2, y + 24 + codeH / 2);
+
+    // 实验主标题 (42px 超大号醒目粗体字，绝对居中)
+    ctx.fillStyle = '#0f172a';
+    ctx.font = buildUiFont(40, 'bold');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(it.expName, x + cardW / 2, y + 148);
+
+    // 底部超大高亮进入按钮 (72px 高度，26px 大字号)
+    const btnW = cardW - 56;
+    const btnH = 72;
+    const btnX = x + 28;
+    const btnY = y + cardH - btnH - 28;
+
+    const btnGrad = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
+    btnGrad.addColorStop(0, 'rgba(14, 165, 233, 0.28)');
+    btnGrad.addColorStop(1, 'rgba(2, 132, 199, 0.14)');
+    ctx.fillStyle = btnGrad;
+    ctx.strokeStyle = st.color;
+    ctx.lineWidth = 2.5;
+    roundRect(ctx, btnX, btnY, btnW, btnH, 18);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#0369a1';
+    ctx.font = buildUiFont(26, 'bold');
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('进入实验 ➔', btnX + btnW / 2, btnY + btnH / 2);
+
+    hits.push({
+      id: `item-${it.id}`,
+      x,
+      y,
+      w: cardW,
+      h: cardH,
+      action: 'select',
+      itemId: it.id,
+    });
+  });
+}
+
+// ═════════════════════════════════════════════════════════
+// 页面 3：单实验深度解析页 (Experiment Detail View) — 唯一展开完整公式与实测细节的页面
+// ═════════════════════════════════════════════════════════
+function drawExperimentDetailView(ctx, W, H, state, hits) {
+  const selected = FORMULA_CATALOG.items.find((it) => it.id === state.selectedId) || FORMULA_CATALOG.items[0];
+  const st = FORMULA_CATALOG.stations.find((s) => s.id === selected.cat) || FORMULA_CATALOG.stations[0];
+  const itemsInSt = FORMULA_CATALOG.items.filter((it) => it.cat === selected.cat);
+  const curIdx = itemsInSt.findIndex((it) => it.id === selected.id);
+
+  const headerH = 88;
+  const padX = 40;
+
+  // 顶部 Header
+  ctx.fillStyle = 'rgba(14, 165, 233, 0.12)';
+  ctx.fillRect(0, 0, W, headerH);
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.3)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(0, headerH); ctx.lineTo(W, headerH); ctx.stroke();
+
+  // 返回实验列表按钮
+  const backW = 200;
+  const backH = 46;
+  const backX = padX;
+  const backY = (headerH - backH) / 2;
+
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+  ctx.strokeStyle = '#0284c7';
+  ctx.lineWidth = 2;
+  roundRect(ctx, backX, backY, backW, backH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#0369a1';
+  ctx.font = buildUiFont(19, 'bold');
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('← 返回实验列表', backX + backW / 2, backY + backH / 2);
+
+  hits.push({
+    id: 'back-station',
+    x: backX,
+    y: backY,
+    w: backW,
+    h: backH,
+    action: 'back',
+  });
+
+  // 面包屑
+  ctx.fillStyle = '#64748b';
+  ctx.font = buildUiFont(18, 'bold');
+  ctx.textAlign = 'left';
+  ctx.fillText('大厅  /  ', backX + backW + 20, headerH / 2);
+
+  ctx.fillStyle = st.color;
+  ctx.fillText(`${st.name}  /  `, backX + backW + 80, headerH / 2);
+
+  ctx.fillStyle = '#0c4a6e';
+  ctx.font = buildUiFont(24, 'bold');
+  ctx.fillText(`${selected.expName} · ${selected.title}`, backX + backW + 210, headerH / 2);
+
+  // 右侧上一实验 / 下一实验切换按钮
+  const navBtnW = 120;
+  const navBtnH = 40;
+  const nextX = W - padX - navBtnW;
+  const prevX = nextX - navBtnW - 12;
+  const navY = (headerH - navBtnH) / 2;
+
+  const hasPrev = curIdx > 0;
+  ctx.fillStyle = hasPrev ? 'rgba(255, 255, 255, 0.9)' : 'rgba(203, 213, 225, 0.3)';
+  ctx.strokeStyle = hasPrev ? '#0284c7' : 'rgba(148, 163, 184, 0.3)';
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, prevX, navY, navBtnW, navBtnH, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = hasPrev ? '#0369a1' : '#94a3b8';
+  ctx.font = buildUiFont(16, 'bold');
+  ctx.textAlign = 'center';
+  ctx.fillText('◀ 上一实验', prevX + navBtnW / 2, navY + navBtnH / 2);
+
+  if (hasPrev) {
+    hits.push({
+      id: 'nav-prev',
+      x: prevX,
+      y: navY,
+      w: navBtnW,
+      h: navBtnH,
+      action: 'nav',
+      itemId: itemsInSt[curIdx - 1].id,
+    });
+  }
+
+  const hasNext = curIdx < itemsInSt.length - 1;
+  ctx.fillStyle = hasNext ? 'rgba(255, 255, 255, 0.9)' : 'rgba(203, 213, 225, 0.3)';
+  ctx.strokeStyle = hasNext ? '#0284c7' : 'rgba(148, 163, 184, 0.3)';
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, nextX, navY, navBtnW, navBtnH, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = hasNext ? '#0369a1' : '#94a3b8';
+  ctx.font = buildUiFont(16, 'bold');
+  ctx.fillText('下一实验 ▶', nextX + navBtnW / 2, navY + navBtnH / 2);
+
+  if (hasNext) {
+    hits.push({
+      id: 'nav-next',
+      x: nextX,
+      y: navY,
+      w: navBtnW,
+      h: navBtnH,
+      action: 'nav',
+      itemId: itemsInSt[curIdx + 1].id,
+    });
+  }
+
+  // 左右双主卡片分栏布局 (左侧公式与物理量，右侧理论与实测指引)
+  const contentTop = headerH + 24;
+  const contentH = H - contentTop - 28;
+  const leftW = 760;
+  const gap = 24;
+  const rightW = W - padX * 2 - leftW - gap;
+
+  // 左侧卡片：公式高亮展示区
+  const leftX = padX;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.4)';
+  ctx.lineWidth = 2;
+  roundRect(ctx, leftX, contentTop, leftW, contentH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  // 左侧顶部标头
+  ctx.fillStyle = st.color;
+  roundRect(ctx, leftX + 3, contentTop + 3, leftW - 6, 6, 3);
+  ctx.fill();
+
+  ctx.fillStyle = '#0284c7';
+  ctx.font = buildUiFont(18, 'bold');
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText(`【${selected.code} · ${selected.expName}】`, leftX + 28, contentTop + 24);
+
+  ctx.fillStyle = '#0f172a';
+  ctx.font = buildUiFont(28, 'bold');
+  ctx.fillText(selected.title, leftX + 28, contentTop + 56);
+
+  // 公式高亮居中大盒
+  const fBoxX = leftX + 28;
+  const fBoxY = contentTop + 104;
+  const fBoxW = leftW - 56;
+  const fBoxH = 220;
+
+  ctx.fillStyle = 'rgba(14, 165, 233, 0.1)';
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.35)';
+  ctx.lineWidth = 1.8;
+  roundRect(ctx, fBoxX, fBoxY, fBoxW, fBoxH, 14);
+  ctx.fill();
+  ctx.stroke();
+
+  drawMathFormula(
+    ctx,
+    selected.formula,
+    fBoxX + 24,
+    fBoxY + fBoxH / 2,
+    {
+      fontSize: 46,
+      color: '#0c4a6e',
+      align: 'left',
+      textBaseline: 'middle',
+      maxWidth: fBoxW - 48,
+    },
+  );
+
+  // 左侧下方：📐 物理量与符号说明
+  const symBoxY = fBoxY + fBoxH + 20;
+  const symBoxH = contentH - (symBoxY - contentTop) - 24;
+
+  ctx.fillStyle = 'rgba(240, 249, 255, 0.7)';
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.25)';
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, fBoxX, symBoxY, fBoxW, symBoxH, 14);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#0369a1';
+  ctx.font = buildUiFont(22, 'bold');
+  ctx.fillText('📐 物理量与符号说明 (SI 标准)', fBoxX + 22, symBoxY + 18);
+
+  ctx.fillStyle = '#1e293b';
+  ctx.font = buildUiFont(19, '500');
+  const symTokens = (selected.symbols || '').split('　');
+  symTokens.forEach((sym, sIdx) => {
+    const itemY = symBoxY + 60 + sIdx * 34;
+    if (itemY < symBoxY + symBoxH - 12) {
+      ctx.fillStyle = '#0284c7';
+      ctx.fillRect(fBoxX + 22, itemY + 4, 6, 6);
+      ctx.fillStyle = '#1e293b';
+      ctx.fillText(sym, fBoxX + 38, itemY);
+    }
+  });
+
+  // 右侧卡片：📘 物理理论 + 🔬 实验室实测指引
+  const rightX = leftX + leftW + gap;
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.4)';
+  ctx.lineWidth = 2;
+  roundRect(ctx, rightX, contentTop, rightW, contentH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#0284c7';
+  roundRect(ctx, rightX + 3, contentTop + 3, rightW - 6, 6, 3);
+  ctx.fill();
+
+  // 右上模块：📘 实验理论与物理机理
+  const mechBoxY = contentTop + 24;
+  const mechBoxH = 300;
+  const mechBoxW = rightW - 48;
+  const mechBoxX = rightX + 24;
+
+  ctx.fillStyle = 'rgba(240, 249, 255, 0.75)';
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.25)';
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, mechBoxX, mechBoxY, mechBoxW, mechBoxH, 14);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#0369a1';
+  ctx.font = buildUiFont(24, 'bold');
+  ctx.fillText('📘 实验理论与物理机理', mechBoxX + 22, mechBoxY + 20);
+
+  ctx.fillStyle = '#1e293b';
+  ctx.font = buildUiFont(22, '500');
+  const conceptLines = wrapText(ctx, selected.concept, mechBoxW - 44);
+  conceptLines.forEach((ln, idx) => {
+    ctx.fillText(ln, mechBoxX + 22, mechBoxY + 68 + idx * 34);
+  });
+
+  // 右下模块：🔬 对应实验台实测与操作指引
+  const labBoxY = mechBoxY + mechBoxH + 20;
+  const labBoxH = contentH - (labBoxY - contentTop) - 24;
+
+  ctx.fillStyle = 'rgba(240, 249, 255, 0.75)';
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.25)';
+  ctx.lineWidth = 1.5;
+  roundRect(ctx, mechBoxX, labBoxY, mechBoxW, labBoxH, 14);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#0369a1';
+  ctx.font = buildUiFont(24, 'bold');
+  ctx.fillText('🔬 3D 实验室实测与操作指引', mechBoxX + 22, labBoxY + 20);
+
+  ctx.fillStyle = '#1e293b';
+  ctx.font = buildUiFont(22, '500');
+  const labLines = wrapText(ctx, selected.labLink, mechBoxW - 44);
+  labLines.forEach((ln, idx) => {
+    ctx.fillText(ln, mechBoxX + 22, labBoxY + 68 + idx * 34);
+  });
+}
+}
+
+export function drawFormulaBoard(ctx, W, H, state = {}) {
+  const hits = [];
+  const stationId = state.stationId
+    || (state.category && state.category !== 'all' ? state.category : null);
+  const selectedId = state.selectedId || null;
+  const background = ctx.createLinearGradient(0, 0, W, H);
+  background.addColorStop(0, '#f8fafc');
+  background.addColorStop(0.5, '#f1f5f9');
+  background.addColorStop(1, '#e2e8f0');
+  ctx.fillStyle = background;
+  ctx.fillRect(0, 0, W, H);
+  ctx.strokeStyle = 'rgba(14, 165, 233, 0.07)';
+  ctx.lineWidth = 1;
   for (let x = 0; x < W; x += 48) {
     ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
   }
@@ -320,189 +1511,22 @@ export function drawFormulaBoard(ctx, W, H, state) {
     ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
   }
 
-  // header — large wall-readable title bar
-  const headerH = 92;
-  ctx.fillStyle = 'rgba(14,165,233,0.16)';
-  ctx.fillRect(0, 0, W, headerH);
-  ctx.fillStyle = '#0284c7';
-  ctx.font = 'bold 46px "Segoe UI", "Microsoft YaHei", sans-serif';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('QUANTUM PHYSICS  ·  理论核心面板', 44, headerH / 2);
-
-  ctx.fillStyle = '#0369a1';
-  ctx.font = '26px "Microsoft YaHei", sans-serif';
-  ctx.textAlign = 'right';
-  ctx.fillText('瞄准条目 · 按 E / 点击 查看概念', W - 44, headerH / 2);
-
-  // category tabs — chunky touch targets
-  const tabY = headerH + 16;
-  const tabH = 64;
-  const tabGap = 14;
-  const cats = FORMULA_CATALOG.categories;
-  const tabW = Math.min(200, (W - 96 - tabGap * (cats.length - 1)) / cats.length);
-  let tabX = 48;
-  cats.forEach((cat) => {
-    const on = cat.id === category;
-    ctx.fillStyle = on ? 'rgba(14,165,233,0.28)' : 'rgba(255,255,255,0.55)';
-    ctx.strokeStyle = on ? '#0284c7' : 'rgba(14,165,233,0.35)';
-    ctx.lineWidth = on ? 3.5 : 2;
-    roundRect(ctx, tabX, tabY, tabW, tabH, 14);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = on ? '#0c4a6e' : '#64748b';
-    ctx.font = on
-      ? 'bold 30px "Microsoft YaHei", sans-serif'
-      : '28px "Microsoft YaHei", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(cat.name, tabX + tabW / 2, tabY + tabH / 2);
-    hits.push({
-      id: `cat-${cat.id}`,
-      x: tabX, y: tabY, w: tabW, h: tabH,
-      action: 'category',
-      categoryId: cat.id,
-    });
-    tabX += tabW + tabGap;
-  });
-
-  const contentTop = tabY + tabH + 22;
-  const contentH = H - contentTop - 36;
-  const pad = 44;
-
-  if (!selected) {
-    // list mode — formula cards in 2 columns
-    ctx.fillStyle = '#64748b';
-    ctx.font = '26px "Microsoft YaHei", sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText(`共 ${items.length} 条 · 选择一条查看详细概念`, pad, contentTop);
-
-    const listTop = contentTop + 42;
-    const cols = 2;
-    const gapX = 28;
-    const gapY = 20;
-    const cardW = (W - pad * 2 - gapX) / cols;
-    const cardH = 128;
-    items.forEach((it, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const x = pad + col * (cardW + gapX);
-      const y = listTop + row * (cardH + gapY);
-      if (y + cardH > H - 28) return;
-
-      ctx.fillStyle = 'rgba(255,255,255,0.72)';
-      ctx.strokeStyle = 'rgba(14,165,233,0.4)';
-      ctx.lineWidth = 2.5;
-      roundRect(ctx, x, y, cardW, cardH, 16);
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = '#0284c7';
-      ctx.font = 'bold 28px "Microsoft YaHei", sans-serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      ctx.fillText(it.title, x + 22, y + 18);
-
-      drawMathFormula(ctx, it.formula, x + 22, y + 88, {
-        fontSize: 42,
-        color: '#0c4a6e',
-        align: 'left',
-        maxWidth: cardW - 40,
-      });
-
-      hits.push({
-        id: `item-${it.id}`,
-        x, y, w: cardW, h: cardH,
-        action: 'select',
-        itemId: it.id,
-      });
-    });
-  } else {
-    // detail mode
-    const backW = 180;
-    const backH = 56;
-    const backX = pad;
-    const backY = contentTop;
-    ctx.fillStyle = 'rgba(14,165,233,0.15)';
-    ctx.strokeStyle = '#0284c7';
-    ctx.lineWidth = 3;
-    roundRect(ctx, backX, backY, backW, backH, 14);
-    ctx.fill();
-    ctx.stroke();
-    ctx.fillStyle = '#0369a1';
-    ctx.font = 'bold 28px "Microsoft YaHei", sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('← 返回列表', backX + backW / 2, backY + backH / 2);
-    hits.push({
-      id: 'back',
-      x: backX, y: backY, w: backW, h: backH,
-      action: 'back',
-    });
-
-    const detailX = pad;
-    const detailY = contentTop + 72;
-    const detailW = W - pad * 2;
-    const detailH = contentH - 72;
-
-    ctx.fillStyle = 'rgba(255,255,255,0.78)';
-    ctx.strokeStyle = 'rgba(14,165,233,0.45)';
-    ctx.lineWidth = 3;
-    roundRect(ctx, detailX, detailY, detailW, detailH, 20);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#0284c7';
-    ctx.font = 'bold 42px "Microsoft YaHei", sans-serif';
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'top';
-    ctx.fillText(selected.title, detailX + 36, detailY + 28);
-
-    // formula highlight box
-    ctx.fillStyle = 'rgba(14,165,233,0.12)';
-    roundRect(ctx, detailX + 36, detailY + 90, detailW - 72, 120, 16);
-    ctx.fill();
-    drawMathFormula(ctx, selected.formula, detailX + 56, detailY + 168, {
-      fontSize: 58,
-      color: '#0c4a6e',
-      align: 'left',
-      maxWidth: detailW - 100,
-    });
-
-    ctx.fillStyle = '#0e7490';
-    ctx.font = 'bold 30px "Microsoft YaHei", sans-serif';
-    ctx.fillText('概念解释', detailX + 36, detailY + 232);
-
-    ctx.fillStyle = '#334155';
-    ctx.font = '32px "Microsoft YaHei", sans-serif';
-    const conceptLines = wrapText(ctx, selected.concept, detailW - 80);
-    const lineH = 44;
-    conceptLines.forEach((ln, i) => {
-      ctx.fillText(ln, detailX + 36, detailY + 280 + i * lineH);
-    });
-
-    const symY = detailY + 280 + conceptLines.length * lineH + 28;
-    const symH = 80;
-    if (symY + symH < detailY + detailH - 16) {
-      ctx.fillStyle = 'rgba(14,165,233,0.08)';
-      roundRect(ctx, detailX + 36, symY, detailW - 72, symH, 14);
-      ctx.fill();
-      ctx.fillStyle = '#0369a1';
-      ctx.font = 'bold 26px "Microsoft YaHei", sans-serif';
-      ctx.fillText('符号说明', detailX + 56, symY + 14);
-      ctx.fillStyle = '#0f172a';
-      ctx.font = '28px "Microsoft YaHei", sans-serif';
-      ctx.fillText(selected.symbols, detailX + 56, symY + 46);
-    }
-  }
-
+  if (selectedId) drawExperimentDetailView(ctx, W, H, state, hits);
+  else if (stationId) drawStationSubpageView(ctx, W, H, stationId, hits);
+  else drawHomeView(ctx, W, H, hits);
   return { hits };
 }
 
+/**
+ * UV 交互坐标拾取。
+ * @param {number} u
+ * @param {number} v
+ * @param {number} W
+ * @param {number} H
+ * @param {Array} hits
+ */
 export function pickFormulaBoard(u, v, W, H, hits) {
   if (!hits?.length || u == null || v == null) return null;
-  // Plane UV: v often bottom-up
   const candidates = [
     [u * W, (1 - v) * H],
     [u * W, v * H],

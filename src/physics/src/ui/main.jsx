@@ -57,7 +57,7 @@ export function mountUi({ bridge: nextBridge } = {}) {
   ar.type = 'button';
   ar.id = 'native-ar-toggle';
   ar.className = 'native-control';
-  ar.setAttribute('aria-label', 'AR 手势交互');
+  ar.setAttribute('aria-label', '手势交互');
   ar.innerHTML = `
     <svg class="native-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0"></path>
@@ -65,7 +65,7 @@ export function mountUi({ bridge: nextBridge } = {}) {
       <path d="M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
       <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.8-5.9-2.3L3.3 15a2 2 0 0 1 .3-2.8v0a2 2 0 0 1 2.8.3L8 14"></path>
     </svg>
-    <span>AR · H</span>
+    <span>手势交互</span>
   `;
 
   const handleAr = (e) => {
@@ -98,7 +98,7 @@ export function updateArStatus(status = {}) {
   node.dataset.phase = state.ar.phase || 'off';
   const labelSpan = node.querySelector('span');
   if (labelSpan) {
-    labelSpan.textContent = state.ar.active ? 'AR 已开启 (H)' : 'AR · H';
+    labelSpan.textContent = state.ar.active ? '手势已开启' : '手势交互';
   }
 }
 

@@ -249,7 +249,7 @@ export function createTransitionController({ cache, createRuntime, prepareContex
     }
   }
 
-  function prewarm(key) {
+  function prewarm(key, externalSignal) {
     const cached = cache?.get(key) || null;
     if (cached && cached.state !== 'cold' && cached.state !== 'error') {
       return Promise.resolve({ prepared: true, cached: true, runtime: cached });
@@ -259,11 +259,15 @@ export function createTransitionController({ cache, createRuntime, prepareContex
     if (existing) return existing.promise;
 
     const prepareController = new AbortController();
+    const abortExternal = () => prepareController.abort();
+    if (externalSignal?.aborted) prepareController.abort();
+    else externalSignal?.addEventListener?.('abort', abortExternal, { once: true });
     const entry = { controller: prepareController, promise: null };
     entry.promise = prepareRuntime(key, prepareController.signal)
       .then((runtime) => ({ prepared: true, cached: false, runtime }))
       .catch((error) => ({ prepared: false, error }))
       .finally(() => {
+        externalSignal?.removeEventListener?.('abort', abortExternal);
         if (pendingPrepares.get(key) === entry) pendingPrepares.delete(key);
       });
     pendingPrepares.set(key, entry);

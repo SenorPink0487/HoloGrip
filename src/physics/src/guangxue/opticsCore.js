@@ -167,37 +167,37 @@ export function intersectMesh(origin, dir, mesh, tMin = 1e-4, tMax = 100) {
     }
   }
 
-  let bestT = Infinity;
+  let bestT = tMax;
   let bestNx = 0;
   let bestNy = 0;
   let bestNz = 0;
   let found = false;
   const index = geom.index;
+  const posArr = pos.array;
+  const indexArr = index ? index.array : null;
   const triCount = index ? index.count / 3 : pos.count / 3;
 
   for (let i = 0; i < triCount; i++) {
     let i0; let i1; let i2;
-    if (index) {
-      i0 = index.getX(i * 3);
-      i1 = index.getX(i * 3 + 1);
-      i2 = index.getX(i * 3 + 2);
+    if (indexArr) {
+      i0 = indexArr[i * 3] * 3;
+      i1 = indexArr[i * 3 + 1] * 3;
+      i2 = indexArr[i * 3 + 2] * 3;
     } else {
-      i0 = i * 3;
-      i1 = i * 3 + 1;
-      i2 = i * 3 + 2;
+      i0 = i * 9;
+      i1 = i0 + 3;
+      i2 = i0 + 6;
     }
-    _v0.fromBufferAttribute(pos, i0);
-    _v1.fromBufferAttribute(pos, i1);
-    _v2.fromBufferAttribute(pos, i2);
+    _v0.set(posArr[i0], posArr[i0 + 1], posArr[i0 + 2]);
+    _v1.set(posArr[i1], posArr[i1 + 1], posArr[i1 + 2]);
+    _v2.set(posArr[i2], posArr[i2 + 1], posArr[i2 + 2]);
 
-    if (!rayTriangleInto(_localOrigin, _localDir, _v0, _v1, _v2, tMin, tMax, _triHit)) continue;
-    if (_triHit.t < bestT) {
-      bestT = _triHit.t;
-      bestNx = _triHit.nx;
-      bestNy = _triHit.ny;
-      bestNz = _triHit.nz;
-      found = true;
-    }
+    if (!rayTriangleInto(_localOrigin, _localDir, _v0, _v1, _v2, tMin, bestT, _triHit)) continue;
+    bestT = _triHit.t;
+    bestNx = _triHit.nx;
+    bestNy = _triHit.ny;
+    bestNz = _triHit.nz;
+    found = true;
   }
 
   if (!found) return null;

@@ -257,9 +257,9 @@ export function createGeometricOpticsRig(opts = {}) {
     const entry = rayVisualCache.get(signature);
     if (!entry) return false;
     rayVisualCache.delete(signature);
-    clearGroup(rayGroup);
-    clearGroup(spotGroup);
-    clearGroup(normalGroup);
+    recycleChildrenToPool(rayGroup);
+    recycleChildrenToPool(spotGroup);
+    recycleChildrenToPool(normalGroup);
     moveChildren(entry.rays, rayGroup);
     moveChildren(entry.spots, spotGroup);
     moveChildren(entry.normals, normalGroup);
@@ -350,33 +350,97 @@ export function createGeometricOpticsRig(opts = {}) {
     rebuildEdges();
   }
 
-  /** Source line core */
+  // ── High performance visual object pools & shared unit geometries ──
+  const _UNIT_Z = new THREE.Vector3(0, 0, 1);
+  const _dirNorm = new THREE.Vector3();
+  const UNIT_CYL_5 = new THREE.CylinderGeometry(1, 0.92, 1, 5, 1, true);
+  UNIT_CYL_5.translate(0, 0.5, 0);
+  UNIT_CYL_5.rotateX(Math.PI / 2);
+  const UNIT_CYL_6 = new THREE.CylinderGeometry(1, 0.92, 1, 6, 1, true);
+  UNIT_CYL_6.translate(0, 0.5, 0);
+  UNIT_CYL_6.rotateX(Math.PI / 2);
+  const UNIT_SPHERE_SPOT = new THREE.SphereGeometry(1, 14, 14);
+  const UNIT_CIRCLE_GLOW = new THREE.CircleGeometry(1, 20);
+
+  const visualPool = {
+    lines: [],
+    beams: [],
+    spots: [],
+    glows: [],
+    blooms: [],
+    normals: [],
+    tips: [],
+  };
+
+  function recycleChildrenToPool(g) {
+    while (g.children.length) {
+      const c = g.children.pop();
+      const kind = c.userData.poolKind;
+      if (kind && visualPool[kind]) {
+        visualPool[kind].push(c);
+      } else {
+        disposeObject3D(c);
+      }
+    }
+  }
+
+  /** Source line core with buffer reuse */
   function makeRayLine(seg) {
-    const geom = new THREE.BufferGeometry().setFromPoints([seg.start, seg.end]);
     const isMirror = params.mode === 'mirror';
     const opacity = (
       (seg.kind === 'reflected'
         ? isMirror ? 0.98 : 0.38
         : seg.kind === 'incident' ? 0.95 : 0.9) * seg.intensity
     );
-    const mat = new THREE.LineBasicMaterial({
-      color: seg.color,
-      transparent: true,
-      opacity: Math.min(1, opacity),
-      depthWrite: false,
-      toneMapped: false,
-    });
-    const line = new THREE.Line(geom, mat);
-    line.renderOrder = 4;
+    let line = visualPool.lines.pop();
+    if (!line) {
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+      const mat = new THREE.LineBasicMaterial({
+        color: seg.color,
+        transparent: true,
+        opacity: Math.min(1, opacity),
+        depthWrite: false,
+        toneMapped: false,
+      });
+      line = new THREE.Line(geom, mat);
+      line.renderOrder = 4;
+      line.userData.poolKind = 'lines';
+    } else {
+      line.material.color.copy(seg.color);
+      line.material.opacity = Math.min(1, opacity);
+    }
+    const pos = line.geometry.attributes.position;
+    pos.setXYZ(0, seg.start.x, seg.start.y, seg.start.z);
+    pos.setXYZ(1, seg.end.x, seg.end.y, seg.end.z);
+    pos.needsUpdate = true;
     return line;
   }
 
-  /** Source volumetric beam (+ optional soft shell when ray count is low). */
+  function createTubeMesh(segs) {
+    const geom = segs === 5 ? UNIT_CYL_5 : UNIT_CYL_6;
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffffff,
+      transparent: true,
+      opacity: 0.5,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      toneMapped: false,
+    });
+    const mesh = new THREE.Mesh(geom, mat);
+    mesh.renderOrder = 3;
+    mesh.frustumCulled = true;
+    return mesh;
+  }
+
+  /** Source volumetric beam (+ optional soft shell when ray count is low) with pooling. */
   function makeBeamMesh(seg, radius, withShell = true) {
     const dir = new THREE.Vector3().subVectors(seg.end, seg.start);
     const len = dir.length();
     if (len < 1e-5) return null;
-    const group = new THREE.Group();
+
+    _dirNorm.copy(dir).multiplyScalar(1 / len);
     const isMirror = params.mode === 'mirror';
     const baseOp = (
       (seg.kind === 'reflected'
@@ -384,30 +448,38 @@ export function createGeometricOpticsRig(opts = {}) {
         : seg.kind === 'incident' ? 0.32 : 0.36) * seg.intensity
     );
 
-    function tube(r, opacity, segs = 6) {
-      const geom = new THREE.CylinderGeometry(r, r * 0.92, len, segs, 1, true);
-      geom.translate(0, len / 2, 0);
-      geom.rotateX(Math.PI / 2);
-      const mat = new THREE.MeshBasicMaterial({
-        color: seg.color,
-        transparent: true,
-        opacity: Math.min(1, opacity),
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending,
-        toneMapped: false,
-      });
-      const mesh = new THREE.Mesh(geom, mat);
-      mesh.position.copy(seg.start);
-      mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), dir.clone().normalize());
-      mesh.renderOrder = 3;
-      mesh.frustumCulled = true;
-      return mesh;
+    let group = visualPool.beams.pop();
+    if (!group) {
+      group = new THREE.Group();
+      group.userData.poolKind = 'beams';
+      const coreTube = createTubeMesh(5);
+      const shellTube = createTubeMesh(6);
+      group.add(coreTube);
+      group.add(shellTube);
+      group.userData.core = coreTube;
+      group.userData.shell = shellTube;
     }
 
-    // Multi-beam / dispersion: core only (shell × N was a large additive fill cost).
-    group.add(tube(radius, baseOp, 5));
-    if (withShell) group.add(tube(radius * 2.0, baseOp * 0.32, 6));
+    const core = group.userData.core;
+    core.position.copy(seg.start);
+    core.quaternion.setFromUnitVectors(_UNIT_Z, _dirNorm);
+    core.scale.set(radius, radius, len);
+    core.material.color.copy(seg.color);
+    core.material.opacity = Math.min(1, baseOp);
+    core.visible = true;
+
+    const shell = group.userData.shell;
+    if (withShell) {
+      shell.position.copy(seg.start);
+      shell.quaternion.setFromUnitVectors(_UNIT_Z, _dirNorm);
+      shell.scale.set(radius * 2.0, radius * 2.0, len);
+      shell.material.color.copy(seg.color);
+      shell.material.opacity = Math.min(1, baseOp * 0.32);
+      shell.visible = true;
+    } else {
+      shell.visible = false;
+    }
+
     return group;
   }
 
@@ -439,53 +511,77 @@ export function createGeometricOpticsRig(opts = {}) {
     const localZ = point.z;
     if (Math.abs(localZ) > 0.75 || Math.abs(localY) > 0.65) return;
 
-    const spot = new THREE.Mesh(
-      new THREE.SphereGeometry(0.05 + intensity * 0.03, 14, 14),
-      new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.65 + intensity * 0.35,
-        depthWrite: false,
-        toneMapped: false,
-      }),
-    );
+    let spot = visualPool.spots.pop();
+    if (!spot) {
+      spot = new THREE.Mesh(
+        UNIT_SPHERE_SPOT,
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.65 + intensity * 0.35,
+          depthWrite: false,
+          toneMapped: false,
+        }),
+      );
+      spot.renderOrder = 5;
+      spot.userData.poolKind = 'spots';
+    } else {
+      spot.material.color.copy(color);
+      spot.material.opacity = 0.65 + intensity * 0.35;
+    }
+    spot.scale.setScalar(0.05 + intensity * 0.03);
     spot.position.set(POS.screen - 0.05, point.y, point.z);
-    spot.renderOrder = 5;
     spotGroup.add(spot);
 
-    const glow = new THREE.Mesh(
-      new THREE.CircleGeometry(0.14 + intensity * 0.08, 20),
-      new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.28,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending,
-        toneMapped: false,
-      }),
-    );
-    glow.rotation.y = Math.PI / 2;
+    let glow = visualPool.glows.pop();
+    if (!glow) {
+      glow = new THREE.Mesh(
+        UNIT_CIRCLE_GLOW,
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.28,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false,
+        }),
+      );
+      glow.rotation.y = Math.PI / 2;
+      glow.renderOrder = 4;
+      glow.userData.poolKind = 'glows';
+    } else {
+      glow.material.color.copy(color);
+      glow.material.opacity = 0.28;
+    }
+    glow.scale.setScalar(0.14 + intensity * 0.08);
     glow.position.set(POS.screen - 0.06, point.y, point.z);
-    glow.renderOrder = 4;
     spotGroup.add(glow);
 
     // Secondary soft bloom disc
-    const bloom = new THREE.Mesh(
-      new THREE.CircleGeometry(0.28 + intensity * 0.1, 20),
-      new THREE.MeshBasicMaterial({
-        color,
-        transparent: true,
-        opacity: 0.12,
-        depthWrite: false,
-        side: THREE.DoubleSide,
-        blending: THREE.AdditiveBlending,
-        toneMapped: false,
-      }),
-    );
-    bloom.rotation.y = Math.PI / 2;
+    let bloom = visualPool.blooms.pop();
+    if (!bloom) {
+      bloom = new THREE.Mesh(
+        UNIT_CIRCLE_GLOW,
+        new THREE.MeshBasicMaterial({
+          color,
+          transparent: true,
+          opacity: 0.12,
+          depthWrite: false,
+          side: THREE.DoubleSide,
+          blending: THREE.AdditiveBlending,
+          toneMapped: false,
+        }),
+      );
+      bloom.rotation.y = Math.PI / 2;
+      bloom.renderOrder = 3;
+      bloom.userData.poolKind = 'blooms';
+    } else {
+      bloom.material.color.copy(color);
+      bloom.material.opacity = 0.12;
+    }
+    bloom.scale.setScalar(0.28 + intensity * 0.1);
     bloom.position.set(POS.screen - 0.07, point.y, point.z);
-    bloom.renderOrder = 3;
     spotGroup.add(bloom);
   }
 
@@ -504,35 +600,49 @@ export function createGeometricOpticsRig(opts = {}) {
   }
 
   function drawNormalAtFirstHit(worldHitPoint, worldNormal, invRoot) {
-    clearGroup(normalGroup);
+    recycleChildrenToPool(normalGroup);
     if (!worldHitPoint || !worldNormal) return;
     const p = worldHitPoint.clone().applyMatrix4(invRoot);
     const n = worldNormal.clone().transformDirection(invRoot).normalize();
     const len = 0.55;
-    const geo = new THREE.BufferGeometry().setFromPoints([
-      p.clone().addScaledVector(n, -len * 0.15),
-      p.clone().addScaledVector(n, len),
-    ]);
-    const line = new THREE.Line(
-      geo,
-      new THREE.LineDashedMaterial({
-        color: 0x6a7280,
-        dashSize: 0.06,
-        gapSize: 0.04,
-        transparent: true,
-        opacity: 0.85,
-        depthWrite: false,
-      }),
-    );
+
+    let line = visualPool.normals.pop();
+    if (!line) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6), 3));
+      line = new THREE.Line(
+        geo,
+        new THREE.LineDashedMaterial({
+          color: 0x6a7280,
+          dashSize: 0.06,
+          gapSize: 0.04,
+          transparent: true,
+          opacity: 0.85,
+          depthWrite: false,
+        }),
+      );
+      line.renderOrder = 6;
+      line.userData.poolKind = 'normals';
+    }
+    const pos = line.geometry.attributes.position;
+    const p0 = p.clone().addScaledVector(n, -len * 0.15);
+    const p1 = p.clone().addScaledVector(n, len);
+    pos.setXYZ(0, p0.x, p0.y, p0.z);
+    pos.setXYZ(1, p1.x, p1.y, p1.z);
+    pos.needsUpdate = true;
     line.computeLineDistances();
-    line.renderOrder = 6;
     normalGroup.add(line);
+
     // Small tip sphere
-    const tip = new THREE.Mesh(
-      new THREE.SphereGeometry(0.03, 8, 8),
-      new THREE.MeshBasicMaterial({ color: 0x94a3b8, depthWrite: false }),
-    );
-    tip.position.copy(p.clone().addScaledVector(n, len));
+    let tip = visualPool.tips.pop();
+    if (!tip) {
+      tip = new THREE.Mesh(
+        new THREE.SphereGeometry(0.03, 8, 8),
+        new THREE.MeshBasicMaterial({ color: 0x94a3b8, depthWrite: false }),
+      );
+      tip.userData.poolKind = 'tips';
+    }
+    tip.position.copy(p1);
     normalGroup.add(tip);
   }
 
@@ -598,9 +708,9 @@ export function createGeometricOpticsRig(opts = {}) {
   }
 
   function beginRayBuild() {
-    clearGroup(rayGroup);
-    clearGroup(spotGroup);
-    clearGroup(normalGroup);
+    recycleChildrenToPool(rayGroup);
+    recycleChildrenToPool(spotGroup);
+    recycleChildrenToPool(normalGroup);
 
     glassMat.ior = params.ior;
     opticGroup.rotation.y = (params.rotate * Math.PI) / 180;
@@ -780,9 +890,9 @@ export function createGeometricOpticsRig(opts = {}) {
       raysPending = true;
       rayBuild = null;
       if (!keepRays) {
-        clearGroup(rayGroup);
-        clearGroup(spotGroup);
-        clearGroup(normalGroup);
+        recycleChildrenToPool(rayGroup);
+        recycleChildrenToPool(spotGroup);
+        recycleChildrenToPool(normalGroup);
       }
       return snapshot();
     }
@@ -823,9 +933,9 @@ export function createGeometricOpticsRig(opts = {}) {
   }
 
   function clearRays() {
-    clearGroup(rayGroup);
-    clearGroup(spotGroup);
-    clearGroup(normalGroup);
+    recycleChildrenToPool(rayGroup);
+    recycleChildrenToPool(spotGroup);
+    recycleChildrenToPool(normalGroup);
   }
 
   function snapshot() {

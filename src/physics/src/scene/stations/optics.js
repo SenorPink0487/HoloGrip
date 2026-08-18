@@ -476,6 +476,9 @@ function createFullStationEquipment(ctx) {
             ? new Float32Array(d._simIntensity)
             : Float32Array.from(d._simIntensity))
           : null;
+        if (!diffScreenImageData || diffScreenImageData.width !== W || diffScreenImageData.height !== H) {
+          diffScreenImageData = diffScreenCtx.createImageData(W, H);
+        }
         diffPaint = {
           col: 0,
           W,
@@ -484,7 +487,7 @@ function createFullStationEquipment(ctx) {
           color: color.clone(),
           d: { ...d },
           simIntensity,
-          image: diffScreenCtx.createImageData(W, H),
+          image: diffScreenImageData,
         };
         if (opts.syncPaint) {
           while (stepDiffractionPaint()) {
@@ -494,6 +497,15 @@ function createFullStationEquipment(ctx) {
       } else {
         diffPaint = null;
       }
+    }
+
+    /** Reused ImageData to prevent GC allocations on progressive / live paint */
+    let diffScreenImageData = null;
+    /** Precomputed Gaussian vertical decay LUT (H=240) */
+    const DIFF_GAUSSIAN_LUT = new Float32Array(240);
+    for (let r = 0; r < 240; r += 1) {
+      const v = (r / 239) * 2 - 1;
+      DIFF_GAUSSIAN_LUT[r] = Math.exp(-v * v * 1.6);
     }
 
     /** @type {null | { col: number, W: number, H: number, half: number, color: THREE.Color, d: object, simIntensity: Float32Array|null, image: ImageData }} */
@@ -508,20 +520,30 @@ function createFullStationEquipment(ctx) {
       const job = diffPaint;
       const { W, H, half, color: colr, image } = job;
       const pixels = image.data;
-      const batch = 48;
+      const batch = 64;
       const end = Math.min(job.col + batch, W);
+      const cr = colr.r * 245;
+      const cg = colr.g * 245;
+      const cb = colr.b * 245;
+      const stride = W * 4;
+      const lut = H === 240 ? DIFF_GAUSSIAN_LUT : null;
+
       for (let col = job.col; col < end; col += 1) {
         const x = ((col / (W - 1)) * 2 - 1) * half;
         const intensity = intensityForPaint(x, job);
         const soft = Math.min(1, Math.pow(intensity / (intensity + 0.06), 0.8) * 1.08);
+        const softCr = soft * cr;
+        const softCg = soft * cg;
+        const softCb = soft * cb;
+        let idx = col * 4;
+
         for (let row = 0; row < H; row += 1) {
-          const v = (row / (H - 1)) * 2 - 1;
-          const bright = soft * Math.exp(-v * v * 1.6);
-          const idx = (row * W + col) * 4;
-          pixels[idx] = 4 + Math.round(colr.r * 245 * bright);
-          pixels[idx + 1] = 4 + Math.round(colr.g * 245 * bright);
-          pixels[idx + 2] = 8 + Math.round(colr.b * 245 * bright);
+          const g = lut ? lut[row] : Math.exp(-(((row / (H - 1)) * 2 - 1) ** 2) * 1.6);
+          pixels[idx] = 4 + (softCr * g + 0.5 | 0);
+          pixels[idx + 1] = 4 + (softCg * g + 0.5 | 0);
+          pixels[idx + 2] = 8 + (softCb * g + 0.5 | 0);
           pixels[idx + 3] = 255;
+          idx += stride;
         }
       }
       job.col = end;

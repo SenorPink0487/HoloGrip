@@ -27,6 +27,7 @@ import { labFrameScheduler } from './frameBudget.js';
 import { createStationPresence } from './runtime/stationPresence.js';
 import { labOpenTiming } from './runtime/openTiming.js';
 import { createRuntimeCache, runtimeCacheBudget } from './runtime/runtimeCache.js';
+import { createShaderWarmupController } from './runtime/shaderWarmup.js';
 import { createContentScreenRegistry } from './runtime/contentScreenReuse.js';
 import { normalizeJoystickInput } from '../../pool/touch-controls.js';
 import {
@@ -1408,6 +1409,7 @@ function makeInteractiveFormulaBoard() {
   const state = {
     category: 'all',
     selectedId: null,
+    page: 0,
   };
   let hitRegions = [];
 
@@ -1477,25 +1479,56 @@ function makeInteractiveFormulaBoard() {
 
   g.userData.applyPick = (pick) => {
     if (!pick?.action) return false;
-    if (pick.action === 'category' && pick.categoryId) {
-      state.category = pick.categoryId;
+    if (pick.action === 'home') {
+      state.stationId = null;
       state.selectedId = null;
       redraw();
-      const cat = FORMULA_CATALOG.categories.find((c) => c.id === pick.categoryId);
-      showToast(`分类：${cat?.name || pick.categoryId}`);
+      showToast('返回实验室大厅');
+      return true;
+    }
+    if (pick.action === 'station' && pick.stationId) {
+      state.stationId = pick.stationId;
+      state.selectedId = null;
+      redraw();
+      const st = FORMULA_CATALOG.stations.find((s) => s.id === pick.stationId);
+      showToast(`进入：${st?.name || pick.stationId}`);
       return true;
     }
     if (pick.action === 'select' && pick.itemId) {
       state.selectedId = pick.itemId;
       redraw();
       const item = FORMULA_CATALOG.items.find((it) => it.id === pick.itemId);
-      showToast(item ? `概念：${item.title}` : '已打开概念详情');
+      showToast(item ? `实验：${item.expName}` : '已打开实验详情');
+      return true;
+    }
+    if (pick.action === 'nav' && pick.itemId) {
+      state.selectedId = pick.itemId;
+      redraw();
+      const item = FORMULA_CATALOG.items.find((it) => it.id === pick.itemId);
+      showToast(item ? `实验：${item.expName}` : '切换实验');
       return true;
     }
     if (pick.action === 'back') {
-      state.selectedId = null;
+      if (state.selectedId) {
+        state.selectedId = null;
+        redraw();
+        showToast('返回实验列表');
+      } else {
+        state.stationId = null;
+        redraw();
+        showToast('返回实验室大厅');
+      }
+      return true;
+    }
+    if (pick.action === 'category' && pick.categoryId) {
+      if (pick.categoryId === 'all') {
+        state.stationId = null;
+        state.selectedId = null;
+      } else {
+        state.stationId = pick.categoryId;
+        state.selectedId = null;
+      }
       redraw();
-      showToast('返回公式列表');
       return true;
     }
     return false;
@@ -3790,6 +3823,143 @@ const experimentTransition = createTransitionController({
   },
 });
 
+// Shader warm-up is deliberately post-entry work. The room becomes interactive
+// first; then this queue compiles one physical experiment at a time in the
+// background. It never imports chemistry and it never blocks the boot reveal.
+const PHYSICS_SHADER_WARMUP_KEYS = Object.freeze(
+  PHYSICS_STATION_IDS.flatMap((stationId) => (
+    LAB_CATALOG[stationId]?.experiments || []
+  ).map((experiment) => `${stationId}:${experiment.id}`)),
+);
+const PHYSICS_SHADER_WARMUP_LABELS = new Map(
+  PHYSICS_STATION_IDS.flatMap((stationId) => (
+    LAB_CATALOG[stationId]?.experiments || []
+  ).map((experiment) => [
+    `${stationId}:${experiment.id}`,
+    experiment.name || experiment.title || experiment.id,
+  ])),
+);
+const PHYSICS_SHADER_WARMUP_SIGNATURE = [
+  'physics-shader-warmup-v1',
+  THREE.REVISION,
+  JSON.stringify(HIGH_QUALITY_PROFILE),
+  JSON.stringify(PHYSICS_SHADER_WARMUP_KEYS),
+].join('|');
+let shaderWarmupProgress = null;
+let shaderWarmupPromise = null;
+let shaderWarmupIndicatorTimer = 0;
+const shaderWarmupQuery = new URLSearchParams(window.location.search).get('shaderWarmup');
+const shaderWarmupResetRequested = shaderWarmupQuery === 'reset' || shaderWarmupQuery === 'force';
+
+function updateShaderWarmupIndicator(progress = {}) {
+  let node = document.getElementById('shader-warmup-indicator');
+  const shouldShow = progress.state === 'running'
+    || progress.state === 'complete'
+    || progress.state === 'partial';
+  if (!node && shouldShow) {
+    node = document.createElement('div');
+    node.id = 'shader-warmup-indicator';
+    node.setAttribute('role', 'status');
+    node.setAttribute('aria-live', 'polite');
+    node.innerHTML = `
+      <span class="shader-warmup-spinner" aria-hidden="true"></span>
+      <span data-shader-warmup-label></span>
+    `;
+    document.body.appendChild(node);
+  }
+  if (!node) return;
+
+  clearTimeout(shaderWarmupIndicatorTimer);
+  const label = node.querySelector('[data-shader-warmup-label]');
+  if (progress.state === 'running') {
+    const name = PHYSICS_SHADER_WARMUP_LABELS.get(progress.key) || '实验';
+    const current = Number.isFinite(progress.index) ? progress.index + 1 : 0;
+    const total = Number.isFinite(progress.total) ? progress.total : PHYSICS_SHADER_WARMUP_KEYS.length;
+    if (label) label.textContent = `正在编译：${name}（${Math.min(current, total)}/${total}）`;
+    // A later revalidation can start after a previous 21/21 completion. Clear
+    // the terminal class first, otherwise its CSS intentionally stops the
+    // spinner and makes a real compile look frozen.
+    node.classList.remove('is-complete');
+    node.classList.add('is-running');
+    node.classList.add('show');
+    node.setAttribute('aria-busy', 'true');
+    return;
+  }
+
+  if (progress.state === 'complete' || progress.state === 'partial') {
+    const completed = Number.isFinite(progress.completed) ? progress.completed : 0;
+    const total = Number.isFinite(progress.total) ? progress.total : PHYSICS_SHADER_WARMUP_KEYS.length;
+    const failed = Number.isFinite(progress.failed) ? progress.failed : 0;
+    if (label) {
+      label.textContent = progress.state === 'complete'
+        ? (progress.skipped
+          ? `着色器缓存已就绪（${completed}/${total}）`
+          : `着色器编译完成（${completed}/${total}）`)
+        : `着色器已编译 ${completed}/${total}${failed ? `，失败 ${failed} 项` : ''}`;
+    }
+    node.classList.remove('is-running');
+    node.classList.toggle('is-complete', progress.state === 'complete');
+    node.classList.add('show');
+    node.setAttribute('aria-busy', 'false');
+    return;
+  }
+
+  node.classList.remove('is-complete', 'is-running');
+  node.classList.remove('show');
+  node.setAttribute('aria-busy', 'false');
+}
+
+function hideShaderWarmupIndicator() {
+  const node = document.getElementById('shader-warmup-indicator');
+  if (!node) return;
+  clearTimeout(shaderWarmupIndicatorTimer);
+  node.classList.remove('show', 'is-complete', 'is-running');
+  node.setAttribute('aria-busy', 'false');
+}
+
+const shaderWarmup = createShaderWarmupController({
+  keys: PHYSICS_SHADER_WARMUP_KEYS,
+  signature: PHYSICS_SHADER_WARMUP_SIGNATURE,
+  onProgress: (progress) => {
+    shaderWarmupProgress = progress;
+    updateShaderWarmupIndicator(progress);
+  },
+  prepare: (key, signal) => experimentTransition.prewarm(key, signal),
+  // Keep the compositor and pointer input responsive between expensive
+  // compile jobs. A user opening an experiment can cancel this queue and take
+  // priority through the normal transition controller.
+  yieldBetween: () => yieldToBrowser(4),
+});
+
+function startBackgroundShaderWarmup({ force = false } = {}) {
+  if (chemMode || webglContextLost || shaderWarmupPromise) return shaderWarmupPromise;
+  shaderWarmupPromise = shaderWarmup.run({
+    force: force || shaderWarmupResetRequested,
+    // localStorage only records that a previous process completed a prepare;
+    // it cannot persist the in-memory runtime or WebGLProgram objects. Every
+    // lab entry therefore revalidates the GPU queue in the background, while
+    // the room remains immediately interactive.
+    revalidate: true,
+  })
+    .catch((error) => {
+      if (error?.name !== 'AbortError') {
+        console.warn('[shader-warmup] background run failed', error);
+      }
+      return shaderWarmup.snapshot();
+    })
+    .finally(() => {
+      shaderWarmupPromise = null;
+    });
+  return shaderWarmupPromise;
+}
+
+async function pauseBackgroundShaderWarmup() {
+  const pending = shaderWarmupPromise;
+  if (!pending) return;
+  shaderWarmup.cancel();
+  await pending.catch(() => {});
+}
+
 /** Experiments whose GPU geometry + shaders have been prepared (intent or open). */
 const preparedExperimentIds = new Set();
 /** Default-state signature captured with prepare, keyed by experiment id. */
@@ -3811,6 +3981,9 @@ if (labMeasureEnabled) {
     performanceGovernor,
     transition: experimentTransition,
     experimentRuntimeCache,
+    shaderWarmup,
+    get shaderWarmupStatus() { return shaderWarmupProgress || shaderWarmup.snapshot(); },
+    startShaderWarmup: () => startBackgroundShaderWarmup({ force: true }),
     getPerf: () => labPerfSnapshot(),
     get switchFrameMetrics() {
       return {
@@ -6181,6 +6354,9 @@ let webglContextLost = false;
 canvas.addEventListener('webglcontextlost', (event) => {
   event.preventDefault();
   webglContextLost = true;
+  const pendingWarmup = shaderWarmupPromise;
+  shaderWarmup.cancel();
+  shaderWarmup.reset({ persist: false });
   labFrameScheduler.clear();
   expManager?.cancelPendingStart?.();
   frameCoordinator.cancelAll();
@@ -6189,7 +6365,17 @@ canvas.addEventListener('webglcontextlost', (event) => {
   stationRuntimeCache.clear();
   disposeIntentPrepareResources();
   showToast('Graphics context lost; restoring the laboratory');
+  // If a background queue was active, resume it only after the browser has
+  // finished restoring the context. The persisted record remains intact, but
+  // this context must compile its programs again.
+  if (pendingWarmup) pendingWarmup.catch(() => {});
 });
+
+// Development/QA escape hatch: append ?shaderWarmup=reset to a local launch
+// to remove the persisted completion record and observe the real sequential
+// compile UI again. It is intentionally opt-in and never runs in production
+// without the explicit query parameter.
+if (shaderWarmupResetRequested) shaderWarmup.reset();
 
 canvas.addEventListener('webglcontextrestored', () => {
   webglContextLost = false;
@@ -6205,6 +6391,11 @@ canvas.addEventListener('webglcontextrestored', () => {
   );
   frameCoordinator.invalidate();
   showToast('Graphics restored; select an experiment to reload it');
+  const resume = () => {
+    if (!webglContextLost && !chemMode) void startBackgroundShaderWarmup({ force: true });
+  };
+  if (shaderWarmupPromise) void shaderWarmupPromise.catch(() => {}).then(resume);
+  else requestAnimationFrame(resume);
 });
 
 document.addEventListener('visibilitychange', () => {
@@ -6466,6 +6657,11 @@ async function startExperimentSafe(expId) {
   }
   try {
     const key = `${stationId || expManager?.state?.stationId || 'unknown'}:${expId}`;
+    // A learner action takes priority over the post-entry background queue.
+    // Cancel only that queue; the transition below performs the selected
+    // experiment's compile exactly once and reuses any pending same-key job.
+    await pauseBackgroundShaderWarmup();
+    hideShaderWarmupIndicator();
     // A focused card may already be compiling this exact runtime. Reuse that
     // transaction so the click path waits for prepared GPU state instead of
     // presenting a half-warmed apparatus and paying the compile on the first
@@ -6494,6 +6690,7 @@ async function startExperimentSafe(expId) {
     console.log(`[open-trace] manager commit dt=${(performance.now() - commitStart).toFixed(1)}ms`);
     if (committed !== false) {
       preparedExperimentIds.add(expId);
+      shaderWarmup.markComplete(key);
       if (stationId) {
         preparedExperimentSignatures.set(expId, JSON.stringify(warmInitData(stationId, expId)));
       }
@@ -6571,17 +6768,11 @@ function beginExperimentIntentPrewarm(stationId, expId) {
   const existing = intentPrewarmPromises.get(key);
   if (existing) return existing;
   activeIntentPrewarm = { key };
-  // Card focus is the earliest experiment-code intent. The transition
-  // controller owns the prepared runtime and cache entry so the click path
-  // can mount this exact object instead of creating a second apparatus.
+  // Card focus may fetch the handler module, but it must not compile GPU
+  // programs. Shader compilation starts only after the learner enters an
+  // experiment (or from the post-entry background queue).
   const promise = ensureExperimentModuleLoaded(stationId, expId)
-    .then(() => experimentTransition.prewarm(key))
-    .then((result) => {
-      if (!result?.prepared && result?.error?.name !== 'AbortError') {
-        console.warn('[intent-prewarm] failed', result.error);
-      }
-      return !!result?.prepared;
-    })
+    .then(() => true)
     .finally(() => {
       intentPrewarmPromises.delete(key);
       if (activeIntentPrewarm?.key === key) activeIntentPrewarm = null;
@@ -6605,8 +6796,8 @@ function scheduleExperimentIntentPrewarm(stationId, expId) {
   if (focusedExperimentKey === key || intentPrewarmPromises.has(key)) return;
   focusedExperimentKey = key;
   cancelExperimentIntentPrewarm(key);
-  // Stable card focus: start handler module fetch immediately; GPU prewarm
-  // still waits a short dwell so rapid hover does not thrash compile.
+  // Stable card focus: start handler module fetch immediately. GPU work stays
+  // out of the hover path and begins only after entering the lab/experiment.
   void ensureExperimentModuleLoaded(stationId, expId).catch(() => {});
   focusedExperimentTimer = setTimeout(() => {
     if (focusedExperimentKey !== key || expManager?.state?.running) return;
@@ -6712,6 +6903,53 @@ function predictStationPreload(nowMs) {
   }
 }
 
+/**
+ * Reset the laboratory session without destroying the WebGL context.
+ * This is the desktop-safe equivalent of restarting the lab: GPU programs,
+ * renderer caches and prepared runtimes remain owned by the current window.
+ */
+async function softRestartLab() {
+  if (labRuntimeDisposed || webglContextLost) return false;
+  await pauseBackgroundShaderWarmup();
+  controls.unlock();
+  resetTouchStick();
+  move.up = false;
+  move.down = false;
+  velocity.set(0, 0, 0);
+  direction.set(0, 0, 0);
+  arVelocity.set(0, 0);
+  clearTouchMove();
+  closeHoloFullscreen();
+  expManager?.cancelPendingStart?.();
+  if (expManager?.state?.running || expManager?.state?.menuOpen) {
+    expManager?.closeStationUi?.();
+  } else {
+    expManager?.closeMenu?.();
+    stationPresence?.setHotStation?.(null);
+  }
+
+  if (chemMode) {
+    camera.position.set(0, 1.55, 2.85);
+    camera.lookAt(0, 1.15, 0.4);
+  } else {
+    camera.position.set(0, 1.65, 5.0);
+    camera.lookAt(0, 1.2, 0);
+  }
+  camera.updateMatrixWorld(true);
+  updateAimHud(null, false);
+  resetMouseDragAccum();
+  labFrameScheduler.clear();
+  frameCoordinator.cancelAll();
+  frameCoordinator.invalidate();
+  requestShadowRefresh();
+  showToast('实验室已重新开始 · 已复用图形缓存');
+
+  // Resume post-entry compilation only while no experiment is active. The
+  // current renderer/cache are intentionally left untouched.
+  if (!chemMode) void startBackgroundShaderWarmup();
+  return true;
+}
+
 mountUi({
   bridge: {
     prepareExperiment,
@@ -6728,6 +6966,7 @@ mountUi({
     toggleHelpModal,
     openFullscreen: (stationId) => openHoloFullscreen(stationId),
     closeFullscreen: () => closeHoloFullscreen(),
+    restartLab: () => softRestartLab(),
   },
 });
 
@@ -6795,8 +7034,8 @@ async function paintReadyFrames() {
 async function bootReveal() {
   try {
     // Portrait requests begin when the room graph is created, but do not block
-    // boot on their decode/upload. No full-lab warm, last-station preload or
-    // experiment chunk requests.
+    // boot on their decode/upload. Experiment shader work starts only after
+    // the room is interactive, never while the boot loader is visible.
     await yieldToBrowser(8);
     labLoader.setProgress(0.55, '组装实验室房间…');
     await yieldToBrowser(8);
@@ -6810,6 +7049,11 @@ async function bootReveal() {
     labLoader.setProgress(1, chemMode ? '系统就绪 · 欢迎进入化学实验室' : '系统就绪 · 欢迎进入实验室');
     await labLoader.finish();
     labPerfStats.bootMs = Number((performance.now() - bootStarted).toFixed(2));
+
+    // Entered the lab: compile physical experiments in the background, one at
+    // a time. This is intentionally after the reveal, so startup remains fast
+    // and the user can begin navigating immediately.
+    if (!chemMode) void startBackgroundShaderWarmup();
 
     // Chem mode: skip station menu — hot the island and start reagent-mix immediately.
     if (chemMode) {

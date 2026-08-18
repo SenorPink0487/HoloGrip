@@ -145,6 +145,18 @@ export function tokenizeFormula(formula) {
       }
     }
 
+    // 0.5 根号: \sqrt{...} 或 \sqrt
+    if (s.slice(i).startsWith('\\sqrt{')) {
+      const sqrtStart = i + 5;
+      const sqrtEnd = findMatchingBrace(s, sqrtStart);
+      if (sqrtEnd !== -1) {
+        const inner = s.slice(sqrtStart + 1, sqrtEnd);
+        tokens.push({ kind: 'text', text: '√(' }, ...tokenizeFormula(inner), { kind: 'text', text: ')' });
+        i = sqrtEnd + 1;
+        continue;
+      }
+    }
+
     // 1. 花体: \mathcal{E}, \script{E}, \mathscr{E} 或 ℰ
     if (s.slice(i).startsWith('\\mathcal{') || s.slice(i).startsWith('\\script{') || s.slice(i).startsWith('\\mathscr{')) {
       const braceStart = s.indexOf('{', i);

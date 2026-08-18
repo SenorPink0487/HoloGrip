@@ -48,7 +48,7 @@ html, body {
 
 /* ── Boot loader ──
    Ambient motion is pure CSS transform/opacity so it can composite while the
-   main thread is briefly in WebGL compile slices during full prewarm. */
+   main thread is briefly in WebGL compile slices during post-entry warm-up. */
 #loader {
   position: fixed;
   inset: 0;
@@ -98,7 +98,7 @@ html, body {
   z-index: 0;
 }
 
-/* Heavy prewarm: keep CSS ambient lively so the page never looks frozen. */
+/* Warm-up mode: keep CSS ambient lively while background shader jobs run. */
 #loader.loader-busy .loader-aurora {
   opacity: 0.95;
   animation-duration: 10s;
@@ -1896,6 +1896,67 @@ body.holo-fs-open #crosshair {
   animation: experiment-switch-spin 0.75s linear infinite;
 }
 
+/* Background shader compilation status, positioned in the upper middle of the lab. */
+#shader-warmup-indicator {
+  position: fixed;
+  top: clamp(64px, 10vh, 112px);
+  left: 50%;
+  z-index: 99989;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: min(90vw, 420px);
+  padding: 9px 15px;
+  border: 1px solid rgba(56, 189, 248, 0.42);
+  border-radius: 999px;
+  background: rgba(2, 8, 23, 0.84);
+  color: #e0f2fe;
+  box-shadow: 0 10px 28px rgba(2, 8, 23, 0.24), 0 0 24px rgba(34, 211, 238, 0.14);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-50%, -10px);
+  transition: opacity 180ms ease, transform 180ms ease;
+  white-space: nowrap;
+}
+
+#shader-warmup-indicator.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
+
+.shader-warmup-spinner {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 2px solid rgba(125, 211, 252, 0.28);
+  border-top-color: #67e8f9;
+  border-right-color: #0ea5e9;
+  border-radius: 50%;
+  animation: experiment-switch-spin 0.75s linear infinite;
+}
+
+#shader-warmup-indicator.is-complete .shader-warmup-spinner {
+  position: relative;
+  border-color: #34d399;
+  animation: none;
+}
+
+#shader-warmup-indicator.is-complete .shader-warmup-spinner::after {
+  content: '✓';
+  position: absolute;
+  inset: -1px 0 0;
+  color: #34d399;
+  font-size: 10px;
+  font-weight: 800;
+  line-height: 14px;
+  text-align: center;
+}
+
 @keyframes experiment-switch-spin {
   to { transform: rotate(360deg); }
 }
@@ -1903,6 +1964,8 @@ body.holo-fs-open #crosshair {
 @media (prefers-reduced-motion: reduce) {
   #experiment-switch-loader { transition-duration: 1ms; }
   .experiment-switch-spinner { animation-duration: 1ms; }
+  #shader-warmup-indicator { transition-duration: 1ms; }
+  .shader-warmup-spinner { animation-duration: 1ms; }
 }
 
 /* ── Top-Center Aim Target HUD ── */
