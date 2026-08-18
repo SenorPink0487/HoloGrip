@@ -13,3 +13,8 @@
  */
 export { STATION_EXPERIMENTS, STATION_MODULES } from './registry.js';
 export { createExperimentManager } from './manager.js';
+export {
+  EXPERIMENT_HANDLER_HOOKS,
+  defineStationExperimentModule,
+  createExperimentHandlers,
+} from './contract.js';

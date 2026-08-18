@@ -45,6 +45,19 @@ test('experiment module load is separate from station scene load', async () => {
   assert.equal(hasCachedModule('experiment:thermo'), true);
 });
 
+test('chemistry modules are also intent-loaded, not eagerly cached by catalog import', async () => {
+  clearModulePromises();
+  assert.equal(hasCachedModule('station:chem'), false);
+  assert.equal(hasCachedModule('experiment:chem'), false);
+
+  const station = await loadStationModule('chem');
+  assert.equal(typeof station.createStationEquipment, 'function');
+  assert.equal(hasCachedModule('experiment:chem'), false);
+
+  const experiment = await loadStationExperimentModule('chem');
+  assert.equal(typeof experiment.createHandlers, 'function');
+});
+
 test('unknown station rejects without caching', async () => {
   clearModulePromises();
   await assert.rejects(() => loadStationModule('nope'), /Unknown station/);

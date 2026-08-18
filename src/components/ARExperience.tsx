@@ -53,6 +53,7 @@ export function ARExperience({ stageRef }: ARExperienceProps) {
   const handTrackingModuleRef = useRef<HandTrackingModule | null>(null);
   const prevPinch1 = useRef(false);
   const prevPinch2 = useRef(false);
+  const activeSliderRef = useRef<{ input: HTMLInputElement; hand: 'left' | 'right' } | null>(null);
 
   const updateHands = useARStore(state => state.updateHands);
   const setLoaderVisible = useARStore(state => state.setLoaderVisible);
@@ -232,18 +233,41 @@ export function ARExperience({ stageRef }: ARExperienceProps) {
         updateHands(leftNode, rightNode);
 
         const arState = useARStore.getState();
+        const isAnyPanelOpen = arState.isModelPanelOpen || arState.isPenPanelOpen;
         const rightHandCanClick =
-          !arState.isPenActive &&
-          !arState.isLineDrawingActive &&
-          !arState.isXYZDrawingActive &&
-          !arState.isSectionPlaneActive;
+          isAnyPanelOpen ||
+          (!arState.isPenActive &&
+            !arState.isLineDrawingActive &&
+            !arState.isXYZDrawingActive &&
+            !arState.isSectionPlaneActive);
+
         const triggerSyntheticClick = (x: number, y: number) => {
           const stage = stageRef.current;
           const rect = stage?.getBoundingClientRect();
           const cx = (rect?.left ?? 0) + x;
           const cy = (rect?.top ?? 0) + y;
-          const el = document.elementFromPoint(cx, cy);
+          let el = document.elementFromPoint(cx, cy);
+
+          // 若直接拾取未命中按钮，检查 20px 容差范围内的所有按钮
+          if (!el || el.tagName.toLowerCase() === 'div') {
+            const buttons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
+            for (const btn of buttons) {
+              const bRect = btn.getBoundingClientRect();
+              if (
+                cx >= bRect.left - 15 &&
+                cx <= bRect.right + 15 &&
+                cy >= bRect.top - 15 &&
+                cy <= bRect.bottom + 15
+              ) {
+                el = btn;
+                break;
+              }
+            }
+          }
+
           if (!el) return;
+          const btn = el.tagName.toLowerCase() === 'button' ? el : el.closest('button');
+          const target = btn ?? el;
           const event = new MouseEvent('click', {
             view: window,
             bubbles: true,
@@ -251,22 +275,126 @@ export function ARExperience({ stageRef }: ARExperienceProps) {
             clientX: cx,
             clientY: cy,
           });
-          el.dispatchEvent(event);
-          if (el.tagName.toLowerCase() === 'button') {
-            const htmlEl = el as HTMLElement;
-            htmlEl.style.transform = 'scale(0.9)';
+          target.dispatchEvent(event);
+          if (btn) {
+            const htmlEl = btn as HTMLElement;
+            htmlEl.style.transform = 'scale(0.88)';
             setTimeout(() => (htmlEl.style.transform = ''), 150);
           }
+        };
+
+        const checkSliderGesture = (
+          x: number,
+          y: number,
+          isPinched: boolean,
+          isPinchDown: boolean,
+          hand: 'left' | 'right'
+        ) => {
+          const stage = stageRef.current;
+          const rect = stage?.getBoundingClientRect();
+          const cx = (rect?.left ?? 0) + x;
+          const cy = (rect?.top ?? 0) + y;
+
+          // 1. 如果当前手已锁定拖拽滑块
+          if (activeSliderRef.current && activeSliderRef.current.hand === hand) {
+            if (!isPinched) {
+              // 松开捏合即释放锁定
+              activeSliderRef.current = null;
+              return false;
+            }
+            const input = activeSliderRef.current.input;
+            if (document.body.contains(input)) {
+              const inputRect = input.getBoundingClientRect();
+              const min = Number(input.min) || 1;
+              const max = Number(input.max) || 10;
+              const step = Number(input.step) || 1;
+              const ratio = Math.max(0, Math.min(1, (cx - inputRect.left) / inputRect.width));
+              const rawVal = min + ratio * (max - min);
+              const steppedVal = Math.round(rawVal / step) * step;
+
+              const nativeSetter = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype,
+                'value'
+              )?.set;
+              if (nativeSetter) {
+                nativeSetter.call(input, steppedVal.toString());
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+              }
+              return true;
+            } else {
+              activeSliderRef.current = null;
+            }
+          }
+
+          // 2. 捏合初次按下：大范围感应锁定滑块
+          if (isPinchDown) {
+            const sliders = Array.from(
+              document.querySelectorAll('input[type="range"]')
+            ) as HTMLInputElement[];
+            for (const slider of sliders) {
+              const sRect = slider.getBoundingClientRect();
+              // 容差盒：水平扩展 20px，垂直扩展 35px，非常适合空中手势
+              const inHitBox =
+                cx >= sRect.left - 20 &&
+                cx <= sRect.right + 20 &&
+                cy >= sRect.top - 35 &&
+                cy <= sRect.bottom + 35;
+
+              if (inHitBox) {
+                activeSliderRef.current = { input: slider, hand };
+                const min = Number(slider.min) || 1;
+                const max = Number(slider.max) || 10;
+                const step = Number(slider.step) || 1;
+                const ratio = Math.max(0, Math.min(1, (cx - sRect.left) / sRect.width));
+                const rawVal = min + ratio * (max - min);
+                const steppedVal = Math.round(rawVal / step) * step;
+
+                const nativeSetter = Object.getOwnPropertyDescriptor(
+                  window.HTMLInputElement.prototype,
+                  'value'
+                )?.set;
+                if (nativeSetter) {
+                  nativeSetter.call(slider, steppedVal.toString());
+                  slider.dispatchEvent(new Event('input', { bubbles: true }));
+                  slider.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+                return true;
+              }
+            }
+          }
+
+          return false;
         };
 
         const leftCanClick = left.isVisible && !left.isCoasting;
         const rightCanClick = right.isVisible && !right.isCoasting;
 
-        if (leftCanClick && leftNode.isPinched && !prevPinch2.current) {
-          triggerSyntheticClick(leftNode.pixelCursor.x, leftNode.pixelCursor.y);
+        if (leftCanClick) {
+          const isPinchDown2 = leftNode.isPinched && !prevPinch2.current;
+          const isSliderHandled = checkSliderGesture(
+            leftNode.pixelCursor.x,
+            leftNode.pixelCursor.y,
+            leftNode.isPinched,
+            isPinchDown2,
+            'left'
+          );
+          if (isPinchDown2 && !isSliderHandled) {
+            triggerSyntheticClick(leftNode.pixelCursor.x, leftNode.pixelCursor.y);
+          }
         }
-        if (rightHandCanClick && rightCanClick && rightNode.isPinched && !prevPinch1.current) {
-          triggerSyntheticClick(rightNode.pixelCursor.x, rightNode.pixelCursor.y);
+        if (rightHandCanClick && rightCanClick) {
+          const isPinchDown1 = rightNode.isPinched && !prevPinch1.current;
+          const isSliderHandled = checkSliderGesture(
+            rightNode.pixelCursor.x,
+            rightNode.pixelCursor.y,
+            rightNode.isPinched,
+            isPinchDown1,
+            'right'
+          );
+          if (isPinchDown1 && !isSliderHandled) {
+            triggerSyntheticClick(rightNode.pixelCursor.x, rightNode.pixelCursor.y);
+          }
         }
 
         prevPinch1.current = rightNode.isPinched;
@@ -321,12 +449,12 @@ export function ARExperience({ stageRef }: ARExperienceProps) {
       <div className="absolute inset-0 z-10 pointer-events-none">
         <ARErrorBoundary>
           <Canvas
-            camera={{ position: [0, 0, 5], fov: 45 }}
+            camera={{ position: [0, 0, 12], fov: 25 }}
             gl={{ antialias: !isIPadOS, powerPreference: 'high-performance' }}
             dpr={getWebGLPixelRatio()}
           >
             <ambientLight intensity={0.5} />
-            <spotLight position={[10, 10, 10]} intensity={1.5} angle={0.2} penumbra={1} castShadow />
+            <spotLight position={[10, 10, 10]} intensity={1.5} angle={0.6} penumbra={1} castShadow />
             <pointLight position={[-10, -10, -10]} intensity={0.5} />
             <OfflineRoomEnvironment />
             <MathModel />

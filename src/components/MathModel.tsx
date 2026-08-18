@@ -535,6 +535,21 @@ export function MathModel() {
       return;
     }
 
+    // 当模型选择或画笔面板展开时，彻底禁用对 3D 几何图形的所有手势交互
+    const isPanelOpen = store.isModelPanelOpen || store.isPenPanelOpen;
+    if (isPanelOpen) {
+      if (hoverSphereRef.current) hoverSphereRef.current.visible = false;
+      prevRightPinch.current = rightHand.isPinched;
+      setIsGrabbed(false);
+      setIsRotating(false);
+      draggingExtRef.current = null;
+      prevRotateCursor.current = null;
+      prevPinchDist.current = null;
+      prevPinchAngle.current = null;
+      prevPinchCenter.current = null;
+      return;
+    }
+
     const bothPinched = leftHand.isVisible && rightHand.isVisible && leftHand.isPinched && rightHand.isPinched;
     const leftPinching = leftHand.isVisible && leftHand.isPinched;
     const rightPinching = rightHand.isVisible && rightHand.isPinched;
@@ -620,20 +635,151 @@ export function MathModel() {
           }
         };
 
-        // XYZ 辅助线不能吞掉模型本身的拾取。先尝试命中可见几何体表面，
-        // 这样可以直接从面上取点或将辅助线接到面上；只有射线落在模型外时
-        // 才退回到原有的 XYZ 轴向投影。
-        const surfaceHit = isXYZDrawingActive
-          ? raycaster.intersectObject(meshRef.current, false)[0]
-          : undefined;
+        // 1. 离散几何特征点吸附（最高优先级：模型顶点、已有线段端点、整数分段点、延长线端点、线线交点）
+        for (let i = 0; i < snapPointsRef.current.length; i++) {
+          const sp = snapPointsRef.current[i];
+          checkSnapPoint(sp.coord, sp.label.startsWith('吸附：') ? sp.label : `吸附：${sp.label}`);
+        }
 
-        if (surfaceHit) {
-          const invMatrix = new THREE.Matrix4().copy(meshRef.current.matrixWorld).invert();
-          closestVertLocal.copy(surfaceHit.point).applyMatrix4(invMatrix);
-          foundVertex = true;
-          matchedSnapLabel = '吸附：模型表面';
-        } else if (isXYZDrawingActive && store.activeLineStart) {
-          // --- Force XYZ snap logic (模型外的空白区域) ---
+        for (let i = 0; i < modelLinesStore.length; i++) {
+          const ml = modelLinesStore[i];
+          const p1 = new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z);
+          const p2 = new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z);
+          checkSnapPoint(p1, '吸附：连线端点');
+          checkSnapPoint(p2, '吸附：连线端点');
+
+          const p1Scale = p1.clone().multiply(logicalScale);
+          const p2Scale = p2.clone().multiply(logicalScale);
+          const D_log = p1Scale.distanceTo(p2Scale);
+          const numPoints = Math.floor(D_log - 1e-4);
+          for (let k = 1; k <= numPoints; k++) {
+            const t = k / D_log;
+            if (t > 0 && t < 1) {
+              checkSnapPoint(p1.clone().lerp(p2, t), `吸附：连线整数点 (${k})`);
+            }
+          }
+
+          if (ml.isAuxiliary) {
+            const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+            if (ml.extendBefore > 0) {
+              const extP1 = p1.clone().sub(dir.clone().multiplyScalar(ml.extendBefore));
+              checkSnapPoint(extP1, '吸附：延长线端点');
+            }
+            if (ml.extendAfter > 0) {
+              const extP2 = p2.clone().add(dir.clone().multiplyScalar(ml.extendAfter));
+              checkSnapPoint(extP2, '吸附：延长线端点');
+            }
+          }
+        }
+
+        // 收集所有线段（模型棱边 + 用户连线/辅助线）
+        const collectAllSegments = (): [THREE.Vector3, THREE.Vector3][] => {
+          const segs: [THREE.Vector3, THREE.Vector3][] = edgeSegmentsRef.current.map(
+            ([a, b]) => [a.clone(), b.clone()]
+          );
+          for (let i = 0; i < modelLinesStore.length; i++) {
+            const ml = modelLinesStore[i];
+            const p1 = new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z);
+            const p2 = new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z);
+            if (ml.isAuxiliary) {
+              const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
+              const a = ml.extendBefore > 0
+                ? p1.clone().sub(dir.clone().multiplyScalar(ml.extendBefore))
+                : p1;
+              const b = ml.extendAfter > 0
+                ? p2.clone().add(dir.clone().multiplyScalar(ml.extendAfter))
+                : p2;
+              segs.push([a, b]);
+            } else {
+              segs.push([p1, p2]);
+            }
+          }
+          return segs;
+        };
+
+        const allSegments = collectAllSegments();
+
+        // 线段间 3D 交点吸附
+        for (let i = 0; i < allSegments.length; i++) {
+          for (let j = i + 1; j < allSegments.length; j++) {
+            const [a1, a2] = allSegments[i];
+            const [b1, b2] = allSegments[j];
+            const d1 = new THREE.Vector3().subVectors(a2, a1);
+            const d2 = new THREE.Vector3().subVectors(b2, b1);
+            const r = new THREE.Vector3().subVectors(a1, b1);
+            const a = d1.dot(d1);
+            const e = d2.dot(d2);
+            const f = d2.dot(r);
+            const denom = a * e - d1.dot(d2) * d1.dot(d2);
+            if (Math.abs(denom) > 1e-8) {
+              const b = d1.dot(d2);
+              const c = d1.dot(r);
+              let s = (b * f - c * e) / denom;
+              let t = (a * f - b * c) / denom;
+              s = Math.max(0, Math.min(1, s));
+              t = Math.max(0, Math.min(1, t));
+              const cp1 = a1.clone().add(d1.clone().multiplyScalar(s));
+              const cp2 = b1.clone().add(d2.clone().multiplyScalar(t));
+              if (cp1.distanceTo(cp2) < 0.05) {
+                checkSnapPoint(cp1.clone().add(cp2).multiplyScalar(0.5), '吸附：交点');
+              }
+            }
+          }
+        }
+
+        // 2. 连续线段/棱边吸附（次高优先级）
+        if (!foundVertex) {
+          const aspect = window.innerWidth / window.innerHeight;
+          const cursorNDC = new THREE.Vector2(rightHand.cursor.x, rightHand.cursor.y);
+          const ON_LINE_THRESH_SQ = 0.0035;
+
+          for (let i = 0; i < allSegments.length; i++) {
+            const [aLocal, bLocal] = allSegments[i];
+            const aWorld = aLocal.clone().applyMatrix4(meshRef.current.matrixWorld);
+            const bWorld = bLocal.clone().applyMatrix4(meshRef.current.matrixWorld);
+            const aCam = aWorld.clone().applyMatrix4(camera.matrixWorldInverse);
+            const bCam = bWorld.clone().applyMatrix4(camera.matrixWorldInverse);
+            if (aCam.z > 0 && bCam.z > 0) continue;
+
+            const aNDC = aWorld.clone().project(camera);
+            const bNDC = bWorld.clone().project(camera);
+            const ax = aNDC.x * aspect;
+            const ay = aNDC.y;
+            const bx = bNDC.x * aspect;
+            const by = bNDC.y;
+            const cx = cursorNDC.x * aspect;
+            const cy = cursorNDC.y;
+            const vx = bx - ax;
+            const vy = by - ay;
+            const lenSq = vx * vx + vy * vy;
+            if (lenSq < 1e-12) continue;
+            let t = ((cx - ax) * vx + (cy - ay) * vy) / lenSq;
+            t = Math.max(0, Math.min(1, t));
+            const px = ax + vx * t;
+            const py = ay + vy * t;
+            const distSq = (cx - px) * (cx - px) + (cy - py) * (cy - py);
+            if (distSq < ON_LINE_THRESH_SQ && distSq < closestDistSq) {
+              closestDistSq = distSq;
+              closestVertLocal.copy(aLocal).lerp(bLocal, t);
+              foundVertex = true;
+              matchedSnapLabel = '吸附：棱边/连线';
+            }
+          }
+        }
+
+        // 3. 模型表面吸附（次优先级，剖切模式除外）
+        if (!foundVertex && !isSectionPlaneActive) {
+          const surfaceHit = raycaster.intersectObject(meshRef.current, false)[0];
+          if (surfaceHit) {
+            const invMatrix = new THREE.Matrix4().copy(meshRef.current.matrixWorld).invert();
+            closestVertLocal.copy(surfaceHit.point).applyMatrix4(invMatrix);
+            foundVertex = true;
+            matchedSnapLabel = '吸附：模型表面';
+          }
+        }
+
+        // 4. XYZ 辅助线投影（仅在 XYZ 模式且有起点且未命中模型或特征点时）
+        if (!foundVertex && isXYZDrawingActive && store.activeLineStart) {
           const S = new THREE.Vector3(store.activeLineStart.x, store.activeLineStart.y, store.activeLineStart.z);
           const invMatrix = new THREE.Matrix4().copy(meshRef.current.matrixWorld).invert();
           const localRayOrigin = ray.origin.clone().applyMatrix4(invMatrix);
@@ -720,202 +866,6 @@ export function MathModel() {
             matchedSnapLabel = alignedWithVertex 
               ? `${axisInfo.name}对齐 (对齐顶点, 长度: ${roundedLogicalLen})` 
               : `${axisInfo.name}对齐 (长度: ${roundedLogicalLen})`;
-          }
-        } else if (isSectionPlaneActive) {
-          // ── 剖切模式：节点只能落在已有线上（模型棱边 + 用户连线）──
-          const aspect = window.innerWidth / window.innerHeight;
-          const cursorNDC = new THREE.Vector2(rightHand.cursor.x, rightHand.cursor.y);
-          // 屏上距离阈值（NDC，已乘 aspect）：约 6% 屏高
-          const ON_LINE_THRESH_SQ = 0.0035;
-
-          const collectSectionSegments = (): [THREE.Vector3, THREE.Vector3][] => {
-            const segs: [THREE.Vector3, THREE.Vector3][] = edgeSegmentsRef.current.map(
-              ([a, b]) => [a.clone(), b.clone()]
-            );
-            for (let i = 0; i < modelLinesStore.length; i++) {
-              const ml = modelLinesStore[i];
-              const p1 = new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z);
-              const p2 = new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z);
-              if (ml.isAuxiliary) {
-                const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
-                const a = ml.extendBefore > 0
-                  ? p1.clone().sub(dir.clone().multiplyScalar(ml.extendBefore))
-                  : p1;
-                const b = ml.extendAfter > 0
-                  ? p2.clone().add(dir.clone().multiplyScalar(ml.extendAfter))
-                  : p2;
-                segs.push([a, b]);
-              } else {
-                segs.push([p1, p2]);
-              }
-            }
-            return segs;
-          };
-
-          const segs = collectSectionSegments();
-
-          // 1) 离散吸附：端点 / 整数点（本身都在线上）
-          for (let i = 0; i < snapPointsRef.current.length; i++) {
-            const sp = snapPointsRef.current[i];
-            checkSnapPoint(sp.coord, sp.label.startsWith('吸附：') ? sp.label : `吸附：${sp.label}`);
-          }
-          for (let i = 0; i < modelLinesStore.length; i++) {
-            const ml = modelLinesStore[i];
-            const p1 = new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z);
-            const p2 = new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z);
-            checkSnapPoint(p1, '吸附：连线端点');
-            checkSnapPoint(p2, '吸附：连线端点');
-            const p1Scale = p1.clone().multiply(logicalScale);
-            const p2Scale = p2.clone().multiply(logicalScale);
-            const D_log = p1Scale.distanceTo(p2Scale);
-            const numPoints = Math.floor(D_log - 1e-4);
-            for (let k = 1; k <= numPoints; k++) {
-              const t = k / D_log;
-              if (t > 0 && t < 1) {
-                checkSnapPoint(p1.clone().lerp(p2, t), `吸附：连线整数点 (${k})`);
-              }
-            }
-          }
-
-          // 2) 连续吸附：光标在屏上到线段最近点（保证点严格落在线上）
-          for (let i = 0; i < segs.length; i++) {
-            const [aLocal, bLocal] = segs[i];
-            const aWorld = aLocal.clone().applyMatrix4(meshRef.current.matrixWorld);
-            const bWorld = bLocal.clone().applyMatrix4(meshRef.current.matrixWorld);
-            const aCam = aWorld.clone().applyMatrix4(camera.matrixWorldInverse);
-            const bCam = bWorld.clone().applyMatrix4(camera.matrixWorldInverse);
-            if (aCam.z > 0 && bCam.z > 0) continue;
-
-            const aNDC = aWorld.clone().project(camera);
-            const bNDC = bWorld.clone().project(camera);
-            const ax = aNDC.x * aspect;
-            const ay = aNDC.y;
-            const bx = bNDC.x * aspect;
-            const by = bNDC.y;
-            const cx = cursorNDC.x * aspect;
-            const cy = cursorNDC.y;
-            const vx = bx - ax;
-            const vy = by - ay;
-            const lenSq = vx * vx + vy * vy;
-            if (lenSq < 1e-12) continue;
-            let t = ((cx - ax) * vx + (cy - ay) * vy) / lenSq;
-            t = Math.max(0, Math.min(1, t));
-            const px = ax + vx * t;
-            const py = ay + vy * t;
-            const distSq = (cx - px) * (cx - px) + (cy - py) * (cy - py);
-            if (distSq < ON_LINE_THRESH_SQ && distSq < closestDistSq) {
-              closestDistSq = distSq;
-              closestVertLocal.copy(aLocal).lerp(bLocal, t);
-              foundVertex = true;
-              matchedSnapLabel = '吸附：棱边/连线';
-            }
-          }
-
-          // 3) 用户连线之间的交点（也在线上）
-          const drawnSegs: [THREE.Vector3, THREE.Vector3][] = modelLinesStore.map((ml) => [
-            new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z),
-            new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z),
-          ]);
-          for (let i = 0; i < drawnSegs.length; i++) {
-            for (let j = i + 1; j < drawnSegs.length; j++) {
-              const [a1, a2] = drawnSegs[i];
-              const [b1, b2] = drawnSegs[j];
-              const d1 = new THREE.Vector3().subVectors(a2, a1);
-              const d2 = new THREE.Vector3().subVectors(b2, b1);
-              const r = new THREE.Vector3().subVectors(a1, b1);
-              const a = d1.dot(d1);
-              const e = d2.dot(d2);
-              const f = d2.dot(r);
-              const denom = a * e - d1.dot(d2) * d1.dot(d2);
-              if (Math.abs(denom) > 1e-8) {
-                const b = d1.dot(d2);
-                const c = d1.dot(r);
-                let s = (b * f - c * e) / denom;
-                let t = (a * f - b * c) / denom;
-                s = Math.max(0, Math.min(1, s));
-                t = Math.max(0, Math.min(1, t));
-                const cp1 = a1.clone().add(d1.clone().multiplyScalar(s));
-                const cp2 = b1.clone().add(d2.clone().multiplyScalar(t));
-                if (cp1.distanceTo(cp2) < 0.05) {
-                  checkSnapPoint(cp1.clone().add(cp2).multiplyScalar(0.5), '吸附：交点');
-                }
-              }
-            }
-          }
-        } else {
-          // 1. Check original geometry snap points
-          for (let i = 0; i < snapPointsRef.current.length; i++) {
-            const sp = snapPointsRef.current[i];
-            checkSnapPoint(sp.coord, sp.label.startsWith('吸附：') ? sp.label : `吸附：${sp.label}`);
-          }
-          
-          // 2. Check dynamically drawn auxiliary lines
-          for (let i = 0; i < modelLinesStore.length; i++) {
-            const ml = modelLinesStore[i];
-            const p1 = new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z);
-            const p2 = new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z);
-            
-            // Create snap points on the drawn line
-            checkSnapPoint(p1, '吸附：顶点');
-            checkSnapPoint(p2, '吸附：顶点');
-            
-            // 删掉几分之几的设定，改为单位长度为整数的点
-            const p1Scale = p1.clone().multiply(logicalScale);
-            const p2Scale = p2.clone().multiply(logicalScale);
-            const D_log = p1Scale.distanceTo(p2Scale);
-            const numPoints = Math.floor(D_log - 1e-4);
-            for (let k = 1; k <= numPoints; k++) {
-              const t = k / D_log;
-              if (t > 0 && t < 1) {
-                checkSnapPoint(p1.clone().lerp(p2, t), `吸附：线段整数点 (距离端点: ${k})`);
-              }
-            }
-
-            // 3. Check auxiliary line extension endpoints for snapping
-            if (ml.isAuxiliary) {
-              const dir = new THREE.Vector3().subVectors(p2, p1).normalize();
-              if (ml.extendBefore > 0) {
-                const extP1 = p1.clone().sub(dir.clone().multiplyScalar(ml.extendBefore));
-                checkSnapPoint(extP1, '吸附：延长线端点');
-              }
-              if (ml.extendAfter > 0) {
-                const extP2 = p2.clone().add(dir.clone().multiplyScalar(ml.extendAfter));
-                checkSnapPoint(extP2, '吸附：延长线端点');
-              }
-            }
-          }
-
-          // 4. Check line-line intersection points for snapping
-          const allLineSegments: [THREE.Vector3, THREE.Vector3][] = modelLinesStore.map(ml => [
-            new THREE.Vector3(ml.p1.x, ml.p1.y, ml.p1.z),
-            new THREE.Vector3(ml.p2.x, ml.p2.y, ml.p2.z),
-          ]);
-          for (let i = 0; i < allLineSegments.length; i++) {
-            for (let j = i + 1; j < allLineSegments.length; j++) {
-              const [a1, a2] = allLineSegments[i];
-              const [b1, b2] = allLineSegments[j];
-              // Compute closest point between two 3D line segments
-              const d1 = new THREE.Vector3().subVectors(a2, a1);
-              const d2 = new THREE.Vector3().subVectors(b2, b1);
-              const r = new THREE.Vector3().subVectors(a1, b1);
-              const a = d1.dot(d1);
-              const e = d2.dot(d2);
-              const f = d2.dot(r);
-              const denom = a * e - d1.dot(d2) * d1.dot(d2);
-              if (Math.abs(denom) > 1e-8) {
-                const b = d1.dot(d2);
-                const c = d1.dot(r);
-                let s = (b * f - c * e) / denom;
-                let t = (a * f - b * c) / denom;
-                s = Math.max(0, Math.min(1, s));
-                t = Math.max(0, Math.min(1, t));
-                const cp1 = a1.clone().add(d1.clone().multiplyScalar(s));
-                const cp2 = b1.clone().add(d2.clone().multiplyScalar(t));
-                if (cp1.distanceTo(cp2) < 0.05) {
-                  checkSnapPoint(cp1.clone().add(cp2).multiplyScalar(0.5), '吸附：交点');
-                }
-              }
-            }
           }
         }
 
@@ -1626,18 +1576,18 @@ export function MathModel() {
             </Box>
           )}
           {activeModel === 'sphere' && (
-            <Sphere ref={meshRef as any} args={[0.8, 16, 16]}>
+            <Sphere ref={meshRef as any} args={[0.8, 64, 64]}>
               <GlassMaterial />
             </Sphere>
           )}
           {activeModel === 'cylinder' && (
-            <Cylinder ref={meshRef as any} args={[0.6, 0.6, 1.6, 16]}>
+            <Cylinder ref={meshRef as any} args={[0.6, 0.6, 1.6, 64]}>
               <GlassMaterial />
               <Edges linewidth={2} threshold={45} color="#ffffff" />
             </Cylinder>
           )}
           {activeModel === 'cone' && (
-            <Cone ref={meshRef as any} args={[0.8, 1.5, 16]}>
+            <Cone ref={meshRef as any} args={[0.8, 1.5, 64]}>
               <GlassMaterial />
               <Edges linewidth={2} threshold={45} color="#ffffff" />
             </Cone>

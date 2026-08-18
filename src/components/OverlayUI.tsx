@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useARStore } from '../stores/arStore';
 import type { HandState, MathShape } from '../stores/types';
 import { cn } from '../lib/utils';
-import { Box, Cylinder, Cone, Triangle, PenTool, Cuboid, Palette, Eraser, Trash2, Unplug, Upload, X, Network, Ruler, Camera, Scan } from 'lucide-react';
+import { Box, Cylinder, Cone, Triangle, PenTool, Cuboid, Eraser, Trash2, Upload, X, Network, Ruler, Camera, Scan } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { parseGeometryImage } from '../lib/gemini';
 import { normalizeVertices } from '../lib/geometry';
@@ -41,10 +41,10 @@ export function OverlayUI() {
   const sectionPlanes = useARStore(state => state.sectionPlanes);
   const clearSectionDraft = useARStore(state => state.clearSectionDraft);
   const clearSectionPlanes = useARStore(state => state.clearSectionPlanes);
-  const snappedPointInfo = useARStore(state => state.snappedPointInfo);
-  const activeLineStart = useARStore(state => state.activeLineStart);
   const showAllLengths = useARStore(state => state.showAllLengths);
   const toggleShowAllLengths = useARStore(state => state.toggleShowAllLengths);
+  const presetDimensions = useARStore(state => state.presetDimensions);
+  const updatePresetDimension = useARStore(state => state.updatePresetDimension);
 
   const customModels = useARStore(state => state.customModels);
   const activeCustomModelId = useARStore(state => state.activeCustomModelId);
@@ -111,55 +111,36 @@ export function OverlayUI() {
 
   // 工具按钮 3 态循环：
   //   未激活+面板关 → 激活+面板开 → 激活+面板关 → 未激活+面板关
-  // “激活”定义：
-  //   - 绘图：isPenActive / isLineDrawingActive / isXYZDrawingActive / isSectionPlaneActive
-  //     （任一开启都视为绘图体系激活；面板内可在画笔/连线/剖切/橡皮擦间切换，
-  //      切换不影响 dock 三段式的激活态）
-  //   - 模型：已选中某个模型（activeModel 或 activeCustomModelId）
   const handleTabClick = (tab: 'model' | 'pen') => {
     if (tab === 'pen') {
-      // dock 视角下，画笔与连线/剖切同属"绘图体系"，共享同一个三段式循环
       const drawingActive = isPenActive || isLineDrawingActive || isXYZDrawingActive || isSectionPlaneActive;
 
-      // 同时只展开一个面板：开画笔时关掉模型面板
       if (!drawingActive && !isPenPanelOpen) {
-        // 第一态 → 第二态：默认激活画笔并展开面板，用户可在面板内切到连线/剖切
         setPenActive(true);
         setPenPanelOpen(true);
         setModelPanelOpen(false);
       } else if (drawingActive && isPenPanelOpen) {
-        // 第二态 → 第三态：保持当前工具激活，仅收起面板
         setPenPanelOpen(false);
       } else if (drawingActive && !isPenPanelOpen) {
-        // 第三态 → 第一态：彻底取消绘图体系激活
         setPenActive(false);
         setLineDrawingActive(false);
         setXYZDrawingActive(false);
         setSectionPlaneActive(false);
         setPenPanelOpen(false);
       } else {
-        // 边界态：未激活但面板开着 → 收起面板回到第一态
         setPenPanelOpen(false);
       }
     } else if (tab === 'model') {
       const hasModel = activeModel !== null || activeCustomModelId !== null;
-      // 模型按钮 3 态循环：
-      //   未选中 + 面板关 → 选中 + 面板开 → 选中 + 面板关 → 未选中 + 面板关
-      // 由于"未选中 + 面板开"是用户从面板里没选就再点的边界情况，
-      // 视为第 3 态结束态，再点直接回到第 1 态（关面板）。
       if (!hasModel && !isModelPanelOpen) {
-        // 第 1 态 → 展开面板，让用户从中选模型（不强制选第一个）
         setModelPanelOpen(true);
         setPenPanelOpen(false);
       } else if (hasModel && isModelPanelOpen) {
-        // 第 2 态 → 第 3 态：保留模型，仅收起面板
         setModelPanelOpen(false);
       } else if (hasModel && !isModelPanelOpen) {
-        // 第 3 态 → 第 1 态：清除选中模型
         setActiveModel(null);
         setActiveCustomModel(null);
       } else {
-        // 没选模型但面板已开：直接收起，回到第 1 态
         setModelPanelOpen(false);
       }
     }
@@ -242,7 +223,6 @@ export function OverlayUI() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // 重置 input，允许再次选择同一文件
     if (fileInputRef.current) fileInputRef.current.value = '';
 
     if (!file.type.startsWith('image/')) {
@@ -365,76 +345,28 @@ export function OverlayUI() {
     });
   }
 
-  async function captureRearCameraFrame(): Promise<Blob> {
-    if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('当前设备不支持摄像头拍照');
+  const getModelDimensionParams = (shape: MathShape | null) => {
+    if (!shape) return [];
+    const dims = presetDimensions[shape] || {};
+    switch (shape) {
+      case 'cube':
+        return [{ key: 'size', label: 'a', value: Math.min(10, Math.max(1, dims.size ?? 6)), min: 1, max: 10, step: 1 }];
+      case 'cylinder':
+        return [
+          { key: 'radius', label: 'r', value: Math.min(10, Math.max(1, dims.radius ?? 5)), min: 1, max: 10, step: 1 },
+          { key: 'height', label: 'h', value: Math.min(10, Math.max(1, dims.height ?? 8)), min: 1, max: 10, step: 1 }
+        ];
+      case 'cone':
+        return [
+          { key: 'radius', label: 'r', value: Math.min(10, Math.max(1, dims.radius ?? 5)), min: 1, max: 10, step: 1 },
+          { key: 'height', label: 'h', value: Math.min(10, Math.max(1, dims.height ?? 8)), min: 1, max: 10, step: 1 }
+        ];
+      case 'pyramid':
+        return [{ key: 'radius', label: 'a', value: Math.min(10, Math.max(1, dims.radius ?? 6)), min: 1, max: 10, step: 1 }];
+      default:
+        return [];
     }
-
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: {
-        facingMode: { ideal: 'environment' },
-        width: { ideal: 1600 },
-        height: { ideal: 1200 },
-      },
-      audio: false,
-    });
-
-    try {
-      const video = document.createElement('video');
-      video.muted = true;
-      video.playsInline = true;
-      video.srcObject = stream;
-      await video.play();
-      await waitForVideoFrame(video);
-
-      const width = video.videoWidth || 1280;
-      const height = video.videoHeight || 720;
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('当前设备无法生成拍照画面');
-      ctx.drawImage(video, 0, 0, width, height);
-
-      return await new Promise<Blob>((resolve, reject) => {
-        canvas.toBlob((blob) => {
-          if (blob) resolve(blob);
-          else reject(new Error('拍照失败'));
-        }, 'image/jpeg', 0.9);
-      });
-    } finally {
-      stream.getTracks().forEach(track => track.stop());
-    }
-  }
-
-  function waitForVideoFrame(video: HTMLVideoElement): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        cleanup();
-        reject(new Error('摄像头启动超时'));
-      }, 5000);
-      const cleanup = () => {
-        window.clearTimeout(timeout);
-        video.removeEventListener('loadeddata', ready);
-        video.removeEventListener('canplay', ready);
-        video.removeEventListener('error', fail);
-      };
-      const ready = () => {
-        if (video.videoWidth > 0 && video.videoHeight > 0) {
-          cleanup();
-          resolve();
-        }
-      };
-      const fail = () => {
-        cleanup();
-        reject(new Error('摄像头画面不可用'));
-      };
-      video.addEventListener('loadeddata', ready);
-      video.addEventListener('canplay', ready);
-      video.addEventListener('error', fail);
-      ready();
-    });
-  }
+  };
 
   return (
     <>
@@ -456,19 +388,16 @@ export function OverlayUI() {
       />
 
       {/* 2D Hand Tracking Cursor 1 - Left Hand */}
-      {/* 用 absolute 而非 fixed：AR 舞台 div 自身已建立定位上下文，
-          桌面端有 36px 标题栏，fixed 会让光标跑到 viewport 顶部，
-          与画布（舞台局部坐标系）落点失配 */}
       <div 
         ref={cursor1Ref} 
-        className="absolute top-0 left-0 w-10 h-10 -ml-5 -mt-5 rounded-full border-[3px] shadow-[0_0_15px_rgba(255,255,255,0.4)] pointer-events-none z-50 backdrop-blur-sm"
+        className="absolute top-0 left-0 w-10 h-10 -ml-5 -mt-5 rounded-full border-2 border-white/80 pointer-events-none z-50 backdrop-blur-sm"
         style={{ opacity: 0 }}
       />
 
       {/* 2D Hand Tracking Cursor 2 - Right Hand */}
       <div 
         ref={cursor2Ref} 
-        className="absolute top-0 left-0 w-8 h-8 -ml-4 -mt-4 rounded-full border-[3px] shadow-[0_0_15px_rgba(255,255,255,0.4)] pointer-events-none z-50 backdrop-blur-sm border-blue-400"
+        className="absolute top-0 left-0 w-8 h-8 -ml-4 -mt-4 rounded-full border-2 border-blue-400 pointer-events-none z-50 backdrop-blur-sm"
         style={{ opacity: 0 }}
       />
 
@@ -540,84 +469,134 @@ export function OverlayUI() {
         </div>
       </div>
 
-      {/* Model Selection Panel */}
+      {/* Model Selection & Dimension Adjustment Panel */}
       <div 
         className={cn(
           "absolute bottom-[calc(env(safe-area-inset-bottom)+12rem)] sm:bottom-[calc(env(safe-area-inset-bottom)+14rem)] left-1/2 -translate-x-1/2 z-30 pointer-events-auto max-w-[calc(100vw-2rem)] transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] will-change-transform origin-bottom",
           isModelPanelOpen ? "scale-100 opacity-100 translate-y-0" : "scale-90 opacity-0 translate-y-4 pointer-events-none"
         )}
       >
-        <div className="flex max-w-full flex-nowrap items-center justify-start overflow-x-auto overflow-y-hidden bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[2rem] sm:rounded-[3rem] p-2.5 sm:p-3 gap-2 sm:gap-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          {/* 预设模型按钮 */}
-          <DockButton active={activeModel === 'cube'} onClick={() => handleModelSelect('cube')} label="正方体">
-            <Box className="w-8 h-8" />
-          </DockButton>
-          <DockButton active={activeModel === 'cylinder'} onClick={() => handleModelSelect('cylinder')} label="圆柱体">
-            <Cylinder className="w-8 h-8" />
-          </DockButton>
-          <DockButton active={activeModel === 'cone'} onClick={() => handleModelSelect('cone')} label="圆锥体">
-            <Cone className="w-8 h-8" />
-          </DockButton>
-          <DockButton active={activeModel === 'pyramid'} onClick={() => handleModelSelect('pyramid')} label="棱锥体">
-            <Triangle className="w-8 h-8" />
-          </DockButton>
+        <div className="flex max-w-full flex-col bg-zinc-900/75 backdrop-blur-3xl border border-white/15 shadow-2xl rounded-[2rem] sm:rounded-[2.5rem] p-3 sm:p-4 gap-3">
+          {/* Top row: Model selector buttons */}
+          <div className="flex max-w-full flex-nowrap items-center justify-start overflow-x-auto overflow-y-hidden gap-2 sm:gap-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {/* 预设模型按钮 */}
+            <DockButton active={activeModel === 'cube'} onClick={() => handleModelSelect('cube')} label="正方体">
+              <Box className="w-8 h-8" />
+            </DockButton>
+            <DockButton active={activeModel === 'cylinder'} onClick={() => handleModelSelect('cylinder')} label="圆柱体">
+              <Cylinder className="w-8 h-8" />
+            </DockButton>
+            <DockButton active={activeModel === 'cone'} onClick={() => handleModelSelect('cone')} label="圆锥体">
+              <Cone className="w-8 h-8" />
+            </DockButton>
+            <DockButton active={activeModel === 'pyramid'} onClick={() => handleModelSelect('pyramid')} label="棱锥体">
+              <Triangle className="w-8 h-8" />
+            </DockButton>
 
-          {/* 自定义模型按钮（如果有） */}
-          {customModels.length > 0 && (
-            <>
-              <div className="w-px h-10 bg-white/20 mx-2 self-center rounded-full" />
-              {customModels.map((cm, idx) => (
-                <div key={cm.id} className="relative group">
-                  <DockButton
-                    active={activeCustomModelId === cm.id}
-                    onClick={() => handleCustomModelSelect(cm.id)}
-                    label={cm.name}
-                  >
-                    <span className="text-base font-bold w-8 h-8 flex items-center justify-center">
-                      {cm.name.charAt(0).toUpperCase() || `M${idx + 1}`}
-                    </span>
-                  </DockButton>
-                  {/* 删除按钮 */}
+            {/* 自定义模型按钮（如果有） */}
+            {customModels.length > 0 && (
+              <>
+                <div className="w-px h-10 bg-white/20 mx-2 self-center rounded-full" />
+                {customModels.map((cm, idx) => (
+                  <div key={cm.id} className="relative group">
+                    <DockButton
+                      active={activeCustomModelId === cm.id}
+                      onClick={() => handleCustomModelSelect(cm.id)}
+                      label={cm.name}
+                    >
+                      <span className="text-base font-bold w-8 h-8 flex items-center justify-center">
+                        {cm.name.charAt(0).toUpperCase() || `M${idx + 1}`}
+                      </span>
+                    </DockButton>
+                    {/* 删除按钮 */}
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPendingDeleteId(cm.id);
+                      }}
+                      className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                      title="删除模型"
+                    >
+                      <X className="w-3 h-3 text-white" />
+                    </button>
+                  </div>
+                ))}
+              </>
+            )}
+
+            <div className="w-px h-10 bg-white/20 mx-2 self-center rounded-full" />
+
+            <div className="flex shrink-0 items-center gap-2">
+              {/* 上传按钮 */}
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isAnalyzing}
+                className="p-4 sm:p-5 text-white/60 hover:text-cyan-400 hover:bg-cyan-500/20 rounded-full transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-40 cursor-pointer"
+                title="上传几何图片"
+                aria-label="上传几何图片"
+              >
+                <Upload className="w-7 h-7 sm:w-8 sm:h-8" />
+              </button>
+
+              {/* 后置摄像头拍照识别按钮 */}
+              <button
+                onClick={handleRearCameraCapture}
+                disabled={isAnalyzing}
+                className="p-4 sm:p-5 text-white/60 hover:text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-40 cursor-pointer"
+                title="后置摄像头拍照识别"
+                aria-label="后置摄像头拍照识别"
+              >
+                <Camera className="w-7 h-7 sm:w-8 sm:h-8" />
+              </button>
+            </div>
+          </div>
+
+          {/* 1到10 大尺寸手势滑动条（纯白、无冗余文字） */}
+          {activeModel && (
+            <div className="flex flex-wrap items-center justify-center gap-3 sm:gap-4 pt-3 border-t border-white/10 w-full">
+              {getModelDimensionParams(activeModel).map(param => (
+                <div 
+                  key={param.key} 
+                  className="flex items-center gap-2.5 sm:gap-3 bg-white/10 border border-white/20 px-4 py-2 rounded-full backdrop-blur-md shadow-lg"
+                >
+                  <span className="text-white font-mono text-sm font-bold select-none min-w-[14px] text-center">{param.label}</span>
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setPendingDeleteId(cm.id);
+                      updatePresetDimension(activeModel, param.key, Math.max(1, param.value - 1));
                     }}
-                    className="absolute -top-1 -right-1 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="删除模型"
+                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/15 hover:bg-white/25 active:scale-90 text-white font-bold text-sm sm:text-base flex items-center justify-center transition-all cursor-pointer select-none"
+                    title="减少"
                   >
-                    <X className="w-3 h-3 text-white" />
+                    -
                   </button>
+                  <input
+                    type="range"
+                    min={1}
+                    max={10}
+                    step={1}
+                    value={param.value}
+                    onInput={(e) => updatePresetDimension(activeModel, param.key, Number((e.target as HTMLInputElement).value))}
+                    onChange={(e) => updatePresetDimension(activeModel, param.key, Number(e.target.value))}
+                    className="w-32 sm:w-48 h-3.5 bg-white/25 rounded-full appearance-none cursor-pointer accent-white [&::-webkit-slider-thumb]:w-6 [&::-webkit-slider-thumb]:h-6 sm:[&::-webkit-slider-thumb]:w-7 sm:[&::-webkit-slider-thumb]:h-7 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:cursor-pointer [&::-webkit-slider-thumb]:shadow-[0_2px_8px_rgba(0,0,0,0.4)] [&::-moz-range-thumb]:w-6 [&::-moz-range-thumb]:h-6 sm:[&::-moz-range-thumb]:w-7 sm:[&::-moz-range-thumb]:h-7 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-none"
+                  />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      updatePresetDimension(activeModel, param.key, Math.min(10, param.value + 1));
+                    }}
+                    className="w-7 h-7 sm:w-8 sm:h-8 rounded-full bg-white/15 hover:bg-white/25 active:scale-90 text-white font-bold text-sm sm:text-base flex items-center justify-center transition-all cursor-pointer select-none"
+                    title="增加"
+                  >
+                    +
+                  </button>
+                  <span className="min-w-[20px] text-center font-mono font-bold text-white text-sm sm:text-base select-none">
+                    {param.value}
+                  </span>
                 </div>
               ))}
-            </>
+            </div>
           )}
-
-          <div className="w-px h-10 bg-white/20 mx-2 self-center rounded-full" />
-
-          <div className="flex shrink-0 items-center gap-2">
-            {/* 上传按钮 */}
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={isAnalyzing}
-              className="p-4 sm:p-5 text-white/60 hover:text-cyan-400 hover:bg-cyan-500/20 rounded-full transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-40"
-              title="上传几何图片"
-              aria-label="上传几何图片"
-            >
-              <Upload className="w-7 h-7 sm:w-8 sm:h-8" />
-            </button>
-
-            {/* 后置摄像头拍照识别按钮 */}
-            <button
-              onClick={handleRearCameraCapture}
-              disabled={isAnalyzing}
-              className="p-4 sm:p-5 text-white/60 hover:text-emerald-400 hover:bg-emerald-500/20 rounded-full transition-colors active:scale-95 disabled:cursor-wait disabled:opacity-40"
-              title="后置摄像头拍照识别"
-              aria-label="后置摄像头拍照识别"
-            >
-              <Camera className="w-7 h-7 sm:w-8 sm:h-8" />
-            </button>
-          </div>
         </div>
       </div>
 
@@ -628,7 +607,7 @@ export function OverlayUI() {
           isPenPanelOpen ? "scale-100 opacity-100 translate-y-0" : "scale-90 opacity-0 translate-y-4 pointer-events-none"
         )}
       >
-        <div className="flex max-w-full flex-col bg-zinc-900/60 backdrop-blur-3xl border border-white/10 shadow-2xl rounded-[2rem] sm:rounded-[2.5rem] p-3 sm:p-4 gap-3">
+        <div className="flex max-w-full flex-col bg-zinc-900/75 backdrop-blur-3xl border border-white/15 shadow-2xl rounded-[2rem] sm:rounded-[2.5rem] p-3 sm:p-4 gap-3">
           <div className="flex max-w-full flex-nowrap items-center justify-center gap-3 overflow-x-auto overflow-y-hidden [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             {/* Colors */}
             <div className="flex shrink-0 justify-center gap-3 sm:gap-4">
@@ -637,7 +616,7 @@ export function OverlayUI() {
                     key={color}
                     onClick={() => setPenColor(color)}
                     className={cn(
-                      "w-11 h-11 sm:w-12 sm:h-12 rounded-full border-2 transition-all",
+                      "w-11 h-11 sm:w-12 sm:h-12 rounded-full border-2 transition-all cursor-pointer",
                       penColor === color && !isEraser ? "border-white scale-110" : "border-transparent scale-100 hover:scale-105"
                     )}
                     style={{ backgroundColor: color }}
@@ -651,19 +630,19 @@ export function OverlayUI() {
             <div className="flex shrink-0 gap-3 items-center bg-white/5 rounded-full p-2">
               <button 
                 onClick={() => setPenThickness(1)}
-                className={cn("w-10 h-10 rounded-full transition-colors flex items-center justify-center", penThickness === 1 ? "bg-white/20" : "")}
+                className={cn("w-10 h-10 rounded-full transition-colors flex items-center justify-center cursor-pointer", penThickness === 1 ? "bg-white/20" : "")}
               >
                 <div className="w-1 h-1 bg-white rounded-full"/>
               </button>
               <button 
                 onClick={() => setPenThickness(3)}
-                className={cn("w-10 h-10 rounded-full transition-colors flex items-center justify-center", penThickness === 3 ? "bg-white/20" : "")}
+                className={cn("w-10 h-10 rounded-full transition-colors flex items-center justify-center cursor-pointer", penThickness === 3 ? "bg-white/20" : "")}
               >
                 <div className="w-2 h-2 bg-white rounded-full"/>
               </button>
               <button 
                 onClick={() => setPenThickness(6)}
-                className={cn("w-10 h-10 rounded-full transition-colors flex items-center justify-center", penThickness === 6 ? "bg-white/20" : "")}
+                className={cn("w-10 h-10 rounded-full transition-colors flex items-center justify-center cursor-pointer", penThickness === 6 ? "bg-white/20" : "")}
               >
                 <div className="w-4 h-4 bg-white rounded-full"/>
               </button>
@@ -681,8 +660,8 @@ export function OverlayUI() {
                 if (!isLineDrawingActive && isEraser) setIsEraser(false);
               }}
               className={cn(
-                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
-                isLineDrawingActive ? "bg-cyan-500/20 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.2)]" : "text-white/60 hover:bg-white/10"
+                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90 cursor-pointer",
+                isLineDrawingActive ? "bg-cyan-500/20 text-cyan-300 border border-cyan-400/40" : "text-white/60 hover:bg-white/10 border border-transparent"
               )}
             >
               <Network className="w-7 h-7 sm:w-8 sm:h-8" />
@@ -697,8 +676,8 @@ export function OverlayUI() {
                 if (!isXYZDrawingActive && isEraser) setIsEraser(false);
               }}
               className={cn(
-                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
-                isXYZDrawingActive ? "bg-cyan-500/20 text-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.2)]" : "text-white/60 hover:bg-white/10"
+                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90 cursor-pointer",
+                isXYZDrawingActive ? "bg-cyan-500/20 text-cyan-300 border border-cyan-400/40" : "text-white/60 hover:bg-white/10 border border-transparent"
               )}
             >
               <svg viewBox="0 0 24 24" className="w-7 h-7 sm:w-8 sm:h-8" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -717,8 +696,8 @@ export function OverlayUI() {
                 setSectionPlaneActive(!isSectionPlaneActive);
               }}
               className={cn(
-                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
-                isSectionPlaneActive ? "bg-yellow-400/20 text-yellow-300 shadow-[0_0_12px_rgba(250,204,21,0.3)]" : "text-white/60 hover:bg-white/10"
+                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90 cursor-pointer",
+                isSectionPlaneActive ? "bg-yellow-400/20 text-yellow-300 border border-yellow-400/40" : "text-white/60 hover:bg-white/10 border border-transparent"
               )}
             >
               <Scan className="w-7 h-7 sm:w-8 sm:h-8" />
@@ -730,8 +709,8 @@ export function OverlayUI() {
             <button 
               onClick={() => toggleShowAllLengths()}
               className={cn(
-                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
-                showAllLengths ? "bg-amber-500/20 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.2)]" : "text-white/60 hover:bg-white/10"
+                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90 cursor-pointer",
+                showAllLengths ? "bg-amber-500/20 text-amber-300 border border-amber-400/40" : "text-white/60 hover:bg-white/10 border border-transparent"
               )}
             >
               <Ruler className="w-7 h-7 sm:w-8 sm:h-8" />
@@ -749,8 +728,8 @@ export function OverlayUI() {
                 if (!isEraser && isSectionPlaneActive) setSectionPlaneActive(false);
               }}
               className={cn(
-                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90",
-                isEraser ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.2)]" : "text-white/60 hover:bg-white/10"
+                "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90 cursor-pointer",
+                isEraser ? "bg-white/20 text-white border border-white/40" : "text-white/60 hover:bg-white/10 border border-transparent"
               )}
             >
               <Eraser className="w-7 h-7 sm:w-8 sm:h-8" />
@@ -767,7 +746,7 @@ export function OverlayUI() {
                 useARStore.getState().clearSectionDraft();
                 useARStore.getState().clearSectionPlanes();
               }}
-              className="relative group shrink-0 p-3 sm:p-4 rounded-full text-white/60 hover:bg-red-500/20 hover:text-red-400 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90"
+              className="relative group shrink-0 p-3 sm:p-4 rounded-full text-white/60 hover:bg-red-500/20 hover:text-red-400 transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90 cursor-pointer"
             >
               <Trash2 className="w-7 h-7 sm:w-8 sm:h-8" />
               <span className="absolute -top-10 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">
@@ -783,7 +762,7 @@ export function OverlayUI() {
                 onClick={() => clearSectionDraft()}
                 disabled={sectionDraftPoints.length === 0}
                 className={cn(
-                  "relative group shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition-all active:scale-95",
+                  "relative group shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition-all active:scale-95 cursor-pointer",
                   sectionDraftPoints.length === 0
                     ? "bg-white/5 text-white/25 cursor-not-allowed"
                     : "bg-white/10 text-white/80 hover:bg-white/15 hover:text-white"
@@ -797,10 +776,10 @@ export function OverlayUI() {
                 onClick={() => clearSectionPlanes()}
                 disabled={sectionPlanes.length === 0}
                 className={cn(
-                  "relative group shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition-all active:scale-95",
+                  "relative group shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs sm:text-sm font-medium transition-all active:scale-95 cursor-pointer",
                   sectionPlanes.length === 0
                     ? "bg-yellow-400/10 text-yellow-200/30 cursor-not-allowed"
-                    : "bg-yellow-400/20 text-yellow-300 hover:bg-yellow-400/30 shadow-[0_0_10px_rgba(250,204,21,0.15)]"
+                    : "bg-yellow-400/20 text-yellow-300 hover:bg-yellow-400/30 border border-yellow-400/30"
                 )}
                 title="清空所有已生成的剖切面"
               >
@@ -828,7 +807,7 @@ export function OverlayUI() {
               </div>
               <h3 className="text-lg font-bold">删除该模型？</h3>
               <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-                即将删除自定义模型「{pendingDeleteModel.name}」。删除后模型上的所有笔迹与连线也会一并清除，且不可撤销。
+                即将删除自定义模型「${pendingDeleteModel.name}」。删除后模型上的所有笔迹与连线也会一并清除，且不可撤销。
               </p>
               <div className="flex gap-3 mt-2">
                 <button
@@ -852,8 +831,6 @@ export function OverlayUI() {
           </div>
         )}
       </AnimatePresence>
-
-      {/* Info hidden per requirements */}
     </>
   );
 }
@@ -863,13 +840,13 @@ function DockButton({ children, active, onClick, label }: { children: React.Reac
     <button
       onClick={onClick}
       className={cn(
-        "relative group p-4 sm:p-5 lg:p-6 rounded-full transition-all duration-300 ease-out",
-        active ? "bg-white/15 text-white" : "text-white/50 hover:bg-white/5 hover:text-white/90"
+        "relative group p-4 sm:p-5 lg:p-6 rounded-full transition-all duration-300 ease-out cursor-pointer",
+        active ? "bg-white/15 text-white border border-white/20" : "text-white/50 hover:bg-white/5 hover:text-white/90 border border-transparent"
       )}
     >
       {children}
       {active && (
-        <span className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white rounded-full shadow-[0_0_10px_white]" />
+        <span className="absolute bottom-2 left-1/2 -translate-x-1/2 w-1.5 h-1.5 bg-white rounded-full" />
       )}
       {/* Custom Tooltip */}
       <span className="absolute -top-12 left-1/2 -translate-x-1/2 px-3 py-1.5 rounded-xl text-xs font-medium text-white bg-zinc-950/80 backdrop-blur-md border border-white/10 opacity-0 scale-90 group-hover:opacity-100 group-hover:scale-100 transition-all duration-200 pointer-events-none whitespace-nowrap shadow-[0_8px_32px_rgba(0,0,0,0.4)]">

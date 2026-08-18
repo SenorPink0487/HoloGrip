@@ -124,8 +124,8 @@ export const useARStore = create<ARState>((set) => ({
   presetDimensions: {
     cube: { size: 10 },
     sphere: { radius: 10 },
-    cylinder: { radius: 10, height: 20 },
-    cone: { radius: 10, height: 20 },
+    cylinder: { radius: 5, height: 10 },
+    cone: { radius: 5, height: 10 },
     pyramid: { radius: 10 },
   },
   modelLines: [],

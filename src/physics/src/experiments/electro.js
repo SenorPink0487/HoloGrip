@@ -2337,13 +2337,13 @@ export function createHandlers(ctx) {
         if (payload.key === 'equipot') {
           if (!data.showEquipot) {
             data.showEquipot = 'flat';
-            toast('等势面模式: 平面 (2D)');
+            toast('等势线模式: 平面 (2D)');
           } else if (data.showEquipot === 'flat' || data.showEquipot === true) {
             data.showEquipot = 'concentric';
             toast('等势面模式: 立体同心球包裹');
           } else {
             data.showEquipot = false;
-            toast('等势面已关闭');
+            toast('等势线/面已关闭');
           }
         } else {
           const key = {

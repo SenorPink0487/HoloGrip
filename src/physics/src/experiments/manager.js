@@ -4,6 +4,7 @@
 import { isParamSliderAction, valueFromParamSliderPick } from '../holoScreen.js';
 import { labFrameScheduler } from '../frameBudget.js';
 import { labOpenTiming } from '../runtime/openTiming.js';
+import { createExperimentHandlers, defineStationExperimentModule } from './contract.js';
 
 /** Create manager bound to scene equipment refs */
 export function createExperimentManager({
@@ -182,11 +183,16 @@ export function createExperimentManager({
 
   function registerStationModule(id, mod, station = mod?.station) {
     if (!id || !mod) return false;
+    // Test/embed callers may register only a handler module and use the
+    // catalog already supplied to the manager. Normalize that legacy shape at
+    // this boundary; production station modules always carry full metadata.
+    const stationModule = defineStationExperimentModule({
+      ...mod,
+      station: station || mod.station || stationCatalog[id] || { id },
+    });
     stationModules[id] = mod;
     if (station) stationCatalog[id] = station;
-    if (typeof mod.createHandlers === 'function') {
-      handlers[id] = mod.createHandlers(ctx);
-    }
+    handlers[id] = createExperimentHandlers(stationModule, ctx);
     return true;
   }
 

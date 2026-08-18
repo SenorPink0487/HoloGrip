@@ -1315,10 +1315,10 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
     { label: '重置', action: 'electric-reset', meta: {}, color: accentHex },
   ];
 
-  // Row B: 等势面 / 高斯面 / 试探电荷 (Merged probe toggle + sign per draft)
+  // Row B: 等势线/等势面 / 高斯面 / 试探电荷 (Merged probe toggle + sign per draft)
   const probeLabel = probe.q0 >= 0 ? '试探电荷 q₀(+)' : '试探电荷 q₀(−)';
   const equipotMode = d.showEquipot;
-  const equipotLabel = equipotMode === 'concentric' ? '等势面(立体)' : (equipotMode ? '等势面(平面)' : '等势面');
+  const equipotLabel = equipotMode === 'concentric' ? '等势面(立体)' : (equipotMode ? '等势线(平面)' : '等势线');
   const toggleItems = [
     { label: equipotLabel, action: 'electric-toggle', meta: { key: 'equipot' }, color: accentHex, active: Boolean(d.showEquipot) },
     { label: '高斯面', action: 'electric-toggle', meta: { key: 'gauss' }, color: accentHex, active: Boolean(d.showGauss) },

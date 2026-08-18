@@ -37,6 +37,15 @@ import { createFrameCoordinator } from './runtime/frameCoordinator.js';
 import { createSimDriver } from './runtime/simDriver.js';
 import { createRenderBackend } from './runtime/threading/renderBackend.js';
 import { createPhysicsPostProcessing } from './runtime/postprocessing.js';
+import { createHoloFullscreenController } from './runtime/holoFullscreen.js';
+import { formatExperimentData } from './ui/experimentDataSummary.js';
+import {
+  defineInteractionTarget,
+  findInteractionHost,
+  hasInteractionMethod,
+  INTERACTION_KIND,
+  isInteractionKind,
+} from './runtime/interactionContract.js';
 import {
   createPerformanceGovernor,
   HIGH_QUALITY_PROFILE,
@@ -60,8 +69,6 @@ import {
   PHYSICS_STATION_IDS,
 } from './runtime/catalog.js';
 import { resolveLabMode, isChemMode, CHEM_ACCENT, CHEM_ACCENT_NUM } from './chem/labMode.js';
-import { createChemHoloSet } from './chem/chemHolos.js';
-import { updateReagentSearchDockPosition } from './chem/reagentSearchDock.js';
 
 /** Subject mode: physics (4 corner stations) | chem (center island only). */
 const labMode = resolveLabMode();
@@ -978,7 +985,11 @@ function addSideBlackboard(x, toolbarSide, w = 3.6, h = 2.2) {
   markMeta(g);
   markMeta(face);
   markMeta(board);
-  g.userData.interactive = true;
+  defineInteractionTarget(g, {
+    kind: INTERACTION_KIND.SIDE_BLACKBOARD,
+    role: 'side_blackboard',
+    maxDistance: FRONT_WALL_DISPLAY_MAX_DIST,
+  });
 
   function faceHitFromRay(rc) {
     face.updateMatrixWorld(true);
@@ -1436,7 +1447,6 @@ function makeInteractiveFormulaBoard() {
 
   const tag = (o) => {
     o.userData.type = 'formula_board';
-    o.userData.interactive = true;
     o.userData.role = 'formula_board';
     // Only interact within ~1/3 of lab depth to avoid accidental activation from afar
     o.userData.maxInteractDist = FRONT_WALL_DISPLAY_MAX_DIST;
@@ -1445,6 +1455,11 @@ function makeInteractiveFormulaBoard() {
   tag(screen);
   tag(hit);
   tag(plate);
+  defineInteractionTarget(g, {
+    kind: INTERACTION_KIND.FORMULA_BOARD,
+    role: 'formula_board',
+    maxDistance: FRONT_WALL_DISPLAY_MAX_DIST,
+  });
 
   g.userData.screen = screen;
   g.userData.state = state;
@@ -2043,6 +2058,11 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   tag(backFace);
   tag(base);
   tag(core);
+  defineInteractionTarget(g, {
+    kind: INTERACTION_KIND.HOLO_SELECTOR,
+    role: 'holo_selector',
+    stationId,
+  });
 
   g.userData.draw = draw;
   g.userData.tex = tex;
@@ -2472,6 +2492,11 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
   tag(topStab);
   tag(botStab);
   tag(substrate);
+  defineInteractionTarget(g, {
+    kind: INTERACTION_KIND.HOLO_DISPLAY,
+    role: 'holo_display',
+    stationId,
+  });
 
   function setPresent(on) {
     const present = !!on;
@@ -2713,11 +2738,20 @@ displayConfigs.forEach(({ id, title, accent, accentNum, pos, rotY }) => {
   if (holos[id]) holos[id].userData.display = d;
 });
 
-// Chemistry always-on L/R holos + on-demand periodic table (center island).
+// Chemistry is a separate explicit lab mode. Load its 3D HUD only after the
+// physics shell selected that mode, so a normal physics launch never parses
+// chemistry canvas/UI code.
 /** @type {{ left?: object, right?: object, periodic?: object, list: object[] } | null} */
-const chemHoloSet = chemMode
-  ? createChemHoloSet(THREE, primitives, scene)
-  : null;
+let chemHoloSet = null;
+let updateReagentSearchDockPosition = null;
+if (chemMode) {
+  const [{ createChemHoloSet }, reagentDock] = await Promise.all([
+    import('./chem/chemHolos.js'),
+    import('./chem/reagentSearchDock.js'),
+  ]);
+  chemHoloSet = createChemHoloSet(THREE, primitives, scene);
+  updateReagentSearchDockPosition = reagentDock.updateReagentSearchDockPosition;
+}
 if (chemHoloSet) {
   // Register as chem displays so HUD push + interactables can find them.
   stationDisplays.chem = chemHoloSet.left;
@@ -2731,7 +2765,7 @@ if (chemHoloSet) {
       try { panel.userData.faceCamera?.(camera); } catch { /* ignore */ }
     });
     if (chemHoloSet.periodic?.userData?.present) {
-      updateReagentSearchDockPosition(chemHoloSet.periodic, camera);
+      updateReagentSearchDockPosition?.(chemHoloSet.periodic, camera);
     }
   });
 }
@@ -3168,89 +3202,7 @@ function updateAimHud(target, canInteract) {
   }
 }
 
-function formatData(stationId, expId, data) {
-  if (!data) return '—';
-  if (stationId === 'mechanics' && Array.isArray(data.readouts)) {
-    const lines = data.readouts.slice(0, 6).map((item) => `${item.label}: ${item.value}`);
-    lines.push(`<span class="ok">${data.paused ? '仿真已暂停' : '源仿真运行中'}</span>`);
-    return lines.join('\n');
-  }
-  if (expId === 'multi_slit_diffraction') {
-    const nRec = Array.isArray(data.records) ? data.records.length : 0;
-    const mode = data.chartOpen ? '核对标注中' : (data.farField ? 'Fraunhofer ✓' : '近场警告');
-    return `${data.N === 1 ? '单缝衍射' : `${data.N} 缝干涉`}　λ=${Number(data.lambdaNm || 0).toFixed(0)} nm\na=${Number(data.slitMm || 0).toFixed(3)} mm　d=${Number(data.pitchMm || 0).toFixed(3)} mm\nL=${Number(data.distM || 0).toFixed(2)} m　Δx≈${Number(data.fringeSpacingMm || 0).toFixed(3)} mm\n<span class="ok">对照 ${nRec} 组　${mode}</span>`;
-  }
-  if (data.mode === 'geometric'
-    || expId === 'reflection' || expId === 'refraction'
-    || expId === 'dispersion' || expId === 'lens') {
-    const nRec = Array.isArray(data.records) ? data.records.length : 0;
-    const mod = data.moduleCode ? `${data.moduleCode} ` : '';
-    const mirror = data.opticsMode === 'mirror' || expId === 'reflection';
-    const t1 = data.theta1 != null ? Number(data.theta1).toFixed(1) : '—';
-    const t2 = data.theta2 == null ? (mirror ? '—' : 'TIR') : Number(data.theta2).toFixed(1);
-    if (mirror) {
-      const dth = data.deltaTheta != null ? Number(data.deltaTheta).toFixed(3) : '—';
-      return `${mod}反射　θᵢ=${t1}°　θᵣ=${t2}°\n|Δθ|=${dth}°　转角=${Number(data.rotate || 0).toFixed(0)}°\n<span class="ok">记录 ${nRec} 组　${data.verifyOk ? 'θᵢ≈θᵣ ✓' : '调节中'}</span>`;
-    }
-    const ratio = data.snellRatio != null ? Number(data.snellRatio).toFixed(3) : '—';
-    return `${mod}折射/色散　n=${Number(data.ior || 0).toFixed(3)}　θ₁=${t1}°　θ₂=${t2}°\nsinθ₁/sinθ₂=${ratio}　光束=${Number(data.rayCount || 1)}\n<span class="ok">记录 ${nRec} 组${data.dispersion ? '　色散开' : ''}</span>`;
-  }
-
-  if (expId === 'hall_effect') {
-    const target = data.target === 'solenoid' ? '长螺线管' : '亥姆霍兹线圈';
-    const records = Array.isArray(data.records) ? data.records : [];
-    const wiringText = data.wiring?.energized
-      ? `${data.wiring.label}${data.wiring.reversed ? '（反接）' : '（正接）'}`
-      : data.wiring?.status === 'invalid' ? '接线无效/未闭合' : 'Im 输出未接线';
-    return `对象: ${target}\n接线: ${wiringText}\nVH = ${Number(data.vh || 0).toFixed(2)} mV　X = ${Number(data.probePos || 0).toFixed(1)} cm\nIm = ${Number(data.Im || 0).toFixed(2)} A　Is = ${Number(data.Is || 0).toFixed(1)} mA\n记录: ${records.length} 组`;
-  }
-  if (expId === 'faraday_induction') {
-    const motion = data.lastMotion;
-    const induction = data.lastInduction;
-    const fmt = (value, digits = 3) => Number(value || 0).toFixed(digits);
-    return `B = ${fmt(data.B, 2)} T · S = ${fmt(data.area)} m² · Φ_B = ${fmt(data.flux)} Wb\n`
-      + `铜棒 x = ${fmt(data.x)} · 楞次方向: ${data.currentSense || '无'}\n`
-      + `动生 ε_i = ${motion ? fmt(motion.emf, 4) : '—'} V · 感生 ε_i = ${induction ? fmt(induction.emf, 4) : '—'} V\n`
-      + `记录: ${Array.isArray(data.records) ? data.records.length : 0} 组`;
-  }
-  if (expId === 'induced_electric_field') {
-    const fmt = (value, digits = 3) => Number(value || 0).toFixed(digits);
-    const region = Number(data.probeR || 0) <= Number(data.R || 0) + 1e-6 ? '面内' : '面外';
-    return `B = ${fmt(data.B, 2)} · dB/dt = ${fmt(data.dBdt, 2)}\n`
-      + `R = ${fmt(data.R, 2)} · r = ${fmt(data.probeR, 2)}（${region}）\n`
-      + `|E| = ${fmt(data.magnitudeE, 3)} · ${data.senseLabel || '—'}\n`
-      + `${data.paused ? '振荡已暂停' : 'B = B₀ sin(ωt) 振荡中'}`;
-  }
-  if (expId === 'hall_carrier_demo') {
-    return `I = ${Number(data.I || 0).toFixed(2)}　B = ${Number(data.B || 0).toFixed(2)}\nn = ${Number(data.n || 0).toFixed(2)}　d = ${Number(data.d || 0).toFixed(2)}\nU_H(相对) = ${Number(data.vh || 0).toFixed(3)}　${data.nType ? 'n 型' : 'p 型'}\n${data.paused ? '动画已暂停' : '载流子运动中'}`;
-  }
-  if (expId === 'calorimetry') {
-    const teq = data.cupHot && data.cupCold ? (data.mHot * data.tHot + data.mCold * data.tCold) / (data.mHot + data.mCold) : null;
-    const motion = data.pouring ? `倒入${data.pouring === 'hot' ? '热水' : '冷水'} · ${Math.round((data.pourProgress || 0) * 100)}%` : data.mixProgress > 0 && data.mixProgress < 1 ? `混合中 · ${Math.round(data.mixProgress * 100)}%` : '静置';
-    return `热水 ${Number(data.tHot || 0).toFixed(0)} °C / ${Number(data.mHot || 0).toFixed(0)} g\n冷水 ${Number(data.tCold || 0).toFixed(0)} °C / ${Number(data.mCold || 0).toFixed(0)} g\n过程：${motion} · 终温 ${data.tCurrent == null ? '—' : Number(data.tCurrent).toFixed(1) + ' °C'}\n<span class="ok">理论平衡 = ${teq == null ? '—' : teq.toFixed(1) + ' °C'} · 记录 ${data.records?.length || 0} 组</span>`;
-  }
-  if (expId === 'convection') {
-    const deltaT = Math.max(0, Number(data.tPlate || 0) - Number(data.tAir || 0));
-    const L = Math.sqrt(Number(data.area || 0.12));
-    const ra = 1e8 * deltaT * L ** 3;
-    const nu = 0.15 * Math.pow(Math.max(ra, 1), 1 / 3);
-    const h = deltaT < 1 ? 2 : Math.max(3, nu * 0.028 / L);
-    return `热板 ${Number(data.tPlate || 0).toFixed(0)} K · 环境 ${Number(data.tAir || 0).toFixed(0)} K\nRa = ${ra.toFixed(0)} · Nu = ${nu.toFixed(1)}\n<span class="ok">h = ${h.toFixed(1)} W/(m²·K) · 记录 ${data.records?.length || 0} 组</span>`;
-  }
-  if (expId === 'heat-conduction') {
-    return `热端 ${Number(data.tHot || 0).toFixed(0)} K · 冷端 ${Number(data.tCold || 0).toFixed(0)} K\nk = ${Number(data.conductivity || 0).toFixed(2)} · 中点 ${Number(data.temps?.[24] || 0).toFixed(1)} K\n<span class="ok">记录 ${data.records?.length || 0} 组</span>`;
-  }
-  if (expId === 'ideal-gas') {
-    const p = (Number(data.n || 0) * 8.314 * Number(data.temperature || 0) / Math.max(0.01, Number(data.volume || 1)) / 1000) * 12;
-    return `T = ${Number(data.temperature || 0).toFixed(0)} K · V = ${Number(data.volume || 0).toFixed(2)} ×\nP = ${p.toFixed(1)} kPa · n = ${Number(data.n || 0).toFixed(3)} mol\n<span class="ok">碰撞率 ${data.collisionsPerSec || 0} Hz · 记录 ${data.records?.length || 0} 组</span>`;
-  }
-  if (expId === 'thermal-expansion') {
-    const alpha = ({ aluminum: 23.1, copper: 16.5, steel: 12, invar: 1.2 }[data.material] || 23.1) * 1e-6;
-    const dL = alpha * Number(data.length0 || 1) * (Number(data.temperature || 20) - 20);
-    return `材料 ${data.material || 'aluminum'} · T = ${Number(data.temperature || 0).toFixed(0)} °C\nΔL = ${(dL * 1000).toFixed(3)} mm · L = ${((Number(data.length0 || 1) + dL) * 1000).toFixed(2)} mm\n<span class="ok">α = ${(alpha * 1e6).toFixed(1)} ×10⁻⁶/K · 记录 ${data.records?.length || 0} 组</span>`;
-  }
-  return JSON.stringify(data);
-}
+const formatData = formatExperimentData;
 
 /** Monotonic revision so hologram screens redraw when HUD changes */
 let hudRev = 0;
@@ -3260,162 +3212,27 @@ let lastHudDataHtml = '';
 // ── Fullscreen maximized hologram (covers the whole browser viewport) ──
 const holoFsEl = document.getElementById('holo-fs');
 const holoFsCanvas = document.getElementById('holo-fs-canvas');
-const holoFsCtx = holoFsCanvas?.getContext('2d');
-const holoFsState = {
-  open: false,
-  stationId: null,
-  hits: [],
-  canvasW: 1600,
-  canvasH: 1000,
-};
-
-function resizeHoloFsCanvas() {
-  if (!holoFsCanvas || !holoFsEl) return;
-  const frame = holoFsEl.querySelector('.holo-fs-frame');
-  const rect = frame?.getBoundingClientRect() || { width: window.innerWidth, height: window.innerHeight };
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const cssW = Math.max(320, rect.width);
-  const cssH = Math.max(240, rect.height);
-  // The experiment UI has a desktop-sized vertical layout. On short windows,
-  // keep that logical height and let the canvas scale uniformly in CSS; this
-  // prevents the footer from covering parameter rows while preserving picks.
-  const minLogicalH = 820;
-  const logicalScale = Math.max(1, minLogicalH / (cssH * dpr));
-  const bufW = Math.round(cssW * dpr * logicalScale);
-  const bufH = Math.round(cssH * dpr * logicalScale);
-  holoFsState.canvasW = bufW;
-  holoFsState.canvasH = bufH;
-  holoFsCanvas.width = bufW;
-  holoFsCanvas.height = bufH;
-}
-
-function paintHoloFs() {
-  if (!holoFsState.open || !holoFsCtx || !holoFsCanvas) return;
-  const sid = holoFsState.stationId;
-  const holo = holos[sid];
-  if (!holo?.userData) return;
-  const ud = holo.userData;
-  const W = holoFsCanvas.width;
-  const H = holoFsCanvas.height;
-  // Fullscreen mirrors the front content display (experiment UI).
-  const display = stationDisplays[sid];
-  const source = display?.userData || ud;
-  const result = drawHoloScreen(holoFsCtx, W, H, {
-    accentHex: source.accentHex || ud.accentHex || '#38bdf8',
-    fullTitle: source.fullTitle || ud.fullTitle || '实验台',
-    enTitle: source.enTitle || ud.enTitle || 'STATION',
-    active: true,
-    hud: lastHudSnapshot,
-    dataHtml: lastHudDataHtml,
-    maximized: true,
-    surface: 'display',
-    theme: 'light',
-  });
-  holoFsState.hits = result.hits || [];
-}
-
-function openHoloFullscreen(stationId) {
-  if (!holoFsEl || !holoFsCanvas) return;
-  holoFsState.open = true;
-  holoFsState.stationId = stationId;
-  holoFsEl.classList.add('open');
-  holoFsEl.setAttribute('aria-hidden', 'false');
-  document.body.classList.add('holo-fs-open');
-  // Free the mouse so user can click the fullscreen UI like a normal screen
-  if (controls.isLocked) controls.unlock();
-  const holo = holos[stationId];
-  const display = stationDisplays[stationId];
-  holo?.userData?.setMaximized?.(true);
-  display?.userData?.setMaximized?.(true);
-  resizeHoloFsCanvas();
-  paintHoloFs();
-  showToast('已全屏显示实验内容屏 · Esc 退出全屏');
-}
-
-function closeHoloFullscreen(opts = {}) {
-  const { keepMaximizedFlag = false } = opts;
-  if (!holoFsEl) return;
-  const sid = holoFsState.stationId;
-  // DOM + flags only — never shrink GPU canvas or paint on the click frame
-  // (canvas resize was a post-close hitch on some GPUs).
-  holoFsState.open = false;
-  holoFsState.hits = [];
-  holoFsEl.classList.remove('open');
-  holoFsEl.setAttribute('aria-hidden', 'true');
-  document.body.classList.remove('holo-fs-open');
-  if (sid) {
-    labFrameScheduler.cancel?.(`hud:display-full:${sid}`);
-    labFrameScheduler.cancel?.(`hud:display-shell:${sid}`);
-    labFrameScheduler.cancel?.(`hud:selector:${sid}`);
-    labFrameScheduler.cancel?.('hud:fs-paint');
-    labFrameScheduler.cancel?.('hud:close-fs');
-    if (!keepMaximizedFlag) {
-      if (holos[sid]?.userData) holos[sid].userData.maximized = false;
-      if (stationDisplays[sid]?.userData) stationDisplays[sid].userData.maximized = false;
-    }
-  }
-  holoFsState.stationId = null;
-  // Free the giant fullscreen buffer on a later pulse (after camera frames).
-  labFrameScheduler.schedule?.('hud:fs-free', () => {
-    if (holoFsState.open) return;
-    if (holoFsCanvas && (holoFsCanvas.width > 4 || holoFsCanvas.height > 4)) {
-      holoFsCanvas.width = 1;
-      holoFsCanvas.height = 1;
-      holoFsState.canvasW = 1;
-      holoFsState.canvasH = 1;
-    }
-  }, { priority: 20 });
-}
-
-function toggleHoloFullscreen(stationId) {
-  if (holoFsState.open && holoFsState.stationId === stationId) {
-    closeHoloFullscreen();
-    showToast('已退出全屏');
-    return false;
-  }
-  openHoloFullscreen(stationId);
-  return true;
-}
-
-function mapFsClickToCanvas(clientX, clientY) {
-  if (!holoFsCanvas) return null;
-  const rect = holoFsCanvas.getBoundingClientRect();
-  if (rect.width < 1 || rect.height < 1) return null;
-  const px = ((clientX - rect.left) / rect.width) * holoFsCanvas.width;
-  const py = ((clientY - rect.top) / rect.height) * holoFsCanvas.height;
-  return { px, py };
-}
-
-function pickFsAt(clientX, clientY) {
-  const p = mapFsClickToCanvas(clientX, clientY);
-  if (!p) return null;
-  const hits = holoFsState.hits || [];
-  // reuse multi-convention pick via fake UV
-  const u = p.px / holoFsCanvas.width;
-  const v = 1 - p.py / holoFsCanvas.height; // pickHoloScreen converts (1-v)*H for first candidate
-  return pickHoloScreen(u, v, holoFsCanvas.width, holoFsCanvas.height, hits, 1)
-    || (() => {
-      // direct pixel test (canvas coords already top-left origin)
-      for (let i = hits.length - 1; i >= 0; i--) {
-        const h = hits[i];
-        if (p.px >= h.x && p.px <= h.x + h.w && p.py >= h.y && p.py <= h.y + h.h) return h;
-      }
-      // chrome corner snap
-      if (p.px > holoFsCanvas.width * 0.7 && p.py < holoFsCanvas.height * 0.14) {
-        let best = null;
-        let bestD = Infinity;
-        for (const h of hits) {
-          if (!h.chrome) continue;
-          const cx = h.x + h.w / 2;
-          const cy = h.y + h.h / 2;
-          const d = (p.px - cx) ** 2 + (p.py - cy) ** 2;
-          if (d < bestD) { bestD = d; best = h; }
-        }
-        return best;
-      }
-      return null;
-    })();
-}
+const holoFullscreen = createHoloFullscreenController({
+  element: holoFsEl,
+  canvas: holoFsCanvas,
+  drawScreen: drawHoloScreen,
+  pickScreen: pickHoloScreen,
+  getHolo: (stationId) => holos[stationId],
+  getDisplay: (stationId) => stationDisplays[stationId],
+  getHud: () => lastHudSnapshot,
+  getDataHtml: () => lastHudDataHtml,
+  scheduler: labFrameScheduler,
+  unlockControls: () => { if (controls.isLocked) controls.unlock(); },
+  onToast: showToast,
+});
+const holoFsState = holoFullscreen.state;
+const resizeHoloFsCanvas = () => holoFullscreen.resize();
+const paintHoloFs = () => holoFullscreen.paint();
+const openHoloFullscreen = (stationId) => holoFullscreen.open(stationId);
+const closeHoloFullscreen = (opts) => holoFullscreen.close(opts);
+const toggleHoloFullscreen = (stationId) => holoFullscreen.toggle(stationId);
+const mapFsClickToCanvas = (clientX, clientY) => holoFullscreen.pointFromClient(clientX, clientY);
+const pickFsAt = (clientX, clientY) => holoFullscreen.pickAt(clientX, clientY);
 
 if (holoFsCanvas) {
   /** @type {{ pointerId: number, lastY: number, moved: boolean, pick: object } | null} */
@@ -4963,40 +4780,24 @@ function getFocusHit() {
 }
 
 function resolveInteractive(obj) {
-  let o = obj;
-  while (o && !o.userData?.interactive && o.parent) o = o.parent;
-  return o?.userData?.interactive ? o : null;
+  return findInteractionHost(obj);
 }
 
 /** Climb to the side-blackboard host that owns pick/draw APIs. */
 function resolveSideBlackboardHost(obj) {
-  let o = obj;
-  while (o) {
-    if (
-      (o.userData?.type === 'side_blackboard' || o.userData?.role === 'side_blackboard')
-      && typeof o.userData.drawFromRay === 'function'
-    ) {
-      return o;
-    }
-    o = o.parent;
-  }
-  return null;
+  return findInteractionHost(obj, (candidate) => (
+    isInteractionKind(candidate, INTERACTION_KIND.SIDE_BLACKBOARD)
+    && hasInteractionMethod(candidate, 'drawFromRay')
+ ));
 }
 
 /** Climb to tabletop holo / content-display host that owns pickFromRay. */
 function resolveScreenHost(obj) {
-  let o = obj;
-  while (o) {
-    const t = o.userData?.type;
-    const r = o.userData?.role;
-    if (
-      (t === 'holo' || t === 'holo_display' || r === 'holo_selector' || r === 'holo_display')
-      && typeof o.userData.pickFromRay === 'function'
-    ) {
-      return o;
-    }
-    o = o.parent;
-  }
+  const host = findInteractionHost(obj, (candidate) => (
+    isInteractionKind(candidate, INTERACTION_KIND.HOLO_SELECTOR, INTERACTION_KIND.HOLO_DISPLAY)
+    && hasInteractionMethod(candidate, 'pickFromRay')
+ ));
+  if (host) return host;
   // Fallback via station maps if only a child mesh was selected.
   const sid = obj?.userData?.stationId;
   if (!sid) return null;
@@ -5008,16 +4809,11 @@ function resolveScreenHost(obj) {
 
 /** Climb to physical desk param-slider panel. */
 function resolveDeskSliderHost(obj) {
-  let o = obj;
-  while (o) {
-    if (
-      (o.userData?.type === 'desk_param_panel' || o.userData?.role === 'desk_param_panel')
-      && typeof o.userData.pickFromRay === 'function'
-    ) {
-      return o;
-    }
-    o = o.parent;
-  }
+  const host = findInteractionHost(obj, (candidate) => (
+    isInteractionKind(candidate, INTERACTION_KIND.DESK_PANEL)
+    && hasInteractionMethod(candidate, 'pickFromRay')
+ ));
+  if (host) return host;
   const sid = obj?.userData?.stationId;
   if (sid && deskSliderPanels[sid]) return deskSliderPanels[sid];
   return null;
