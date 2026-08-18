@@ -390,7 +390,11 @@ function scheduleShadowRefresh(nowMs, { switching = false, dynamic = false } = {
   if (switching) shadowRefreshIntervalMs = 1000 / 15;
   else if (dynamic) shadowRefreshIntervalMs = 1000 / 30;
   else return;
-  if (shadowRefreshRequested || nowMs >= nextShadowRefreshAt) {
+  // Shadow-map rendering is synchronous on WebGL/ANGLE. Do not rebuild the
+  // whole room merely because an experiment is switching or simulating; only
+  // an explicit graph change that actually needs new casters should request it.
+  // This keeps a mechanics open from blocking on the room's 319 static casters.
+  if (shadowRefreshRequested) {
     renderer.shadowMap.needsUpdate = true;
     shadowRefreshRequested = false;
     nextShadowRefreshAt = nowMs + shadowRefreshIntervalMs;
@@ -1532,6 +1536,31 @@ function makeInteractiveFormulaBoard() {
       return true;
     }
     return false;
+  };
+
+  g.userData.syncExperiment = (expId, stationId) => {
+    if (!expId) {
+      if (state.selectedId || (stationId && state.stationId !== stationId)) {
+        state.stationId = stationId || null;
+        state.selectedId = null;
+        redraw();
+      }
+      return;
+    }
+    const item = FORMULA_CATALOG.items.find((it) => it.expId === expId || it.id === expId);
+    if (item) {
+      if (state.selectedId !== item.id || state.stationId !== item.cat) {
+        state.selectedId = item.id;
+        state.stationId = item.cat;
+        redraw();
+      }
+    } else if (stationId) {
+      if (state.stationId !== stationId || state.selectedId !== null) {
+        state.stationId = stationId;
+        state.selectedId = null;
+        redraw();
+      }
+    }
   };
 
   // gentle idle emissive pulse
@@ -3749,6 +3778,13 @@ function onHudUpdate(hud) {
   // Zustand store update is cheap; all canvas work is scheduled inside pushHudToHoloScreens.
   updateHud(hud);
   pushHudToHoloScreens(hud);
+  if (hud?.running && hud?.experiment?.id) {
+    formulaBoard?.userData?.syncExperiment?.(hud.experiment.id, hud.station?.id);
+  } else if (hud?.station?.id && hud?.menuOpen) {
+    formulaBoard?.userData?.syncExperiment?.(null, hud.station.id);
+  } else if (!hud?.menuOpen && !hud?.running) {
+    formulaBoard?.userData?.syncExperiment?.(null, null);
+  }
 }
 
 const { createExperimentManager } = await import('./experiments/manager.js');
@@ -3762,7 +3798,10 @@ expManager = createExperimentManager({
   openTiming: labOpenTiming,
   onApparatusGraphChanged: (stationId) => {
     invalidateStationPickables(stationId);
-    requestShadowRefresh();
+    // Mechanics source rigs strip all shadow casters during construction, so
+    // changing between their six experiments cannot change the shadow map.
+    // Electro still owns a few moving casters and keeps the explicit refresh.
+    if (stationId !== 'mechanics') requestShadowRefresh();
   },
   // GPU preparation is owned by the intent-prediction path. Never compile
   // the whole room from the atomic legacy-handler commit callback: on ANGLE,
@@ -3786,7 +3825,17 @@ const experimentRuntimeCache = createRuntimeCache({
 });
 const experimentTransition = createTransitionController({
   cache: experimentRuntimeCache,
-  prepareContext: { renderer, camera, detachedRoot: new THREE.Group() },
+  prepareContext: {
+    renderer,
+    camera,
+    detachedRoot: new THREE.Group(),
+    // Use the real lab scene as Three.js' target scene so shader defines
+    // match the first visible render (lights, environment, shadows, etc.).
+    // The isolated prepare scene still limits traversal to the incoming rig.
+    targetScene: scene,
+    // ensureIntentPrepareScene() creates the shared 1x1 target lazily.
+    renderTarget: () => intentPrepareTarget,
+  },
   prepareScene: () => ensureIntentPrepareScene(),
   createRuntime: async (key, _ctx, signal) => {
     const [stationId, expId] = String(key).split(':');
@@ -3807,8 +3856,8 @@ const experimentTransition = createTransitionController({
     return createExperimentRuntime({
       id: key,
       prepare: (ctx, prepareSignal) => stationRuntime.prepare(ctx, prepareSignal),
-      prepareGpu: (activeRenderer, activeCamera, prepareScene, prepareSignal) => (
-        stationRuntime.prepareGpu(activeRenderer, activeCamera, prepareScene, prepareSignal)
+      prepareGpu: (activeRenderer, activeCamera, prepareScene, prepareSignal, targetScene, renderTarget) => (
+        stationRuntime.prepareGpu(activeRenderer, activeCamera, prepareScene, prepareSignal, targetScene, renderTarget)
       ),
       mount: (parent) => stationRuntime.mount(parent),
       activate: (initialState) => stationRuntime.activate(initialState),
@@ -3890,15 +3939,19 @@ function updateShaderWarmupIndicator(progress = {}) {
     const completed = Number.isFinite(progress.completed) ? progress.completed : 0;
     const total = Number.isFinite(progress.total) ? progress.total : PHYSICS_SHADER_WARMUP_KEYS.length;
     const failed = Number.isFinite(progress.failed) ? progress.failed : 0;
-    if (label) {
-      label.textContent = progress.state === 'complete'
-        ? (progress.skipped
-          ? `着色器缓存已就绪（${completed}/${total}）`
-          : `着色器编译完成（${completed}/${total}）`)
-        : `着色器已编译 ${completed}/${total}${failed ? `，失败 ${failed} 项` : ''}`;
+    // 21/21 only means the background queue finished its pass. It does not
+    // guarantee that every experiment runtime is still retained in memory or
+    // that a later click will not need a quick prepare. Do not present that
+    // queue result as a universal "compile complete" promise.
+    if (progress.state === 'complete') {
+      node.classList.remove('show', 'is-complete', 'is-running');
+      node.setAttribute('aria-busy', 'false');
+      return;
     }
-    node.classList.remove('is-running');
-    node.classList.toggle('is-complete', progress.state === 'complete');
+    if (label) {
+      label.textContent = `后台准备部分完成（${completed}/${total}${failed ? `，失败 ${failed} 项` : ''}）`;
+    }
+    node.classList.remove('is-running', 'is-complete');
     node.classList.add('show');
     node.setAttribute('aria-busy', 'false');
     return;
@@ -6283,6 +6336,10 @@ simDriver.bind({
 expManager?.setSimOwnedByDriver?.(true);
 
 let lastPresentAt = -Infinity;
+// A selected experiment may need several asynchronous GPU preparation slices.
+// Keep the old lab frame on screen while those slices yield so a partially
+// mounted apparatus cannot become visible and then freeze on its first draw.
+let gpuPrepareInProgress = false;
 const frameCoordinator = createFrameCoordinator({
   fixedDt: 1 / 60,
   maxCatchUp: 2,
@@ -6296,6 +6353,10 @@ const frameCoordinator = createFrameCoordinator({
     experimentTransition.current?.visualUpdate?.(alpha);
   },
   onRender: () => {
+    if (gpuPrepareInProgress) {
+      noteSwitchStage('render', 0);
+      return;
+    }
     const renderNow = performance.now();
     scheduleShadowRefresh(renderNow, {
       switching: !!labFrameScheduler.softSwitchActive?.(),
@@ -6421,6 +6482,12 @@ function animate() {
   const dt = Math.min(clock.getDelta(), 0.05);
   const t = clock.elapsedTime;
   const nowMs = performance.now();
+  const traceFrames = typeof window !== 'undefined' && (
+    window.__LAB_TRACE
+    || new URLSearchParams(window.location.search).has('trace')
+    || new URLSearchParams(window.location.search).has('measure')
+  );
+  const frameTraceStart = traceFrames ? nowMs : 0;
   performanceGovernor.beginFrame(nowMs);
   renderer.info.reset?.();
   const arActive = !!handTracking?.isActive();
@@ -6489,7 +6556,22 @@ function animate() {
   // Freeze SimDriver so fixed steps do not fight switch jobs on the main thread.
   if (softSwitch) {
     simDriver.pause();
-    frameCoordinator.frame(nowMs, { render: true });
+    const softCoordinatorStart = traceFrames ? performance.now() : 0;
+    const softCoordinatorResult = frameCoordinator.frame(nowMs, { render: true });
+    if (traceFrames) {
+      const softFrameMs = performance.now() - frameTraceStart;
+      if (softFrameMs > 100) {
+        console.warn('[frame-trace]', JSON.stringify({
+          frameMs: Number(softFrameMs.toFixed(1)),
+          coordinatorMs: Number((performance.now() - softCoordinatorStart).toFixed(1)),
+          renderMs: Number(softCoordinatorResult?.renderMs?.toFixed?.(1) || 0),
+          running: !!expManager?.state?.running,
+          expId: expManager?.state?.expId || null,
+          softSwitch: true,
+          gpuPrepareInProgress,
+        }));
+      }
+    }
     // The soft-switch path returns before the normal post-render drain below.
     // Keep draining the tiny background queue here as well; otherwise the
     // experiment switch chain and the content-screen full-paint job can never
@@ -6612,7 +6694,22 @@ function animate() {
 
   const renderDue = !IS_IPAD_PERFORMANCE || nowMs - lastPresentAt >= (1000 / 30);
   if (renderDue) lastPresentAt = nowMs;
-  frameCoordinator.frame(nowMs, { render: renderDue });
+  const coordinatorStart = traceFrames ? performance.now() : 0;
+  const coordinatorResult = frameCoordinator.frame(nowMs, { render: renderDue });
+  if (traceFrames) {
+    const frameMs = performance.now() - frameTraceStart;
+    if (frameMs > 100) {
+      console.warn('[frame-trace]', JSON.stringify({
+        frameMs: Number(frameMs.toFixed(1)),
+        coordinatorMs: Number((performance.now() - coordinatorStart).toFixed(1)),
+        renderMs: Number(coordinatorResult?.renderMs?.toFixed?.(1) || 0),
+        running: !!expManager?.state?.running,
+        expId: expManager?.state?.expId || null,
+        softSwitch: !!labFrameScheduler.softSwitchActive?.(),
+        gpuPrepareInProgress,
+      }));
+    }
+  }
   performanceGovernor.setRuntimeInfo({
     workerMode: globalThis.__PHYSICS_BACKEND_MODE__ || 'auto',
     sharedArrayBuffer: globalThis.crossOriginIsolated === true,
@@ -6668,6 +6765,9 @@ async function startExperimentSafe(expId) {
     // visible frame.
     const intentPrewarm = intentPrewarmPromises.get(key);
     if (intentPrewarm) await intentPrewarm.catch(() => false);
+    // Prime the exact controls before compiling the real scene. This also
+    // covers an immediate click that arrives before the 120 ms intent timer.
+    primeExperimentChromeForWarmup(stationId, expId);
     switchLoader.setMessage(`正在编译 ${found?.experiment?.name || expId}…`);
     const transitionStart = performance.now();
     const transition = await experimentTransition.open(key, {
@@ -6682,13 +6782,56 @@ async function startExperimentSafe(expId) {
       }
       return false;
     }
+    // The transactional runtime is mounted/activated, while HUD state is
+    // still idle. Compile the exact visible graph before manager.startExperiment
+    // commits it. While compileAsync yields between GPU jobs, keep the old lab
+    // frame on screen; otherwise the new apparatus can appear ready and then
+    // block on its first post-process draw.
+    gpuPrepareInProgress = true;
+    try {
+      ensureActiveApparatusVisible(stationId, expId, { includeChrome: true });
+      switchLoader.setMessage(`正在完成 ${found?.experiment?.name || expId} 的图形编译…`);
+      const sceneCompileStart = performance.now();
+      try {
+        await compileVisibleExperimentGpu(stationId, expId);
+      } catch (error) {
+        console.warn('[lab] visible scene compile failed; first frame will retry', error);
+      }
+      console.log(`[open-trace] visible scene compile dt=${(performance.now() - sceneCompileStart).toFixed(1)}ms`);
+
+      // compileAsync prepares programs but does not upload every geometry or
+      // execute the first real draw. Touch the exact active scene once in a
+      // 1×1 target while the guarded loader is still up; otherwise the first
+      // learner-visible frame still pays the buffer upload/draw-list stall.
+      const drawWarmStart = performance.now();
+      prewarmVisibleSceneGpu();
+      console.log(`[open-trace] visible scene draw prewarm dt=${(performance.now() - drawWarmStart).toFixed(1)}ms`);
+
+      // renderer.compile() does not touch the fullscreen materials owned by
+      // EffectComposer. Warm those passes before the manager exposes the
+      // experiment, so the first learner-visible frame is only a normal draw.
+      const postWarmStart = performance.now();
+      labPostProcessing?.prewarm?.();
+      console.log(`[open-trace] postprocessing prewarm dt=${(performance.now() - postWarmStart).toFixed(1)}ms`);
+    } finally {
+      gpuPrepareInProgress = false;
+    }
     // Never schedule prepareExperiment after click — Runtime prepare/prepareGpu
     // already owns geometry + compileAsync/1x1. A post-click light prepare used
     // to re-enter multi-second station work on the drain path.
     const commitStart = performance.now();
-    const committed = await expManager?.startExperiment?.(expId);
+    // GPU preparation has already completed under the switch loader. Commit
+    // the small manager state/HUD transaction immediately instead of waiting
+    // for a later animation-frame scheduler pulse.
+    const committed = await expManager?.startExperiment?.(expId, { immediate: true });
     console.log(`[open-trace] manager commit dt=${(performance.now() - commitStart).toFixed(1)}ms`);
     if (committed !== false) {
+      // The manager's final visual step only marks the apparatus ready; the
+      // next composer/default-frame draw can still be the first expensive GPU
+      // present. Keep the experiment switch status visible through two frames
+      // so the learner never sees a loaded experiment that is still blocking.
+      switchLoader.setMessage(`正在显示 ${found?.experiment?.name || expId}…`);
+      await nextPaint();
       preparedExperimentIds.add(expId);
       shaderWarmup.markComplete(key);
       if (stationId) {
@@ -6707,7 +6850,7 @@ async function startExperimentSafe(expId) {
  * The source runtimes own the apparatus graph; this only repairs a stale
  * async showcase/unmount parent and never rebuilds geometry.
  */
-function ensureActiveApparatusVisible(stationId, expId) {
+function ensureActiveApparatusVisible(stationId, expId, { includeChrome = false } = {}) {
   const entry = stationScenes[stationId];
   const equipmentForStation = entry?.equipment || equipment?.[stationId];
   if (!entry || !equipmentForStation || !expId) return false;
@@ -6719,13 +6862,87 @@ function ensureActiveApparatusVisible(stationId, expId) {
     if (!runtime?.root) return false;
     equipmentForStation.setMode?.(expId, null, { reset: false, snapshot: false });
     runtime.setVisible?.(true);
-    return runtime.root.parent === entry.root && runtime.root.visible === true;
+    const visible = runtime.root.parent === entry.root && runtime.root.visible === true;
+    if (includeChrome) setActiveExperimentChromeVisible(stationId);
+    return visible;
   }
 
   const ensured = equipmentForStation.ensureActiveRuntime?.(expId);
-  if (ensured != null) return !!ensured;
+  if (ensured != null) {
+    if (includeChrome) setActiveExperimentChromeVisible(stationId);
+    return !!ensured;
+  }
 
+  if (includeChrome) setActiveExperimentChromeVisible(stationId);
   return true;
+}
+
+// The manager normally reveals these two graphs during its visual commit.
+// Reveal them during the guarded GPU phase as well, so compileAsync and the
+// composer see the same material set that the first active frame will see.
+function setActiveExperimentChromeVisible(stationId) {
+  deskSliderPanels?.[stationId]?.userData?.setPresent?.(true);
+  stationDisplays?.[stationId]?.userData?.setPresent?.(true);
+}
+
+async function compileVisibleExperimentGpu(stationId, expId) {
+  const entry = stationScenes[stationId];
+  const equipmentForStation = entry?.equipment || equipment?.[stationId];
+  if (!entry || !equipmentForStation) return;
+
+  // Mechanics exposes one source-faithful root per experiment. Other legacy
+  // stations keep their active mode under a shared station root, which is a
+  // safe fallback because those modules are lazy-created at this point.
+  const apparatusRoot = stationId === 'mechanics'
+    ? equipmentForStation.sourceRuntimes?.[expId]?.root
+    : entry.root;
+  const roots = [
+    apparatusRoot,
+    deskSliderPanels?.[stationId],
+    stationDisplays?.[stationId],
+  ].filter((root, index, list) => root?.isObject3D && list.indexOf(root) === index);
+
+  for (const root of roots) {
+    root.updateWorldMatrix?.(true, true);
+    if (typeof renderer?.compileAsync === 'function') {
+      await renderer.compileAsync(root, camera, scene);
+    } else {
+      renderer?.compile?.(root, camera, scene);
+    }
+  }
+}
+
+function prewarmVisibleSceneGpu() {
+  // Use the default framebuffer, not the intent 1×1 target. Three.js can
+  // select a different fragment-output variant for an offscreen target, so a
+  // target-only draw does not guarantee that the first canvas draw is warm.
+  // The switch loader remains visible and the guarded frame loop does not
+  // present concurrently, so this exact draw is preparation, not a partially
+  // interactive experiment frame.
+  if (typeof renderer?.render !== 'function') return;
+
+  const previousTarget = renderer.getRenderTarget?.() || null;
+  const previousViewport = renderer.getViewport?.(new THREE.Vector4()) || null;
+  const previousScissor = renderer.getScissor?.(new THREE.Vector4()) || null;
+  const previousScissorTest = renderer.getScissorTest?.();
+  const previousAutoClear = renderer.autoClear;
+  try {
+    renderer.autoClear = true;
+    renderer.setRenderTarget?.(null);
+    // The current viewport is already the live canvas viewport. Reassert it
+    // after the intent prewarm's offscreen render rather than shrinking this
+    // draw to 1×1.
+    if (previousViewport) renderer.setViewport?.(previousViewport);
+    renderer.setScissorTest?.(false);
+    renderer.clear?.();
+    renderer.render(scene, camera);
+  } finally {
+    renderer.setRenderTarget?.(previousTarget);
+    if (previousViewport) renderer.setViewport?.(previousViewport);
+    if (previousScissor) renderer.setScissor?.(previousScissor);
+    renderer.setScissorTest?.(!!previousScissorTest);
+    renderer.autoClear = previousAutoClear;
+  }
 }
 
 // Intent prediction owns the expensive first construction. The prepared root
@@ -6751,6 +6968,22 @@ function ensureIntentPrepareScene() {
     if (object.target?.isObject3D) light.target = object.target.clone();
     intentPrepareScene.add(light);
   });
+  // The desk control panel is revealed by the manager after the apparatus
+  // commit. Include lightweight graph clones here so its material variants
+  // are compiled in the same transaction; otherwise the experiment appears
+  // ready and the panel's first frame still stalls on a second shader burst.
+  Object.entries(deskSliderPanels).forEach(([stationId, panel]) => {
+    const clone = panel?.clone?.(true);
+    if (!clone) return;
+    clone.name = `intent-warm-${stationId}-desk-sliders`;
+    intentPrepareScene.add(clone);
+  });
+  Object.entries(stationDisplays).forEach(([stationId, display]) => {
+    const clone = display?.clone?.(true);
+    if (!clone) return;
+    clone.name = `intent-warm-${stationId}-display`;
+    intentPrepareScene.add(clone);
+  });
   intentPrepareCamera = camera.clone();
   intentPrepareCamera.aspect = 1;
   intentPrepareCamera.updateProjectionMatrix();
@@ -6768,17 +7001,43 @@ function beginExperimentIntentPrewarm(stationId, expId) {
   const existing = intentPrewarmPromises.get(key);
   if (existing) return existing;
   activeIntentPrewarm = { key };
-  // Card focus may fetch the handler module, but it must not compile GPU
-  // programs. Shader compilation starts only after the learner enters an
-  // experiment (or from the post-entry background queue).
-  const promise = ensureExperimentModuleLoaded(stationId, expId)
-    .then(() => true)
+  // A stable card focus is already a strong user intent. Prepare the same
+  // runtime used by the click path, including GPU compilation, while the
+  // learner is still aiming at the card. The click then reuses this exact
+  // transaction instead of paying the compile stall on activation.
+  // Stop the catalog queue before compiling the focused experiment. WebGL
+  // program compilation is not cancellable once ANGLE has entered it; letting
+  // both jobs run together makes the selected experiment appear loaded while
+  // the next background job is still blocking the first visible frame.
+  const promise = pauseBackgroundShaderWarmup()
+    .then(() => primeExperimentChromeForWarmup(stationId, expId))
+    .then(() => ensureStationLoaded(stationId))
+    .then(() => ensureExperimentRuntimeLoaded(stationId, expId))
+    .then(() => experimentTransition.prewarm(key))
+    .then((result) => {
+      console.log(`[open-trace] intent prewarm key=${key} prepared=${!!result?.prepared} cached=${!!result?.cached}${result?.error ? ` error=${result.error?.message || result.error}` : ''}`);
+      return !!result?.prepared;
+    })
     .finally(() => {
       intentPrewarmPromises.delete(key);
       if (activeIntentPrewarm?.key === key) activeIntentPrewarm = null;
     });
   intentPrewarmPromises.set(key, promise);
   return promise;
+}
+
+/** Materialize hidden controls before GPU preparation, without showing them. */
+function primeExperimentChromeForWarmup(stationId, expId) {
+  const panel = deskSliderPanels?.[stationId];
+  const experiment = findExperiment(expId)?.experiment;
+  if (!panel?.userData || !experiment) return true;
+  try {
+    const { title, specs } = getDeskSliderConfig(stationId, expId, {}, experiment);
+    panel.userData.setSpecs?.(specs, title);
+  } catch (error) {
+    console.warn('[shader-warmup] control material prepare failed', stationId, expId, error);
+  }
+  return true;
 }
 
 function cancelExperimentIntentPrewarm(exceptKey = null) {
@@ -6796,8 +7055,8 @@ function scheduleExperimentIntentPrewarm(stationId, expId) {
   if (focusedExperimentKey === key || intentPrewarmPromises.has(key)) return;
   focusedExperimentKey = key;
   cancelExperimentIntentPrewarm(key);
-  // Stable card focus: start handler module fetch immediately. GPU work stays
-  // out of the hover path and begins only after entering the lab/experiment.
+  // Stable card focus starts the full runtime/GPU prewarm in the background;
+  // it remains cancellable if the learner looks away before clicking.
   void ensureExperimentModuleLoaded(stationId, expId).catch(() => {});
   focusedExperimentTimer = setTimeout(() => {
     if (focusedExperimentKey !== key || expManager?.state?.running) return;

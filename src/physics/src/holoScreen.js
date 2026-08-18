@@ -2286,7 +2286,6 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
   let hintH = Math.round(20 * scale);
   let toolH = Math.round(42 * scale);
   let gap = Math.round(5 * scale);
-  let theoryH = Math.round(26 * scale);
   let statH = Math.round(70 * scale);
   let chipH = Math.round(42 * scale);
 
@@ -2336,7 +2335,6 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
     + (hasModules ? 1 : 0)
     + (!reflection ? 1 : 0); // medium presets
 
-  const minTheory = Math.round(18 * scale);
   const minStat = Math.round(52 * scale);
   const minChip = Math.round(32 * scale);
   const minTool = Math.round(32 * scale);
@@ -2349,7 +2347,7 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
     // Param tracks moved to tabletop; reserve a short readout band only.
     const readoutNeed = Math.round(36 * scale);
     const toolNeed = showTools ? toolH + gap : 0;
-    return theoryH + gap + statH + gap
+    return statH + gap
       + chipRows * (chipH + gap)
       + readoutNeed + gap
       + toolNeed
@@ -2371,7 +2369,6 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
     if (chipH > minChip) { chipH = Math.max(minChip, chipH - 2); continue; }
     if (btnH > minBtn) { btnH = Math.max(minBtn, btnH - 2); continue; }
     if (statH > minStat) { statH = Math.max(minStat, statH - 3); continue; }
-    if (theoryH > minTheory) { theoryH = Math.max(minTheory, theoryH - 2); continue; }
     break;
   }
   if (showHeight) {
@@ -2386,15 +2383,6 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
   const hintY = btnY - gap - hintH;
   const toolY = showTools ? (hintY - gap - toolH) : hintY;
   const midBottom = (showTools ? toolY : hintY) - gap; // sliders must end at or above this
-
-  // Theory / formula
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = accentHex;
-  const tTheory = Math.max(22, Math.round(theoryH * 0.92));
-  ctx.font = `italic ${tTheory}px "Times New Roman", "Cambria Math", "Microsoft YaHei", serif`;
-  const theory = String(experiment.theory || '');
-  ctx.fillText(theory.length > 52 ? `${theory.slice(0, 50)}…` : theory, x + 2, contentTop + Math.round(2 * scale));
 
   // Metrics strip
   let readout;
@@ -2415,7 +2403,7 @@ function drawGeometricOpticsExperiment(ctx, _W, _H, cfg) {
     ];
   }
 
-  const statY = contentTop + theoryH + Math.round(2 * scale);
+  const statY = contentTop;
   const tStatLabel = Math.max(14, Math.round(statH * 0.26));
   const tStatValue = Math.max(20, Math.round(statH * 0.42));
   ctx.fillStyle = P.panel;
@@ -2773,7 +2761,7 @@ function drawDiffractionExperiment(ctx, _W, _H, cfg) {
   ctx.textBaseline = 'top';
   ctx.fillStyle = P.muted;
   ctx.font = `bold ${tStep}px "Microsoft YaHei", sans-serif`;
-  const stepText = `步骤 ${stepIndex + 1}/${Math.max(1, steps.length)} · ${step?.text || experiment.theory || ''}`;
+  const stepText = `步骤 ${stepIndex + 1}/${Math.max(1, steps.length)} · ${step?.text || '进行中'}`;
   ctx.fillText(stepText.length > 38 ? `${stepText.slice(0, 36)}…` : stepText, x + 2, stepY + Math.round(2 * scale));
 
   // —— Metrics ——
@@ -3284,14 +3272,6 @@ function drawThermoExperiment(ctx, _W, _H, cfg) {
   const btnH = Math.round(48 * scale);
   const btnY = contentTop + contentH - btnH;
 
-  // —— Formula only (no experiment title) ——
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = accentHex;
-  ctx.font = `bold ${Math.round(18 * scale)}px "Microsoft YaHei", sans-serif`;
-  const theory = String(experiment.theory || '');
-  ctx.fillText(theory.length > 48 ? `${theory.slice(0, 46)}…` : theory, x + 2, contentTop);
-
   // —— Compact metric strip (type fills the band; band only slightly taller) ——
   let readout = [];
   if (expId === 'calorimetry') {
@@ -3331,7 +3311,7 @@ function drawThermoExperiment(ctx, _W, _H, cfg) {
     ];
   }
 
-  const statY = contentTop + Math.round(26 * scale);
+  const statY = contentTop;
   const statH = Math.round(66 * scale);
   const tStatLabel = Math.max(14, Math.round(statH * 0.24));
   const tStatValue = Math.max(20, Math.round(statH * 0.38));
@@ -3650,14 +3630,7 @@ function drawSourceMechanicsExperiment(ctx, _W, _H, cfg) {
   const x = innerX;
   const w = innerW;
 
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = accentHex;
-  ctx.font = `bold ${Math.round(18 * scale)}px "Microsoft YaHei", sans-serif`;
-  const theory = String(experiment.theory || '');
-  ctx.fillText(theory.length > 72 ? `${theory.slice(0, 70)}…` : theory, x + 2, contentTop);
-
-  let y = contentTop + Math.round(28 * scale);
+  let y = contentTop;
   const readouts = Array.isArray(data.readouts) ? data.readouts.slice(0, 6) : [];
   const statH = Math.round((readouts.length > 3 ? 116 : 62) * scale);
   ctx.fillStyle = P.panel;
@@ -4453,17 +4426,6 @@ export function drawHoloScreen(ctx, W, H, opts) {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     let y = contentTop;
-    const theoryH = 68;
-    ctx.fillStyle = P.theoryBg;
-    roundRect(ctx, innerX, y, innerW, theoryH, 8);
-    ctx.fill();
-    ctx.fillStyle = accentHex;
-    ctx.font = `${F.theory}px "Microsoft YaHei", sans-serif`;
-    const theoryLines = wrapText(ctx, experiment.theory, innerW - 24);
-    theoryLines.slice(0, 2).forEach((ln, i) => {
-      ctx.fillText(ln, innerX + 12, y + 12 + i * 28);
-    });
-    y += theoryH + 12;
 
     ctx.fillStyle = P.muted;
     ctx.font = `${F.section}px "Microsoft YaHei", sans-serif`;

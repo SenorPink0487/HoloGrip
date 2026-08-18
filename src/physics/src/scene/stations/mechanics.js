@@ -36,7 +36,13 @@ export function createStationEquipment(ctx) {
       prepare: async (_prepareContext, signal) => {
         if (signal?.aborted) throw abortError();
         sourceRuntime.ensureBuilt(defaultsFor(id));
-        sourceRuntime.setVisible(false);
+        // Keep the built content attached while the root stays hidden. The
+        // shared GPU prewarm path must traverse the real meshes/materials;
+        // detaching the content here made compileAsync warm only an empty
+        // root, so the first visible frame still compiled all 205 mechanics
+        // meshes and caused a multi-second hitch.
+        sourceRuntime.setVisible(true);
+        sourceRuntime.root.visible = false;
       },
       prepareRoot: () => sourceRuntime.root,
       activate: (initialState) => {

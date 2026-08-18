@@ -44,6 +44,11 @@ export function createPhysicsPostProcessing({ renderer, scene, camera, quality =
   let width = 1;
   let height = 1;
   let pixelRatio = 1;
+  const traceEnabled = () => typeof window !== 'undefined' && (
+    window.__LAB_TRACE
+    || new URLSearchParams(window.location.search).has('trace')
+    || new URLSearchParams(window.location.search).has('measure')
+  );
 
   function resize(nextWidth, nextHeight, nextPixelRatio = pixelRatio) {
     width = Math.max(1, Number(nextWidth) || 1);
@@ -63,7 +68,51 @@ export function createPhysicsPostProcessing({ renderer, scene, camera, quality =
     bloomPass,
     ssaoPass,
     render() {
+      const trace = traceEnabled();
+      const startedAt = trace ? performance.now() : 0;
+      const programsBefore = trace ? (renderer.info?.programs?.length || 0) : 0;
       composer.render();
+      if (trace) {
+        console.warn('[post-trace]', JSON.stringify({
+          ms: Number((performance.now() - startedAt).toFixed(1)),
+          programsBefore,
+          programsAfter: renderer.info?.programs?.length || 0,
+          calls: renderer.info?.render?.calls || 0,
+          width,
+          height,
+          pixelRatio,
+        }));
+      }
+    },
+    /**
+     * Compile the post-processing passes while an experiment switch loader is
+     * still covering the lab. Three's renderer.compile() cannot see the
+     * fullscreen pass materials, so the first real composer.render() would
+     * otherwise still pay the pass shader setup on the click frame.
+     */
+    prewarm() {
+      const trace = traceEnabled();
+      const startedAt = trace ? performance.now() : 0;
+      const programsBefore = trace ? (renderer.info?.programs?.length || 0) : 0;
+      const previousRenderToScreen = outputPass.renderToScreen;
+      try {
+        // A 1×1 pass is sufficient to touch the same post-process programs and
+        // keeps the warmup from spending a full-screen quad cost twice.
+        outputPass.renderToScreen = false;
+        composer.setPixelRatio(1);
+        composer.setSize(1, 1);
+        composer.render();
+      } finally {
+        outputPass.renderToScreen = previousRenderToScreen;
+        resize(width, height, pixelRatio);
+      }
+      if (trace) {
+        console.warn('[post-prewarm-trace]', JSON.stringify({
+          ms: Number((performance.now() - startedAt).toFixed(1)),
+          programsBefore,
+          programsAfter: renderer.info?.programs?.length || 0,
+        }));
+      }
     },
     resize,
     dispose() {

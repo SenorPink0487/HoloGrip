@@ -318,7 +318,7 @@ export function createExperimentManager({
     scheduler.schedule('exp:close-hud', () => pushHud(), { priority: 40 });
   }
 
-  function startExperiment(expId) {
+  function startExperiment(expId, { immediate = false } = {}) {
     const t0 = performance.now();
     console.log(`[open-trace] manager.startExperiment begin exp=${expId}`);
     settlePendingStart(false);
@@ -419,7 +419,15 @@ export function createExperimentManager({
       if (pendingStart?.expId === expId) settlePendingStart(true);
     });
 
-    if (typeof scheduler.scheduleChain === 'function') {
+    if (immediate) {
+      // The host uses this only after the selected runtime and first GPU draw
+      // are ready behind its switch loader. Commit the O(1) state/HUD steps on
+      // the same call stack so a long or delayed animation frame cannot leave
+      // a visually loaded experiment waiting for the next scheduler pulse.
+      steps.forEach((step) => {
+        try { step(); } catch { /* keep the pending start contract alive */ }
+      });
+    } else if (typeof scheduler.scheduleChain === 'function') {
       // soft:false + restFrames:0 — open must not insert camera-only cooldowns.
       // Each step is O(1) mount / HUD schedule; no tree walks remain.
       scheduler.scheduleChain('exp:switch', steps, { priority: 70, restFrames: 0, soft: false });

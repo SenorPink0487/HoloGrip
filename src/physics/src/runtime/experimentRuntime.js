@@ -1,3 +1,5 @@
+import * as THREE from 'three';
+
 /**
  * Transactional experiment lifecycle adapter. Runtime implementations may be
  * legacy handlers as long as they satisfy this boundary.
@@ -17,6 +19,7 @@ export function createEquipmentRuntime({
   getRoot = () => root,
   prepare = async () => {},
   prepareRoot = () => root,
+  prepareRenderTarget = null,
   activate = () => {},
   mount: mountEquipment = () => {},
   suspend = () => {},
@@ -29,54 +32,96 @@ export function createEquipmentRuntime({
   return createExperimentRuntime({
     id,
     prepare,
-    prepareGpu: async (renderer, camera, prepareScene, signal) => {
+    prepareGpu: async (renderer, camera, prepareScene, signal, targetScene, renderTarget) => {
       const target = prepareRoot?.() || resolveRoot();
       const scene = typeof prepareScene === 'function' ? prepareScene() : prepareScene;
+      const compileTargetScene = typeof targetScene === 'function' ? targetScene() : targetScene;
+      const offscreenTarget = typeof renderTarget === 'function'
+        ? renderTarget()
+        : (renderTarget || (typeof prepareRenderTarget === 'function' ? prepareRenderTarget() : prepareRenderTarget));
+      const gpuTrace = typeof window !== 'undefined' && (
+        window.__LAB_TRACE
+        || new URLSearchParams(window.location?.search || '').has('trace')
+        || new URLSearchParams(window.location?.search || '').has('measure')
+      );
       const previousParent = target?.parent || null;
       const previousVisible = target?.visible;
       if (scene?.add && target && target.parent !== scene) scene.add(target);
       if (target) target.visible = true;
       target?.updateWorldMatrix?.(true, true);
       try {
+        const compileStart = gpuTrace ? performance.now() : 0;
+        const programCountBefore = gpuTrace ? (renderer?.info?.programs?.length || 0) : 0;
         if (typeof renderer?.compileAsync === 'function') {
-          try { await renderer.compileAsync(scene || target, camera); }
-          catch { renderer?.compile?.(scene || target, camera); }
+          try { await renderer.compileAsync(scene || target, camera, compileTargetScene || undefined); }
+          catch { renderer?.compile?.(scene || target, camera, compileTargetScene || undefined); }
         } else {
-          renderer?.compile?.(scene || target, camera);
+          renderer?.compile?.(scene || target, camera, compileTargetScene || undefined);
         }
-        // Compilation is enough to warm shader/program state. Do not issue a
-        // hidden 1x1 render on every first experiment switch; the main frame
-        // will render the already-mounted runtime through the shared composer.
-        if (false && scene && typeof renderer?.render === 'function') {
-          /* no hidden render */
-          /*
-            // Always restore the default framebuffer + full canvas viewport.
-            // Leaving a 1×1 viewport after intent prewarm blanks the lab canvas
-            // in Vite dev (only holos / UI chrome remain visible).
-            // setViewport takes logical CSS px (Three multiplies by pixelRatio);
-            // never pass drawing-buffer / physical pixels here or the scene is
-            // letterboxed and mouse/crosshair picks stay offset until the next
-            // clean setSize (e.g. F11).
-            renderer.setRenderTarget?.(previousTarget);
-            const w = Math.max(1, previousSize.x || 0);
-            const h = Math.max(1, previousSize.y || 0);
-            if (previousSize.x > 0 && previousSize.y > 0) {
-              if (typeof renderer.setPixelRatio === 'function' && previousPr > 0) {
-                renderer.setPixelRatio(previousPr);
-              }
-              renderer.setSize?.(w, h, false);
-            }
-            renderer.setViewport?.(0, 0, w, h);
-            renderer.setScissorTest?.(false);
-            if (typeof renderer.setScissor === 'function') {
-              renderer.setScissor(0, 0, w, h);
-            }
-          */
+        if (gpuTrace) {
+          console.warn('[gpu-prewarm-trace]', JSON.stringify({
+            id,
+            ms: Number((performance.now() - compileStart).toFixed(1)),
+            programsBefore: programCountBefore,
+            programsAfter: renderer?.info?.programs?.length || 0,
+            hasTargetScene: !!compileTargetScene,
+            targetScene: compileTargetScene?.name || compileTargetScene?.type || null,
+            meshCount: (() => {
+              let count = 0;
+              scene?.traverse?.((object) => { if (object.isMesh || object.isLine || object.isPoints || object.isSprite) count += 1; });
+              return count;
+            })(),
+          }));
         }
       } finally {
         if (previousParent && target?.parent !== previousParent) previousParent.add(target);
         else if (!previousParent && target?.parent === scene) scene?.remove?.(target);
         if (target && previousVisible !== undefined) target.visible = previousVisible;
+      }
+      // compileAsync creates program objects, but ANGLE can still defer the
+      // first actual draw/buffer upload until render(). Do one 1x1 render of
+      // the real lab scene while the selected rig is still hidden from the
+      // learner. This warms the exact first-frame path without touching the
+      // visible canvas framebuffer.
+      if (offscreenTarget && compileTargetScene && typeof renderer?.render === 'function') {
+        const previousTarget = renderer.getRenderTarget?.() || null;
+        const previousViewport = renderer.getViewport?.(new THREE.Vector4()) || null;
+        const previousScissor = renderer.getScissor?.(new THREE.Vector4()) || null;
+        const previousScissorTest = renderer.getScissorTest?.();
+        const hiddenPreviousVisible = target?.visible;
+        const previousFrustumCulled = [];
+        try {
+          if (target) target.visible = true;
+          // The real camera may not currently look at a side station. Disable
+          // culling only for this 1x1 warm draw so every apparatus material
+          // variant is touched; restore each flag before returning to input.
+          target?.traverse?.((object) => {
+            if (!('frustumCulled' in object)) return;
+            previousFrustumCulled.push([object, object.frustumCulled]);
+            object.frustumCulled = false;
+          });
+          target?.updateWorldMatrix?.(true, true);
+          renderer.setRenderTarget?.(offscreenTarget);
+          renderer.setViewport?.(0, 0, 1, 1);
+          renderer.setScissorTest?.(false);
+          renderer.clear?.();
+          const hiddenRenderStart = gpuTrace ? performance.now() : 0;
+          renderer.render(compileTargetScene, camera);
+          if (gpuTrace) {
+            console.warn('[gpu-prewarm-render-trace]', JSON.stringify({
+              id,
+              ms: Number((performance.now() - hiddenRenderStart).toFixed(1)),
+              programs: renderer?.info?.programs?.length || 0,
+            }));
+          }
+        } finally {
+          renderer.setRenderTarget?.(previousTarget);
+          if (previousViewport) renderer.setViewport?.(previousViewport);
+          if (previousScissor) renderer.setScissor?.(previousScissor);
+          renderer.setScissorTest?.(!!previousScissorTest);
+          previousFrustumCulled.forEach(([object, value]) => { object.frustumCulled = value; });
+          if (target && hiddenPreviousVisible !== undefined) target.visible = hiddenPreviousVisible;
+        }
       }
       if (signal?.aborted) throw abortError();
     },
@@ -175,9 +220,9 @@ export function createExperimentRuntime({
         throw error;
       }
     },
-    async prepareGpu(renderer, camera, prepareScene, signal) {
+    async prepareGpu(renderer, camera, prepareScene, signal, targetScene, renderTarget) {
       if (state !== 'prepared') throw new Error(`Runtime ${id} is not prepared`);
-      await prepareGpu(renderer, camera, prepareScene, signal);
+      await prepareGpu(renderer, camera, prepareScene, signal, targetScene, renderTarget);
       if (signal?.aborted) throw abortError();
     },
     mount(parent) {
@@ -236,7 +281,14 @@ export function createTransitionController({ cache, createRuntime, prepareContex
     runtime = await createRuntime(key, prepareContext, signal);
     try {
       await runtime.prepare(prepareContext, signal);
-      await runtime.prepareGpu?.(prepareContext.renderer, prepareContext.camera, prepareScene, signal);
+      await runtime.prepareGpu?.(
+        prepareContext.renderer,
+        prepareContext.camera,
+        prepareScene,
+        signal,
+        prepareContext.targetScene,
+        prepareContext.renderTarget,
+      );
       // A prepared runtime is safe to retain: it has not been mounted or
       // activated yet, but it can be mounted immediately by open(). Keeping
       // it in the same cache is what makes intent prewarm and click reuse the

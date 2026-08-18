@@ -134,7 +134,7 @@ async function preparePage(context) {
   });
   page.on('console', (message) => {
     if (message.type() === 'error') consoleErrors.push(message.text());
-    if (process.env.LAB_TRACE === '1' && (message.text().includes('[open-trace]') || message.text().includes('[render-trace]'))) {
+    if (process.env.LAB_TRACE === '1' && (message.text().includes('[open-trace]') || message.text().includes('[frame-trace]') || message.text().includes('[render-trace]') || message.text().includes('[post-trace]') || message.text().includes('[post-prewarm-trace]') || message.text().includes('[gpu-prewarm-trace]') || message.text().includes('[gpu-prewarm-render-trace]'))) {
       console.error(message.text());
     }
   });
