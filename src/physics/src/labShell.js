@@ -1705,6 +1705,7 @@ function makePortraitFrame(imageUrl, name, years, w = 0.72, h = 0.92) {
   let portraitPromise = null;
   g.userData.loadPortrait = () => {
     if (portraitPromise) return portraitPromise;
+    g.userData.portraitLoading = true;
     portraitPromise = loadPortraitTexture(imageUrl).then((tex) => {
       if (tex) {
         photoMat.map = tex;
@@ -1716,6 +1717,8 @@ function makePortraitFrame(imageUrl, name, years, w = 0.72, h = 0.92) {
         photoMat.emissiveIntensity = 0.2;
       }
       g.userData.portraitLoaded = true;
+    }).finally(() => {
+      g.userData.portraitLoading = false;
     });
     return portraitPromise;
   };
@@ -1787,17 +1790,14 @@ portraitsRight.forEach(({ file, name, years, z }) => {
   scene.add(f);
 });
 
-const portraitWorldPosition = new THREE.Vector3();
-function loadOneVisiblePortrait() {
-  for (const frame of portraitFrames) {
-    if (frame.userData.portraitLoaded || frame.userData.portraitLoading) continue;
-    frame.getWorldPosition(portraitWorldPosition);
-    if (portraitWorldPosition.distanceTo(camera.position) > 7.5) continue;
-    frame.userData.portraitLoading = true;
-    frame.userData.loadPortrait?.();
-    break;
-  }
-}
+// Portraits are a small, fixed local gallery. Start every request as soon as
+// the room graph exists so a scientist's image never pops in only after the
+// learner approaches that wall. Do not await this: room interaction and first
+// frame remain independent from image decoding/upload.
+const portraitPreloadPromise = Promise.all(
+  portraitFrames.map((frame) => frame.userData.loadPortrait?.()),
+);
+portraitPreloadPromise.catch(() => { /* individual loaders fall back to a neutral frame */ });
 
 
 // ═══════════════════════════════════════════════
@@ -6623,8 +6623,6 @@ function animate() {
     }
   }
 
-  // Decode/upload at most one portrait after it enters the viewing radius.
-  loadOneVisiblePortrait();
   const renderDue = !IS_IPAD_PERFORMANCE || nowMs - lastPresentAt >= (1000 / 30);
   if (renderDue) lastPresentAt = nowMs;
   frameCoordinator.frame(nowMs, { render: renderDue });
@@ -7000,8 +6998,9 @@ async function paintReadyFrames() {
 
 async function bootReveal() {
   try {
-    // Portraits decode lazily by visibility; no bulk image barrier at boot.
-    // No full-lab warm, no last-station preload, no experiment chunk requests.
+    // Portrait requests begin when the room graph is created, but do not block
+    // boot on their decode/upload. No full-lab warm, last-station preload or
+    // experiment chunk requests.
     await yieldToBrowser(8);
     labLoader.setProgress(0.55, '组装实验室房间…');
     await yieldToBrowser(8);

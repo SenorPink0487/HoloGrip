@@ -518,15 +518,16 @@ export function createInducedElectricFieldEquipment() {
         const safeR = Math.max(0.6, Math.min(3.6, Number(regionR || 2)));
         const radii = [];
 
-        // 1. 面内同心圆 (r < R)：内圈独立计算，控制环数清爽（3~5圈），避免密集糊成一片
-        // 间距严格按 1.47 倍几何比递减：0.72 -> 0.49 -> 0.33 -> 0.23 -> 0.20
-        // 既保持圆心到边缘清晰显著的递减疏密感，又确保每条圆环和箭头有足够的呼吸空间
-        let currR = 0;
+        // 1. 面内同心圆 (r < R)：内圈独立计算，最内圈小巧居中（r1 = 0.38）
+        // 阶梯间距采用极陡峭的几何递减比例（0.65 -> 0.43 -> 0.30 -> 0.22 -> 0.17...）
+        // 确保在只有 2~3 根圆环的局部视野下，各环间距的收缩反差依然极其显著且一眼可见！
+        let currR = 0.38;
+        radii.push(currR);
         let k = 1;
         while (k <= 8) {
-          const step = Math.max(0.20, 0.72 * Math.pow(0.68, k - 1));
+          const step = 0.55 * Math.pow(0.60, k - 1) + 0.10;
           const nextR = currR + step;
-          if (nextR >= safeR - 0.16) break;
+          if (nextR >= safeR - 0.12) break;
           radii.push(nextR);
           currR = nextR;
           k += 1;
@@ -536,14 +537,13 @@ export function createInducedElectricFieldEquipment() {
         radii.push(safeR);
 
         // 3. 面外同心圆 (r > R)：外圈独立计算，间距与密度受 B / dBdt 强度动态调控
-        // b 强度越大，外圈基准间距越紧密 (outBase: 0.65 -> 0.28)，外圈分布越密集；
-        // b 强度越小，外圈越稀疏；同时外圈随 r 增大间距平滑拉开 (E ∝ 1/r)
+        // 适度加密基准间距 (outBase: 0.55 -> 0.24)
         const bDrive = Math.max(absB, absRate);
         const bNorm = THREE.MathUtils.clamp(bDrive / 2.5, 0, 1);
-        const outBase = THREE.MathUtils.lerp(0.65, 0.28, bNorm);
+        const outBase = THREE.MathUtils.lerp(0.55, 0.24, bNorm);
         let m = 1;
-        while (m <= 8) {
-          const outStep = outBase * Math.pow(m, 1.40);
+        while (m <= 9) {
+          const outStep = outBase * Math.pow(m, 1.38);
           const outR = safeR + outStep;
           if (outR > Rdisk) break;
           radii.push(outR);

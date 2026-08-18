@@ -1289,40 +1289,6 @@ export function createHandlers(ctx) {
     return true;
   }
 
-  function recomputeInducedElectric(data) {
-    if (data.auto) {
-      const bStart = Number(data.bStart ?? -2.0);
-      const bEnd = Number(data.bEnd ?? 2.0);
-      const deltaB = bEnd - bStart;
-      const rateMag = Math.max(0.1, Math.abs(Number(data.dBdt || 1.1)));
-      if (Math.abs(deltaB) < 1e-4) {
-        data.B = bStart;
-        data.actualDbDt = 0;
-      } else {
-        const sign = deltaB >= 0 ? 1 : -1;
-        data.actualDbDt = sign * rateMag;
-        const u = ((Number(data.progress || 0) % 1) + 1) % 1;
-        data.B = bStart + u * deltaB;
-      }
-    }
-    const probe = data.probe || { x: 0, y: 0, z: 0, q0: 1 };
-    data.probeR = Math.hypot(Number(probe.x || 0), Number(probe.z || 0));
-    const activeDbDt = data.auto ? Number(data.actualDbDt || 0) : Number(data.dBdt || 0);
-    const field = inducedEVectorAt(probe, data.R, activeDbDt);
-    data.field = field;
-    data.magnitudeE = field.magnitude;
-    data.force = {
-      x: field.x * Number(probe.q0 || 0),
-      y: 0,
-      z: field.z * Number(probe.q0 || 0),
-    };
-    data.sense = field.sense;
-    data.senseLabel = inducedESenseLabel(field.sense);
-    data.eAtBoundary = inducedEMagnitude(data.R, data.R, activeDbDt);
-    data.profile = inducedEProfile(data.R, activeDbDt);
-    return data;
-  }
-
   function syncElectricField(data, refresh = true, dt = 0) {
     const probe = data.probe || { x: 0, y: 0, z: 0, q0: 1 };
     data.field = electricFieldAt(data.charges, probe);

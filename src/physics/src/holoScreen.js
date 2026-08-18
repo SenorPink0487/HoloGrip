@@ -673,9 +673,9 @@ function drawInducedElectricExperiment(ctx, _W, _H, cfg) {
   const pr = Number(d.probeR || 0);
   const pe = Number(d.magnitudeE || 0);
 
-  // Dynamic Y-axis scale so the curve occupies ~70-75% of plot height
-  const maxVal = Math.max(theoreticalPeak, pe, 0.1);
-  const E_SCALE_MAX = Math.max(0.5, maxVal * 1.35);
+  // 全量程基准（R_max=3.2, |dB/dt|_max=6.25 对应 E_max=10.0 V/m）：
+  // 基准量程定为 10.5 V/m，确保滑块拉到绝对最大值时图像也完整容纳且留有清晰顶部余量，同时保证改变 R 绝不影响内区直线斜率
+  const E_SCALE_MAX = Math.max(10.5, Math.max(theoreticalPeak, pe) * 1.05);
 
   const plotX = x + Math.round(58 * scale);
   const plotY = cy + Math.round(18 * scale);
