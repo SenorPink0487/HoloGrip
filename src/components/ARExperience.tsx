@@ -10,18 +10,12 @@ import { Canvas2D } from './Canvas2D';
 import { MathModel } from './MathModel';
 import { OverlayUI } from './OverlayUI';
 import { useARStore } from '../stores/arStore';
-import { isIPadOS } from '../lib/platform';
 import type { RawHandObservation } from '../lib/handTracking';
 
 type HandTrackingModule = typeof import('../lib/handTracking');
 
 interface ARExperienceProps {
   stageRef: React.RefObject<HTMLDivElement | null>;
-}
-
-function getWebGLPixelRatio() {
-  if (!isIPadOS) return window.devicePixelRatio || 1;
-  return Math.min(window.devicePixelRatio || 1, 1.5);
 }
 
 function OfflineRoomEnvironment() {
@@ -462,8 +456,8 @@ export function ARExperience({ stageRef }: ARExperienceProps) {
         <ARErrorBoundary>
           <Canvas
             camera={{ position: [0, 0, 12], fov: 25 }}
-            gl={{ antialias: !isIPadOS, powerPreference: 'high-performance' }}
-            dpr={getWebGLPixelRatio()}
+            gl={{ antialias: true, powerPreference: 'high-performance' }}
+            dpr={window.devicePixelRatio || 1}
           >
             <ambientLight intensity={0.5} />
             <spotLight position={[10, 10, 10]} intensity={1.5} angle={0.6} penumbra={1} castShadow />

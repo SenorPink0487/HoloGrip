@@ -58,33 +58,20 @@ export class LessonVersionConflictError extends Error {
 }
 
 const TOKEN_KEY = 'hg_token';
-const IS_IPAD_STANDALONE = import.meta.env.HOLO_TARGET === 'ipad';
 
 export async function listClasses(): Promise<ClassList> {
-  if (IS_IPAD_STANDALONE) {
-    return { teaching: [], joined: [] };
-  }
-
   const resp = await request('/api/class/list', { method: 'GET' });
   const data = await resp.json();
   return data.data || { teaching: [], joined: [] };
 }
 
 export async function listLessons(classId: number, date: string): Promise<LessonInfo[]> {
-  if (IS_IPAD_STANDALONE) {
-    return [];
-  }
-
   const resp = await request(`/api/classes/${classId}/lessons?date=${encodeURIComponent(date)}`, { method: 'GET' });
   const data = await resp.json();
   return Array.isArray(data.lessons) ? data.lessons : [];
 }
 
 export async function createLesson(classId: number, title: string, lessonDate: string): Promise<number> {
-  if (IS_IPAD_STANDALONE) {
-    throw new Error('Lessons are unavailable in the iPad standalone build');
-  }
-
   const resp = await request(`/api/classes/${classId}/lessons`, {
     method: 'POST',
     headers: [['Content-Type', 'application/json']],
@@ -95,10 +82,6 @@ export async function createLesson(classId: number, title: string, lessonDate: s
 }
 
 export async function loadLessonWhiteboard(lessonId: number): Promise<LessonWhiteboard> {
-  if (IS_IPAD_STANDALONE) {
-    return { snapshot: null, version: 0 };
-  }
-
   const resp = await request(`/api/lessons/${lessonId}/whiteboard`, { method: 'GET' });
   const data = await resp.json();
   return {
@@ -112,10 +95,6 @@ export async function saveLessonWhiteboard(
   snapshot: WhiteboardSnapshot,
   baseVersion: number,
 ): Promise<number> {
-  if (IS_IPAD_STANDALONE) {
-    return baseVersion;
-  }
-
   const resp = await request(`/api/lessons/${lessonId}/whiteboard`, {
     method: 'PUT',
     headers: [['Content-Type', 'application/json']],
@@ -139,8 +118,6 @@ export function openLessonWhiteboardSocket(
   lessonId: number,
   onEvent: (event: LiveWhiteboardEvent) => void,
 ): WebSocket | null {
-  if (IS_IPAD_STANDALONE) return null;
-
   const token = localStorage.getItem(TOKEN_KEY);
   if (!token) return null;
   const url = apiWebSocketUrl(`/api/lessons/${lessonId}/whiteboard/live?token=${encodeURIComponent(token)}`);

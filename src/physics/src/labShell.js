@@ -279,20 +279,6 @@ const canvas = document.getElementById('c');
 globalThis.__PHYSICS_BACKEND_MODE__ ??= 'auto';
 globalThis.__SIM_BACKEND_MODE__ ??= 'auto';
 globalThis.__SIM_WORKER_POOL_SIZE__ ??= 2;
-// iPad 11 (including the Mac-like iPadOS user agent) uses a 30 Hz present
-// budget so the GPU can spend more time on a sharper frame.
-const IS_IPAD_PERFORMANCE = navigator.maxTouchPoints > 1
-  && (/iPad|Macintosh/i.test(navigator.userAgent) || /iPad/i.test(navigator.platform));
-if (IS_IPAD_PERFORMANCE) {
-  document.documentElement.classList.add('ipad-performance');
-  // Keep simulation and Cannon work off the WebView/UI thread. The existing
-  // backends fall back safely when a WebView cannot create module workers.
-  // Two warm slots let continuous particles and field/thermo work run in
-  // parallel on the iPad's performance cores while WebGL owns the GPU.
-  globalThis.__PHYSICS_BACKEND_MODE__ ??= 'worker';
-  globalThis.__SIM_BACKEND_MODE__ ??= 'worker';
-  globalThis.__SIM_WORKER_POOL_SIZE__ ??= 2;
-}
 const renderer = new THREE.WebGLRenderer({
   canvas,
   antialias: true,
@@ -303,15 +289,8 @@ const renderer = new THREE.WebGLRenderer({
 // across the complete frame so the performance panel reports the real scene
 // workload instead of only the final fullscreen output pass.
 renderer.info.autoReset = false;
-// Cap DPR: full 2× on 4K/HiDPI multiplies fill-rate and was a major host hitch
-// after dense source rigs (mechanics/thermo/optics) were migrated into one room.
-// Keep one stable render-target size across experiment switches. Reallocating
-// the WebGL backbuffer on every optics mount was a multi-second driver stall on
-// low-end/ANGLE GPUs, which no amount of JS task slicing can hide.
-// Fixed high-quality profile: DPR is intentionally not reduced in response
-// to frame pressure. Devices that cannot sustain the profile receive a warning.
-const MAX_DPR = HIGH_QUALITY_PROFILE.dprCap;
-let currentDprCap = MAX_DPR;
+// Use the device's native DPR. Keep one stable render-target size across
+// experiment switches so WebGL does not reallocate the backbuffer unnecessarily.
 let labPostProcessing = null;
 // Preserve the established HoloPhysics look by default. The new composer is
 // opt-in for visual/performance experiments; switching experiments never
@@ -373,7 +352,7 @@ function applyLabViewportSize({ updateCamera = true, pixelRatio = null } = {}) {
   return { width, height };
 }
 
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, currentDprCap));
+renderer.setPixelRatio(window.devicePixelRatio || 1);
 // updateStyle=false: keep #c on stylesheet 100%/100% (never bake inner* into inline px).
 applyLabViewportSize({ updateCamera: false });
 renderer.shadowMap.enabled = true;
@@ -419,7 +398,7 @@ const camera = new THREE.PerspectiveCamera(68, _bootView.width / Math.max(_bootV
 // Re-sync buffer now that camera exists (init setSize ran with updateCamera:false).
 applyLabViewportSize({
   updateCamera: true,
-  pixelRatio: Math.min(window.devicePixelRatio || 1, currentDprCap),
+  pixelRatio: window.devicePixelRatio || 1,
 });
 if (POST_PROCESSING_ENABLED) {
   labPostProcessing = createPhysicsPostProcessing({
@@ -431,7 +410,7 @@ if (POST_PROCESSING_ENABLED) {
   labPostProcessing.resize(
     _bootView.width,
     _bootView.height,
-    Math.min(window.devicePixelRatio || 1, currentDprCap),
+    window.devicePixelRatio || 1,
   );
 }
 // Spawn inside the room looking toward the lab center (not against the front wall).
@@ -3993,7 +3972,7 @@ if (labMeasureEnabled) {
         memory: { ...renderer.info.memory },
         render: { ...renderer.info.render },
         programs: renderer.info.programs?.length || 0,
-        dpr: currentDprCap,
+        dpr: renderer.getPixelRatio?.() || window.devicePixelRatio || 1,
         quality: { ...HIGH_QUALITY_PROFILE },
       };
     },
@@ -6204,7 +6183,7 @@ const BOUND = {
 function resizeRendererViewport() {
   applyLabViewportSize({
     updateCamera: true,
-    pixelRatio: Math.min(window.devicePixelRatio || 1, currentDprCap),
+    pixelRatio: window.devicePixelRatio || 1,
   });
   // frameCoordinator is created later in this module; avoid TDZ on early RO/resize.
   try { frameCoordinator.invalidate(); } catch { /* boot */ }
@@ -6290,7 +6269,6 @@ simDriver.bind({
 // Handlers still expose update(); driver owns the integrate call site.
 expManager?.setSimOwnedByDriver?.(true);
 
-let lastPresentAt = -Infinity;
 // A selected experiment may need several asynchronous GPU preparation slices.
 // Keep the old lab frame on screen while those slices yield so a partially
 // mounted apparatus cannot become visible and then freeze on its first draw.
@@ -6395,15 +6373,14 @@ if (shaderWarmupResetRequested) shaderWarmup.reset();
 
 canvas.addEventListener('webglcontextrestored', () => {
   webglContextLost = false;
-  currentDprCap = MAX_DPR;
   applyLabViewportSize({
     updateCamera: true,
-    pixelRatio: Math.min(window.devicePixelRatio || 1, currentDprCap),
+    pixelRatio: window.devicePixelRatio || 1,
   });
   labPostProcessing?.resize(
     getLabViewportSize().width,
     getLabViewportSize().height,
-    Math.min(window.devicePixelRatio || 1, currentDprCap),
+    window.devicePixelRatio || 1,
   );
   frameCoordinator.invalidate();
   showToast('Graphics restored; select an experiment to reload it');
@@ -6647,10 +6624,8 @@ function animate() {
     }
   }
 
-  const renderDue = !IS_IPAD_PERFORMANCE || nowMs - lastPresentAt >= (1000 / 30);
-  if (renderDue) lastPresentAt = nowMs;
   const coordinatorStart = traceFrames ? performance.now() : 0;
-  const coordinatorResult = frameCoordinator.frame(nowMs, { render: renderDue });
+  const coordinatorResult = frameCoordinator.frame(nowMs, { render: true });
   if (traceFrames) {
     const frameMs = performance.now() - frameTraceStart;
     if (frameMs > 100) {
@@ -7220,10 +7195,7 @@ function restoreLabFramebuffer() {
   // 1×1 offscreen warm (or a disposed RT) can leave the viewport broken so
   // only MeshBasic holos survive until the next setSize; also re-sync aspect
   // so windowed mode does not stay anamorphically stretched vs fullscreen.
-  const pr = Math.min(
-    Math.max(renderer.getPixelRatio?.() || 1, 1),
-    currentDprCap || MAX_DPR || 1.25,
-  );
+  const pr = Math.max(renderer.getPixelRatio?.() || window.devicePixelRatio || 1, 1);
   const { width: cssW, height: cssH } = applyLabViewportSize({
     updateCamera: true,
     pixelRatio: pr,

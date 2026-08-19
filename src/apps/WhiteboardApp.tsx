@@ -1,7 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useWhiteboardStore } from '../stores/whiteboardStore';
 import { useSessionStore } from '../stores/sessionStore';
-import { BookOpen, Trash2, ZoomIn, ZoomOut, Layers, ChevronLeft, ChevronRight, Plus, ArrowLeft, LayoutGrid } from 'lucide-react';
+import { BookOpen, Trash2, ZoomIn, ZoomOut, Layers, ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Tooltip } from '../components/Tooltip';
@@ -49,7 +49,6 @@ function todayString() {
 
 const WHITEBOARD_WIDTH = 1920;
 const WHITEBOARD_HEIGHT = 1080;
-const IS_IPAD_STANDALONE = import.meta.env.HOLO_TARGET === 'ipad';
 const IS_LAUNCHER_ENTRY =
   typeof window !== 'undefined' &&
   window.location.pathname.endsWith('/launcher.html');
@@ -298,8 +297,6 @@ export function WhiteboardApp() {
   }, [currentPageIndex, selectedLessonId]);
 
   useEffect(() => {
-    if (IS_IPAD_STANDALONE) return;
-
     listClasses()
       .then((data) => {
         const all = [...data.teaching, ...data.joined];
@@ -474,21 +471,6 @@ export function WhiteboardApp() {
       {isDesktop && <TitleBar activeTab={activeTab} onNavigate={setActiveTab} />}
 
       <div ref={stageRef} className="relative flex-1 min-h-0 overflow-hidden">
-      {/* iPad 独立版没有桌面标题栏；Web 端不提供桌面启动器入口。 */}
-      {IS_IPAD_STANDALONE && activeTab !== 'whiteboard' && (
-        <motion.button
-          type="button"
-          onClick={() => setActiveTab('whiteboard')}
-          whileHover={{ scale: 1.03, y: -1 }}
-          whileTap={{ scale: 0.96 }}
-          className="absolute left-[calc(env(safe-area-inset-left)+1rem)] top-[calc(env(safe-area-inset-top)+1rem)] z-[100] flex h-12 items-center gap-2.5 rounded-full border border-white/15 bg-zinc-950/85 px-4 text-sm font-semibold text-white shadow-[0_8px_28px_rgba(0,0,0,0.35)] backdrop-blur-xl transition-colors hover:border-cyan-400/50 hover:bg-zinc-900/90 active:scale-95"
-          aria-label="返回白板"
-        >
-          <ArrowLeft className="h-4 w-4 text-cyan-300" strokeWidth={2.4} />
-          <LayoutGrid className="h-4 w-4 text-zinc-300" />
-          <span>返回白板</span>
-        </motion.button>
-      )}
       {activeTab === 'whiteboard' && (
         <motion.button
           ref={menuToggleButtonRef}
@@ -502,28 +484,24 @@ export function WhiteboardApp() {
               ? "border-cyan-500/30 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 text-cyan-600 dark:border-cyan-400/40 dark:from-cyan-400/15 dark:to-blue-400/15 dark:text-cyan-300 shadow-[0_0_20px_rgba(6,182,212,0.15)]"
               : "border-black/5 bg-white/70 text-zinc-800 hover:bg-white dark:border-white/10 dark:bg-zinc-900/80 dark:text-zinc-100 dark:hover:bg-zinc-800"
           )}
-          title={IS_IPAD_STANDALONE ? '页面选择' : '课堂与页面选择'}
-          aria-label={IS_IPAD_STANDALONE ? '页面选择' : '课堂与页面选择'}
+          title="课堂与页面选择"
+          aria-label="课堂与页面选择"
           aria-expanded={classroomMenuOpen}
         >
-          {!IS_IPAD_STANDALONE && (
-            <>
-              <motion.div
-                animate={{
-                  scale: classroomMenuOpen ? 1.08 : 1,
-                  rotate: classroomMenuOpen ? -5 : 0
-                }}
-                className="flex items-center justify-center text-current opacity-90"
-              >
-                <BookOpen className="w-[18px] h-[18px]" strokeWidth={2.2} />
-              </motion.div>
+          <motion.div
+            animate={{
+              scale: classroomMenuOpen ? 1.08 : 1,
+              rotate: classroomMenuOpen ? -5 : 0
+            }}
+            className="flex items-center justify-center text-current opacity-90"
+          >
+            <BookOpen className="w-[18px] h-[18px]" strokeWidth={2.2} />
+          </motion.div>
 
-              <div className={cn(
-                "h-4 w-px transition-colors duration-300",
-                classroomMenuOpen ? "bg-cyan-500/20 dark:bg-cyan-400/30" : "bg-zinc-300 dark:bg-zinc-700"
-              )} />
-            </>
-          )}
+          <div className={cn(
+            "h-4 w-px transition-colors duration-300",
+            classroomMenuOpen ? "bg-cyan-500/20 dark:bg-cyan-400/30" : "bg-zinc-300 dark:bg-zinc-700"
+          )} />
 
           <div className="flex items-center gap-1.5 font-semibold text-sm">
             <motion.div
@@ -547,66 +525,62 @@ export function WhiteboardApp() {
           ref={classroomMenuRef}
           className={cn(
             "absolute top-[92px] left-8 z-[60] flex flex-col gap-3 rounded-3xl border p-4 text-sm shadow-2xl backdrop-blur-xl transition-all duration-200",
-            IS_IPAD_STANDALONE ? "w-[min(34rem,calc(100vw-4rem))]" : "w-[min(48rem,calc(100vw-4rem))]",
+            "w-[min(48rem,calc(100vw-4rem))]",
             isDark 
               ? "border-white/10 bg-zinc-900/90 text-zinc-100" 
               : "border-black/5 bg-white/90 text-zinc-800"
           )}
         >
-          {!IS_IPAD_STANDALONE && (
-            <>
-              <div className="flex flex-wrap items-center gap-3">
-                <select
-                  value={selectedClassId ?? ''}
-                  onChange={(e) => {
-                    setSelectedClassId(e.target.value ? Number(e.target.value) : null);
-                    setSelectedLessonId(null);
-                  }}
-                  className="h-9 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-950 px-3 outline-none text-sm transition-all focus:border-cyan-500/50 dark:focus:border-cyan-400/50 w-full sm:w-auto"
-                  title="选择班级"
-                >
-                  {classes.length === 0 && <option value="">暂无班级</option>}
-                  {classes.map(item => (
-                    <option key={item.id} value={item.id}>{item.name}</option>
-                  ))}
-                </select>
+          <div className="flex flex-wrap items-center gap-3">
+            <select
+              value={selectedClassId ?? ''}
+              onChange={(e) => {
+                setSelectedClassId(e.target.value ? Number(e.target.value) : null);
+                setSelectedLessonId(null);
+              }}
+              className="h-9 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-950 px-3 outline-none text-sm transition-all focus:border-cyan-500/50 dark:focus:border-cyan-400/50 w-full sm:w-auto"
+              title="选择班级"
+            >
+              {classes.length === 0 && <option value="">暂无班级</option>}
+              {classes.map(item => (
+                <option key={item.id} value={item.id}>{item.name}</option>
+              ))}
+            </select>
 
-                <input
-                  type="date"
-                  value={selectedLessonDate}
-                  onChange={(e) => {
-                    setSelectedLessonDate(e.target.value || todayString());
-                    setSelectedLessonId(null);
-                  }}
-                  className="h-9 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-950 px-3 outline-none text-sm transition-all focus:border-cyan-500/50 dark:focus:border-cyan-400/50 w-full sm:w-auto"
-                  title="按日期查看课次"
-                />
+            <input
+              type="date"
+              value={selectedLessonDate}
+              onChange={(e) => {
+                setSelectedLessonDate(e.target.value || todayString());
+                setSelectedLessonId(null);
+              }}
+              className="h-9 rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-950 px-3 outline-none text-sm transition-all focus:border-cyan-500/50 dark:focus:border-cyan-400/50 w-full sm:w-auto"
+              title="按日期查看课次"
+            />
 
-                <select
-                  value={selectedLessonId ?? ''}
-                  onChange={(e) => setSelectedLessonId(e.target.value ? Number(e.target.value) : null)}
-                  className="h-9 min-w-[140px] rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-950 px-3 outline-none text-sm transition-all focus:border-cyan-500/50 dark:focus:border-cyan-400/50 w-full sm:w-auto"
-                  title="选择课次"
-                >
-                  <option value="">个人白板</option>
-                  {lessons.map(item => (
-                    <option key={item.id} value={item.id}>{item.title}</option>
-                  ))}
-                </select>
+            <select
+              value={selectedLessonId ?? ''}
+              onChange={(e) => setSelectedLessonId(e.target.value ? Number(e.target.value) : null)}
+              className="h-9 min-w-[140px] rounded-xl border border-black/10 dark:border-white/10 bg-white dark:bg-zinc-950 px-3 outline-none text-sm transition-all focus:border-cyan-500/50 dark:focus:border-cyan-400/50 w-full sm:w-auto"
+              title="选择课次"
+            >
+              <option value="">个人白板</option>
+              {lessons.map(item => (
+                <option key={item.id} value={item.id}>{item.title}</option>
+              ))}
+            </select>
 
-                <button
-                  onClick={handleCreateLesson}
-                  disabled={!selectedClassId}
-                  className="h-9 rounded-xl bg-cyan-600 px-4 font-medium text-white transition-all hover:bg-cyan-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 w-full sm:w-auto"
-                  title="创建课次"
-                >
-                  创建课次
-                </button>
-              </div>
+            <button
+              onClick={handleCreateLesson}
+              disabled={!selectedClassId}
+              className="h-9 rounded-xl bg-cyan-600 px-4 font-medium text-white transition-all hover:bg-cyan-500 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 w-full sm:w-auto"
+              title="创建课次"
+            >
+              创建课次
+            </button>
+          </div>
 
-              <div className="h-px w-full bg-black/5 dark:bg-white/10 my-1" />
-            </>
-          )}
+          <div className="h-px w-full bg-black/5 dark:bg-white/10 my-1" />
 
           <div className="flex items-center gap-2">
             <Tooltip content="上一页" position="top">
@@ -819,8 +793,8 @@ export function WhiteboardApp() {
       {activeTab === 'whiteboard' && <AppleDock />}
 
       {/* 8. 冷启动动画属于独立启动器；原 HoloMath 入口不加载该覆盖层。 */}
-      {IS_LAUNCHER_ENTRY && !IS_IPAD_STANDALONE && <SplashScreen />}
-      {!IS_IPAD_STANDALONE && <LoginModal />}
+      {IS_LAUNCHER_ENTRY && <SplashScreen />}
+      <LoginModal />
 
       </div>
 

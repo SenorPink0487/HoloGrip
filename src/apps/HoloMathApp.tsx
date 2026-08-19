@@ -4,8 +4,6 @@ import { LoginModal } from '../components/desktop/LoginModal';
 import { TitleBar } from '../components/desktop/TitleBar';
 import { isDesktop } from '../lib/platform';
 
-const IS_IPAD_STANDALONE = import.meta.env.HOLO_TARGET === 'ipad';
-
 export function HoloMathApp() {
   const stageRef = useRef<HTMLDivElement>(null);
 
@@ -24,7 +22,7 @@ export function HoloMathApp() {
       {isDesktop && <TitleBar activeTab="ar_3d" onNavigate={() => window.location.assign('whiteboard.html')} />}
       <div ref={stageRef} className="relative flex-1 min-h-0 overflow-hidden">
         <ARExperience stageRef={stageRef} />
-        {!IS_IPAD_STANDALONE && <LoginModal />}
+        <LoginModal />
       </div>
     </div>
   );

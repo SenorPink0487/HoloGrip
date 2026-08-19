@@ -8,7 +8,6 @@
  */
 
 export const HIGH_QUALITY_PROFILE = Object.freeze({
-  dprCap: 1.5,
   shadowMapSize: 2048,
   particleBudget: 20000,
   bloomEnabled: true,
@@ -207,7 +206,7 @@ export function createPerformanceGovernor(options = {}) {
       frameP95: percentile(frameSamples, 95),
       renderMs,
       simulationMs,
-      dpr: renderer?.getPixelRatio?.() || quality.dprCap,
+      dpr: renderer?.getPixelRatio?.() || 1,
       render: stats.render,
       memory: stats.memory,
       programs: stats.programs,
