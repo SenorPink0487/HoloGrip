@@ -25,5 +25,5 @@
     "noEmit": true
   },
   "include": ["src", "scripts", "server", "vite.config.ts"],
-  "exclude": ["node_modules", "dist", "src-tauri"]
+  "exclude": ["node_modules", "dist", "src-tauri", "src/**/src-tauri", "**/target"]
 }

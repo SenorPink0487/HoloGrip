@@ -1793,6 +1793,201 @@ body.holo-fs-open #crosshair {
   background: #fffbeb;
   border: 1px solid #fde68a;
   border-radius: 8px;
+line-height: 1;
+}
+
+#exp-panel .exp-close:hover {
+  background: rgba(14, 165, 233, 0.2);
+}
+
+#exp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.exp-card {
+  text-align: left;
+  appearance: none;
+  border: 1px solid rgba(14, 165, 233, 0.2);
+  background: rgba(240, 249, 255, 0.9);
+  border-radius: 12px;
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.12s, box-shadow 0.15s;
+}
+
+.exp-card:hover {
+  border-color: #0ea5e9;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(14, 165, 233, 0.15);
+}
+
+.exp-card .name {
+  font-weight: 700;
+  font-size: 14px;
+  color: #0c4a6e;
+  margin-bottom: 4px;
+}
+
+.exp-card .goal {
+  font-size: 12px;
+  color: #64748b;
+  line-height: 1.45;
+}
+
+#exp-active {
+  display: none;
+}
+
+#exp-active.show {
+  display: block;
+}
+
+#exp-active .exp-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0c4a6e;
+  margin-bottom: 6px;
+}
+
+#exp-active .exp-theory {
+  font-size: 12px;
+  color: #0369a1;
+  background: rgba(14, 165, 233, 0.08);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  line-height: 1.5;
+  font-family: Consolas, "SF Mono", monospace;
+}
+
+#exp-steps {
+  list-style: none;
+  margin-bottom: 12px;
+}
+
+#exp-steps li {
+  position: relative;
+  padding: 8px 8px 8px 28px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: #64748b;
+  border-radius: 8px;
+  margin-bottom: 4px;
+}
+
+#exp-steps li::before {
+  content: attr(data-n);
+  position: absolute;
+  left: 6px;
+  top: 8px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  color: #64748b;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 16px;
+  text-align: center;
+}
+
+#exp-steps li.active {
+  background: rgba(14, 165, 233, 0.1);
+  color: #0c4a6e;
+  font-weight: 600;
+}
+
+#exp-steps li.active::before {
+  background: #0ea5e9;
+  color: #fff;
+}
+
+#exp-steps li.done {
+  color: #059669;
+}
+
+#exp-steps li.done::before {
+  content: "✓";
+  background: #10b981;
+  color: #fff;
+}
+
+#exp-data {
+  font-size: 12px;
+  background: #0f172a;
+  color: #e2e8f0;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  line-height: 1.7;
+  font-family: Consolas, "SF Mono", monospace;
+  min-height: 48px;
+}
+
+#exp-data .ok {
+  color: #6ee7b7;
+}
+
+#exp-data .muted {
+  color: #94a3b8;
+  font-size: 11px;
+}
+
+#exp-data .data-log {
+  margin-top: 8px;
+  overflow-x: auto;
+}
+
+#exp-data .data-log table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+#exp-data .data-log th,
+#exp-data .data-log td {
+  padding: 3px 5px;
+  text-align: left;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+#exp-data .data-log th {
+  color: #94a3b8;
+  font-weight: 600;
+}
+
+#exp-data .data-log td {
+  color: #e2e8f0;
+  font-variant-numeric: tabular-nums;
+}
+
+.btn-record {
+  background: linear-gradient(135deg, #ec4899, #a855f7);
+  color: #fff;
+}
+
+.btn-record:hover {
+  filter: brightness(1.08);
+}
+
+.btn-record:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: none;
+}
+
+#exp-hint {
+  font-size: 12px;
+  color: #b45309;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 8px;
   padding: 8px 10px;
   margin-bottom: 12px;
   line-height: 1.45;
@@ -1833,27 +2028,47 @@ body.holo-fs-open #crosshair {
   position: fixed;
   bottom: 32px;
   left: 50%;
-  transform: translateX(-50%) translateY(20px);
-  z-index: 30;
-  background: rgba(15, 23, 42, 0.9);
-  color: #f1f5f9;
-  padding: 10px 20px;
-  border-radius: 999px;
+  transform: translateX(-50%) translateY(20px) scale(0.92);
+  z-index: 99995;
+  background: radial-gradient(130% 180% at 50% -20%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.05) 35%, rgba(56, 189, 248, 0.08) 70%, rgba(15, 23, 42, 0.05) 100%), rgba(8, 16, 30, 0.62);
+  color: #ffffff;
+  padding: 9px 24px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-top-color: rgba(255, 255, 255, 0.48);
+  border-bottom-color: rgba(255, 255, 255, 0.1);
   font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.025em;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 0.25s, transform 0.25s;
+  backdrop-filter: blur(28px) saturate(220%) contrast(110%) brightness(108%);
+  -webkit-backdrop-filter: blur(28px) saturate(220%) contrast(110%) brightness(108%);
+  box-shadow: 0 20px 48px -6px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 28px -4px rgba(56, 189, 248, 0.32), inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1.5px 2px 0 rgba(0, 0, 0, 0.5), inset 0 0 20px rgba(56, 189, 248, 0.12);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7), 0 0 10px rgba(56, 189, 248, 0.3);
+  -webkit-font-smoothing: antialiased;
   max-width: 90vw;
   text-align: center;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  transition: opacity 0.4s cubic-bezier(0.34, 1.45, 0.64, 1), transform 0.45s cubic-bezier(0.34, 1.45, 0.64, 1);
+}
+
+#toast::before {
+  content: '';
+  position: absolute;
+  inset: 1px 8px auto 8px;
+  height: 48%;
+  border-radius: 9999px 9999px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.08) 45%, transparent 100%);
+  pointer-events: none;
 }
 
 #toast.show {
   opacity: 1;
-  transform: translateX(-50%) translateY(0);
+  transform: translateX(-50%) translateY(0) scale(1);
 }
 
-/* Visible during the first cold experiment switch, before runtime/GPU work. */
+/* ── Liquid Glass Experiment Switch Loader ── */
 #experiment-switch-loader {
   position: fixed;
   top: max(18px, env(safe-area-inset-top));
@@ -1861,42 +2076,89 @@ body.holo-fs-open #crosshair {
   z-index: 99990;
   display: flex;
   align-items: center;
-  gap: 9px;
-  max-width: min(90vw, 360px);
-  padding: 9px 15px;
-  border: 1px solid rgba(56, 189, 248, 0.42);
-  border-radius: 999px;
-  background: rgba(2, 8, 23, 0.84);
-  color: #e0f2fe;
-  box-shadow: 0 10px 28px rgba(2, 8, 23, 0.24), 0 0 24px rgba(34, 211, 238, 0.14);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  gap: 11px;
+  max-width: min(90vw, 400px);
+  padding: 8px 18px 8px 13px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-top-color: rgba(255, 255, 255, 0.5);
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  background: radial-gradient(130% 180% at 50% -20%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.05) 35%, rgba(56, 189, 248, 0.1) 70%, rgba(15, 23, 42, 0.05) 100%), rgba(8, 16, 30, 0.58);
+  color: #ffffff;
+  box-shadow: 0 20px 48px -6px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 32px -4px rgba(56, 189, 248, 0.35), 0 0 16px 0 rgba(168, 85, 247, 0.2), inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1.5px 2px 0 rgba(0, 0, 0, 0.5), inset 0 0 24px rgba(56, 189, 248, 0.14);
+  backdrop-filter: blur(28px) saturate(220%) contrast(110%) brightness(108%);
+  -webkit-backdrop-filter: blur(28px) saturate(220%) contrast(110%) brightness(108%);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.025em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7), 0 0 10px rgba(56, 189, 248, 0.35);
+  -webkit-font-smoothing: antialiased;
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, -10px);
-  transition: opacity 180ms ease, transform 180ms ease;
+  transform: translate(-50%, -18px) scale(0.9, 0.85);
+  filter: blur(8px);
+  overflow: hidden;
+  transition:
+    opacity 0.18s ease,
+    transform 0.2s ease,
+    filter 0.18s ease;
+}
+
+#experiment-switch-loader::before,
+#shader-warmup-indicator::before {
+  content: '';
+  position: absolute;
+  inset: 1px 8px auto 8px;
+  height: 48%;
+  border-radius: 9999px 9999px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.38) 0%, rgba(255, 255, 255, 0.08) 45%, transparent 100%);
+  pointer-events: none;
+  z-index: 1;
+}
+
+#experiment-switch-loader::after,
+#shader-warmup-indicator::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: linear-gradient(105deg, transparent 20%, rgba(56, 189, 248, 0.2) 40%, rgba(255, 255, 255, 0.45) 50%, rgba(168, 85, 247, 0.2) 60%, transparent 80%);
+  background-size: 250% 100%;
+  animation: liquid-glass-shimmer 4.2s ease-in-out infinite;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  z-index: 2;
 }
 
 #experiment-switch-loader.show {
   opacity: 1;
-  transform: translate(-50%, 0);
+  transform: translate(-50%, 0) scale(1, 1);
+  filter: blur(0);
 }
 
-.experiment-switch-spinner {
-  width: 14px;
-  height: 14px;
+/* ── Liquid Mercury Orb / Quantum Spinner ── */
+.experiment-switch-spinner,
+.shader-warmup-spinner {
+  width: 16px;
+  height: 16px;
   flex: 0 0 auto;
-  border: 2px solid rgba(125, 211, 252, 0.28);
-  border-top-color: #67e8f9;
-  border-right-color: #0ea5e9;
+  position: relative;
   border-radius: 50%;
-  animation: experiment-switch-spin 0.75s linear infinite;
+  background: conic-gradient(from 0deg, transparent 0%, rgba(56, 189, 248, 0.15) 30%, #38bdf8 70%, #ffffff 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #fff calc(100% - 2.2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2.5px), #fff calc(100% - 2.2px));
+  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.85));
+  animation: liquid-spinner-rotate 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  z-index: 3;
 }
 
-/* Background shader compilation status, positioned in the upper middle of the lab. */
+#experiment-switch-loader [data-switch-loader-label],
+#shader-warmup-indicator [data-shader-warmup-label] {
+  position: relative;
+  z-index: 3;
+}
+
+/* ── Liquid Glass Shader Warmup Indicator ── */
 #shader-warmup-indicator {
   position: fixed;
   top: clamp(64px, 10vh, 112px);
@@ -1904,67 +2166,81 @@ body.holo-fs-open #crosshair {
   z-index: 99989;
   display: flex;
   align-items: center;
-  gap: 9px;
-  max-width: min(90vw, 420px);
-  padding: 9px 15px;
-  border: 1px solid rgba(56, 189, 248, 0.42);
-  border-radius: 999px;
-  background: rgba(2, 8, 23, 0.84);
-  color: #e0f2fe;
-  box-shadow: 0 10px 28px rgba(2, 8, 23, 0.24), 0 0 24px rgba(34, 211, 238, 0.14);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  gap: 11px;
+  max-width: min(90vw, 450px);
+  padding: 8px 18px 8px 13px;
+  border-radius: 9999px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-top-color: rgba(255, 255, 255, 0.5);
+  border-bottom-color: rgba(255, 255, 255, 0.1);
+  background: radial-gradient(130% 180% at 50% -20%, rgba(255, 255, 255, 0.28) 0%, rgba(255, 255, 255, 0.05) 35%, rgba(56, 189, 248, 0.1) 70%, rgba(15, 23, 42, 0.05) 100%), rgba(8, 16, 30, 0.58);
+  color: #ffffff;
+  box-shadow: 0 20px 48px -6px rgba(2, 6, 23, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06), 0 0 32px -4px rgba(56, 189, 248, 0.35), 0 0 16px 0 rgba(168, 85, 247, 0.2), inset 0 1.5px 1px 0 rgba(255, 255, 255, 0.45), inset 0 -1.5px 2px 0 rgba(0, 0, 0, 0.5), inset 0 0 24px rgba(56, 189, 248, 0.14);
+  backdrop-filter: blur(28px) saturate(220%) contrast(110%) brightness(108%);
+  -webkit-backdrop-filter: blur(28px) saturate(220%) contrast(110%) brightness(108%);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.025em;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7), 0 0 10px rgba(56, 189, 248, 0.35);
+  -webkit-font-smoothing: antialiased;
   opacity: 0;
   pointer-events: none;
-  transform: translate(-50%, -10px);
-  transition: opacity 180ms ease, transform 180ms ease;
+  transform: translate(-50%, -18px) scale(0.9, 0.85);
+  filter: blur(8px);
+  overflow: hidden;
   white-space: nowrap;
+  transition:
+    opacity 0.4s cubic-bezier(0.34, 1.45, 0.64, 1),
+    transform 0.45s cubic-bezier(0.34, 1.45, 0.64, 1),
+    filter 0.35s ease;
 }
 
 #shader-warmup-indicator.show {
   opacity: 1;
-  transform: translate(-50%, 0);
-}
-
-.shader-warmup-spinner {
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  border: 2px solid rgba(125, 211, 252, 0.28);
-  border-top-color: #67e8f9;
-  border-right-color: #0ea5e9;
-  border-radius: 50%;
-  animation: experiment-switch-spin 0.75s linear infinite;
+  transform: translate(-50%, 0) scale(1, 1);
+  filter: blur(0);
 }
 
 #shader-warmup-indicator.is-complete .shader-warmup-spinner {
-  position: relative;
-  border-color: #34d399;
+  background: #34d399;
+  -webkit-mask: none;
+  mask: none;
+  filter: drop-shadow(0 0 8px rgba(52, 211, 153, 0.85));
   animation: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 #shader-warmup-indicator.is-complete .shader-warmup-spinner::after {
   content: '✓';
   position: absolute;
-  inset: -1px 0 0;
-  color: #34d399;
-  font-size: 10px;
-  font-weight: 800;
-  line-height: 14px;
-  text-align: center;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #022c22;
+  font-size: 11px;
+  font-weight: 900;
+  line-height: 1;
 }
 
-@keyframes experiment-switch-spin {
+@keyframes liquid-glass-shimmer {
+  0% { background-position: -120% 0; }
+  50% { background-position: 50% 0; }
+  100% { background-position: 220% 0; }
+}
+
+@keyframes liquid-spinner-rotate {
   to { transform: rotate(360deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  #experiment-switch-loader { transition-duration: 1ms; }
+  #experiment-switch-loader { transition-duration: 1ms; filter: none; }
+  #experiment-switch-loader::after { animation: none; }
   .experiment-switch-spinner { animation-duration: 1ms; }
-  #shader-warmup-indicator { transition-duration: 1ms; }
+  #shader-warmup-indicator { transition-duration: 1ms; filter: none; }
+  #shader-warmup-indicator::after { animation: none; }
   .shader-warmup-spinner { animation-duration: 1ms; }
 }
 
@@ -1980,12 +2256,13 @@ body.holo-fs-open #crosshair {
   align-items: center;
   gap: 10px;
   padding: 7px 18px;
-  background: rgba(15, 23, 42, 0.82);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.12) 0%, rgba(255, 255, 255, 0.03) 100%), rgba(10, 18, 32, 0.68);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-top-color: rgba(255, 255, 255, 0.32);
   border-radius: 9999px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4), 0 0 20px rgba(56, 189, 248, 0.12);
+  box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(0, 0, 0, 0.2), 0 0 20px rgba(56, 189, 248, 0.15), inset 0 1px 0 0 rgba(255, 255, 255, 0.22);
   color: #f8fafc;
   font-family: system-ui, -apple-system, sans-serif;
   font-size: 13px;

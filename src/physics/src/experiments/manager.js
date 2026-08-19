@@ -237,7 +237,7 @@ export function createExperimentManager({
 
   function notifyGraphChanged(stationId) {
     if (!stationId || typeof onApparatusGraphChanged !== 'function') return;
-    try { onApparatusGraphChanged(stationId); } catch { /* ignore */ }
+    try { onApparatusGraphChanged(stationId, state.expId); } catch { /* ignore */ }
   }
 
   /** End experiment apparatus → idle table showcase (empty or prop, per station). */
@@ -427,6 +427,7 @@ export function createExperimentManager({
       steps.forEach((step) => {
         try { step(); } catch { /* keep the pending start contract alive */ }
       });
+      scheduler.endSoftSwitch?.();
     } else if (typeof scheduler.scheduleChain === 'function') {
       // soft:false + restFrames:0 — open must not insert camera-only cooldowns.
       // Each step is O(1) mount / HUD schedule; no tree walks remain.

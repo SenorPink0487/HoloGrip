@@ -135,3 +135,70 @@ test('optics record columns format cells for comparison table', () => {
   assert.equal(formatOpticsRecordCell(row, 'farField'), '是');
   assert.equal(formatOpticsRecordCell({ ...row, farField: false }, 'farField'), '近场');
 });
+
+test('drawHoloScreen renders diffraction experiment layout without crashing and produces expected hits', async () => {
+  const { drawHoloScreen, getHoloScreenLayoutSize } = await import('../src/holoScreen.js');
+  const experiment = {
+    id: 'multi_slit_diffraction',
+    name: '单缝衍射 · 多缝干涉',
+    steps: [
+      { id: 'setup', text: '点亮激光器并选择预设' },
+      { id: 'observe', text: '观察屏上条纹与曲线' },
+    ],
+  };
+  const hud = {
+    running: true,
+    stepIndex: 0,
+    experiment,
+    data: {
+      lambdaNm: 550,
+      slitMm: 0.1,
+      pitchMm: 0.25,
+      N: 1,
+      distM: 1,
+      fringeSpacingMm: 2.2,
+      centralWidthMm: 22,
+      fresnel: 0.018,
+      farField: true,
+      lightOn: true,
+      records: [],
+    },
+  };
+
+  const stubCtx = {
+    save() {},
+    restore() {},
+    beginPath() {},
+    closePath() {},
+    moveTo() {},
+    lineTo() {},
+    arcTo() {},
+    stroke() {},
+    fill() {},
+    fillRect() {},
+    strokeRect() {},
+    fillText() {},
+    measureText: () => ({ width: 40 }),
+    clearRect() {},
+    setLineDash() {},
+    createLinearGradient: () => ({ addColorStop() {} }),
+  };
+
+  const size = getHoloScreenLayoutSize('display', hud, true, experiment);
+  assert.ok(size.width > 0 && size.height > 0);
+
+  const res = drawHoloScreen(stubCtx, size.width, size.height, {
+    active: true,
+    hud,
+    surface: 'display',
+    accentHex: '#38bdf8',
+  });
+
+  assert.ok(res.hits.length > 0);
+  assert.ok(res.hits.some((h) => h.action === 'optics-diff-preset'));
+  assert.ok(res.hits.some((h) => h.action === 'optics-diff-power'));
+  assert.ok(res.hits.some((h) => h.action === 'optics-diff-record'));
+  assert.ok(res.hits.some((h) => h.action === 'optics-diff-chart'));
+  assert.ok(res.hits.some((h) => h.action === 'optics-diff-records-panel'));
+});
+

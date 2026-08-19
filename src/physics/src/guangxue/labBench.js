@@ -442,8 +442,8 @@ export function createDeskLamp() {
   bulb.position.set(-0.2, 0.95, 0);
   g.add(bulb);
 
-  // Source PointLight on the lamp — required for warm local key on glass/mirror.
-  const light = new THREE.PointLight(0xffe8c8, 0.6, 8, 2);
+  // Local key on the optical bench only; short range prevents leaking into lab room
+  const light = new THREE.PointLight(0xffe8c8, 0.45, 2.2, 2);
   light.position.copy(bulb.position);
   light.userData.sourceDeskLamp = true;
   g.add(light);

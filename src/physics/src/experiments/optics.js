@@ -48,7 +48,7 @@ export const station = {
         {
           id: 'setup',
           text: '点亮激光器并选择单缝、双缝或多缝预设',
-          hint: '在全息屏选择预设；也可瞄准激光器按 E 开关光束',
+          hint: '在全息屏选择预设；也可瞄准激光器点击开关光束',
         },
         {
           id: 'observe',
@@ -456,8 +456,8 @@ export function createHandlers(ctx) {
     if (!Number.isFinite(data.halfSpanMm)) {
       data.halfSpanMm = diffractionHalfSpan(data) * 1e3;
     }
-    // Fringe canvas is progressive unless caller asks for syncPaint / full force paint.
-    equipment.optics?.updateOptics?.(data, opts);
+    // Fringe canvas is painted immediately so 3D receiver screen never stays black.
+    equipment.optics?.updateOptics?.(data, { syncPaint: true, ...opts });
     data._opticsDirty = false;
     if (refresh) pushHud();
   }

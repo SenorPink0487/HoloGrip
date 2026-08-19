@@ -34,7 +34,7 @@ export const station = {
       goal: '选元素→选试剂→装入烧杯→倾倒混合→查看成分 3D 结构',
       theory: '试剂可倾倒混合；点击右侧成分可在桌上查看分子结构',
       steps: [
-        { id: 'pick_cup', text: '点击烧杯打开元素周期表', hint: '瞄准烧杯按 E 或点击' },
+        { id: 'pick_cup', text: '点击烧杯打开元素周期表', hint: '瞄准烧杯点击打开' },
         { id: 'fill', text: '选择元素与常见试剂装入烧杯', hint: '在前方悬浮屏中点选' },
         { id: 'pour', text: '拖动烧杯向另一杯倾倒混合', hint: '按住拖到另一杯松开' },
         { id: 'inspect', text: '在右侧面板查看成分并显示 3D 结构', hint: '点击成分行' },

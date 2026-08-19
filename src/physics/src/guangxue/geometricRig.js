@@ -65,10 +65,7 @@ export function createGeometricOpticsRig(opts = {}) {
   root.add(createLabAccessories());
   root.add(createDeskLamp());
 
-  // Soft local fill only — no second directional (host sun/hemi stay primary).
-  // Extra DirectionalLight doubled shadow/lighting cost for a small island.
-  const amb = new THREE.AmbientLight(0xfff6ec, 0.42);
-  root.add(amb);
+  // Host sun/hemi & envMap provide complete station lighting — no global ambient injection.
 
   const rayBox = createRayBox();
   rayBox.position.x = POS.source;

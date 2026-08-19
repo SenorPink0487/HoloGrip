@@ -23,7 +23,6 @@ import {
   computeThermoMetrics,
   formatThermoRecordCell,
   thermoCanRecord,
-  thermoRecordBlockedReason,
   thermoRecordCaption,
   thermoRecordColumns,
 } from './experiments/thermo.js';
@@ -256,11 +255,11 @@ function drawPremiumHoloButton(ctx, hits, x, y, w, h, label, action, meta, accen
   }
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  // Proportional font calculation: fit nicely within button height and width
   let fontSize = Math.max(14, Math.min(24, Math.round(h * 0.52)));
   const text = String(label || '');
   const textColor = active ? (isLight ? '#0f172a' : '#ffffff') : (isLight ? '#1e293b' : 'rgba(224, 242, 254, 0.92)');
-  if (/[\\_^{}]|[A-Za-z]/.test(text)) {
+  const isFormula = /[\\_^{}]/.test(text) && !/[\u4e00-\u9fa5]/.test(text);
+  if (isFormula) {
     drawMathFormula(ctx, text, x + w / 2, y + h / 2, {
       fontSize,
       color: textColor,
@@ -1455,7 +1454,7 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
     const idx = charges.findIndex((c) => c.id === selected.id) + 1;
     drawEditorPanel(
       leftX, colW,
-      `源电荷 Q_{${idx}}`,
+      `场源电荷 Q_{${idx}}`,
       `|Q| = ${fmt(Math.abs(selected.q), 1)}\\mu\\text{C} \\quad x = ${fmt(selected.x)}\\text{m} \\quad y = ${fmt(selected.y)}\\text{m} \\quad z = ${fmt(selected.z)}\\text{m}`,
     );
     const toolsY = y + Math.round(74 * scale);
@@ -1465,12 +1464,12 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
     drawHallButton(ctx, hits, leftX + pad + btnW + gap, toolsY, btnW, toolBtnH, '负(−)', 'electric-sign', { sign: -1 }, '#3b82f6', selected.q < 0);
     drawHallButton(ctx, hits, leftX + pad + (btnW + gap) * 2, toolsY, btnW, toolBtnH, '删除选中', 'electric-delete', {}, '#ef4444');
   } else {
-    drawEditorPanel(leftX, colW, '源电荷 Q', '点击上方列表或 3D 电荷以选中 · 试探电荷读数在球体上方');
+    drawEditorPanel(leftX, colW, '场源电荷 Q', '点击上方列表或 3D 电荷以选中 · 试探电荷读数在球体上方');
     ctx.fillStyle = P.muted;
     ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('未选中源电荷（试探电荷信息见 3D 头顶标签）', leftX + colW / 2, y + editorH / 2 + Math.round(18 * scale));
+    ctx.fillText('未选中场源电荷（试探电荷信息见 3D 头顶标签）', leftX + colW / 2, y + editorH / 2 + Math.round(18 * scale));
   }
 }
 
@@ -1728,7 +1727,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
   const params = [
     { key: 'Im', label: '励磁电流 Im', value: Number(d.Im || 0), unit: 'A', digits: 2 },
     { key: 'Is', label: '霍尔电流 Is', value: Number(d.Is || 0), unit: 'mA', digits: 1 },
-    { key: 'probePos', label: '探头位置 X', value: Number(d.probePos || 0), unit: 'cm', digits: 1 },
+    { key: 'hallK', label: '灵敏度 K', value: Number(d.hallK || HALL_K), unit: 'mV/(mA·T)', digits: 0 },
     target === 'helmholtz'
       ? { key: 'rightCoilPos', label: '右线圈位置', value: Number(d.rightCoilPos || 0), unit: 'cm', digits: 1 }
       : { key: 'turns', label: '螺线管匝数 N', value: Number(d.turns || 0), unit: '匝', digits: 0 },
@@ -1737,7 +1736,7 @@ function drawHallExperiment(ctx, W, _H, cfg) {
   // Divide paramAreaH strictly by params.length to guarantee no footer collisions
   const paramRowH = paramAreaH / Math.max(1, params.length);
   const labelPx = Math.max(12, Math.min(15, Math.round(paramRowH * 0.38)));
-  const valuePx = Math.max(14, Math.min(18, Math.round(paramRowH * 0.46)));
+  const valuePx = Math.max(13, Math.min(17, Math.round(paramRowH * 0.44)));
 
   params.forEach((p, i) => {
     const y = paramAreaTop + i * paramRowH;
@@ -1762,14 +1761,17 @@ function drawHallExperiment(ctx, W, _H, cfg) {
     ctx.textAlign = 'left';
     ctx.fillText(p.label, innerX + pad, cy);
 
+    const valText = `${Number(p.value).toFixed(p.digits)}${p.unit ? ` ${p.unit}` : ''}`;
+    const maxValW = leftW - pad * 2 - ctx.measureText(p.label).width - Math.round(6 * scale);
     ctx.fillStyle = isLight ? '#0369a1' : '#7dd3fc';
-    ctx.font = `bold ${valuePx}px "Microsoft YaHei", sans-serif`;
+    let fSize = valuePx;
+    ctx.font = `bold ${fSize}px "Microsoft YaHei", sans-serif`;
+    while (ctx.measureText(valText).width > maxValW && fSize > 10) {
+      fSize -= 1;
+      ctx.font = `bold ${fSize}px "Microsoft YaHei", sans-serif`;
+    }
     ctx.textAlign = 'right';
-    ctx.fillText(
-      `${Number(p.value).toFixed(p.digits)}${p.unit ? ` ${p.unit}` : ''}`,
-      innerX + leftW - pad,
-      cy,
-    );
+    ctx.fillText(valText, innerX + leftW - pad, cy);
   });
 
   // ── Right: VH readout strip + data table / curve ──
@@ -1781,44 +1783,14 @@ function drawHallExperiment(ctx, W, _H, cfg) {
   ctx.stroke();
 
   const rightHeadH = Math.round(38 * scale);
-  const rightFootH = Math.round(30 * scale);
+  const rightFootH = Math.round(10 * scale);
   const titleText = d.showCurve ? 'B–X 磁场分布' : '实验数据记录';
-  const vhText = `${Number(d.vh || 0).toFixed(2)} mV`;
 
-  // Calculate Title text width and position Title left
-  ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
-  const titleW = ctx.measureText(titleText).width;
   fillSoftText(isLight ? '#0284c7' : accentHex, () => {
     ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'middle';
     ctx.fillText(titleText, rightX + pad, bodyY + rightHeadH / 2);
-  });
-
-  // VH digital readout pill: positioned with guaranteed clearance from titleText
-  ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
-  const vhPadX = Math.round(8 * scale);
-  const vhPillH = Math.round(24 * scale);
-  const vhContentW = ctx.measureText(vhText).width + vhPadX * 2;
-  const vhPillW = Math.min(rightW * 0.38, vhContentW);
-  // Ensure vhPillX never overlaps titleText
-  const minVhPillX = rightX + pad + titleW + Math.round(6 * scale);
-  const preferredVhPillX = rightX + rightW - pad - vhPillW;
-  const vhPillX = Math.max(minVhPillX, preferredVhPillX);
-  const vhPillY = bodyY + (rightHeadH - vhPillH) / 2;
-
-  ctx.fillStyle = isLight ? 'rgba(14, 165, 233, 0.14)' : 'rgba(56, 189, 248, 0.18)';
-  ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.45)' : 'rgba(56, 189, 248, 0.35)';
-  ctx.lineWidth = 1;
-  roundRect(ctx, vhPillX, vhPillY, vhPillW, vhPillH, vhPillH / 2);
-  ctx.fill();
-  ctx.stroke();
-
-  fillSoftText(isLight ? '#0369a1' : '#7dd3fc', () => {
-    ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(vhText, vhPillX + vhPillW / 2, vhPillY + vhPillH / 2);
   });
 
   const chartX = rightX + pad;
@@ -2014,31 +1986,6 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       ctx.fill();
     }
   }
-
-  // Right footer: record count + K + wiring status with tight padding
-  const wiringText = d.wiring?.energized
-    ? `${d.wiring.label || '励磁'}${d.wiring.reversed ? '·反接' : '·正接'}`
-    : d.wiring?.status === 'invalid' ? '接线未闭合' : 'Im未接线';
-  const isConnected = !!d.wiring?.energized;
-  const statusColor = isConnected
-    ? (isLight ? '#15803d' : '#4ade80')
-    : (isLight ? '#b91c1c' : '#f87171');
-
-  const rightFootY = bodyY + bodyH - rightFootH / 2;
-
-  fillSoftText(isLight ? '#334155' : '#cbd5e1', () => {
-    ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(`K=${HALL_K}`, rightX + pad, rightFootY);
-  });
-
-  fillSoftText(statusColor, () => {
-    ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(wiringText, rightX + rightW - pad, rightFootY);
-  });
 
   // Action bar buttons with pure text labels
   const btnGap = Math.round(10 * scale);
@@ -2678,7 +2625,9 @@ function drawDiffractionExperiment(ctx, _W, _H, cfg) {
   _uiTheme = cfg.theme || 'dark';
   const isDisplay = surface === 'display';
   const P = screenPalette(_uiTheme, accentHex, isDisplay);
-  const scale = holoUiScale(surface);
+  const rawScale = holoUiScale(surface || 'full');
+  // Display canvas is 1280×1040 (or 960x720); cap scale to ensure generous room without element collisions.
+  const scale = isDisplay ? Math.min(rawScale, 1.25) : rawScale;
   const d = hud?.data || {};
   const steps = experiment.steps || [];
   const stepIndex = Number(hud?.stepIndex || 0);
@@ -2686,7 +2635,6 @@ function drawDiffractionExperiment(ctx, _W, _H, cfg) {
   const records = Array.isArray(d.records) ? d.records : [];
   const chartOpen = !!d.chartOpen;
   const panelOpen = d.recordsPanelOpen === true;
-  const gap = Math.round(10 * scale);
   const x = innerX;
   const w = innerW;
   const fmt = (v, n = 3) => Number(v || 0).toFixed(n);
@@ -2696,140 +2644,110 @@ function drawDiffractionExperiment(ctx, _W, _H, cfg) {
   const Nslit = Math.max(1, Math.round(Number(d.N || 1)));
   const isLight = _uiTheme === 'light';
 
-  // —— Vertical bands derived from contentH (everything is dynamic, nothing overflows) ——
-  // Prefer large chrome + tight gaps; when short, shrink proportionally so stacks never collide.
-  const preferBtn = Math.round(54 * scale);
-  const preferStep = Math.round(30 * scale);
-  const preferStat = Math.round(88 * scale);
-  const preferGap = Math.round(7 * scale);
-  const minBtn = Math.round(42 * scale);
-  const minStep = Math.round(24 * scale);
-  const minStat = Math.round(68 * scale);
-  const minGap = Math.round(4 * scale);
-  const minMid = Math.round(220 * scale);
+  // —— Vertical Layout Bands ——
+  const statH = Math.round(72 * scale);
+  const btnH = Math.round(48 * scale);
+  const bandGap = Math.round(8 * scale);
 
-  // contentH = step + gap + stat + gap + mid + gap + btn
-  const fixedPrefer = preferStep + preferStat + preferBtn + preferGap * 3;
-  const roomForMid = contentH - fixedPrefer;
-  let btnH = preferBtn;
-  let stepH = preferStep;
-  let statH = preferStat;
-  let bandGap = preferGap;
-  let midH = roomForMid;
-
-  if (midH < minMid) {
-    // Shrink non-mid chrome first so mid keeps working space.
-    const deficit = minMid - midH;
-    let left = deficit;
-    const shrink = (cur, min) => {
-      const take = Math.min(left, Math.max(0, cur - min));
-      left -= take;
-      return cur - take;
-    };
-    btnH = shrink(btnH, minBtn);
-    statH = shrink(statH, minStat);
-    stepH = shrink(stepH, minStep);
-    bandGap = shrink(bandGap, minGap);
-    bandGap = shrink(bandGap, minGap);
-    bandGap = shrink(bandGap, minGap);
-    midH = contentH - (stepH + statH + btnH + bandGap * 3);
-  }
-  midH = Math.max(Math.round(180 * scale), midH);
-
-  const stepY = contentTop;
-  const statY = stepY + stepH + bandGap;
+  const statY = contentTop;
   const midTop = statY + statH + bandGap;
   const btnY = contentTop + contentH - btnH;
-  // Re-clamp mid bottom to action bar (hard guarantee)
-  midH = Math.max(Math.round(160 * scale), btnY - midTop - bandGap);
+  const midH = Math.max(Math.round(220 * scale), btnY - midTop - bandGap);
 
-  const btnGap = Math.round(6 * scale);
-  const split = Math.round(8 * scale);
-  const leftW = Math.floor(w * 0.62);
+  const split = Math.round(10 * scale);
+  const leftW = Math.floor(w * 0.52);
   const rightW = w - leftW - split;
   const rightX = x + leftW + split;
-  const pad = Math.max(Math.round(6 * scale), Math.min(Math.round(10 * scale), Math.round(midH * 0.025)));
+  const pad = Math.round(12 * scale);
   const chipGap = Math.round(6 * scale);
 
-  // Type scale tracks band height — higher floors for content-screen readability
-  const tStep = Math.max(18, Math.round(stepH * 0.78));
-  const tStatLabel = Math.max(16, Math.round(statH * 0.26));
-  const tStatValue = Math.max(24, Math.round(statH * 0.42));
-
-  // —— Step ——
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillStyle = P.muted;
-  ctx.font = `bold ${tStep}px "Microsoft YaHei", sans-serif`;
-  const stepText = `步骤 ${stepIndex + 1}/${Math.max(1, steps.length)} · ${step?.text || '进行中'}`;
-  ctx.fillText(stepText.length > 38 ? `${stepText.slice(0, 36)}…` : stepText, x + 2, stepY + Math.round(2 * scale));
-
-  // —— Metrics ——
+  // —— Top Metrics Strip (4 Columns) ——
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
   ctx.lineWidth = isDisplay ? 1.6 : 1.2;
-  roundRect(ctx, x, statY, w, statH, 12);
+  roundRect(ctx, x, statY, w, statH, 10);
   ctx.fill();
   ctx.stroke();
 
+  const isSingle = Nslit <= 1;
   const stats = [
-    ['Δx', `${fmt(d.fringeSpacingMm, 3)}mm`, accentHex],
-    ['包络宽', `${fmt(d.centralWidthMm, 2)}mm`, P.text],
-    ['F', Number(d.fresnel || 0).toExponential(1), P.text],
-    ['远场', d.farField ? '可用' : '近场', d.farField ? '#4ade80' : '#fb7185'],
+    {
+      label: isSingle ? '中央亮纹' : '条纹间距 Δx',
+      value: isSingle ? `${fmt(d.centralWidthMm, 2)} mm` : `${fmt(d.fringeSpacingMm, 3)} mm`,
+      color: accentHex,
+    },
+    {
+      label: '包络全宽',
+      value: `${fmt(d.centralWidthMm, 2)} mm`,
+      color: P.text,
+    },
+    {
+      label: '菲涅耳数 F',
+      value: Number(d.fresnel || 0).toExponential(1),
+      color: P.text,
+    },
+    {
+      label: '远场条件',
+      value: d.farField ? '满足 (Fraunhofer)' : '近场 (Fresnel)',
+      color: d.farField ? '#4ade80' : '#fb7185',
+    },
   ];
-  stats.forEach(([label, value, color], i) => {
-    const colW = w / stats.length;
+
+  const colW = w / stats.length;
+  stats.forEach((st, i) => {
     const cx = x + i * colW + colW / 2;
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${tStatLabel}px "Microsoft YaHei", sans-serif`;
+    if (i > 0) {
+      ctx.strokeStyle = P.panelStroke;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + i * colW, statY + Math.round(12 * scale));
+      ctx.lineTo(x + i * colW, statY + statH - Math.round(12 * scale));
+      ctx.stroke();
+    }
+    // Label
     ctx.textAlign = 'center';
-    ctx.fillText(label, cx, statY + Math.round(statH * 0.16));
-    ctx.fillStyle = color;
-    ctx.font = `bold ${tStatValue}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText(value, cx, statY + Math.round(statH * 0.48));
+    ctx.textBaseline = 'top';
+    ctx.fillStyle = P.muted;
+    ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.fillText(st.label, cx, statY + Math.round(11 * scale));
+
+    // Value
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = st.color;
+    ctx.font = `bold ${Math.round(18 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.fillText(st.value, cx, statY + Math.round(45 * scale));
   });
   ctx.textAlign = 'left';
 
-  // —— Middle panels ——
+  // —— Middle Left Panel: Presets + Parameter Readout + Tools ——
   ctx.fillStyle = P.panel;
   ctx.strokeStyle = P.panelStroke;
   roundRect(ctx, x, midTop, leftW, midH, 12);
   ctx.fill();
   ctx.stroke();
-  ctx.fillStyle = P.panel;
-  ctx.strokeStyle = P.panelStroke;
-  roundRect(ctx, rightX, midTop, rightW, midH, 12);
-  ctx.fill();
-  ctx.stroke();
 
-  // Dynamic left-column pack: presets + param readout + tools (sliders on desk)
+  // 1. Presets Header
+  let ly = midTop + pad;
+  ctx.fillStyle = accentHex;
+  ctx.font = `bold ${Math.round(14 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('光阑与波形预设', x + pad, ly);
+  ly += Math.round(22 * scale);
+
   const presets = [
-    ['单缝', 'single'], ['双缝', 'double'], ['三缝', 'triple'],
-    ['六缝', 'multi'], ['光栅', 'grating'], ['He-Ne', 'hene2'],
+    ['单缝 (N=1)', 'single'],
+    ['双缝 (N=2)', 'double'],
+    ['三缝 (N=3)', 'triple'],
+    ['六缝 (N=6)', 'multi'],
+    ['光栅 (N=10)', 'grating'],
+    ['He-Ne 激光', 'hene2'],
   ];
-  const params = [
-    { key: 'lambdaNm', label: '波长 λ', value: Number(d.lambdaNm || 550), unit: 'nm', digits: 0 },
-    { key: 'N', label: '缝数 N', value: Number(d.N || 2), unit: '', digits: 0 },
-    { key: 'slitMm', label: '缝宽 a', value: Number(d.slitMm || 0.05), unit: 'mm', digits: 3 },
-    { key: 'pitchMm', label: '缝距 d', value: Number(d.pitchMm || 0.25), unit: 'mm', digits: 3 },
-    { key: 'distM', label: '屏距 L', value: Number(d.distM || 1), unit: 'm', digits: 2 },
-  ];
-  const tools = [
-    { label: d.lightOn ? '激光开' : '激光关', action: 'optics-diff-power', meta: {}, active: !!d.lightOn },
-    { label: d.showBeam !== false ? '光锥' : '光锥关', action: 'optics-diff-toggle', meta: { key: 'showBeam' }, active: d.showBeam !== false },
-    { label: d.showWave !== false ? '波前' : '波前关', action: 'optics-diff-toggle', meta: { key: 'showWave' }, active: d.showWave !== false },
-    { label: d.demoOn ? '扫频中' : '扫频', action: 'optics-diff-demo', meta: {}, active: !!d.demoOn },
-  ];
-
-  const colInnerH = Math.max(1, midH - pad * 2);
-  const toolH = Math.round(40 * scale);
   const pCols = 3;
-  const pGap = Math.max(4, Math.round(chipGap * 0.75));
-  const pH = Math.round(36 * scale);
+  const pGap = Math.max(4, Math.round(chipGap * 0.8));
+  const pH = Math.round(34 * scale);
   const pW = (leftW - pad * 2 - pGap * (pCols - 1)) / pCols;
 
-  let ly = midTop + pad;
   presets.forEach(([label, preset], i) => {
     const col = i % pCols;
     const row = Math.floor(i / pCols);
@@ -2839,83 +2757,119 @@ function drawDiffractionExperiment(ctx, _W, _H, cfg) {
       pW, pH, label, 'optics-diff-preset', { preset }, accentHex, d.preset === preset,
     );
   });
-  ly += 2 * pH + pGap + Math.round(10 * scale);
+  ly += 2 * pH + pGap + Math.round(14 * scale);
 
+  // 2. Parameters Card / Readout
+  ctx.fillStyle = P.title;
+  ctx.font = `bold ${Math.round(14 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('实时光学参数', x + pad, ly);
   ctx.fillStyle = P.muted;
-  ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.fillText('参数（桌右侧滑条调节）', x + pad, ly);
-  ly += Math.round(22 * scale);
-  const rowH = Math.max(Math.round(28 * scale), Math.floor((midTop + midH - pad - toolH - ly - Math.round(12 * scale)) / params.length));
-  params.forEach((p, i) => {
-    const py = ly + i * rowH;
-    if (py + rowH > midTop + midH - pad - toolH) return;
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${Math.round(14 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.font = `${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'right';
+  ctx.fillText('桌侧滑条可微调', x + leftW - pad, ly + Math.round(2 * scale));
+  ctx.textAlign = 'left';
+  ly += Math.round(20 * scale);
+
+  const toolH = Math.round(38 * scale);
+  const toolY = midTop + midH - pad - toolH;
+  const paramBoxH = Math.max(Math.round(60 * scale), toolY - ly - Math.round(10 * scale));
+
+  ctx.fillStyle = isLight ? 'rgba(15, 23, 42, 0.04)' : 'rgba(2, 6, 23, 0.45)';
+  roundRect(ctx, x + pad, ly, leftW - pad * 2, paramBoxH, 8);
+  ctx.fill();
+
+  const theta0 = (Number(d.lambdaNm || 550) * 1e-6 / Math.max(1e-4, Number(d.slitMm || 0.05)));
+  const paramsList = [
+    { label: '波长 λ', value: `${Number(d.lambdaNm || 550).toFixed(0)} nm` },
+    { label: '缝数 N', value: `${Nslit}` },
+    { label: '缝宽 a', value: `${Number(d.slitMm || 0.05).toFixed(3)} mm` },
+    { label: '缝距 d', value: isSingle ? '— (无)' : `${Number(d.pitchMm || 0.25).toFixed(3)} mm` },
+    { label: '屏距 L', value: `${Number(d.distM || 1).toFixed(2)} m` },
+    { label: '衍射半角 θ₀', value: `${theta0.toFixed(4)} rad` },
+  ];
+
+  const pRows = 3;
+  const pColCount = 2;
+  const paramColW = (leftW - pad * 2 - Math.round(16 * scale)) / pColCount;
+  const paramRowH = paramBoxH / pRows;
+
+  paramsList.forEach((p, idx) => {
+    const col = idx % pColCount;
+    const row = Math.floor(idx / pColCount);
+    const px = x + pad + Math.round(8 * scale) + col * paramColW;
+    const py = ly + row * paramRowH + paramRowH / 2;
+
     ctx.textAlign = 'left';
-    ctx.fillText(p.label, x + pad, py + Math.round(4 * scale));
-    ctx.fillStyle = P.text;
-    ctx.font = `bold ${Math.round(18 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textBaseline = 'middle';
+    ctx.fillStyle = P.muted;
+    ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.fillText(p.label, px, py);
+
     ctx.textAlign = 'right';
-    ctx.fillText(
-      `${Number(p.value).toFixed(p.digits)}${p.unit ? ` ${p.unit}` : ''}`,
-      x + leftW - pad,
-      py + Math.round(4 * scale),
-    );
+    ctx.fillStyle = P.text;
+    ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.fillText(p.value, px + paramColW - Math.round(12 * scale), py);
   });
   ctx.textAlign = 'left';
 
-  const toolY = midTop + midH - pad - toolH;
+  // 3. Quick Tools Row
+  const tools = [
+    { label: d.lightOn ? '激光开' : '激光关', action: 'optics-diff-power', meta: {}, active: !!d.lightOn },
+    { label: d.showBeam !== false ? '光锥显' : '光锥关', action: 'optics-diff-toggle', meta: { key: 'showBeam' }, active: d.showBeam !== false },
+    { label: d.showWave !== false ? '波前显' : '波前关', action: 'optics-diff-toggle', meta: { key: 'showWave' }, active: d.showWave !== false },
+    { label: d.demoOn ? '扫频中' : '自动扫频', action: 'optics-diff-demo', meta: {}, active: !!d.demoOn },
+  ];
   const toolW = (leftW - pad * 2 - chipGap * 3) / 4;
   tools.forEach((t, i) => {
     drawOptButton(
       ctx, hits,
-      x + pad + i * (toolW + chipGap), toolY, toolW, Math.max(Math.round(28 * scale), toolH),
+      x + pad + i * (toolW + chipGap), toolY, toolW, toolH,
       t.label, t.action, t.meta, accentHex, t.active,
     );
   });
 
-  // —— Right card: live preview OR annotated verification ——
-  const rp = Math.max(Math.round(6 * scale), Math.round(rightW * 0.035));
-  const tSideTitle = Math.max(18, Math.round(22 * scale * Math.min(1, midH / (340 * scale))));
-  const tSideMeta = Math.max(15, Math.round(18 * scale * Math.min(1, midH / (340 * scale))));
-  const tSumLabel = Math.max(16, Math.round(18 * scale * Math.min(1, midH / (340 * scale))));
-  const tSumValue = Math.max(18, Math.round(24 * scale * Math.min(1, midH / (340 * scale))));
+  // —— Middle Right Panel: Intensity Curve + Pattern Stripe + Physics Analysis ——
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  roundRect(ctx, rightX, midTop, rightW, midH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  const rp = Math.round(12 * scale);
+  const tSideTitle = Math.round(14 * scale);
+  const tSideMeta = Math.round(12 * scale);
 
   ctx.fillStyle = accentHex;
   ctx.font = `bold ${tSideTitle}px "Microsoft YaHei", sans-serif`;
   ctx.textAlign = 'left';
-  ctx.fillText(chartOpen ? '核对 I(x)' : '强度预览', rightX + rp, midTop + Math.round(8 * scale));
+  ctx.textBaseline = 'top';
+  ctx.fillText(chartOpen ? '核对 I(x) 理论曲线' : '光强分布与干涉条纹', rightX + rp, midTop + pad);
   ctx.fillStyle = P.muted;
   ctx.font = `bold ${tSideMeta}px "Microsoft YaHei", sans-serif`;
   ctx.textAlign = 'right';
   ctx.fillText(
-    `λ ${fmt(lambdaNm, 0)} · N ${Nslit}`,
+    `λ ${fmt(lambdaNm, 0)}nm · ${isSingle ? '单缝' : `N=${Nslit}`}`,
     rightX + rightW - rp,
-    midTop + Math.round(10 * scale),
+    midTop + pad + Math.round(1 * scale),
   );
   ctx.textAlign = 'left';
 
-  const titleBand = Math.round(Math.max(28 * scale, midH * 0.08));
-  // Verification mode: give the plot most of the card so markers stay readable.
-  const plotShare = chartOpen
-    ? (midH < Math.round(320 * scale) ? 0.72 : 0.68)
-    : (midH < Math.round(320 * scale) ? 0.48 : 0.42);
-  const sidePlotTop = midTop + titleBand;
-  const sidePlotH = Math.max(Math.round(56 * scale), Math.floor((midH - titleBand - pad) * plotShare));
-  const stripeH = chartOpen
-    ? Math.max(Math.round(10 * scale), Math.round(sidePlotH * 0.12))
-    : Math.max(Math.round(14 * scale), Math.round(sidePlotH * 0.18));
-  const px0 = rightX + Math.round(14 * scale);
-  const pw = rightW - Math.round(28 * scale);
-  const py0 = sidePlotTop + Math.round(4 * scale);
-  const ph = Math.max(Math.round(16 * scale), sidePlotH - stripeH - Math.round(12 * scale));
+  // Plot Area
+  const sidePlotTop = midTop + pad + Math.round(24 * scale);
+  const sidePlotH = Math.max(Math.round(110 * scale), Math.floor((midH - pad * 2 - Math.round(24 * scale)) * (chartOpen ? 0.58 : 0.50)));
+  const stripeH = Math.max(Math.round(14 * scale), Math.round(sidePlotH * 0.16));
+  const px0 = rightX + Math.round(16 * scale);
+  const pw = rightW - Math.round(32 * scale);
+  const py0 = sidePlotTop + Math.round(6 * scale);
+  const ph = Math.max(Math.round(20 * scale), sidePlotH - stripeH - Math.round(16 * scale));
   const xToPx = (xv) => px0 + ((xv + half) / Math.max(1e-12, 2 * half)) * pw;
 
-  ctx.fillStyle = isLight ? 'rgba(15,23,42,0.06)' : 'rgba(2,6,23,0.55)';
-  roundRect(ctx, rightX + Math.round(6 * scale), sidePlotTop, rightW - Math.round(12 * scale), sidePlotH, 8);
+  // Background Box for Plot
+  ctx.fillStyle = isLight ? 'rgba(15, 23, 42, 0.05)' : 'rgba(2, 6, 23, 0.55)';
+  roundRect(ctx, rightX + Math.round(8 * scale), sidePlotTop, rightW - Math.round(16 * scale), sidePlotH, 8);
   ctx.fill();
 
-  // Markers under the curve (draw first)
+  // Markers under the curve (draw first when chartOpen)
   if (chartOpen) {
     const zeros = diffractionEnvelopeZeros(d, half);
     const maxima = diffractionPrincipalMaxima(d, half);
@@ -2923,7 +2877,7 @@ function drawDiffractionExperiment(ctx, _W, _H, cfg) {
       [zx, -zx].forEach((xv) => {
         if (Math.abs(xv) > half) return;
         const mx = xToPx(xv);
-        ctx.strokeStyle = isLight ? 'rgba(249, 115, 22, 0.55)' : 'rgba(251, 146, 60, 0.55)';
+        ctx.strokeStyle = isLight ? 'rgba(249, 115, 22, 0.65)' : 'rgba(251, 146, 60, 0.65)';
         ctx.lineWidth = 1.2;
         ctx.setLineDash([4, 3]);
         ctx.beginPath();
@@ -2935,9 +2889,8 @@ function drawDiffractionExperiment(ctx, _W, _H, cfg) {
     });
     maxima.forEach(({ x: mxv, p }) => {
       if (Math.abs(mxv) > half) return;
-      // Skip dense labels for |p| large when many peaks
       const mx = xToPx(mxv);
-      ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.45)' : 'rgba(56, 189, 248, 0.5)';
+      ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.55)' : 'rgba(56, 189, 248, 0.6)';
       ctx.lineWidth = p === 0 ? 1.6 : 1;
       ctx.beginPath();
       ctx.moveTo(mx, py0);
@@ -2946,6 +2899,7 @@ function drawDiffractionExperiment(ctx, _W, _H, cfg) {
     });
   }
 
+  // Draw Intensity Curve
   ctx.beginPath();
   for (let i = 0; i <= 200; i++) {
     const xv = -half + (2 * half * i) / 200;
@@ -2962,18 +2916,18 @@ function drawDiffractionExperiment(ctx, _W, _H, cfg) {
   ctx.stroke();
   ctx.shadowBlur = 0;
 
-  // Axis ticks for verification
-  if (chartOpen) {
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${Math.max(10, Math.round(11 * scale))}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText('−x', px0 + 2, py0 + ph + Math.round(2 * scale));
-    ctx.fillText('0', xToPx(0), py0 + ph + Math.round(2 * scale));
-    ctx.fillText('+x', px0 + pw - 2, py0 + ph + Math.round(2 * scale));
-    ctx.textAlign = 'left';
-  }
+  // Axis ticks / labels
+  ctx.fillStyle = P.muted;
+  ctx.font = `bold ${Math.max(10, Math.round(10 * scale))}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('−x', px0 + 4, py0 + ph + Math.round(2 * scale));
+  ctx.fillText('0', xToPx(0), py0 + ph + Math.round(2 * scale));
+  ctx.fillText('+x', px0 + pw - 4, py0 + ph + Math.round(2 * scale));
+  ctx.textAlign = 'left';
 
-  const stripeY = sidePlotTop + sidePlotH - stripeH - Math.round(4 * scale);
+  // Stripe bar (diffraction pattern)
+  const stripeY = sidePlotTop + sidePlotH - stripeH - Math.round(6 * scale);
   const stripeGrad = ctx.createLinearGradient(px0, 0, px0 + pw, 0);
   for (let i = 0; i <= 80; i++) {
     const xv = -half + (2 * half * i) / 80;
@@ -2988,7 +2942,7 @@ function drawDiffractionExperiment(ctx, _W, _H, cfg) {
   roundRect(ctx, px0, stripeY, pw, stripeH, 4);
   ctx.fill();
 
-  // Peak markers on the stripe (verification)
+  // Peak markers on the stripe (when chartOpen)
   if (chartOpen) {
     const maxima = diffractionPrincipalMaxima(d, half);
     maxima.forEach(({ x: mxv }) => {
@@ -2999,82 +2953,90 @@ function drawDiffractionExperiment(ctx, _W, _H, cfg) {
     });
   }
 
-  // Summary / verification legend under the plot
+  // Summary / Analysis List below the plot
   const sumTop = sidePlotTop + sidePlotH + Math.round(8 * scale);
   const sumBottom = midTop + midH - pad;
-  let summary;
+  let summary = [];
   if (chartOpen) {
     const zero1Mm = (() => {
       const z = diffractionEnvelopeZeros(d, half)[0];
       return z ? (z.x * 1e3).toFixed(2) : '—';
     })();
     summary = [
-      ['主极大 Δx', Nslit <= 1 ? '单缝（无干涉）' : `${fmt(d.fringeSpacingMm, 3)} mm`],
-      ['包络零点 ±λL/a', `${zero1Mm} mm`],
-      ['菲涅耳 F', Number(d.fresnel || 0).toExponential(1)],
-      ['远场条件', d.farField ? 'F≪1 可用' : '近场 · 慎用'],
+      ['主极大间距 Δx', isSingle ? '单缝（无干涉主极大）' : `${fmt(d.fringeSpacingMm, 3)} mm`],
+      ['包络零点 ±λL/a', `±${zero1Mm} mm`],
+      ['菲涅耳数 F', Number(d.fresnel || 0).toExponential(2)],
+      ['远场 Fraunhofer', d.farField ? '满足 (F ≪ 1)' : '近场 · 需加大 L'],
+    ];
+  } else if (isSingle) {
+    summary = [
+      ['中央亮纹全宽 2λL/a', `${fmt(d.centralWidthMm, 2)} mm`],
+      ['第1级暗纹位置 ±λL/a', `±${(Number(d.centralWidthMm) / 2).toFixed(2)} mm`],
+      ['屏距 L', `${fmt(d.distM, 2)} m`],
+      ['对照表', `${records.length} 组数据`],
     ];
   } else {
+    const ratio = Number(d.pitchMm) / Math.max(1e-4, Number(d.slitMm));
     summary = [
       ['条纹间距 Δx', `${fmt(d.fringeSpacingMm, 3)} mm`],
-      ['包络全宽', `${fmt(d.centralWidthMm, 2)} mm`],
-      ['屏距 L', `${fmt(d.distM, 2)} m`],
-      ['对照表', `${records.length} 组`],
+      ['包络全宽 2λL/a', `${fmt(d.centralWidthMm, 2)} mm`],
+      ['缝距缝宽比 d/a', `${ratio.toFixed(1)} (第${Math.round(ratio)}级缺级)`],
+      ['对照表', `${records.length} 组数据`],
     ];
   }
-  const sumRows = (!chartOpen && last) ? summary.length + 1 : summary.length + (chartOpen ? 1 : 0);
-  const sumLine = Math.max(Math.round(16 * scale), Math.floor((sumBottom - sumTop) / Math.max(1, sumRows)));
+
+  const sumLine = Math.max(Math.round(18 * scale), Math.floor((sumBottom - sumTop - Math.round(16 * scale)) / Math.max(1, summary.length)));
   summary.forEach(([label, value], i) => {
     const sy = sumTop + i * sumLine;
     if (sy + sumLine * 0.55 > sumBottom) return;
     ctx.fillStyle = P.muted;
-    ctx.font = `bold ${tSumLabel}px "Microsoft YaHei", sans-serif`;
+    ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'left';
-    ctx.fillText(label, rightX + rp, sy);
-    ctx.fillStyle = chartOpen && label.startsWith('远场')
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, rightX + rp, sy + sumLine / 2);
+
+    ctx.fillStyle = (chartOpen && label.startsWith('远场'))
       ? (d.farField ? '#4ade80' : '#fb7185')
       : P.text;
-    ctx.font = `bold ${tSumValue}px "Microsoft YaHei", sans-serif`;
+    ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'right';
     const val = String(value);
-    ctx.fillText(val.length > 14 ? `${val.slice(0, 12)}…` : val, rightX + rightW - rp, sy);
+    ctx.fillText(val, rightX + rightW - rp, sy + sumLine / 2);
   });
   ctx.textAlign = 'left';
-  if (chartOpen) {
-    const sy = sumTop + summary.length * sumLine;
-    if (sy < sumBottom) {
-      ctx.fillStyle = P.muted;
-      ctx.font = `bold ${Math.max(11, tSumLabel - 2)}px "Microsoft YaHei", sans-serif`;
+
+  // Caption at bottom of right card
+  const footNoteY = sumTop + summary.length * sumLine + Math.round(4 * scale);
+  if (footNoteY < sumBottom) {
+    ctx.fillStyle = P.muted;
+    ctx.font = `${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textBaseline = 'middle';
+    if (chartOpen) {
       ctx.fillText(
-        Nslit <= 1 ? '虚线=包络零点' : '细线=主极大 · 虚线=包络零点',
+        isSingle ? '• 橙色虚线: 包络零点 (暗纹)' : '• 蓝色细线: 主极大 · 橙色虚线: 包络零点',
         rightX + rp,
-        sy,
+        footNoteY,
       );
-    }
-  } else if (last) {
-    const sy = sumTop + summary.length * sumLine;
-    if (sy < sumBottom) {
-      ctx.fillStyle = P.muted;
-      ctx.font = `bold ${Math.max(12, tSumLabel - 2)}px "Microsoft YaHei", sans-serif`;
+    } else if (last) {
       ctx.fillText(
-        `末组 N=${Math.round(last.N)} Δx=${fmt(last.fringeSpacingMm, 3)}`,
+        `末组: N=${Math.round(last.N)} Δx=${fmt(last.fringeSpacingMm, 3)}mm`,
         rightX + rp,
-        sy,
+        footNoteY,
       );
     }
   }
 
-  // —— Action bar ——
-  // 写入对照：参数快照入表；核对曲线：标注 I(x)；对照表：打开多组对比
+  // —— Action Bar (Bottom 3 Buttons) ——
   const actions = [
-    { label: records.length ? `写入 #${records.length + 1}` : '写入对照', action: 'optics-diff-record', active: false },
+    { label: records.length ? `写入第 ${records.length + 1} 组` : '写入对照', action: 'optics-diff-record', active: false },
     { label: chartOpen ? '关闭标注' : '核对曲线', action: 'optics-diff-chart', active: chartOpen },
     {
-      label: records.length ? `对照表 ${records.length}` : '对照表',
+      label: records.length ? `对照表 (${records.length})` : '对照表',
       action: 'optics-diff-records-panel',
       active: panelOpen || records.length > 0,
     },
   ];
+  const btnGap = Math.round(8 * scale);
   const bw = (w - btnGap * (actions.length - 1)) / actions.length;
   actions.forEach((b, i) => {
     drawOptButton(
@@ -3245,178 +3207,258 @@ function drawOpticsRecordsPanel(ctx, hits, cfg) {
 }
 
 /**
- * Compact thermodynamics content screen.
- * Larger type for hologram readability; tight gaps so the layout stays dense.
+ * Compact thermodynamics content screen — optimized hierarchy, spacing and typography.
  * Data table lives in a separate overlay opened by 「数据表」.
  */
 function drawThermoExperiment(ctx, _W, _H, cfg) {
   const { hits, innerX, innerW, contentTop, contentH, experiment, hud, accentHex, theme, surface } = cfg;
   _uiTheme = theme || 'dark';
   const d = hud?.data || {};
-  const P = screenPalette(_uiTheme, accentHex, surface === 'display');
-  const scale = holoUiScale(surface || 'full');
-  // Prefer denser packing over empty padding so bigger type still feels compact.
-  const gap = Math.round(7 * scale);
+  const isDisplay = surface === 'display';
+  const P = screenPalette(_uiTheme, accentHex, isDisplay);
+  const rawScale = holoUiScale(surface || 'full');
+  const scale = isDisplay ? Math.min(rawScale, 1.25) : rawScale;
+
   const x = innerX;
   const w = innerW;
   const isLight = _uiTheme === 'light';
   const expId = experiment.id;
+  const steps = experiment.steps || [];
+  const stepIndex = Math.max(0, Math.min(steps.length - 1, Number(hud?.stepIndex || 0)));
+  const step = steps[stepIndex] || {};
   const m = computeThermoMetrics(expId, d);
   const canRecord = thermoCanRecord(expId, d);
-  const blocked = thermoRecordBlockedReason(expId, d);
   const columns = thermoRecordColumns(expId);
   const records = Array.isArray(d.records) ? d.records : [];
   const panelOpen = d.recordsPanelOpen === true;
   const fmt = (v, digits = 1) => (Number.isFinite(Number(v)) ? Number(v).toFixed(digits) : '—');
 
-  const btnH = Math.round(48 * scale);
-  const btnY = contentTop + contentH - btnH;
-
-  // —— Compact metric strip (type fills the band; band only slightly taller) ——
+  // —— 1. Top Metrics Readout ——
   let readout = [];
   if (expId === 'calorimetry') {
+    let statusText = '待倒水';
+    let statusColor = P.muted;
+    if (d.pouring) {
+      statusText = `倒水中 ${Math.round((d.pourProgress || 0) * 100)}%`;
+      statusColor = accentHex;
+    } else if (m.poured) {
+      if (m.mixPct >= 95) {
+        statusText = '已达平衡';
+        statusColor = isLight ? '#16a34a' : '#4ade80';
+      } else {
+        statusText = `混合 ${m.mixPct}%`;
+        statusColor = accentHex;
+      }
+    }
+
     readout = [
-      ['T测', m.tNow == null ? '—' : `${fmt(m.tNow)}°C`],
-      ['Tₑq', m.teq == null ? '—' : `${fmt(m.teq)}°C`],
-      ['|ΔT|', m.err == null ? '—' : fmt(m.err, 2)],
-      ['状态', d.pouring ? `倒入${Math.round((d.pourProgress || 0) * 100)}%` : (m.poured ? `混合${m.mixPct}%` : '待倒水')],
+      { label: 'T测 (实时)', value: m.tNow == null ? '—' : `${fmt(m.tNow)}°C`, color: m.tNow == null ? P.muted : accentHex },
+      { label: 'Tₑq (理论)', value: m.teq == null ? '—' : `${fmt(m.teq)}°C`, color: m.teq == null ? P.muted : P.text },
+      { label: '|ΔT| 偏差', value: m.err == null ? '—' : `${fmt(m.err, 2)}°C`, color: m.err == null ? P.muted : (m.err < 1.0 ? (isLight ? '#16a34a' : '#4ade80') : P.text) },
+      { label: '实验状态', value: statusText, color: statusColor },
     ];
   } else if (expId === 'convection') {
     readout = [
-      ['ΔT', `${fmt(m.deltaT, 0)}K`],
-      ['Ra', m.ra >= 1e6 ? `${(m.ra / 1e6).toFixed(1)}e6` : fmt(m.ra, 0)],
-      ['h', fmt(m.h, 1)],
-      ['Q', `${fmt(m.q, 0)}W`],
+      { label: 'ΔT 温差', value: `${fmt(m.deltaT, 0)} K`, color: accentHex },
+      { label: 'Ra 瑞利数', value: m.ra >= 1e6 ? `${(m.ra / 1e6).toFixed(1)}e6` : fmt(m.ra, 0), color: P.text },
+      { label: '对流系数 h', value: `${fmt(m.h, 1)} W/m²K`, color: P.text },
+      { label: '换热量 Q', value: `${fmt(m.q, 0)} W`, color: isLight ? '#16a34a' : '#4ade80' },
     ];
   } else if (expId === 'heat-conduction') {
     readout = [
-      ['T中', `${fmt(m.mid, 0)}K`],
-      ['q', fmt(m.heatFlux, 0)],
-      ['ΔT', `${fmt(m.deltaT, 0)}K`],
-      ['趋稳', `${fmt(m.steadyPct, 0)}%`],
+      { label: '中点温度 T中', value: `${fmt(m.mid, 0)} K`, color: accentHex },
+      { label: '热流密度 q', value: `${fmt(m.heatFlux, 0)} W/m²`, color: P.text },
+      { label: '两端温差 ΔT', value: `${fmt(m.deltaT, 0)} K`, color: P.text },
+      { label: '稳态进度', value: `${fmt(m.steadyPct, 0)}%`, color: m.steadyPct >= 95 ? (isLight ? '#16a34a' : '#4ade80') : accentHex },
     ];
   } else if (expId === 'ideal-gas') {
     readout = [
-      ['P', `${fmt(m.pressure, 1)}kPa`],
-      ['V', `${fmt(m.V, 2)}×`],
-      ['v̄', fmt(m.avgSpeed, 0)],
-      ['碰撞', `${fmt(m.collisions, 0)}Hz`],
+      { label: '压强 P', value: `${fmt(m.pressure, 1)} kPa`, color: accentHex },
+      { label: '相对体积 V', value: `${fmt(m.V, 2)} V₀`, color: P.text },
+      { label: '分子平均速率', value: `${fmt(m.avgSpeed, 0)} m/s`, color: P.text },
+      { label: '器壁碰撞率', value: `${fmt(m.collisions, 0)} Hz`, color: P.text },
     ];
   } else {
     readout = [
-      ['ΔL', `${fmt(m.deltaL * 1000, 3)}mm`],
-      ['L', `${fmt(m.length * 1000, 1)}mm`],
-      ['α×10⁶', fmt(m.alpha * 1e6, 1)],
-      ['材料', m.materialLabel || '—'],
+      { label: '伸长量 ΔL', value: `${fmt(m.deltaL * 1000, 3)} mm`, color: accentHex },
+      { label: '当前长度 L', value: `${fmt(m.length * 1000, 1)} mm`, color: P.text },
+      { label: '线膨胀系数 α', value: `${fmt(m.alpha * 1e6, 1)} ×10⁻⁶`, color: P.text },
+      { label: '当前材料', value: m.materialLabel || '—', color: isLight ? '#0284c7' : '#38bdf8' },
     ];
   }
 
-  const statY = contentTop;
-  const statH = Math.round(66 * scale);
-  const tStatLabel = Math.max(14, Math.round(statH * 0.24));
-  const tStatValue = Math.max(20, Math.round(statH * 0.38));
-  ctx.fillStyle = P.panel;
-  ctx.strokeStyle = P.panelStroke;
-  ctx.lineWidth = 1.2;
-  roundRect(ctx, x, statY, w, statH, 10);
-  ctx.fill();
-  ctx.stroke();
-  readout.forEach(([label, value], i) => {
-    const cw = w / readout.length;
-    const cx = x + i * cw + cw / 2;
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${tStatLabel}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText(label, cx, statY + Math.round(statH * 0.14));
-    ctx.fillStyle = i === 0 ? accentHex : P.text;
-    ctx.font = `bold ${tStatValue}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText(String(value), cx, statY + Math.round(statH * 0.48));
-  });
-  ctx.textAlign = 'left';
-
-  // —— Sliders (2-col): largeType + hideRange = bigger glyphs without extra chrome ——
-  let cy = statY + statH + gap;
+  // —— 2. Parameters Definition ——
   const params = [];
   if (expId === 'calorimetry') {
     params.push(
-      { key: 'tHot', label: '热水 T', value: d.tHot, min: 40, max: 95, unit: '°C', digits: 0 },
-      { key: 'tCold', label: '冷水 T', value: d.tCold, min: 5, max: 40, unit: '°C', digits: 0 },
-      { key: 'mHot', label: '热水 m', value: d.mHot, min: 50, max: 400, unit: 'g', digits: 0 },
-      { key: 'mCold', label: '冷水 m', value: d.mCold, min: 50, max: 400, unit: 'g', digits: 0 },
+      { key: 'tHot', label: '热水温度 T₁', value: d.tHot, min: 40, max: 95, unit: '°C', digits: 0, tag: 'HOT' },
+      { key: 'tCold', label: '冷水温度 T₂', value: d.tCold, min: 5, max: 40, unit: '°C', digits: 0, tag: 'COLD' },
+      { key: 'mHot', label: '热水质量 m₁', value: d.mHot, min: 50, max: 400, unit: 'g', digits: 0, tag: 'HOT' },
+      { key: 'mCold', label: '冷水质量 m₂', value: d.mCold, min: 50, max: 400, unit: 'g', digits: 0, tag: 'COLD' },
     );
   } else if (expId === 'convection') {
     params.push(
-      { key: 'tPlate', label: '热板 T', value: d.tPlate, min: 300, max: 900, unit: 'K', digits: 0 },
-      { key: 'tAir', label: '环境 T', value: d.tAir, min: 250, max: 350, unit: 'K', digits: 0 },
-      { key: 'area', label: '面积 A', value: d.area, min: 0.05, max: 0.25, unit: 'm²', digits: 2 },
+      { key: 'tPlate', label: '热板温度 T_plate', value: d.tPlate, min: 300, max: 900, unit: 'K', digits: 0 },
+      { key: 'tAir', label: '环境温度 T_air', value: d.tAir, min: 250, max: 350, unit: 'K', digits: 0 },
+      { key: 'area', label: '换热面积 A', value: d.area, min: 0.05, max: 0.25, unit: 'm²', digits: 2 },
     );
   } else if (expId === 'heat-conduction') {
     params.push(
-      { key: 'tHot', label: '热端 T', value: d.tHot, min: 200, max: 900, unit: 'K', digits: 0 },
-      { key: 'tCold', label: '冷端 T', value: d.tCold, min: 200, max: 900, unit: 'K', digits: 0 },
-      { key: 'conductivity', label: '导热 k', value: d.conductivity, min: 0.15, max: 3.5, unit: '', digits: 2 },
+      { key: 'tHot', label: '热端温度 T_hot', value: d.tHot, min: 200, max: 900, unit: 'K', digits: 0 },
+      { key: 'tCold', label: '冷端温度 T_cold', value: d.tCold, min: 200, max: 900, unit: 'K', digits: 0 },
+      { key: 'conductivity', label: '导热系数 k', value: d.conductivity, min: 0.15, max: 3.5, unit: 'W/(m·K)', digits: 2 },
     );
   } else if (expId === 'ideal-gas') {
     params.push(
-      { key: 'temperature', label: '温度 T', value: d.temperature, min: 150, max: 600, unit: 'K', digits: 0 },
-      { key: 'volume', label: '体积 V', value: d.volume, min: 0.4, max: 1.25, unit: '×', digits: 2 },
+      { key: 'temperature', label: '气体温度 T', value: d.temperature, min: 150, max: 600, unit: 'K', digits: 0 },
+      { key: 'volume', label: '容器容积 V', value: d.volume, min: 0.4, max: 1.25, unit: '×', digits: 2 },
     );
   } else if (expId === 'thermal-expansion') {
     params.push(
-      { key: 'temperature', label: '温度 T', value: d.temperature, min: 20, max: 400, unit: '°C', digits: 0 },
-      { key: 'length0', label: 'L₀', value: d.length0, min: 0.6, max: 1.4, unit: 'm', digits: 2 },
+      { key: 'temperature', label: '加热温度 T', value: d.temperature, min: 20, max: 400, unit: '°C', digits: 0 },
+      { key: 'length0', label: '初始长度 L₀', value: d.length0, min: 0.6, max: 1.4, unit: 'm', digits: 2 },
     );
   }
 
-  const colGap = Math.round(6 * scale);
-  const colW = (w - colGap) / 2;
+  // —— 3. Geometry & Adaptive Rhythm ——
+  const headerH = Math.round(22 * scale);
+  const statH = Math.round(62 * scale);
   const rowH = Math.round(48 * scale);
-  const rowGap = Math.round(4 * scale);
-  if (params.length) {
+  const rowGap = Math.round(6 * scale);
+  const colGap = Math.round(8 * scale);
+  const chipH = Math.round(42 * scale);
+  const btnH = Math.round(44 * scale);
+
+  const numRows = Math.ceil(params.length / 2);
+  const paramsTotalH = numRows * rowH + Math.max(0, numRows - 1) * rowGap;
+  const hasChips = expId !== 'ideal-gas';
+  const chipsTotalH = hasChips ? chipH : 0;
+  const btnY = contentTop + contentH - btnH;
+
+  const fixedHeights = headerH + statH + paramsTotalH + chipsTotalH + btnH;
+  const availableSpace = Math.max(0, contentH - fixedHeights);
+  const gapCount = hasChips ? 4 : 3;
+  const dynGap = Math.max(Math.round(8 * scale), Math.min(Math.round(18 * scale), Math.floor(availableSpace / gapCount)));
+
+  let cy = contentTop;
+
+  // —— Header: Step Tracker & Helper Hint ——
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = P.muted;
+  ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+  const stepLabel = `步骤 ${stepIndex + 1}/${Math.max(1, steps.length)} · ${step?.text || experiment.name || '进行中'}`;
+  ctx.fillText(stepLabel, x + 2, cy + headerH / 2);
+
+  ctx.textAlign = 'right';
+  ctx.fillStyle = isLight ? '#64748b' : 'rgba(148, 163, 184, 0.7)';
+  ctx.font = `${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText('右侧滑条调节参数', x + w - 2, cy + headerH / 2);
+  ctx.textAlign = 'left';
+
+  cy += headerH + dynGap;
+
+  // —— Metrics Strip (Stat Bar) ——
+  const statY = cy;
+  ctx.fillStyle = P.panel;
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = isDisplay ? 1.5 : 1.2;
+  roundRect(ctx, x, statY, w, statH, 10);
+  ctx.fill();
+  ctx.stroke();
+
+  const numCols = readout.length;
+  const cw = w / numCols;
+  const tStatLabel = Math.max(11, Math.round(12 * scale));
+  const tStatValue = Math.max(16, Math.round(18 * scale));
+
+  readout.forEach((item, i) => {
+    const cx = x + i * cw + cw / 2;
+
+    if (i > 0) {
+      ctx.strokeStyle = isLight ? 'rgba(0, 0, 0, 0.08)' : 'rgba(255, 255, 255, 0.08)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + i * cw, statY + Math.round(10 * scale));
+      ctx.lineTo(x + i * cw, statY + statH - Math.round(10 * scale));
+      ctx.stroke();
+    }
+
     ctx.fillStyle = P.muted;
-    ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText('参数在桌右侧滑条调节', x + 2, cy);
-    cy += Math.round(20 * scale);
-  }
+    ctx.font = `bold ${tStatLabel}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(item.label, cx, statY + Math.round(9 * scale));
+
+    ctx.fillStyle = item.color;
+    ctx.font = `bold ${tStatValue}px "Microsoft YaHei", sans-serif`;
+    ctx.textBaseline = 'top';
+    ctx.fillText(String(item.value), cx, statY + Math.round(29 * scale));
+  });
+
+  cy += statH + dynGap;
+
+  // —— Parameters Grid (2 columns) ——
+  const colW = (w - colGap) / 2;
   params.forEach((p, i) => {
     const col = i % 2;
     const row = Math.floor(i / 2);
     const px = x + col * (colW + colGap);
     const py = cy + row * (rowH + rowGap);
+
     ctx.fillStyle = P.panel;
     ctx.strokeStyle = P.panelStroke;
+    ctx.lineWidth = 1.0;
     roundRect(ctx, px, py, colW, rowH, 8);
     ctx.fill();
     ctx.stroke();
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${Math.round(14 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.textAlign = 'left';
-    ctx.fillText(p.label, px + Math.round(12 * scale), py + Math.round(10 * scale));
-    ctx.fillStyle = P.text;
-    ctx.font = `bold ${Math.round(20 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText(
-      `${Number(p.value).toFixed(p.digits ?? 2)}${p.unit ? ` ${p.unit}` : ''}`,
-      px + Math.round(12 * scale),
-      py + Math.round(28 * scale),
-    );
-  });
-  cy += Math.ceil(Math.max(params.length, 1) / 2) * (rowH + rowGap) + gap;
 
-  // —— Context tools (pour / flow / material) as one chip row ——
-  const chipH = Math.round(42 * scale);
+    if (p.tag === 'HOT') {
+      ctx.fillStyle = '#ef4444';
+      roundRect(ctx, px + 2, py + Math.round(8 * scale), Math.round(3 * scale), rowH - Math.round(16 * scale), 1.5);
+      ctx.fill();
+    } else if (p.tag === 'COLD') {
+      ctx.fillStyle = '#3b82f6';
+      roundRect(ctx, px + 2, py + Math.round(8 * scale), Math.round(3 * scale), rowH - Math.round(16 * scale), 1.5);
+      ctx.fill();
+    }
+
+    const padLeft = p.tag ? Math.round(16 * scale) : Math.round(12 * scale);
+
+    ctx.fillStyle = P.muted;
+    ctx.font = `bold ${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(p.label, px + padLeft, py + Math.round(8 * scale));
+
+    ctx.fillStyle = P.text;
+    ctx.font = `bold ${Math.round(18 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textBaseline = 'top';
+    const valStr = `${Number(p.value).toFixed(p.digits ?? 2)}${p.unit ? ` ${p.unit}` : ''}`;
+    ctx.fillText(valStr, px + padLeft, py + Math.round(24 * scale));
+  });
+
+  cy += paramsTotalH + dynGap;
+
+  // —— Context Operation Controls ——
   if (expId === 'calorimetry') {
     const cw = (w - colGap) / 2;
-    drawPremiumHoloButton(ctx, hits, x, cy, cw, chipH, d.cupHot ? '热水✓' : '倒入热水', 'thermo-pour-hot', {}, accentHex, !!d.cupHot, theme);
-    drawPremiumHoloButton(ctx, hits, x + cw + colGap, cy, cw, chipH, d.cupCold ? '冷水✓' : '倒入冷水', 'thermo-pour-cold', {}, accentHex, !!d.cupCold, theme);
-    cy += chipH + gap;
+    const hotLabel = d.cupHot ? '热水已倒入 ✓' : `倒入热水 (${d.tHot}°C)`;
+    const coldLabel = d.cupCold ? '冷水已倒入 ✓' : `倒入冷水 (${d.tCold}°C)`;
+    drawPremiumHoloButton(ctx, hits, x, cy, cw, chipH, hotLabel, 'thermo-pour-hot', {}, accentHex, !!d.cupHot, theme);
+    drawPremiumHoloButton(ctx, hits, x + cw + colGap, cy, cw, chipH, coldLabel, 'thermo-pour-cold', {}, accentHex, !!d.cupCold, theme);
+    cy += chipH + dynGap;
   } else if (expId === 'convection' || expId === 'heat-conduction') {
+    const flowBtnW = Math.min(w, Math.round(260 * scale));
+    const flowBtnX = x + (w - flowBtnW) / 2;
+    const flowLabel = d.running ? '⏸ 暂停热流动' : '▶ 开启热流动模拟';
     drawPremiumHoloButton(
-      ctx, hits, x, cy, Math.min(w * 0.42, Math.round(220 * scale)), chipH,
-      d.running ? '暂停流动' : '开启流动',
+      ctx, hits, flowBtnX, cy, flowBtnW, chipH,
+      flowLabel,
       'thermo-toggle', { key: 'running' },
       accentHex, !!d.running, theme,
     );
-    cy += chipH + gap;
+    cy += chipH + dynGap;
   } else if (expId === 'thermal-expansion') {
     const labels = [['aluminum', '铝'], ['copper', '铜'], ['steel', '钢'], ['invar', '殷钢']];
     const cw = (w - colGap * 3) / 4;
@@ -3427,31 +3469,19 @@ function drawThermoExperiment(ctx, _W, _H, cfg) {
         accentHex, d.material === key, theme,
       );
     });
-    cy += chipH + gap;
+    cy += chipH + dynGap;
   }
 
-  // —— Hint line (single, no big insight card) ——
-  const hintH = Math.round(20 * scale);
-  ctx.fillStyle = canRecord ? P.muted : (isLight ? '#b45309' : '#fdba74');
-  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
-  ctx.fillText(
-    canRecord
-      ? `可写入 · 已存 ${records.length} 组 · ${thermoRecordCaption(expId).slice(0, 28)}…`
-      : blocked,
-    x + 2,
-    Math.min(cy, btnY - hintH),
-  );
-
-  // —— Main action bar: 写入 | 数据表 | 重置 ——
-  const btnGap = Math.round(6 * scale);
+  // —— Main Action Bar: 写入数据 | 数据表 | 重置 ——
+  const btnGap = Math.round(8 * scale);
   const mainButtons = [
     {
-      label: canRecord ? '写入数据' : '不可写入',
+      label: canRecord ? '写入数据' : '写入数据 (待就绪)',
       action: 'thermo-record',
       active: canRecord,
     },
     {
-      label: records.length ? `数据表 ${records.length}` : '数据表',
+      label: records.length ? `数据表 (${records.length})` : '数据表',
       action: 'thermo-records-panel',
       meta: { open: true },
       active: panelOpen || records.length > 0,
@@ -3468,13 +3498,12 @@ function drawThermoExperiment(ctx, _W, _H, cfg) {
     );
   });
 
-  // —— Overlay: data table panel (opened by button) ——
+  // —— Overlay: Data Table Panel (Opened by button) ——
   if (!panelOpen) return;
 
-  // Dim main content so the panel reads as a separate surface.
+  // Dim main content
   ctx.fillStyle = isLight ? 'rgba(15, 23, 42, 0.28)' : 'rgba(2, 6, 23, 0.55)';
   ctx.fillRect(innerX - Math.round(8 * scale), contentTop - Math.round(4 * scale), innerW + Math.round(16 * scale), contentH + Math.round(8 * scale));
-  // Capture clicks on the dimmer (no-op) so controls underneath are not hit.
   hits.push({
     x: innerX - Math.round(8 * scale),
     y: contentTop - Math.round(4 * scale),
@@ -3497,7 +3526,6 @@ function drawThermoExperiment(ctx, _W, _H, cfg) {
   ctx.fill();
   ctx.stroke();
 
-  // Block underlying hits inside the panel body (except explicit controls added after).
   hits.push({
     x: panelX,
     y: panelY,
@@ -3511,9 +3539,10 @@ function drawThermoExperiment(ctx, _W, _H, cfg) {
   ctx.fillStyle = accentHex;
   ctx.font = `bold ${Math.round(20 * scale)}px "Microsoft YaHei", sans-serif`;
   ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
   ctx.fillText(`对照数据表 · ${records.length} 组`, panelX + pad, panelY + Math.round(10 * scale));
   ctx.fillStyle = P.muted;
-  ctx.font = `bold ${Math.round(14 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
   ctx.fillText(thermoRecordCaption(expId), panelX + pad, panelY + Math.round(36 * scale));
 
   const closeW = Math.round(88 * scale);
@@ -3530,22 +3559,22 @@ function drawThermoExperiment(ctx, _W, _H, cfg) {
   const chartW = panelW - Math.round(20 * scale);
   const footerH = Math.round(52 * scale);
   const chartH = panelH - Math.round(70 * scale) - footerH;
-  const headerH = Math.round(30 * scale);
+  const headerTableH = Math.round(30 * scale);
   ctx.fillStyle = isLight ? 'rgba(249, 115, 22, 0.12)' : 'rgba(251, 146, 60, 0.14)';
-  ctx.fillRect(chartX, chartY, chartW, headerH);
+  ctx.fillRect(chartX, chartY, chartW, headerTableH);
   ctx.fillStyle = isLight ? '#9a3412' : '#fdba74';
   ctx.font = `bold ${Math.round(14 * scale)}px "Microsoft YaHei", sans-serif`;
   let colX = chartX + Math.round(4 * scale);
   const totalW = columns.reduce((s, c) => s + c.width, 0) || 1;
   columns.forEach((col) => {
-    const cw = (chartW - Math.round(8 * scale)) * (col.width / totalW);
+    const colWidth = (chartW - Math.round(8 * scale)) * (col.width / totalW);
     ctx.fillText(col.label, colX, chartY + Math.round(7 * scale));
     col.xPx = colX;
-    colX += cw;
+    colX += colWidth;
   });
 
-  const bodyY = chartY + headerH;
-  const bodyH = chartH - headerH;
+  const bodyY = chartY + headerTableH;
+  const bodyH = chartH - headerTableH;
   const rowHTable = Math.round(28 * scale);
   const maxRows = Math.max(1, Math.floor(bodyH / rowHTable));
   const maxStart = Math.max(0, records.length - maxRows);
@@ -3572,10 +3601,10 @@ function drawThermoExperiment(ctx, _W, _H, cfg) {
   });
 
   visible.forEach((row, i) => {
-    const y = bodyY + i * rowHTable;
+    const rowY = bodyY + i * rowHTable;
     if (i % 2 === 0) {
       ctx.fillStyle = isLight ? 'rgba(15, 23, 42, 0.04)' : 'rgba(255, 255, 255, 0.03)';
-      ctx.fillRect(chartX, y, chartW, rowHTable);
+      ctx.fillRect(chartX, rowY, chartW, rowHTable);
     }
     ctx.fillStyle = isLight ? '#0f172a' : '#e2e8f0';
     ctx.font = `bold ${Math.round(14 * scale)}px "Microsoft YaHei", sans-serif`;
@@ -3583,7 +3612,7 @@ function drawThermoExperiment(ctx, _W, _H, cfg) {
       ctx.fillText(
         formatThermoRecordCell(expId, row, col.key, start + i),
         col.xPx,
-        y + Math.round(6 * scale),
+        rowY + Math.round(6 * scale),
       );
     });
   });
@@ -3593,7 +3622,7 @@ function drawThermoExperiment(ctx, _W, _H, cfg) {
     ctx.font = `bold ${Math.round(17 * scale)}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'center';
     ctx.fillText(
-      canRecord ? '点「写入数据」添加第一行' : (blocked || '条件就绪后再写入'),
+      canRecord ? '点「写入数据」添加第一行' : '条件就绪后方可写入',
       chartX + chartW / 2,
       bodyY + bodyH / 2,
     );
@@ -3618,6 +3647,521 @@ function drawThermoExperiment(ctx, _W, _H, cfg) {
   });
 }
 
+function drawViscosityRecordsPanel(ctx, hits, cfg) {
+  const { x, y, w, h, d, accentHex, theme, surface, params } = cfg;
+  _uiTheme = theme || 'dark';
+  const P = screenPalette(_uiTheme, accentHex, surface === 'display');
+  const rawScale = holoUiScale(surface || 'full');
+  const scale = surface === 'display' ? Math.min(rawScale, 1.25) : Math.min(rawScale, 1.15);
+  const isLight = _uiTheme === 'light';
+  const records = Array.isArray(params?._records) ? params._records : (Array.isArray(d?.records) ? d.records : []);
+
+  // Dimmer hit
+  hits.push({
+    x, y, w, h,
+    action: 'viscosity-records-panel',
+    meta: { open: false },
+    role: 'viscosity_records_dimmer',
+  });
+
+  const pad = Math.round(14 * scale);
+  const panelW = Math.min(w - pad * 2, Math.round(w * 0.96));
+  const panelH = Math.min(h - pad * 2, Math.round(h * 0.90));
+  const px = x + (w - panelW) / 2;
+  const py = y + (h - panelH) / 2;
+
+  ctx.fillStyle = isLight ? 'rgba(15, 23, 42, 0.48)' : 'rgba(0, 0, 0, 0.72)';
+  roundRect(ctx, x, y, w, h, 8);
+  ctx.fill();
+
+  hits.push({
+    x: px, y: py, w: panelW, h: panelH,
+    action: 'viscosity-records-panel',
+    meta: { open: true },
+    role: 'viscosity_records_panel',
+  });
+
+  ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.96)' : 'rgba(8, 20, 42, 0.96)';
+  ctx.strokeStyle = accentHex;
+  ctx.lineWidth = 1.6;
+  roundRect(ctx, px, py, panelW, panelH, 12);
+  ctx.fill();
+  ctx.stroke();
+
+  // Header Title
+  ctx.fillStyle = isLight ? '#0284c7' : accentHex;
+  ctx.font = `bold ${Math.round(20 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('落球法测粘滞系数 · 实验数据记录表', px + pad + 4, py + pad + 12);
+
+  // Close button
+  const closeW = Math.round(90 * scale);
+  const closeH = Math.round(34 * scale);
+  drawPremiumHoloButton(
+    ctx, hits,
+    px + panelW - pad - closeW, py + pad,
+    closeW, closeH,
+    '✕ 关闭', 'viscosity-records-panel', { open: false },
+    accentHex, false, theme,
+  );
+
+  const tableTop = py + pad + Math.round(44 * scale);
+  const colDefs = [
+    { label: '序号', w: 0.10, align: 'center' },
+    { label: '钢球 d (mm)', w: 0.20, align: 'center' },
+    { label: '计时 Δt (s)', w: 0.22, align: 'center' },
+    { label: '下落速度 v (m/s)', w: 0.24, align: 'center' },
+    { label: '测定粘度 η (Pa·s)', w: 0.24, align: 'center' },
+  ];
+
+  const headerH = Math.round(32 * scale);
+  const rowH = Math.round(32 * scale);
+
+  // Table header background
+  ctx.fillStyle = isLight ? 'rgba(226, 232, 240, 0.85)' : 'rgba(30, 41, 59, 0.85)';
+  roundRect(ctx, px + pad, tableTop, panelW - pad * 2, headerH, 6);
+  ctx.fill();
+
+  let curX = px + pad;
+  const tableW = panelW - pad * 2;
+  colDefs.forEach((col) => {
+    const cw = tableW * col.w;
+    ctx.fillStyle = P.muted;
+    ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = col.align;
+    ctx.textBaseline = 'middle';
+    const tx = col.align === 'center' ? curX + cw / 2 : (col.align === 'right' ? curX + cw - 8 : curX + 8);
+    ctx.fillText(col.label, tx, tableTop + headerH / 2);
+    curX += cw;
+  });
+
+  const maxRows = Math.max(3, Math.floor((panelH - Math.round(160 * scale)) / rowH));
+  const visibleRecords = records.slice(-maxRows);
+
+  visibleRecords.forEach((row, idx) => {
+    const ry = tableTop + headerH + 6 + idx * rowH;
+    ctx.fillStyle = idx % 2 === 0
+      ? (isLight ? 'rgba(241, 245, 249, 0.5)' : 'rgba(255, 255, 255, 0.03)')
+      : 'transparent';
+    roundRect(ctx, px + pad, ry, tableW, rowH - 2, 4);
+    ctx.fill();
+
+    const actualIdx = records.indexOf(row) + 1;
+    const values = [
+      String(actualIdx),
+      Number(row.d).toFixed(1),
+      Number(row.dt).toFixed(3),
+      Number(row.v).toFixed(5),
+      Number(row.eta).toFixed(4),
+    ];
+
+    let cellX = px + pad;
+    colDefs.forEach((col, cIdx) => {
+      const cw = tableW * col.w;
+      ctx.fillStyle = cIdx === 4 ? (isLight ? '#0284c7' : '#38bdf8') : P.text;
+      ctx.font = `${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+      ctx.textAlign = col.align;
+      ctx.textBaseline = 'middle';
+      const tx = col.align === 'center' ? cellX + cw / 2 : (col.align === 'right' ? cellX + cw - 8 : cellX + 8);
+      ctx.fillText(values[cIdx] || '—', tx, ry + (rowH - 2) / 2);
+      cellX += cw;
+    });
+  });
+
+  if (!records.length) {
+    ctx.fillStyle = P.muted;
+    ctx.font = `${Math.round(14 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('暂无测量记录。完成下落计时后点击「记录数据」添加。', px + panelW / 2, tableTop + headerH + 40);
+  }
+
+  // Summary Footer
+  const sumH = Math.round(52 * scale);
+  const sumY = py + panelH - pad - sumH;
+  ctx.fillStyle = isLight ? 'rgba(241, 245, 249, 0.9)' : 'rgba(15, 23, 42, 0.85)';
+  ctx.strokeStyle = P.panelStroke;
+  ctx.lineWidth = 1;
+  roundRect(ctx, px + pad, sumY, tableW, sumH, 8);
+  ctx.fill();
+  ctx.stroke();
+
+  if (records.length) {
+    const avgEta = records.reduce((s, r) => s + (Number(r.eta) || 0), 0) / records.length;
+    const LIQUIDS_REF = {
+      glycerin: { eta20: 1.49, tempFactor: 0.085 },
+      castor: { eta20: 0.986, tempFactor: 0.06 },
+      silicone: { eta20: 0.5, tempFactor: 0.04 },
+      machine: { eta20: 0.29, tempFactor: 0.05 },
+    };
+    const liquid = LIQUIDS_REF[params.liquid || 'glycerin'] || LIQUIDS_REF.glycerin;
+    const temp = Number(params.temperature ?? 20);
+    const etaTrue = liquid.eta20 * Math.exp(-liquid.tempFactor * (temp - 20));
+    const avgErr = ((avgEta - etaTrue) / etaTrue) * 100;
+
+    ctx.fillStyle = P.text;
+    ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(
+      `已记录 ${records.length} 组 · 平均 η̄ = ${avgEta.toFixed(4)} Pa·s · 理论 η₀ = ${etaTrue.toFixed(4)} Pa·s · 相对误差 ${avgErr >= 0 ? '+' : ''}${avgErr.toFixed(1)}%`,
+      px + pad + 14,
+      sumY + sumH / 2,
+    );
+  } else {
+    ctx.fillStyle = P.muted;
+    ctx.font = `${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('提示：更换不同直径小球多次测量，可求平均粘滞系数并验证管壁效应修正。', px + pad + 14, sumY + sumH / 2);
+  }
+
+  // Clear button inside modal
+  const clearW = Math.round(110 * scale);
+  const clearH = Math.round(36 * scale);
+  drawPremiumHoloButton(
+    ctx, hits,
+    px + panelW - pad - clearW - 8, sumY + (sumH - clearH) / 2,
+    clearW, clearH,
+    '🗑 清空数据', 'mechanics-source-action', { id: 'clear' },
+    '#f87171', false, theme,
+  );
+}
+
+/** Dedicated, high-precision content layout for Falling Ball Viscosity experiment. */
+function drawViscosityExperiment(ctx, _W, _H, cfg) {
+  const { hits, innerX, innerW, contentTop, contentH, experiment, hud, accentHex, theme, surface } = cfg;
+  _uiTheme = theme || 'dark';
+  const d = hud?.data || {};
+  const isDisplay = surface === 'display';
+  const isLight = _uiTheme === 'light';
+  const P = screenPalette(_uiTheme, accentHex, isDisplay);
+  const rawScale = holoUiScale(surface || 'full');
+  const scale = isDisplay ? Math.min(rawScale, 1.25) : Math.min(rawScale, 1.15);
+
+  const x = innerX;
+  const w = innerW;
+  const params = d.params || experiment.defaults || {};
+  const readouts = Array.isArray(d.readouts) ? d.readouts : [];
+  const records = Array.isArray(params._records) ? params._records : (Array.isArray(d.records) ? d.records : []);
+  const panelOpen = d.recordsPanelOpen === true;
+
+  const LIQUID_CONFIG = {
+    glycerin: { label: '甘油 (丙三醇)', rho: 1260, eta20: 1.49, tempFactor: 0.085 },
+    castor: { label: '蓖麻油', rho: 960, eta20: 0.986, tempFactor: 0.06 },
+    silicone: { label: '硅油 (高粘)', rho: 970, eta20: 0.5, tempFactor: 0.04 },
+    machine: { label: '机油 (SAE 30)', rho: 880, eta20: 0.29, tempFactor: 0.05 },
+  };
+  const STEEL_RHO = 7800;
+  const G = 9.81;
+
+  const curLiquidKey = params.liquid || 'glycerin';
+  const curLiquid = LIQUID_CONFIG[curLiquidKey] || LIQUID_CONFIG.glycerin;
+  const temp = Number(params.temperature ?? 20);
+  const dMm = Number(params.diameterMm ?? 2.5);
+  const DMm = Number(params.tubeDiameterMm ?? 50);
+  const measureS = Number(params.measureS ?? 0.2);
+
+  const etaTrue = curLiquid.eta20 * Math.exp(-curLiquid.tempFactor * (temp - 20));
+  const rM = (dMm / 2) * 1e-3;
+  const vTerm = (2 * rM * rM * (STEEL_RHO - curLiquid.rho) * G) / (9 * etaTrue);
+
+  // Extract from readouts
+  const posItem = readouts.find((r) => r.label === '位置')?.value || '钢球盒中';
+  const speedItem = readouts.find((r) => r.label?.includes('速度'))?.value || '0.00 mm/s';
+  const dtItem = readouts.find((r) => r.label?.includes('Δt'))?.value || '—';
+  const vMeasItem = readouts.find((r) => r.label?.includes('v = S/Δt'))?.value || '—';
+  const etaMeasItem = readouts.find((r) => r.label?.includes('η 测量'))?.value || '—';
+  const errItem = readouts.find((r) => r.label?.includes('相对误差'))?.value || '—';
+
+  const steps = experiment.steps || [];
+  const stepIndex = Math.max(0, Math.min(steps.length - 1, Number(hud?.stepIndex ?? d.workflowStep ?? 0)));
+  const step = steps[stepIndex] || {};
+
+  // Component heights & Vertical Rhythm
+  const stepHeaderH = Math.round(34 * scale);
+  const cardH = Math.round(112 * scale);
+  const cardRowGap = Math.round(12 * scale);
+  const dashboardH = cardH * 2 + cardRowGap;
+  const chipH = Math.round(50 * scale);
+  const footerBtnH = Math.round(54 * scale);
+
+  const totalFixedH = stepHeaderH + dashboardH + chipH + footerBtnH;
+  const availableSpace = Math.max(0, contentH - totalFixedH);
+  const dynGap = Math.max(Math.round(16 * scale), Math.min(Math.round(28 * scale), Math.floor(availableSpace / 4)));
+
+  let cy = contentTop + Math.round(4 * scale);
+
+  // 1. Step Header & Status Badge
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = isLight ? '#0284c7' : accentHex;
+  ctx.font = `bold ${Math.round(17 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.fillText(`步骤 ${stepIndex + 1}/${steps.length || 6} · ${step.text || '实验进行中'}`, x + 2, cy + stepHeaderH / 2);
+
+  ctx.fillStyle = P.muted;
+  ctx.font = `${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+  const hintText = step.hint ? `提示: ${step.hint}` : '从桌上钢球盒取球拖拽至漏斗口，松开后释放下落';
+  ctx.fillText(hintText, x + Math.round(280 * scale), cy + stepHeaderH / 2);
+
+  // Status Badge on Right
+  const badgeW = Math.round(170 * scale);
+  const badgeH = Math.round(30 * scale);
+  const badgeX = x + w - badgeW;
+  const badgeY = cy + (stepHeaderH - badgeH) / 2;
+
+  let badgeBg = isLight ? 'rgba(148, 163, 184, 0.2)' : 'rgba(30, 41, 59, 0.8)';
+  let badgeBorder = isLight ? '#94a3b8' : '#475569';
+  let badgeColor = isLight ? '#334155' : '#cbd5e1';
+
+  if (posItem.includes('液体')) {
+    badgeBg = isLight ? 'rgba(34, 197, 94, 0.15)' : 'rgba(34, 197, 94, 0.25)';
+    badgeBorder = '#22c55e';
+    badgeColor = isLight ? '#15803d' : '#4ade80';
+  } else if (posItem.includes('漏斗')) {
+    badgeBg = isLight ? 'rgba(14, 165, 233, 0.15)' : 'rgba(14, 165, 233, 0.25)';
+    badgeBorder = '#0ea5e9';
+    badgeColor = isLight ? '#0369a1' : '#38bdf8';
+  } else if (posItem.includes('沉底')) {
+    badgeBg = isLight ? 'rgba(168, 85, 247, 0.15)' : 'rgba(168, 85, 247, 0.25)';
+    badgeBorder = '#a855f7';
+    badgeColor = isLight ? '#7e22ce' : '#c084fc';
+  } else if (posItem.includes('拖拽')) {
+    badgeBg = isLight ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.25)';
+    badgeBorder = '#f59e0b';
+    badgeColor = isLight ? '#b45309' : '#fbbf24';
+  }
+
+  ctx.fillStyle = badgeBg;
+  ctx.strokeStyle = badgeBorder;
+  ctx.lineWidth = 1.2;
+  roundRect(ctx, badgeX, badgeY, badgeW, badgeH, badgeH / 2);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = badgeColor;
+  ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'center';
+  ctx.fillText(`● ${posItem}`, badgeX + badgeW / 2, badgeY + badgeH / 2);
+
+  cy += stepHeaderH + dynGap;
+
+  // 2. Metrics 2x2 High-Contrast Spacious Dashboard
+  const colGap = Math.round(14 * scale);
+  const cardW = (w - colGap) / 2;
+
+  const statCards = [
+    // Card 1: Medium & Environment
+    {
+      title: '待测介质与环境条件',
+      mainValue: `${curLiquid.label}`,
+      mainColor: isLight ? '#0284c7' : '#38bdf8',
+      tags: [
+        `介质密度 ρ = ${curLiquid.rho} kg/m³`,
+        `温度 t = ${temp} °C`,
+        `钢球密度 ρ₀ = ${STEEL_RHO} kg/m³`,
+      ],
+    },
+    // Card 2: Stokes Theory Benchmark
+    {
+      title: 'Stokes 理论基准粘度 (温度修正)',
+      mainValue: `${etaTrue.toFixed(4)} Pa·s`,
+      mainColor: isLight ? '#b45309' : '#fbbf24',
+      tags: [
+        `20°C 基准: ${curLiquid.eta20} Pa·s`,
+        `极限速度 v∞ = ${(vTerm * 1000).toFixed(1)} mm/s`,
+      ],
+    },
+    // Card 3: Apparatus & Ball
+    {
+      title: '实验装置规格与测量间距',
+      mainValue: `钢球直径 d = ${dMm.toFixed(1)} mm`,
+      mainColor: P.text,
+      tags: [
+        `量筒内径 D = ${DMm} mm`,
+        `光电门间距 S = ${measureS.toFixed(2)} m`,
+        `实时速度 |v| = ${speedItem}`,
+      ],
+    },
+    // Card 4: Measurement & Viscosity Result
+    {
+      title: '光电门测量与测定粘度结果',
+      mainValue: etaMeasItem !== '—' ? `η = ${etaMeasItem}` : (dtItem !== '—' ? `Δt = ${dtItem}` : '就绪待释放'),
+      mainColor: etaMeasItem !== '—' ? (isLight ? '#16a34a' : '#4ade80') : (dtItem !== '—' ? (isLight ? '#7c3aed' : '#a78bfa') : P.muted),
+      tags: [
+        dtItem !== '—' ? `计时 Δt = ${dtItem}` : '计时未触发',
+        vMeasItem !== '—' ? `测定速度 v = ${vMeasItem}` : 'v = S/Δt',
+        errItem !== '—' ? `相对误差: ${errItem}` : `已记录: ${records.length} 组`,
+      ],
+    },
+  ];
+
+  statCards.forEach((card, index) => {
+    const col = index % 2;
+    const row = Math.floor(index / 2);
+    const px = x + col * (cardW + colGap);
+    const py = cy + row * (cardH + cardRowGap);
+
+    ctx.fillStyle = P.panel;
+    ctx.strokeStyle = P.panelStroke;
+    ctx.lineWidth = 1.2;
+    roundRect(ctx, px, py, cardW, cardH, 12);
+    ctx.fill();
+    ctx.stroke();
+
+    // Top Section Title
+    ctx.fillStyle = P.muted;
+    ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(card.title, px + Math.round(18 * scale), py + Math.round(14 * scale));
+
+    // Middle Main Value (Large, prominent typography)
+    ctx.fillStyle = card.mainColor;
+    ctx.font = `bold ${Math.round(24 * scale)}px "Microsoft YaHei", sans-serif`;
+    ctx.fillText(String(card.mainValue), px + Math.round(18 * scale), py + Math.round(40 * scale));
+
+    // Bottom Badges / Tags row
+    let tagX = px + Math.round(18 * scale);
+    const tagY = py + Math.round(80 * scale);
+    card.tags.forEach((tag) => {
+      ctx.font = `${Math.round(12 * scale)}px "Microsoft YaHei", sans-serif`;
+      const tw = ctx.measureText(tag).width + Math.round(14 * scale);
+      const th = Math.round(20 * scale);
+
+      ctx.fillStyle = isLight ? 'rgba(241, 245, 249, 0.9)' : 'rgba(255, 255, 255, 0.06)';
+      ctx.strokeStyle = isLight ? 'rgba(203, 213, 225, 0.8)' : 'rgba(255, 255, 255, 0.12)';
+      ctx.lineWidth = 1;
+      roundRect(ctx, tagX, tagY, tw, th, 4);
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.fillStyle = P.soft;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(tag, tagX + tw / 2, tagY + th / 2);
+
+      tagX += tw + Math.round(8 * scale);
+    });
+  });
+
+  cy += dashboardH + dynGap;
+
+  // 3. Liquid Selection Row
+  const sectionLabelW = Math.round(110 * scale);
+  ctx.fillStyle = P.muted;
+  ctx.font = `bold ${Math.round(15 * scale)}px "Microsoft YaHei", sans-serif`;
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('待测液体', x + 2, cy + chipH / 2);
+
+  const liqOptions = [
+    { key: 'glycerin', label: '甘油 (丙三醇)' },
+    { key: 'castor', label: '蓖麻油' },
+    { key: 'silicone', label: '硅油 (高粘)' },
+    { key: 'machine', label: '机油 (SAE 30)' },
+  ];
+  const liqChipW = (w - sectionLabelW - colGap * (liqOptions.length - 1)) / liqOptions.length;
+
+  liqOptions.forEach((opt, index) => {
+    const chipX = x + sectionLabelW + index * (liqChipW + colGap);
+    const active = curLiquidKey === opt.key;
+    drawPremiumHoloButton(
+      ctx, hits,
+      chipX, cy, liqChipW, chipH,
+      `${active ? '✓ ' : ''}${opt.label}`,
+      'mechanics-source-select',
+      { key: 'liquid', value: opt.key },
+      accentHex,
+      active,
+      theme,
+    );
+  });
+
+  // 4. Action Bar at Footer
+  const footerY = contentTop + contentH - footerBtnH;
+  const actionGap = Math.round(10 * scale);
+
+  const canDrop = posItem.includes('漏斗');
+  const canRecord = etaMeasItem !== '—' && !etaMeasItem.includes('null');
+
+  const actionButtons = [
+    {
+      label: '⬇ 释放钢球',
+      action: 'mechanics-source-action',
+      meta: { id: 'drop' },
+      active: canDrop,
+      color: accentHex,
+    },
+    {
+      label: '↩ 放回球盒',
+      action: 'mechanics-source-action',
+      meta: { id: 'returnBtn' },
+      active: false,
+      color: accentHex,
+    },
+    {
+      label: '📝 记录数据',
+      action: 'mechanics-source-action',
+      meta: { id: 'record' },
+      active: canRecord,
+      color: '#34d399',
+    },
+    {
+      label: records.length ? `📊 数据表 (${records.length})` : '📊 数据表',
+      action: 'viscosity-records-panel',
+      meta: { open: !panelOpen },
+      active: panelOpen || records.length > 0,
+      color: accentHex,
+    },
+    {
+      label: '🗑 清空',
+      action: 'mechanics-source-action',
+      meta: { id: 'clear' },
+      active: false,
+      color: '#f87171',
+    },
+    {
+      label: d.paused ? '▶ 继续' : '⏸ 暂停',
+      action: 'mechanics-source-pause',
+      meta: {},
+      active: !!d.paused,
+      color: accentHex,
+    },
+    {
+      label: '🔄 重置',
+      action: 'mechanics-source-reset',
+      meta: {},
+      active: false,
+      color: accentHex,
+    },
+  ];
+
+  const totalActW = (w - actionGap * (actionButtons.length - 1));
+  const standardW = totalActW / actionButtons.length;
+
+  actionButtons.forEach((btn, index) => {
+    const bx = x + index * (standardW + actionGap);
+    drawPremiumHoloButton(
+      ctx, hits,
+      bx, footerY, standardW, footerBtnH,
+      btn.label, btn.action, btn.meta,
+      btn.color || accentHex,
+      btn.active,
+      theme,
+    );
+  });
+
+  // 5. Modal overlay for records table
+  if (panelOpen) {
+    drawViscosityRecordsPanel(ctx, hits, {
+      x, y: contentTop, w, h: contentH,
+      d, accentHex, theme, surface, params,
+    });
+  }
+}
+
 /** Source-faithful mechanics controls/readouts hosted on the holographic screen. */
 function drawSourceMechanicsExperiment(ctx, _W, _H, cfg) {
   const { hits, innerX, innerW, contentTop, contentH, experiment, hud, accentHex, theme, surface } = cfg;
@@ -3625,7 +4169,8 @@ function drawSourceMechanicsExperiment(ctx, _W, _H, cfg) {
   const data = hud?.data || {};
   const params = data.params || experiment.defaults || {};
   const P = screenPalette(_uiTheme, accentHex, surface === 'display');
-  const scale = holoUiScale(surface || 'full');
+  const rawScale = holoUiScale(surface || 'full');
+  const scale = surface === 'display' ? Math.min(rawScale, 1.25) : rawScale;
   const gap = Math.round(7 * scale);
   const x = innerX;
   const w = innerW;
@@ -3697,12 +4242,6 @@ function drawSourceMechanicsExperiment(ctx, _W, _H, cfg) {
   const colW = (w - colGap) / 2;
   const sliderH = Math.round(48 * scale);
   const sliderGap = Math.round(4 * scale);
-  if (ranges.length) {
-    ctx.fillStyle = P.muted;
-    ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText('连续参数在桌右侧滑条调节', x + 2, y);
-    y += Math.round(20 * scale);
-  }
   ranges.forEach((control, index) => {
     const col = index % 2;
     const row = Math.floor(index / 2);
@@ -4235,7 +4774,7 @@ export function drawHoloScreen(ctx, W, H, opts) {
 
     ctx.fillStyle = P.text;
     ctx.font = `bold ${F.idleCta}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText('瞄准桌面终端 · 按 E / 点击 激活', W / 2, H * 0.54 + 58);
+    ctx.fillText('瞄准桌面终端 · 点击激活', W / 2, H * 0.54 + 58);
 
     ctx.fillStyle = P.soft;
     ctx.font = `${F.idleHint}px "Microsoft YaHei", sans-serif`;
@@ -4294,7 +4833,7 @@ export function drawHoloScreen(ctx, W, H, opts) {
       ctx.fillText(
         isSelector
           ? '选择实验 · 内容将显示于前方悬浮大屏'
-          : '选择实验 · 准星对准卡片后按 E / 点击',
+          : '选择实验 · 准星对准卡片后点击',
         innerX + 4,
         contentTop,
       );
@@ -4417,6 +4956,12 @@ export function drawHoloScreen(ctx, W, H, opts) {
       return { hits };
     }
     if (['free-fall', 'inclined-plane', 'pendulum', 'collision', 'projectile', 'viscosity'].includes(experiment.id)) {
+      if (experiment.id === 'viscosity') {
+        drawViscosityExperiment(ctx, W, H, {
+          hits, innerX, innerW, contentTop, contentH, experiment, hud, accentHex, theme, surface,
+        });
+        return { hits };
+      }
       drawSourceMechanicsExperiment(ctx, W, H, {
         hits, innerX, innerW, contentTop, contentH, experiment, hud, accentHex, theme, surface,
       });
@@ -4453,7 +4998,7 @@ export function drawHoloScreen(ctx, W, H, opts) {
     });
     y += stepBoxH + 12;
 
-    const hint = hud.step?.hint || '按 E 交互';
+    const hint = hud.step?.hint || '点击交互';
     const hintH = 58;
     ctx.fillStyle = P.hintBg;
     roundRect(ctx, innerX, y, innerW, hintH, 8);

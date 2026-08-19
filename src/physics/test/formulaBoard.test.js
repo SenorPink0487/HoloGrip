@@ -132,3 +132,23 @@ test('pickFormulaBoard picks station card in Home view and navigates', () => {
   assert.equal(picked.action, 'station');
   assert.equal(picked.stationId, firstStation.stationId);
 });
+
+test('parseFormulaAst correctly identifies fractions, square roots and Greek symbols', async () => {
+  const { parseFormulaAst, measureFormulaAst, drawFormulaCardGroup } = await import('../src/physicsFormula.js');
+  const ctx = createMockCtx();
+
+  const ast = parseFormulaAst('h=\\frac{1}{2}gt^{2}；v=\\sqrt{2gh}');
+  assert.ok(ast.length > 0);
+  const frac = ast.find((n) => n.type === 'frac');
+  assert.ok(frac, 'must parse \\frac node');
+  assert.ok(frac.num.length > 0, 'fraction must have numerator');
+  assert.ok(frac.den.length > 0, 'fraction must have denominator');
+
+  const m = measureFormulaAst(ctx, ast, 24);
+  assert.ok(m.width > 0);
+  assert.ok(m.height > 0);
+
+  // drawFormulaCardGroup should execute smoothly on mock ctx
+  drawFormulaCardGroup(ctx, 'h=\\frac{1}{2}gt^{2}；v=\\sqrt{2gh}', 0, 0, 600, 200, { themeColor: '#0ea5e9' });
+});
+

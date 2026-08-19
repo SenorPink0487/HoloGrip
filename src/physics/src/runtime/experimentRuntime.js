@@ -46,6 +46,10 @@ export function createEquipmentRuntime({
       );
       const previousParent = target?.parent || null;
       const previousVisible = target?.visible;
+      // Some apparatuses have a deterministic, data-independent visual cache
+      // (for example the default electric-field lines). Build it before GPU
+      // compilation so the first live commit does not allocate decorations.
+      try { target?.userData?.prewarmGpu?.(); } catch { /* optional visual cache */ }
       if (scene?.add && target && target.parent !== scene) scene.add(target);
       if (target) target.visible = true;
       target?.updateWorldMatrix?.(true, true);

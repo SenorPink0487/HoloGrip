@@ -159,7 +159,7 @@ function createFullStationEquipment(ctx) {
     const rail = rbox(2.2, 0.045, 0.18, lab.matteBlack, 0.01);
     rail.position.y = 0.05;
     g.add(rail);
-    const railTop = rbox(2.15, 0.012, 0.05, lab.steel, 0.003);
+    const railTop = rbox(2.2, 0.012, 0.05, lab.steel, 0.003);
     railTop.position.y = 0.078;
     g.add(railTop);
     for (const z of [-0.095, 0.095]) {
@@ -167,7 +167,12 @@ function createFullStationEquipment(ctx) {
       side.position.set(0, 0.095, z);
       g.add(side);
     }
-    for (let i = 0; i <= 22; i++) {
+    for (const x of [-1.1, 1.1]) {
+      const endCap = rbox(0.024, 0.055, 0.21, lab.matteBlack, 0.005);
+      endCap.position.set(x, 0.055, 0);
+      g.add(endCap);
+    }
+    for (let i = 0; i <= 21; i++) {
       const tick = rbox(0.006, 0.01, i % 5 === 0 ? 0.07 : 0.04, lab.brass, 0.001);
       tick.position.set(-1.05 + i * 0.1, 0.09, 0);
       g.add(tick);
@@ -401,8 +406,8 @@ function createFullStationEquipment(ctx) {
       diffWaveGroup.children.forEach((wave) => wave.material.color.copy(color));
 
       const nSlits = Math.max(1, Math.round(Number(d.N || 2)));
-      const aV = THREE.MathUtils.clamp(Number(d.slitMm || 0.05) * 0.45, 0.006, 0.08);
-      const pitchV = THREE.MathUtils.clamp(Number(d.pitchMm || 0.25) * 0.45, 0.02, 0.12);
+      const aV = THREE.MathUtils.clamp(Number(d.slitMm || 0.05) * 0.06, 0.002, 0.015);
+      const pitchV = THREE.MathUtils.clamp(Number(d.pitchMm || 0.25) * 0.1, aV + 0.003, 0.04);
       const centers = Array.from({ length: nSlits }, (_, i) => nSlits === 1 ? 0 : (i - (nSlits - 1) / 2) * pitchV);
       const plateHalf = Math.max(0.16, ((nSlits - 1) * pitchV + aV) / 2 + 0.035);
       disposeChildren(diffSlitBars);
@@ -419,7 +424,7 @@ function createFullStationEquipment(ctx) {
       }
       for (const z of centers) {
         const glow = new THREE.Mesh(
-          new THREE.PlaneGeometry(Math.max(0.004, aV * 0.85), 0.24),
+          new THREE.PlaneGeometry(Math.max(0.0015, aV * 0.85), 0.24),
           new THREE.MeshBasicMaterial({
             color, transparent: true, opacity: lit ? 0.85 : 0,
             side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -489,9 +494,9 @@ function createFullStationEquipment(ctx) {
           simIntensity,
           image: diffScreenImageData,
         };
-        if (opts.syncPaint) {
+        if (opts.syncPaint !== false) {
           while (stepDiffractionPaint()) {
-            /* full paint for tests / non-switch */
+            /* complete paint immediately */
           }
         }
       } else {
@@ -576,13 +581,15 @@ function createFullStationEquipment(ctx) {
 
     function animateDiffraction(t, dt) {
       if (!diffractionGroup.visible) return;
-      // Do NOT flushDeferredDiffraction here — that 640×H pixel paint was a
-      // pre-render hitch on experiment switch. Flush only via frame budget
-      // (optics:diff-flush) so camera/WASD keep a clean frame between steps.
       if (diffEmitter.visible) {
         diffEmitter.scale.setScalar(1 + 0.12 * Math.sin(t * 10));
         diffHalo.material.opacity = 0.3 + 0.2 * Math.sin(t * 7);
         diffLaserLight.intensity = 0.5 + 0.18 * Math.sin(t * 7);
+      }
+      if (diffPaint) {
+        while (stepDiffractionPaint()) {
+          /* step and finish paint */
+        }
       }
       if (!diffWaveGroup.visible) return;
       diffWavePhase = (diffWavePhase + dt * 2.5) % 2.2;

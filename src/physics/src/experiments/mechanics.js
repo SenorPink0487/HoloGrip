@@ -169,9 +169,14 @@ export function createHandlers(ctx) {
         return Number.isFinite(n) ? n.toFixed(1) : v;
       }).join('·')
       : '';
+    if (snapshot.params?._records) {
+      state.data.records = snapshot.params._records;
+    }
     const signature = [
       state.stepIndex,
       snapshot.paused ? 1 : 0,
+      state.data.recordsPanelOpen ? 1 : 0,
+      Array.isArray(snapshot.params?._records) ? snapshot.params._records.length : 0,
       // quantize time so HUD does not thrash every fixed step (~2 Hz)
       Math.floor(Number(snapshot.sourceTime || 0) * 2),
       readoutSig,
@@ -193,6 +198,8 @@ export function createHandlers(ctx) {
     return {
       params: { ...(definition?.defaults || {}) },
       readouts: [],
+      records: [],
+      recordsPanelOpen: false,
       formula: '',
       paused: false,
       sourceTime: 0,
@@ -203,17 +210,19 @@ export function createHandlers(ctx) {
   function applyVisualDefaults(expId) {
     const definition = getDefinition(expId);
     const defaults = { ...(definition?.defaults || {}) };
-    // O(1) setMode mount. Soft reset later only if params diverge from prewarm.
+    // O(1) setMode mount and synchronous soft reset matching prewarm state.
     equipment.mechanics?.setMode?.(expId, defaults, { reset: false, snapshot: false });
-    labFrameScheduler.schedule(`mech:reset:${expId}`, () => {
-      if (state.expId !== expId || !state.running) return;
-      const snapshot = equipment.mechanics?.reset?.(expId, defaults);
-      mergeSnapshot(snapshot, false);
-    }, { priority: 35, soft: false });
+    const snapshot = equipment.mechanics?.reset?.(expId, defaults);
+    mergeSnapshot(snapshot, false);
   }
 
   function onUiAction(action, payload = {}) {
     const expId = state.expId;
+    if (action === 'viscosity-records-panel' || action === 'mechanics-records-panel') {
+      state.data.recordsPanelOpen = payload.open !== undefined ? !!payload.open : !state.data.recordsPanelOpen;
+      pushHud();
+      return true;
+    }
     if (action === 'mechanics-source-set') {
       const snapshot = equipment.mechanics?.setParam?.(expId, payload.key, payload.value);
       mergeSnapshot(snapshot, true);
@@ -228,6 +237,7 @@ export function createHandlers(ctx) {
     if (action === 'mechanics-source-reset') {
       const snapshot = equipment.mechanics?.reset?.(expId, state.data.params);
       state.stepIndex = 0;
+      state.data.recordsPanelOpen = false;
       mergeSnapshot(snapshot, true);
       toast('实验已重置');
       return true;

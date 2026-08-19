@@ -50,7 +50,7 @@ export const station = {
       goal: '拖动热、冷水烧杯到量热杯，观察混合平衡温度',
       theory: 'Q = cmΔt；热平衡时 Q放 = Q吸',
       steps: [
-        { id: 'pour_hot', text: '将热水烧杯倒入量热杯', hint: '瞄准红色烧杯按 E，或点击“倒入热水”' },
+        { id: 'pour_hot', text: '将热水烧杯倒入量热杯', hint: '瞄准红色烧杯点击，或点击“倒入热水”' },
         { id: 'pour_cold', text: '将冷水烧杯倒入量热杯', hint: '再倒入蓝色烧杯，混合后温度自动趋于平衡' },
         { id: 'equilibrate', text: '等待热平衡并读取终温', hint: '观察量热杯温度和理论平衡温度' },
         { id: 'record', text: '写入数据并比较多组', hint: '点击「写入数据」保存 m、T 与 Tₑq；改参数后再写一组做对比' },

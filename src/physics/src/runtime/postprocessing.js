@@ -63,6 +63,8 @@ export function createPhysicsPostProcessing({ renderer, scene, camera, quality =
     );
   }
 
+  let prewarmed = false;
+
   return {
     composer,
     bloomPass,
@@ -91,6 +93,8 @@ export function createPhysicsPostProcessing({ renderer, scene, camera, quality =
      * otherwise still pay the pass shader setup on the click frame.
      */
     prewarm() {
+      if (prewarmed) return;
+      prewarmed = true;
       const trace = traceEnabled();
       const startedAt = trace ? performance.now() : 0;
       const programsBefore = trace ? (renderer.info?.programs?.length || 0) : 0;

@@ -3246,7 +3246,7 @@ function updateAimHud(target, canInteract) {
     }
   } else if (target.userData?.type === 'formula_board' || role === 'formula_board') {
     title = '公式知识卡片墙';
-    badgeText = '按 E 展开';
+    badgeText = '点击展开';
   } else if (target.userData?.type === 'side_blackboard' || role === 'side_blackboard') {
     title = '实验室黑板';
     badgeText = '书写/擦除';
@@ -3595,74 +3595,23 @@ function pushHudToHoloScreens(hud) {
     h.userData.setHud?.(snap, '');
   }, { priority: 100 });
 
-  // ── Content display: shell first, dense layout off the open frame ──
-  // Never run full drawHoloScreen on the switch frame; schedule it after.
+  // ── Content display: direct layout on running experiment ──
   // Chem uses dedicated holos (not the physics display painter).
   if (runningHere && activeId !== 'chem') {
-    const display = stationDisplays[activeId];
-    const expId = hud.experiment?.id || payload.expId || '';
-    const hasLiveContent = !!(
-      display?.userData
-      && display.userData._contentExpId === expId
-      && Array.isArray(display.userData.hitRegions)
-      && display.userData.hitRegions.length > 0
-    );
-
-    if (!hasLiveContent) {
-      labFrameScheduler.schedule(`hud:display-shell:${activeId}`, () => {
-        const d = stationDisplays[activeId];
-        const snap = lastHudSnapshot;
-        if (!d?.userData || !snap?.running || snap.station?.id !== activeId || !snap.experiment) return;
-        d.userData.setPresent?.(true);
-        const sid = snap.experiment?.id || snap.expId || '';
-        if (
-          d.userData._contentExpId === sid
-          && Array.isArray(d.userData.hitRegions)
-          && d.userData.hitRegions.length > 0
-        ) {
-          return;
-        }
-        d.userData.setHud?.(snap, '', { shell: true });
-      }, { priority: 95 });
-    } else {
-      labFrameScheduler.cancel(`hud:display-shell:${activeId}`);
-    }
-
+    labFrameScheduler.cancel(`hud:display-shell:${activeId}`);
     const paintFull = () => {
-      if ((labFrameScheduler.softFrames?.() || 0) > 0) {
-        labFrameScheduler.schedule(`hud:display-full:${activeId}`, paintFull, { priority: 20 });
-        return;
-      }
       const d = stationDisplays[activeId];
       const snap = lastHudSnapshot;
       if (!d?.userData || !snap?.running || snap.station?.id !== activeId || !snap.experiment) return;
-      const sid = snap.experiment?.id || snap.expId || '';
+      d.userData.setPresent?.(true);
       const dataHtml = formatData(snap.station.id, snap.experiment.id, snap.data);
       lastHudDataHtml = dataHtml;
-
-      if (
-        d.userData._skipFullExpId === sid
-        && (d.userData._skipFullBudget || 0) > 0
-      ) {
-        d.userData._skipFullBudget -= 1;
-        if (d.userData._skipFullBudget <= 0) {
-          d.userData._skipFullExpId = null;
-        }
-        d.userData.setHud?.(snap, dataHtml, { skipIfLive: true });
-        return;
-      }
-
-      const live = !!(
-        d.userData._contentExpId === sid
-        && Array.isArray(d.userData.hitRegions)
-        && d.userData.hitRegions.length > 0
-      );
-      d.userData.setHud?.(snap, dataHtml, { force: false, skipIfLive: live });
+      d.userData.setHud?.(snap, dataHtml, { force: true });
     };
     labFrameScheduler.schedule(
       `hud:display-full:${activeId}`,
       paintFull,
-      { priority: hasLiveContent ? 18 : 25 },
+      { priority: 85 },
     );
   }
 
@@ -3778,13 +3727,6 @@ function onHudUpdate(hud) {
   // Zustand store update is cheap; all canvas work is scheduled inside pushHudToHoloScreens.
   updateHud(hud);
   pushHudToHoloScreens(hud);
-  if (hud?.running && hud?.experiment?.id) {
-    formulaBoard?.userData?.syncExperiment?.(hud.experiment.id, hud.station?.id);
-  } else if (hud?.station?.id && hud?.menuOpen) {
-    formulaBoard?.userData?.syncExperiment?.(null, hud.station.id);
-  } else if (!hud?.menuOpen && !hud?.running) {
-    formulaBoard?.userData?.syncExperiment?.(null, null);
-  }
 }
 
 const { createExperimentManager } = await import('./experiments/manager.js');
@@ -5614,7 +5556,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
       return true;
     }
     if (!boardHit || withinInteractDist(board, boardHit.distance)) {
-      showToast('瞄准分类标签或公式卡片后按 E');
+      showToast('瞄准分类标签或公式卡片后点击');
     }
     return true;
   }
@@ -5633,7 +5575,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
     const pick = board.userData.pickFromRay?.(inputRaycaster);
     if (!pick) {
       if (boardHit && withinInteractDist(board, boardHit.distance)) {
-        showToast('瞄准黑板工具栏或书写区后按 E');
+        showToast('瞄准黑板工具栏或书写区后点击');
       }
       return true;
     }
@@ -6821,12 +6763,6 @@ async function startExperimentSafe(expId) {
       gpuPrepareInProgress = false;
     }
     if (committed) {
-      // The manager's final visual step only marks the apparatus ready; the
-      // next default-frame draw can still be the first GPU present. Keep the
-      // switch status visible through one paint so the learner never sees a
-      // loaded experiment that is still blocking.
-      switchLoader.setMessage(`正在显示 ${found?.experiment?.name || expId}…`);
-      await nextPaint();
       preparedExperimentIds.add(expId);
       shaderWarmup.markComplete(key);
       if (stationId) {
@@ -6836,6 +6772,7 @@ async function startExperimentSafe(expId) {
     }
     return committed !== false;
   } finally {
+    labFrameScheduler.endSoftSwitch?.();
     switchLoader.end();
   }
 }
@@ -6919,37 +6856,28 @@ async function compileVisibleExperimentGpu(stationId, expId) {
 }
 
 async function prewarmVisibleSceneGpu(stationId, expId) {
-  // Touch the complete visible graph through the default framebuffer while the
-  // switch loader is already painted. A 1×1 scissored draw still uploads the
-  // same programs, buffers and textures as the first canvas draw, without the
-  // fill-rate cost of rendering the room at its full resolution.
   if (typeof renderer?.render !== 'function') return;
 
+  if (!intentPrepareTarget && typeof THREE?.WebGLRenderTarget === 'function') {
+    intentPrepareTarget = new THREE.WebGLRenderTarget(1, 1, {
+      depthBuffer: true,
+      stencilBuffer: false,
+    });
+  }
+  const target = intentPrepareTarget;
+  if (!target) return;
+
   const previousTarget = renderer.getRenderTarget?.() || null;
-  const previousViewport = renderer.getViewport?.(new THREE.Vector4()) || null;
-  const previousScissor = renderer.getScissor?.(new THREE.Vector4()) || null;
-  const previousScissorTest = renderer.getScissorTest?.();
   const previousAutoClear = renderer.autoClear;
   const previousShadowAutoUpdate = renderer.shadowMap?.autoUpdate;
   try {
-    // Give the loader one compositor turn after the commit, then do the only
-    // synchronous driver call while gpuPrepareInProgress keeps the canvas
-    // hidden behind the switch state.
-    await yieldToBrowser(0);
     renderer.autoClear = true;
-    renderer.setRenderTarget?.(null);
-    renderer.setViewport?.(0, 0, 1, 1);
-    renderer.setScissor?.(0, 0, 1, 1);
-    renderer.setScissorTest?.(true);
+    renderer.setRenderTarget?.(target);
     if (renderer.shadowMap) renderer.shadowMap.autoUpdate = false;
     renderer.shadowMap.needsUpdate = false;
-    renderer.clear?.();
     renderer.render(scene, camera);
   } finally {
     renderer.setRenderTarget?.(previousTarget);
-    if (previousViewport) renderer.setViewport?.(previousViewport);
-    if (previousScissor) renderer.setScissor?.(previousScissor);
-    renderer.setScissorTest?.(!!previousScissorTest);
     renderer.autoClear = previousAutoClear;
     if (renderer.shadowMap && previousShadowAutoUpdate !== undefined) {
       renderer.shadowMap.autoUpdate = previousShadowAutoUpdate;

@@ -81,7 +81,7 @@ export const station = {
       goal: '调节励磁与霍尔电流，扫描探头位置并比较亥姆霍兹线圈和长螺线管的磁场分布',
       theory: 'U_H = K_H I_s B；由霍尔电压测磁感应强度 B',
       steps: [
-        { id: 'identify', text: '认识器材：线圈、霍尔探头与 HCC-2 测磁仪', hint: '按 01→04 顺序瞄准 3D 器材按 E 确认；选对/选错均有提示' },
+        { id: 'identify', text: '认识器材：线圈、霍尔探头与 HCC-2 测磁仪', hint: '按 01→04 顺序瞄准 3D 器材点击确认；选对/选错均有提示' },
         { id: 'configure', text: '选择测量对象并确认电流方向', hint: '在全息屏选择亥姆霍兹线圈或长螺线管' },
         { id: 'energize', text: '设置励磁电流 Im 与霍尔电流 Is', hint: '在桌右侧滑条调节 Im / Is' },
         { id: 'scan', text: '移动探头并记录至少 3 组 B–X 数据', hint: '调节 X 后在桌面控制面板点击「记录当前读数」，系统由 VH 换算 B' },
@@ -657,6 +657,10 @@ export function createHandlers(ctx) {
         d._simFieldLines = packed instanceof Float32Array
           ? packed
           : Float32Array.from(packed);
+        // The backend result is authoritative for the parameter signature
+        // submitted before the worker step. Equipment uses this to reject a
+        // stale result during a drag-release transition.
+        d._simFieldLinesSignature = d._simFieldSig || '';
         // Force decoration rebuild to consume host polylines.
         d._forceDecorations = true;
       }
@@ -2597,7 +2601,7 @@ export function createHandlers(ctx) {
         if (role === 'electric_charge') {
           const id = resolveChargeId(target);
           const idx = state.data.charges.findIndex((item) => item.id === id);
-          if (idx >= 0) toast(`已瞄准源电荷 Q${idx + 1}；按住拖动或滚轮微调`);
+          if (idx >= 0) toast(`已瞄准场源电荷 Q${idx + 1}；按住拖动或滚轮微调`);
         } else if (role === 'electric_probe') {
           toast('已瞄准试探电荷 q₀；按住拖动移动位置');
         }

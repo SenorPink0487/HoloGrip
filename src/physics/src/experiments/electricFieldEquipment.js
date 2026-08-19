@@ -1050,10 +1050,19 @@ export function createElectricFieldEquipment() {
 
     if (needLines || needArrows) {
       // Prefer host SimBackend packed polylines when present (off-thread trace).
+      // A worker snapshot can lag behind a just-released drag. Do not paint
+      // that old buffer at the new charge position and do not fall back to a
+      // synchronous main-thread integration; keep the previous decoration
+      // until the matching snapshot arrives.
       const hostLines = data._simFieldLines
+        && (!data._simFieldLinesSignature || !data._simFieldSig || data._simFieldLinesSignature === data._simFieldSig)
         ? unpackHostFieldLines(data._simFieldLines, charges)
         : null;
-      const lines = hostLines || traceFieldLines(charges);
+      const lines = hostLines;
+      if (!lines) {
+        pendingDecoration = true;
+        return;
+      }
       if (needLines) rebuildLines(charges, lines);
       else clearGroup(lineGroup);
 
@@ -1088,6 +1097,12 @@ export function createElectricFieldEquipment() {
       showLines: data.showLines !== false,
       showArrows: data.showArrows !== false,
       showEquipot: data.showEquipot,
+      // Keep the worker-produced polyline buffer with the deferred job. The
+      // previous code only copied visibility flags, so every release lost the
+      // off-thread result and retraced field lines on the render thread.
+      _simFieldLines: data._simFieldLines || null,
+      _simFieldLinesSignature: data._simFieldLinesSignature || '',
+      _simFieldSig: data._simFieldSig || '',
     };
     const gen = (decoJobGen += 1);
     // soft:false — rebuild is already post-render; do not arm soft-switch/rest
@@ -1281,7 +1296,9 @@ export function createElectricFieldEquipment() {
     // A worker snapshot may arrive after the drag started. It is still a
     // stale/intermediate decoration update from the input point of view, so
     // never let it force a synchronous geometry rebuild during the drag.
-    const forceSyncDeco = data._forceDecorations === true && !dragging;
+    const forceSyncDeco = data._forceDecorations === true
+      && !dragging
+      && decoSignature !== lastFieldSignature;
     const decorationDirty = decoSignature !== lastFieldSignature || forceSyncDeco;
     if (decorationDirty) {
       if (dragging) {
@@ -1322,6 +1339,21 @@ export function createElectricFieldEquipment() {
     const activeCharge = charges.find((c) => c.id === data.selectedId) || charges[0] || (data.probe ? { ...data.probe, x: data.probe.x, y: data.probe.y, z: data.probe.z } : null);
     const axisOrigin = (data.dragging && data.dragStart) ? data.dragStart : activeCharge;
     updateAxisGuides(activeCharge, axisOrigin, data);
+  };
+
+  // The default electric-field layout is deterministic. Prepare its line and
+  // arrow geometry while the experiment runtime is still off-screen so the
+  // first visible open only updates transforms and materials.
+  let defaultGpuPrewarmed = false;
+  root.userData.prewarmGpu = () => {
+    if (defaultGpuPrewarmed) return;
+    const charges = [{ id: 1, q: 1, x: 0, y: 0, z: 0 }];
+    const lines = traceFieldLines(charges);
+    rebuildLines(charges, lines);
+    rebuildArrows(charges, lines);
+    lastFieldSignature = '1:1:0.00:0.00:0.00|L1|A1|E0';
+    pendingDecoration = false;
+    defaultGpuPrewarmed = true;
   };
 
 

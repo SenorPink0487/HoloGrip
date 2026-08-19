@@ -8,7 +8,13 @@
  * 严格遵循人教版/大学物理标准，字体规范使用 FONT_STACKS 与 buildUiFont。
  */
 
-import { FONT_STACKS, buildUiFont, drawMathFormula } from './physicsFormula.js';
+import {
+  FONT_STACKS,
+  buildUiFont,
+  buildMathVarFont,
+  drawMathFormula,
+  drawFormulaCardGroup,
+} from './physicsFormula.js';
 
 function roundRect(ctx, x, y, w, h, r) {
   const rr = Math.min(r, w / 2, h / 2);
@@ -793,7 +799,7 @@ function drawStationSubpageView(ctx, W, H, stationId, hits) {
 }
 
 // ═════════════════════════════════════════════════════════
-// 页面 3：单实验深度解析页 (Experiment Detail View) — 唯一展开完整公式与实测细节的页面
+// 页面 3：单实验深度解析页 (Experiment Detail View) — 展开标准公式组、物理机理、SI符号与3D实测
 // ═════════════════════════════════════════════════════════
 function drawExperimentDetailView(ctx, W, H, state, hits) {
   const selected = FORMULA_CATALOG.items.find((it) => it.id === state.selectedId) || FORMULA_CATALOG.items[0];
@@ -801,31 +807,31 @@ function drawExperimentDetailView(ctx, W, H, state, hits) {
   const itemsInSt = FORMULA_CATALOG.items.filter((it) => it.cat === selected.cat);
   const curIdx = itemsInSt.findIndex((it) => it.id === selected.id);
 
-  const headerH = 88;
+  const headerH = 92;
   const padX = 40;
 
   // 顶部 Header
-  ctx.fillStyle = hexToRgba(st.color, 0.12);
+  ctx.fillStyle = hexToRgba(st.color, 0.14);
   ctx.fillRect(0, 0, W, headerH);
-  ctx.strokeStyle = hexToRgba(st.color, 0.35);
+  ctx.strokeStyle = hexToRgba(st.color, 0.4);
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(0, headerH); ctx.lineTo(W, headerH); ctx.stroke();
 
-  // 返回实验列表按钮 (主题色)
-  const backW = 200;
-  const backH = 46;
+  // 返回实验列表按钮 (大字号、主题色)
+  const backW = 210;
+  const backH = 50;
   const backX = padX;
   const backY = (headerH - backH) / 2;
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
   ctx.strokeStyle = st.color;
-  ctx.lineWidth = 2;
-  roundRect(ctx, backX, backY, backW, backH, 12);
+  ctx.lineWidth = 2.2;
+  roundRect(ctx, backX, backY, backW, backH, 14);
   ctx.fill();
   ctx.stroke();
 
   ctx.fillStyle = st.color;
-  ctx.font = buildUiFont(19, 'bold');
+  ctx.font = buildUiFont(22, 'bold');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillText('← 返回实验列表', backX + backW / 2, backY + backH / 2);
@@ -839,36 +845,36 @@ function drawExperimentDetailView(ctx, W, H, state, hits) {
     action: 'back',
   });
 
-  // 面包屑
+  // 面包屑导航与当前实验标题 (加大加粗)
   ctx.fillStyle = '#64748b';
-  ctx.font = buildUiFont(18, 'bold');
+  ctx.font = buildUiFont(20, 'bold');
   ctx.textAlign = 'left';
-  ctx.fillText('大厅  /  ', backX + backW + 20, headerH / 2);
+  ctx.fillText('大厅  /  ', backX + backW + 24, headerH / 2);
 
   ctx.fillStyle = st.color;
-  ctx.fillText(`${st.name}  /  `, backX + backW + 80, headerH / 2);
+  ctx.fillText(`${st.name}  /  `, backX + backW + 96, headerH / 2);
 
   ctx.fillStyle = '#0c4a6e';
-  ctx.font = buildUiFont(24, 'bold');
-  ctx.fillText(`${selected.expName} · ${selected.title}`, backX + backW + 210, headerH / 2);
+  ctx.font = buildUiFont(26, 'bold');
+  ctx.fillText(`${selected.expName} · ${selected.title}`, backX + backW + 240, headerH / 2);
 
-  // 右侧上一实验 / 下一实验切换按钮 (主题色)
-  const navBtnW = 120;
-  const navBtnH = 40;
+  // 右侧上一实验 / 下一实验切换按钮 (大字号、高对比)
+  const navBtnW = 135;
+  const navBtnH = 46;
   const nextX = W - padX - navBtnW;
-  const prevX = nextX - navBtnW - 12;
+  const prevX = nextX - navBtnW - 14;
   const navY = (headerH - navBtnH) / 2;
 
   const hasPrev = curIdx > 0;
   ctx.fillStyle = hasPrev ? st.color : 'rgba(203, 213, 225, 0.3)';
   ctx.strokeStyle = hasPrev ? st.color : 'rgba(148, 163, 184, 0.3)';
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, prevX, navY, navBtnW, navBtnH, 10);
+  ctx.lineWidth = 1.8;
+  roundRect(ctx, prevX, navY, navBtnW, navBtnH, 12);
   ctx.fill();
   ctx.stroke();
 
   ctx.fillStyle = hasPrev ? '#ffffff' : '#94a3b8';
-  ctx.font = buildUiFont(16, 'bold');
+  ctx.font = buildUiFont(18, 'bold');
   ctx.textAlign = 'center';
   ctx.fillText('◀ 上一实验', prevX + navBtnW / 2, navY + navBtnH / 2);
 
@@ -887,13 +893,13 @@ function drawExperimentDetailView(ctx, W, H, state, hits) {
   const hasNext = curIdx < itemsInSt.length - 1;
   ctx.fillStyle = hasNext ? st.color : 'rgba(203, 213, 225, 0.3)';
   ctx.strokeStyle = hasNext ? st.color : 'rgba(148, 163, 184, 0.3)';
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, nextX, navY, navBtnW, navBtnH, 10);
+  ctx.lineWidth = 1.8;
+  roundRect(ctx, nextX, navY, navBtnW, navBtnH, 12);
   ctx.fill();
   ctx.stroke();
 
   ctx.fillStyle = hasNext ? '#ffffff' : '#94a3b8';
-  ctx.font = buildUiFont(16, 'bold');
+  ctx.font = buildUiFont(18, 'bold');
   ctx.fillText('下一实验 ▶', nextX + navBtnW / 2, navY + navBtnH / 2);
 
   if (hasNext) {
@@ -908,587 +914,206 @@ function drawExperimentDetailView(ctx, W, H, state, hits) {
     });
   }
 
-  // 左右双主卡片分栏布局 (左侧公式与物理量，右侧理论与实测指引)
-  const contentTop = headerH + 24;
-  const contentH = H - contentTop - 28;
-  const leftW = 760;
-  const gap = 24;
-  const rightW = W - padX * 2 - leftW - gap;
-
-  // 左侧卡片：公式高亮展示区
+  // 左右双主卡片分栏布局 (左侧标准公式与物理量说明，右侧理论与实测指引)
+  const contentTop = headerH + 20;
+  const contentH = H - contentTop - 24;
+  const gap = 28;
+  const cardW = (W - padX * 2 - gap) / 2;
   const leftX = padX;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  const rightX = leftX + cardW + gap;
+
+  // ════════════ 左侧主卡片 ════════════
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
   ctx.strokeStyle = hexToRgba(st.color, 0.45);
-  ctx.lineWidth = 2;
-  roundRect(ctx, leftX, contentTop, leftW, contentH, 18);
+  ctx.lineWidth = 2.5;
+  roundRect(ctx, leftX, contentTop, cardW, contentH, 20);
   ctx.fill();
   ctx.stroke();
 
-  // 左侧顶部标头
+  // 左侧顶部主题色带
   ctx.fillStyle = st.color;
-  roundRect(ctx, leftX + 3, contentTop + 3, leftW - 6, 6, 3);
+  roundRect(ctx, leftX + 4, contentTop + 4, cardW - 8, 8, 4);
   ctx.fill();
 
+  // 编号胶囊与实验分类
   ctx.fillStyle = st.color;
-  ctx.font = buildUiFont(18, 'bold');
+  ctx.font = buildUiFont(22, 'bold');
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   ctx.fillText(`【${selected.code} · ${selected.expName}】`, leftX + 28, contentTop + 24);
 
+  // 主标题 (34px 超大号醒目字体)
   ctx.fillStyle = '#0f172a';
-  ctx.font = buildUiFont(28, 'bold');
-  ctx.fillText(selected.title, leftX + 28, contentTop + 56);
+  ctx.font = buildUiFont(34, 'bold');
+  ctx.fillText(selected.title, leftX + 28, contentTop + 58);
 
-  // 公式高亮居中大盒
-  const fBoxX = leftX + 28;
-  const fBoxY = contentTop + 104;
-  const fBoxW = leftW - 56;
-  const fBoxH = 220;
+  // 核心公式展示区大盒 (支持多公式分栏 2D 专业排版)
+  const fBoxX = leftX + 24;
+  const fBoxY = contentTop + 106;
+  const fBoxW = cardW - 48;
+  const fBoxH = 240;
 
-  ctx.fillStyle = hexToRgba(st.color, 0.08);
+  ctx.fillStyle = hexToRgba(st.color, 0.06);
   ctx.strokeStyle = hexToRgba(st.color, 0.35);
   ctx.lineWidth = 1.8;
-  roundRect(ctx, fBoxX, fBoxY, fBoxW, fBoxH, 14);
+  roundRect(ctx, fBoxX, fBoxY, fBoxW, fBoxH, 16);
   ctx.fill();
   ctx.stroke();
 
-  drawMathFormula(
+  // 调用专业 2D 多公式分栏卡片渲染引擎
+  drawFormulaCardGroup(
     ctx,
-    selected.formula,
-    fBoxX + 24,
-    fBoxY + fBoxH / 2,
-    {
-      fontSize: 46,
-      color: '#0c4a6e',
-      align: 'left',
-      textBaseline: 'middle',
-      maxWidth: fBoxW - 48,
-    },
+    selected.formulaCards || selected.formula,
+    fBoxX + 16,
+    fBoxY + 16,
+    fBoxW - 32,
+    fBoxH - 32,
+    { themeColor: st.color },
   );
 
-  // 左侧下方：📐 物理量与符号说明
+  // 📐 物理量与符号说明 (SI 标准) — 饱满大字号双列网格/列表卡片
   const symBoxY = fBoxY + fBoxH + 20;
   const symBoxH = contentH - (symBoxY - contentTop) - 24;
 
   ctx.fillStyle = hexToRgba(st.color, 0.05);
-  ctx.strokeStyle = hexToRgba(st.color, 0.25);
+  ctx.strokeStyle = hexToRgba(st.color, 0.28);
   ctx.lineWidth = 1.5;
-  roundRect(ctx, fBoxX, symBoxY, fBoxW, symBoxH, 14);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = st.color;
-  ctx.font = buildUiFont(22, 'bold');
-  ctx.fillText('📐 物理量与符号说明 (SI 标准)', fBoxX + 22, symBoxY + 18);
-
-  ctx.fillStyle = '#1e293b';
-  ctx.font = buildUiFont(19, '500');
-  const symTokens = (selected.symbols || '').split('　');
-  symTokens.forEach((sym, sIdx) => {
-    const itemY = symBoxY + 60 + sIdx * 34;
-    if (itemY < symBoxY + symBoxH - 12) {
-      ctx.fillStyle = st.color;
-      ctx.fillRect(fBoxX + 22, itemY + 4, 6, 6);
-      ctx.fillStyle = '#1e293b';
-      ctx.fillText(sym, fBoxX + 38, itemY);
-    }
-  });
-
-  // 右侧卡片：📘 物理理论 + 🔬 实验室实测指引
-  const rightX = leftX + leftW + gap;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-  ctx.strokeStyle = hexToRgba(st.color, 0.45);
-  ctx.lineWidth = 2;
-  roundRect(ctx, rightX, contentTop, rightW, contentH, 18);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = st.color;
-  roundRect(ctx, rightX + 3, contentTop + 3, rightW - 6, 6, 3);
-  ctx.fill();
-
-  // 右上模块：📘 实验理论与物理机理
-  const mechBoxY = contentTop + 24;
-  const mechBoxH = 300;
-  const mechBoxW = rightW - 48;
-  const mechBoxX = rightX + 24;
-
-  ctx.fillStyle = hexToRgba(st.color, 0.05);
-  ctx.strokeStyle = hexToRgba(st.color, 0.25);
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, mechBoxX, mechBoxY, mechBoxW, mechBoxH, 14);
+  roundRect(ctx, fBoxX, symBoxY, fBoxW, symBoxH, 16);
   ctx.fill();
   ctx.stroke();
 
   ctx.fillStyle = st.color;
   ctx.font = buildUiFont(24, 'bold');
-  ctx.fillText('📘 实验理论与物理机理', mechBoxX + 22, mechBoxY + 20);
-
-  ctx.fillStyle = '#1e293b';
-  ctx.font = buildUiFont(22, '500');
-  const conceptLines = wrapText(ctx, selected.concept, mechBoxW - 44);
-  conceptLines.forEach((ln, idx) => {
-    ctx.fillText(ln, mechBoxX + 22, mechBoxY + 68 + idx * 34);
-  });
-
-  // 右下模块：🔬 对应实验台实测与操作指引
-  const labBoxY = mechBoxY + mechBoxH + 20;
-  const labBoxH = contentH - (labBoxY - contentTop) - 24;
-
-  ctx.fillStyle = hexToRgba(st.color, 0.05);
-  ctx.strokeStyle = hexToRgba(st.color, 0.25);
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, mechBoxX, labBoxY, mechBoxW, labBoxH, 14);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = st.color;
-  ctx.font = buildUiFont(24, 'bold');
-  ctx.fillText('🔬 3D 实验室实测与操作指引', mechBoxX + 22, labBoxY + 20);
-
-  ctx.fillStyle = '#1e293b';
-  ctx.font = buildUiFont(22, '500');
-  const labLines = wrapText(ctx, selected.labLink, mechBoxW - 44);
-  labLines.forEach((ln, idx) => {
-    ctx.fillText(ln, mechBoxX + 22, labBoxY + 68 + idx * 34);
-  });
-}
-if (false) {
-function drawStationSubpageView(ctx, W, H, stationId, hits) {
-  const st = FORMULA_CATALOG.stations.find((s) => s.id === stationId) || FORMULA_CATALOG.stations[0];
-  const items = FORMULA_CATALOG.items.filter((it) => it.cat === st.id);
-  const headerH = 92;
-  const padX = 40;
-
-  // 顶部导航栏背景
-  ctx.fillStyle = 'rgba(14, 165, 233, 0.14)';
-  ctx.fillRect(0, 0, W, headerH);
-  ctx.strokeStyle = 'rgba(14, 165, 233, 0.35)';
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(0, headerH); ctx.lineTo(W, headerH); ctx.stroke();
-
-  // 返回大厅按钮 (加大)
-  const backW = 210;
-  const backH = 52;
-  const backX = padX;
-  const backY = (headerH - backH) / 2;
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-  ctx.strokeStyle = '#0284c7';
-  ctx.lineWidth = 2.2;
-  roundRect(ctx, backX, backY, backW, backH, 14);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = '#0369a1';
-  ctx.font = buildUiFont(22, 'bold');
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('← 返回大厅', backX + backW / 2, backY + backH / 2);
-
-  hits.push({
-    id: 'back-home',
-    x: backX,
-    y: backY,
-    w: backW,
-    h: backH,
-    action: 'home',
-  });
-
-  // 面包屑导航与当前实验台标题 (加大)
-  ctx.fillStyle = '#64748b';
-  ctx.font = buildUiFont(20, 'bold');
-  ctx.textAlign = 'left';
-  ctx.fillText('实验室大厅  /  ', backX + backW + 28, headerH / 2);
-
-  ctx.fillStyle = st.color;
-  ctx.font = buildUiFont(28, 'bold');
-  const breadcrumbText = `${st.name} · ${st.badge}`;
-  ctx.fillText(breadcrumbText, backX + backW + 155, headerH / 2);
-
-  // 右侧快速横向切换实验台 Tab (加大)
-  const quickStations = FORMULA_CATALOG.stations;
-  const qGap = 10;
-  const qW = 115;
-  const qH = 46;
-  const qTotalW = quickStations.length * qW + (quickStations.length - 1) * qGap;
-  let qX = W - padX - qTotalW;
-  const qY = (headerH - qH) / 2;
-
-  quickStations.forEach((otherSt) => {
-    const isCur = otherSt.id === st.id;
-    ctx.fillStyle = isCur ? otherSt.color : 'rgba(255, 255, 255, 0.85)';
-    ctx.strokeStyle = isCur ? otherSt.color : 'rgba(14, 165, 233, 0.35)';
-    ctx.lineWidth = 2;
-    roundRect(ctx, qX, qY, qW, qH, 12);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = isCur ? '#ffffff' : '#334155';
-    ctx.font = buildUiFont(18, isCur ? 'bold' : '600');
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(otherSt.name.slice(0, 3), qX + qW / 2, qY + qH / 2);
-
-    hits.push({
-      id: `tab-st-${otherSt.id}`,
-      x: qX,
-      y: qY,
-      w: qW,
-      h: qH,
-      action: 'station',
-      stationId: otherSt.id,
-    });
-    qX += qW + qGap;
-  });
-
-  // 实验卡片大尺寸网格（3 列 × 2 行，极简纯净，超大标题与超大按钮，无任何冗余文字）
-  const gridTop = headerH + 28;
-  const cols = 3;
-  const rows = 2;
-  const gapX = 24;
-  const gapY = 24;
-  const cardW = (W - padX * 2 - gapX * (cols - 1)) / cols;
-  const cardH = (H - gridTop - 32 - gapY * (rows - 1)) / rows;
-
-  items.forEach((it, i) => {
-    const col = i % cols;
-    const row = Math.floor(i / cols);
-    const x = padX + col * (cardW + gapX);
-    const y = gridTop + row * (cardH + gapY);
-
-    // 卡片外框
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.strokeStyle = 'rgba(14, 165, 233, 0.4)';
-    ctx.lineWidth = 2.5;
-    roundRect(ctx, x, y, cardW, cardH, 22);
-    ctx.fill();
-    ctx.stroke();
-
-    // 顶部主题小色带
-    ctx.fillStyle = st.color;
-    roundRect(ctx, x + 4, y + 4, cardW - 8, 8, 4);
-    ctx.fill();
-
-    // 顶部编号胶囊 (居左)
-    ctx.font = buildUiFont(16, 'bold');
-    const codeText = `${it.code}`;
-    const codeW = ctx.measureText(codeText).width + 24;
-    const codeH = 34;
-    ctx.fillStyle = 'rgba(14, 165, 233, 0.14)';
-    ctx.strokeStyle = 'rgba(14, 165, 233, 0.3)';
-    ctx.lineWidth = 1.5;
-    roundRect(ctx, x + 24, y + 24, codeW, codeH, 8);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#0284c7';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(codeText, x + 24 + codeW / 2, y + 24 + codeH / 2);
-
-    // 实验主标题 (42px 超大号醒目粗体字，绝对居中)
-    ctx.fillStyle = '#0f172a';
-    ctx.font = buildUiFont(40, 'bold');
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(it.expName, x + cardW / 2, y + 148);
-
-    // 底部超大高亮进入按钮 (72px 高度，26px 大字号)
-    const btnW = cardW - 56;
-    const btnH = 72;
-    const btnX = x + 28;
-    const btnY = y + cardH - btnH - 28;
-
-    const btnGrad = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
-    btnGrad.addColorStop(0, 'rgba(14, 165, 233, 0.28)');
-    btnGrad.addColorStop(1, 'rgba(2, 132, 199, 0.14)');
-    ctx.fillStyle = btnGrad;
-    ctx.strokeStyle = st.color;
-    ctx.lineWidth = 2.5;
-    roundRect(ctx, btnX, btnY, btnW, btnH, 18);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = '#0369a1';
-    ctx.font = buildUiFont(26, 'bold');
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('进入实验 ➔', btnX + btnW / 2, btnY + btnH / 2);
-
-    hits.push({
-      id: `item-${it.id}`,
-      x,
-      y,
-      w: cardW,
-      h: cardH,
-      action: 'select',
-      itemId: it.id,
-    });
-  });
-}
-
-// ═════════════════════════════════════════════════════════
-// 页面 3：单实验深度解析页 (Experiment Detail View) — 唯一展开完整公式与实测细节的页面
-// ═════════════════════════════════════════════════════════
-function drawExperimentDetailView(ctx, W, H, state, hits) {
-  const selected = FORMULA_CATALOG.items.find((it) => it.id === state.selectedId) || FORMULA_CATALOG.items[0];
-  const st = FORMULA_CATALOG.stations.find((s) => s.id === selected.cat) || FORMULA_CATALOG.stations[0];
-  const itemsInSt = FORMULA_CATALOG.items.filter((it) => it.cat === selected.cat);
-  const curIdx = itemsInSt.findIndex((it) => it.id === selected.id);
-
-  const headerH = 88;
-  const padX = 40;
-
-  // 顶部 Header
-  ctx.fillStyle = 'rgba(14, 165, 233, 0.12)';
-  ctx.fillRect(0, 0, W, headerH);
-  ctx.strokeStyle = 'rgba(14, 165, 233, 0.3)';
-  ctx.lineWidth = 1.5;
-  ctx.beginPath(); ctx.moveTo(0, headerH); ctx.lineTo(W, headerH); ctx.stroke();
-
-  // 返回实验列表按钮
-  const backW = 200;
-  const backH = 46;
-  const backX = padX;
-  const backY = (headerH - backH) / 2;
-
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-  ctx.strokeStyle = '#0284c7';
-  ctx.lineWidth = 2;
-  roundRect(ctx, backX, backY, backW, backH, 12);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = '#0369a1';
-  ctx.font = buildUiFont(19, 'bold');
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('← 返回实验列表', backX + backW / 2, backY + backH / 2);
-
-  hits.push({
-    id: 'back-station',
-    x: backX,
-    y: backY,
-    w: backW,
-    h: backH,
-    action: 'back',
-  });
-
-  // 面包屑
-  ctx.fillStyle = '#64748b';
-  ctx.font = buildUiFont(18, 'bold');
-  ctx.textAlign = 'left';
-  ctx.fillText('大厅  /  ', backX + backW + 20, headerH / 2);
-
-  ctx.fillStyle = st.color;
-  ctx.fillText(`${st.name}  /  `, backX + backW + 80, headerH / 2);
-
-  ctx.fillStyle = '#0c4a6e';
-  ctx.font = buildUiFont(24, 'bold');
-  ctx.fillText(`${selected.expName} · ${selected.title}`, backX + backW + 210, headerH / 2);
-
-  // 右侧上一实验 / 下一实验切换按钮
-  const navBtnW = 120;
-  const navBtnH = 40;
-  const nextX = W - padX - navBtnW;
-  const prevX = nextX - navBtnW - 12;
-  const navY = (headerH - navBtnH) / 2;
-
-  const hasPrev = curIdx > 0;
-  ctx.fillStyle = hasPrev ? 'rgba(255, 255, 255, 0.9)' : 'rgba(203, 213, 225, 0.3)';
-  ctx.strokeStyle = hasPrev ? '#0284c7' : 'rgba(148, 163, 184, 0.3)';
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, prevX, navY, navBtnW, navBtnH, 10);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = hasPrev ? '#0369a1' : '#94a3b8';
-  ctx.font = buildUiFont(16, 'bold');
-  ctx.textAlign = 'center';
-  ctx.fillText('◀ 上一实验', prevX + navBtnW / 2, navY + navBtnH / 2);
-
-  if (hasPrev) {
-    hits.push({
-      id: 'nav-prev',
-      x: prevX,
-      y: navY,
-      w: navBtnW,
-      h: navBtnH,
-      action: 'nav',
-      itemId: itemsInSt[curIdx - 1].id,
-    });
-  }
-
-  const hasNext = curIdx < itemsInSt.length - 1;
-  ctx.fillStyle = hasNext ? 'rgba(255, 255, 255, 0.9)' : 'rgba(203, 213, 225, 0.3)';
-  ctx.strokeStyle = hasNext ? '#0284c7' : 'rgba(148, 163, 184, 0.3)';
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, nextX, navY, navBtnW, navBtnH, 10);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = hasNext ? '#0369a1' : '#94a3b8';
-  ctx.font = buildUiFont(16, 'bold');
-  ctx.fillText('下一实验 ▶', nextX + navBtnW / 2, navY + navBtnH / 2);
-
-  if (hasNext) {
-    hits.push({
-      id: 'nav-next',
-      x: nextX,
-      y: navY,
-      w: navBtnW,
-      h: navBtnH,
-      action: 'nav',
-      itemId: itemsInSt[curIdx + 1].id,
-    });
-  }
-
-  // 左右双主卡片分栏布局 (左侧公式与物理量，右侧理论与实测指引)
-  const contentTop = headerH + 24;
-  const contentH = H - contentTop - 28;
-  const leftW = 760;
-  const gap = 24;
-  const rightW = W - padX * 2 - leftW - gap;
-
-  // 左侧卡片：公式高亮展示区
-  const leftX = padX;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-  ctx.strokeStyle = 'rgba(14, 165, 233, 0.4)';
-  ctx.lineWidth = 2;
-  roundRect(ctx, leftX, contentTop, leftW, contentH, 18);
-  ctx.fill();
-  ctx.stroke();
-
-  // 左侧顶部标头
-  ctx.fillStyle = st.color;
-  roundRect(ctx, leftX + 3, contentTop + 3, leftW - 6, 6, 3);
-  ctx.fill();
-
-  ctx.fillStyle = '#0284c7';
-  ctx.font = buildUiFont(18, 'bold');
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText(`【${selected.code} · ${selected.expName}】`, leftX + 28, contentTop + 24);
+  ctx.fillText('📐 物理量与符号说明 (SI 标准)', fBoxX + 24, symBoxY + 18);
 
-  ctx.fillStyle = '#0f172a';
-  ctx.font = buildUiFont(28, 'bold');
-  ctx.fillText(selected.title, leftX + 28, contentTop + 56);
+  // 解析符号列表并排版
+  const rawTokens = (selected.symbols || '').split('　').map((t) => t.trim()).filter(Boolean);
+  const parsedSymbols = rawTokens.map((tok) => {
+    const parts = tok.split('—').map((p) => p.trim());
+    return {
+      sym: parts[0] || '',
+      desc: parts.slice(1).join(' — ') || '',
+    };
+  });
 
-  // 公式高亮居中大盒
-  const fBoxX = leftX + 28;
-  const fBoxY = contentTop + 104;
-  const fBoxW = leftW - 56;
-  const fBoxH = 220;
+  const symCount = parsedSymbols.length;
+  const useTwoCols = symCount > 3;
+  const cols = useTwoCols ? 2 : 1;
+  const itemGapX = 18;
+  const itemGapY = 12;
+  const itemW = (fBoxW - 48 - itemGapX * (cols - 1)) / cols;
+  const startItemY = symBoxY + 60;
+  const rows = Math.ceil(symCount / cols);
+  const availableH = symBoxH - 74;
+  const itemH = Math.min(64, Math.max(50, (availableH - itemGapY * (rows - 1)) / rows));
 
-  ctx.fillStyle = 'rgba(14, 165, 233, 0.1)';
-  ctx.strokeStyle = 'rgba(14, 165, 233, 0.35)';
-  ctx.lineWidth = 1.8;
-  roundRect(ctx, fBoxX, fBoxY, fBoxW, fBoxH, 14);
-  ctx.fill();
-  ctx.stroke();
+  parsedSymbols.forEach((item, sIdx) => {
+    const col = sIdx % cols;
+    const row = Math.floor(sIdx / cols);
+    const ix = fBoxX + 24 + col * (itemW + itemGapX);
+    const iy = startItemY + row * (itemH + itemGapY);
 
-  drawMathFormula(
-    ctx,
-    selected.formula,
-    fBoxX + 24,
-    fBoxY + fBoxH / 2,
-    {
-      fontSize: 46,
-      color: '#0c4a6e',
-      align: 'left',
-      textBaseline: 'middle',
-      maxWidth: fBoxW - 48,
-    },
-  );
+    if (iy + itemH <= symBoxY + symBoxH - 8) {
+      // 符号小卡片外框
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+      ctx.strokeStyle = hexToRgba(st.color, 0.3);
+      ctx.lineWidth = 1.2;
+      roundRect(ctx, ix, iy, itemW, itemH, 10);
+      ctx.fill();
+      ctx.stroke();
 
-  // 左侧下方：📐 物理量与符号说明
-  const symBoxY = fBoxY + fBoxH + 20;
-  const symBoxH = contentH - (symBoxY - contentTop) - 24;
+      // 左侧物理量符号胶囊徽章 (大字号数学公式渲染)
+      const badgeW = 72;
+      const badgeH = itemH - 12;
+      const badgeX = ix + 6;
+      const badgeY = iy + 6;
 
-  ctx.fillStyle = 'rgba(240, 249, 255, 0.7)';
-  ctx.strokeStyle = 'rgba(14, 165, 233, 0.25)';
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, fBoxX, symBoxY, fBoxW, symBoxH, 14);
-  ctx.fill();
-  ctx.stroke();
+      ctx.fillStyle = hexToRgba(st.color, 0.14);
+      ctx.strokeStyle = hexToRgba(st.color, 0.4);
+      ctx.lineWidth = 1.2;
+      roundRect(ctx, badgeX, badgeY, badgeW, badgeH, 7);
+      ctx.fill();
+      ctx.stroke();
 
-  ctx.fillStyle = '#0369a1';
-  ctx.font = buildUiFont(22, 'bold');
-  ctx.fillText('📐 物理量与符号说明 (SI 标准)', fBoxX + 22, symBoxY + 18);
+      drawMathFormula(ctx, item.sym, badgeX + badgeW / 2, badgeY + badgeH / 2, {
+        fontSize: 24,
+        color: st.color,
+        align: 'center',
+        textBaseline: 'middle',
+        maxWidth: badgeW - 6,
+      });
 
-  ctx.fillStyle = '#1e293b';
-  ctx.font = buildUiFont(19, '500');
-  const symTokens = (selected.symbols || '').split('　');
-  symTokens.forEach((sym, sIdx) => {
-    const itemY = symBoxY + 60 + sIdx * 34;
-    if (itemY < symBoxY + symBoxH - 12) {
-      ctx.fillStyle = '#0284c7';
-      ctx.fillRect(fBoxX + 22, itemY + 4, 6, 6);
+      // 右侧中文说明与 SI 单位
       ctx.fillStyle = '#1e293b';
-      ctx.fillText(sym, fBoxX + 38, itemY);
+      ctx.font = buildUiFont(21, '600');
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(item.desc, ix + badgeW + 16, iy + itemH / 2);
     }
   });
 
-  // 右侧卡片：📘 物理理论 + 🔬 实验室实测指引
-  const rightX = leftX + leftW + gap;
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
-  ctx.strokeStyle = 'rgba(14, 165, 233, 0.4)';
-  ctx.lineWidth = 2;
-  roundRect(ctx, rightX, contentTop, rightW, contentH, 18);
+  // ════════════ 右侧主卡片 ════════════
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+  ctx.strokeStyle = hexToRgba(st.color, 0.45);
+  ctx.lineWidth = 2.5;
+  roundRect(ctx, rightX, contentTop, cardW, contentH, 20);
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = '#0284c7';
-  roundRect(ctx, rightX + 3, contentTop + 3, rightW - 6, 6, 3);
+  // 右侧顶部主题色带
+  ctx.fillStyle = st.color;
+  roundRect(ctx, rightX + 4, contentTop + 4, cardW - 8, 8, 4);
   ctx.fill();
 
-  // 右上模块：📘 实验理论与物理机理
+  // 右上模块：📘 实验理论与物理机理 (大字号，深色饱满排版)
   const mechBoxY = contentTop + 24;
-  const mechBoxH = 300;
-  const mechBoxW = rightW - 48;
+  const mechBoxH = 340;
+  const mechBoxW = cardW - 48;
   const mechBoxX = rightX + 24;
 
-  ctx.fillStyle = 'rgba(240, 249, 255, 0.75)';
-  ctx.strokeStyle = 'rgba(14, 165, 233, 0.25)';
+  ctx.fillStyle = hexToRgba(st.color, 0.05);
+  ctx.strokeStyle = hexToRgba(st.color, 0.28);
   ctx.lineWidth = 1.5;
-  roundRect(ctx, mechBoxX, mechBoxY, mechBoxW, mechBoxH, 14);
+  roundRect(ctx, mechBoxX, mechBoxY, mechBoxW, mechBoxH, 16);
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = '#0369a1';
-  ctx.font = buildUiFont(24, 'bold');
-  ctx.fillText('📘 实验理论与物理机理', mechBoxX + 22, mechBoxY + 20);
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(26, 'bold');
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('📘 实验理论与物理机理', mechBoxX + 24, mechBoxY + 20);
 
   ctx.fillStyle = '#1e293b';
-  ctx.font = buildUiFont(22, '500');
-  const conceptLines = wrapText(ctx, selected.concept, mechBoxW - 44);
+  ctx.font = buildUiFont(25, '500');
+  const conceptLines = wrapText(ctx, selected.concept, mechBoxW - 48);
   conceptLines.forEach((ln, idx) => {
-    ctx.fillText(ln, mechBoxX + 22, mechBoxY + 68 + idx * 34);
+    ctx.fillText(ln, mechBoxX + 24, mechBoxY + 70 + idx * 42);
   });
 
-  // 右下模块：🔬 对应实验台实测与操作指引
+  // 右下模块：🔬 3D 实验室实测与操作指引 (大字号)
   const labBoxY = mechBoxY + mechBoxH + 20;
   const labBoxH = contentH - (labBoxY - contentTop) - 24;
 
-  ctx.fillStyle = 'rgba(240, 249, 255, 0.75)';
-  ctx.strokeStyle = 'rgba(14, 165, 233, 0.25)';
+  ctx.fillStyle = hexToRgba(st.color, 0.05);
+  ctx.strokeStyle = hexToRgba(st.color, 0.28);
   ctx.lineWidth = 1.5;
-  roundRect(ctx, mechBoxX, labBoxY, mechBoxW, labBoxH, 14);
+  roundRect(ctx, mechBoxX, labBoxY, mechBoxW, labBoxH, 16);
   ctx.fill();
   ctx.stroke();
 
-  ctx.fillStyle = '#0369a1';
-  ctx.font = buildUiFont(24, 'bold');
-  ctx.fillText('🔬 3D 实验室实测与操作指引', mechBoxX + 22, labBoxY + 20);
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(26, 'bold');
+  ctx.fillText('🔬 3D 实验室实测与操作指引', mechBoxX + 24, labBoxY + 20);
 
   ctx.fillStyle = '#1e293b';
-  ctx.font = buildUiFont(22, '500');
-  const labLines = wrapText(ctx, selected.labLink, mechBoxW - 44);
+  ctx.font = buildUiFont(25, '500');
+  const labLines = wrapText(ctx, selected.labLink, mechBoxW - 48);
   labLines.forEach((ln, idx) => {
-    ctx.fillText(ln, mechBoxX + 22, labBoxY + 68 + idx * 34);
+    ctx.fillText(ln, mechBoxX + 24, labBoxY + 70 + idx * 42);
   });
-}
 }
 
 export function drawFormulaBoard(ctx, W, H, state = {}) {
