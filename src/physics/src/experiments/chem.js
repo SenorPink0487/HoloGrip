@@ -8,8 +8,6 @@ import {
   showReagentSearchDock,
   hideReagentSearchDock,
   setReagentSearchHandler,
-  setReagentSearchStatus,
-  setReagentSearchBusy,
   setReagentSearchValue,
   focusSearchInput,
   toggleSpeechRecognition,
@@ -103,6 +101,17 @@ export function createHandlers(ctx) {
     pushHud();
   }
 
+  /** Keep AI progress visible in both the left status holo and picker button. */
+  function setAiSearchState(message, tone = 'info', busy = state.data?.searchBusy) {
+    if (!state.data) return;
+    const text = String(message || '');
+    state.data.searchStatus = text;
+    state.data.searchStatusTone = tone;
+    if (busy !== undefined) state.data.searchBusy = !!busy;
+    if (text) state.data.hint = text;
+    pushHud();
+  }
+
   function openPickerForCup(kind) {
     const k = kind === 'B' ? 'B' : 'A';
     state.data.activeCup = k;
@@ -111,6 +120,10 @@ export function createHandlers(ctx) {
     state.data.pickedElement = null;
     state.data.searchFocused = false;
     state.data.condMenuOpen = false;
+    if (!state.data.searchBusy) {
+      state.data.searchStatus = '';
+      state.data.searchStatusTone = 'info';
+    }
     setStep('pick_cup');
     toast(`烧杯 ${k} · 选择元素或主屏下方 AI 检索`);
     eq()?.rig?.setDimmed?.(true);
@@ -136,9 +149,11 @@ export function createHandlers(ctx) {
     const cup = state.data.activeCup === 'B' ? 'B' : 'A';
     const raw = String(query || '').trim();
     if (!raw) {
+      setAiSearchState('请输入化学式、名称或 SMILES', 'error', false);
       toast('请输入化学式或说明');
       return false;
     }
+    if (state.data.searchBusy) return false;
 
     // Try zero-latency local resolution first for determined single formulas (e.g. h2o, NaCl, C8H18)
     const localMatch = tryResolveLocalFormula(raw);
@@ -168,25 +183,27 @@ export function createHandlers(ctx) {
       }
 
       state.data.hint = `已装入 ${formatSubscriptFormula(reagent.formula)} · 可倾倒或点右侧成分看 3D`;
+      state.data.searchStatus = `已识别：${formatSubscriptFormula(reagent.formula)}`;
+      state.data.searchStatusTone = 'ok';
+      state.data.searchBusy = false;
       state.data.pickerOpen = false;
       hideReagentSearchDock();
       eq()?.rig?.setDimmed?.(false);
       setStep('pour');
       pushHud();
 
-      setReagentSearchStatus(`已装入 ${formatSubscriptFormula(reagent.formula)}`, 'ok');
       toast(`${formatSubscriptFormula(reagent.formula)} → 烧杯 ${cup}`);
       setReagentSearchValue('');
+      state.data.searchQuery = '';
       return true;
     }
 
-    setReagentSearchBusy(true);
-    setReagentSearchStatus('AI 正在解析…');
+    setAiSearchState('AI 正在解析…', 'info', true);
     toast('AI 解析中…');
     eq()?.showLoadingMolecule?.(query);
     try {
       const product = await resolveAiProduct(query, condition, (msg) => {
-        setReagentSearchStatus(String(msg || ''));
+        setAiSearchState(String(msg || 'AI 正在解析…'), 'info', true);
       });
 
       const comps = Array.isArray(product?.components) ? product.components : [];
@@ -235,6 +252,9 @@ export function createHandlers(ctx) {
       });
       
       state.data.hint = `已装入 ${reagent.formula}（AI）· 可倾倒或点右侧成分看 3D`;
+      state.data.searchStatus = `解析完成：${reagent.formula}`;
+      state.data.searchStatusTone = 'ok';
+      state.data.searchBusy = false;
       state.data.pickerOpen = false;
       hideReagentSearchDock();
       setStep('pour');
@@ -247,18 +267,16 @@ export function createHandlers(ctx) {
         void loadAndShowMolecule(eq(), showComp, toast);
       }
 
-      setReagentSearchStatus(`已装入 ${reagent.formula}`, 'ok');
       toast(`${reagent.formula} → 烧杯 ${cup}`);
       setReagentSearchValue('');
+      state.data.searchQuery = '';
       return true;
     } catch (err) {
       console.warn('[chem] AI query failed', err);
       const msg = err?.message || 'AI 解析失败';
-      setReagentSearchStatus(msg, 'error');
+      setAiSearchState(`AI 解析失败：${msg}`, 'error', false);
       toast(msg);
       return false;
-    } finally {
-      setReagentSearchBusy(false);
     }
   }
 
@@ -398,6 +416,9 @@ export function createHandlers(ctx) {
         searchCondition: '',
         condMenuOpen: false,
         searchFocused: false,
+        searchBusy: false,
+        searchStatus: '',
+        searchStatusTone: 'info',
       };
     },
 

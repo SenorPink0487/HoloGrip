@@ -13,6 +13,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
+  overscroll-behavior: none;
   background: #e8f4ff;
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", "SF Pro Display", sans-serif;
   color: #0c1a2e;
@@ -44,6 +45,8 @@ html, body {
   transform: translateZ(0);
   will-change: contents;
   touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* ── Boot loader ──
@@ -1555,6 +1558,9 @@ body.locked #crosshair.can-interact::after {
   width: 100%;
   height: 100%;
   cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .holo-fs-tip {

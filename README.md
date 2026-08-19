@@ -98,6 +98,8 @@ HoloGrip/
 - `HOLO_TARGET=ipad`：iPad 适配目标。
 - `VITE_API_ORIGIN`、`HOLOGRIP_API_ORIGIN`：前端访问服务端的地址。
 
+iPad Pro 13 英寸（M4）专用的入口白名单、静态资源白名单、60 FPS 指标与验收项见 [`docs/IPAD_BUILD_SPEC.md`](./docs/IPAD_BUILD_SPEC.md)。
+
 服务端配置请参考 `server/` 下的示例文件。外部 AI 或数据服务的密钥只应保存在本地环境变量或安全的部署平台中。
 
 ## 贡献

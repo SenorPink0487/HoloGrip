@@ -481,7 +481,14 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
   ctx.stroke();
 
   const query = data.searchQuery != null ? data.searchQuery : '';
-  if (query) {
+  const searchMessage = data.searchBusy || data.searchStatusTone === 'error'
+    ? String(data.searchStatus || '')
+    : '';
+  if (searchMessage) {
+    ctx.fillStyle = data.searchStatusTone === 'error' ? '#dc2626' : '#0284c7';
+    ctx.font = '700 23px "Noto Sans SC", system-ui, sans-serif';
+    ctx.fillText(searchMessage.slice(0, 30), inputX + 20, inputY + 44);
+  } else if (query) {
     ctx.fillStyle = '#0f172a';
     ctx.font = '700 25px "Outfit", "Noto Sans SC", system-ui, sans-serif';
     ctx.fillText(query + (data.searchFocused ? '|' : ''), inputX + 20, inputY + 44);

@@ -75,6 +75,14 @@ import { resolveLabMode, isChemMode, CHEM_ACCENT, CHEM_ACCENT_NUM } from './chem
 const labMode = resolveLabMode();
 const chemMode = isChemMode(labMode);
 const BOOT_STATION_IDS = stationIdsForMode(labMode);
+// Chemistry keeps several translucent panels and beaker layers visible at
+// once. Retina iPads otherwise render the whole lab at 2x–3x pixels, which is
+// disproportionate for this scene and makes touch interaction feel sticky.
+const chemTouchDisplay = chemMode && (
+  Number((typeof navigator !== 'undefined' && navigator.maxTouchPoints) || 0) > 0
+  || ('ontouchstart' in window)
+);
+const CHEM_PIXEL_RATIO_CAP = chemTouchDisplay ? 1.25 : null;
 
 /** Continuous track or discrete action chip on the tabletop desk panel. */
 function isDeskPanelPick(pick) {
@@ -296,7 +304,10 @@ let labPostProcessing = null;
 // opt-in for visual/performance experiments; switching experiments never
 // changes the production lighting pipeline implicitly.
 const POST_PROCESSING_ENABLED = new URLSearchParams(window.location.search).has('post')
-  && !new URLSearchParams(window.location.search).has('noPost');
+  && !new URLSearchParams(window.location.search).has('noPost')
+  // Chemistry already has three translucent canvas panels; keep the optional
+  // SSAO/bloom chain from doubling the iPad fill-rate in this mode.
+  && !chemMode;
 const performanceGovernor = createPerformanceGovernor({
   renderer,
   quality: HIGH_QUALITY_PROFILE,
@@ -328,6 +339,11 @@ function getLabViewportSize() {
   };
 }
 
+function getLabPixelRatio(requested = window.devicePixelRatio || 1) {
+  const ratio = Math.max(0.5, Number(requested) || 1);
+  return CHEM_PIXEL_RATIO_CAP ? Math.min(ratio, CHEM_PIXEL_RATIO_CAP) : ratio;
+}
+
 function clearCanvasInlineSize() {
   // Three.js setSize(w,h,true) writes inline px that then fight % layout.
   if (canvas.style.width) canvas.style.width = '';
@@ -338,7 +354,7 @@ function applyLabViewportSize({ updateCamera = true, pixelRatio = null } = {}) {
   clearCanvasInlineSize();
   const { width, height } = getLabViewportSize();
   if (pixelRatio != null && Number.isFinite(pixelRatio)) {
-    renderer.setPixelRatio(pixelRatio);
+    renderer.setPixelRatio(getLabPixelRatio(pixelRatio));
   }
   renderer.setSize(width, height, false);
   labPostProcessing?.resize(width, height, renderer.getPixelRatio?.() || 1);
@@ -352,7 +368,7 @@ function applyLabViewportSize({ updateCamera = true, pixelRatio = null } = {}) {
   return { width, height };
 }
 
-renderer.setPixelRatio(window.devicePixelRatio || 1);
+renderer.setPixelRatio(getLabPixelRatio());
 // updateStyle=false: keep #c on stylesheet 100%/100% (never bake inner* into inline px).
 applyLabViewportSize({ updateCamera: false });
 renderer.shadowMap.enabled = true;
@@ -395,10 +411,13 @@ scene.fog = new THREE.FogExp2(0xd6ecff, 0.018);
 
 const _bootView = getLabViewportSize();
 const camera = new THREE.PerspectiveCamera(68, _bootView.width / Math.max(_bootView.height, 1), 0.06, 60);
+// PointerLockControls uses YXZ internally. Keep every camera look path on the
+// same order so touch/AR yaw + pitch cannot introduce an unintended roll.
+camera.rotation.order = 'YXZ';
 // Re-sync buffer now that camera exists (init setSize ran with updateCamera:false).
 applyLabViewportSize({
   updateCamera: true,
-  pixelRatio: window.devicePixelRatio || 1,
+  pixelRatio: getLabPixelRatio(),
 });
 if (POST_PROCESSING_ENABLED) {
   labPostProcessing = createPhysicsPostProcessing({
@@ -429,6 +448,29 @@ labLoader.setProgress(0.08, '构建实验室空间…');
 //  Controls
 // ═══════════════════════════════════════════════
 const controls = new PointerLockControls(camera, document.body);
+const cameraLookEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+
+/** Apply yaw/pitch without allowing camera roll to accumulate. */
+function applyCameraLookDelta(dx, dy, {
+  sensitivityX,
+  sensitivityY,
+  minPitch = -1.35,
+  maxPitch = 1.35,
+} = {}) {
+  camera.rotation.order = 'YXZ';
+  cameraLookEuler.setFromQuaternion(camera.quaternion, 'YXZ');
+  cameraLookEuler.y -= Number(dx || 0) * sensitivityX;
+  cameraLookEuler.x = THREE.MathUtils.clamp(
+    cameraLookEuler.x - Number(dy || 0) * sensitivityY,
+    minPitch,
+    maxPitch,
+  );
+  // A first-person look camera should never bank. Rebuild the quaternion from
+  // the yaw/pitch pair instead of mutating Euler x/y in the current order.
+  cameraLookEuler.z = 0;
+  camera.quaternion.setFromEuler(cameraLookEuler);
+}
+
 canvas.addEventListener('click', () => {
   if (document.body.classList.contains('is-loading')) return;
   if (holoFsState?.open) return; // fullscreen UI owns the mouse
@@ -480,11 +522,25 @@ const touchMove = {
   pointers: new Map(),
   previousDistance: null,
 };
+// A touch that starts on a draggable apparatus or a live screen control owns
+// the whole pointer stream. Otherwise the capture-phase camera gesture below
+// rotates the view before the experiment drag bridge receives pointermove.
+let touchDragPointerId = null;
 
 function clearTouchMove() {
   touchMove.previousDistance = null;
   move.forward = false;
   move.back = false;
+}
+
+function cancelTouchGesture() {
+  if (touchDragPointerId != null) {
+    finishUnlockedElectroDrag({ pointerId: touchDragPointerId }, true);
+  }
+  touchDragPointerId = null;
+  touchMove.pointers.clear();
+  touchLook.pointerId = null;
+  clearTouchMove();
 }
 
 function resetTouchStick() {
@@ -569,8 +625,20 @@ for (const name of ['pointerup', 'pointercancel', 'lostpointercapture']) {
 }
 bindTouchButton(mobileLiftUp, 'up');
 bindTouchButton(mobileLiftDown, 'down');
-window.addEventListener('blur', () => { resetTouchStick(); move.up = false; move.down = false; });
-document.addEventListener('visibilitychange', () => { if (document.hidden) { resetTouchStick(); move.up = false; move.down = false; } });
+window.addEventListener('blur', () => {
+  resetTouchStick();
+  cancelTouchGesture();
+  move.up = false;
+  move.down = false;
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    resetTouchStick();
+    cancelTouchGesture();
+    move.up = false;
+    move.down = false;
+  }
+});
 
 function updateTouchMove() {
   if (touchMove.pointers.size < 2) {
@@ -594,6 +662,27 @@ function updateTouchMove() {
 // iPad camera look: swipe the scene to orbit the first-person camera.
 canvas.addEventListener('pointerdown', (event) => {
   if (event.pointerType !== 'touch' || holoFsState?.open || handTracking?.isActive()) return;
+
+  // Reserve the first finger on an apparatus/control for the experiment. Do
+  // not stop propagation here: the normal unlocked drag bridge, registered
+  // later in this module, still needs to run its beginManipulation path.
+  // Additional fingers are ignored while a drag is active so they cannot
+  // accidentally turn the camera while the user is moving equipment.
+  if (touchDragPointerId != null) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
+  const hasExistingSceneGesture = touchLook.pointerId != null || touchMove.pointers.size > 0;
+  if (!hasExistingSceneGesture && !controls.isLocked) {
+    const picked = unlockedElectroPick(event);
+    if (picked) {
+      touchDragPointerId = event.pointerId;
+      event.preventDefault();
+      return;
+    }
+  }
+
   touchMove.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
   if (touchMove.pointers.size >= 2) {
     touchLook.pointerId = null;
@@ -611,6 +700,15 @@ canvas.addEventListener('pointerdown', (event) => {
 }, { capture: true, passive: false });
 window.addEventListener('pointermove', (event) => {
   if (event.pointerType !== 'touch' || handTracking?.isActive()) return;
+  if (touchDragPointerId != null) {
+    // The active apparatus pointer must bubble to the drag bridge. Suppress
+    // only additional fingers so they cannot start a competing camera move.
+    if (event.pointerId !== touchDragPointerId) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+    return;
+  }
   if (touchMove.pointers.has(event.pointerId)) {
     touchMove.pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
     if (touchMove.pointers.size >= 2) {
@@ -625,17 +723,29 @@ window.addEventListener('pointermove', (event) => {
   const dy = event.clientY - touchLook.lastY;
   touchLook.lastX = event.clientX;
   touchLook.lastY = event.clientY;
-  camera.rotation.y -= dx * 0.006;
-  camera.rotation.x = THREE.MathUtils.clamp(camera.rotation.x - dy * 0.004, -1.35, 1.35);
+  applyCameraLookDelta(dx, dy, {
+    sensitivityX: 0.006,
+    sensitivityY: 0.004,
+  });
   event.preventDefault();
   event.stopPropagation();
 }, { capture: true, passive: false });
 window.addEventListener('pointerup', (event) => {
+  if (event.pointerId === touchDragPointerId) {
+    touchDragPointerId = null;
+    return;
+  }
+  if (touchDragPointerId != null) return;
   touchMove.pointers.delete(event.pointerId);
   if (touchMove.pointers.size < 2) clearTouchMove();
   if (event.pointerId === touchLook.pointerId) touchLook.pointerId = null;
 }, { capture: true });
 window.addEventListener('pointercancel', (event) => {
+  if (event.pointerId === touchDragPointerId) {
+    touchDragPointerId = null;
+    return;
+  }
+  if (touchDragPointerId != null) return;
   touchMove.pointers.delete(event.pointerId);
   clearTouchMove();
   touchLook.pointerId = null;
@@ -4747,6 +4857,9 @@ function unlockedElectroPick(event) {
   const preferredRoles = [
     'electric_charge', 'electric_probe',
     'gauss_charge', 'faraday_rod', 'induced_e_probe',
+    'geo_source', 'geo_optic', 'geo_sample', 'geo_slit',
+    'diff_source', 'diff_slit', 'diff_screen',
+    'thermo_hot_beaker', 'thermo_cold_beaker',
     'hall_knob_im', 'hall_knob_is', 'hall_knob_zero',
     'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
     'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
@@ -4783,8 +4896,10 @@ canvas.addEventListener('pointerdown', (event) => {
     });
     unlockedElectroDrag = {
       ...picked,
+      pointerId: event.pointerId ?? null,
       lastX: Number(event.clientX || 0),
       lastY: Number(event.clientY || 0),
+      moved: false,
       screenUi: true,
       deskSlider: !!picked.deskSlider || !!resolveDeskSliderHost(picked.target),
     };
@@ -4794,8 +4909,10 @@ canvas.addEventListener('pointerdown', (event) => {
   }
   unlockedElectroDrag = {
     ...picked,
+    pointerId: event.pointerId ?? null,
     lastX: Number(event.clientX || 0),
     lastY: Number(event.clientY || 0),
+    moved: false,
   };
   // A successful apparatus pick owns this gesture even when the pointer
   // happens to release without movement; never fall through to pointer-lock.
@@ -4803,7 +4920,12 @@ canvas.addEventListener('pointerdown', (event) => {
   holdLMB = true;
   resetMouseDragAccum();
   syncMouseDragState();
-  expManager?.beginManipulation(picked.target, { direct: true, time: clock.elapsedTime });
+  expManager?.beginManipulation(picked.target, {
+    direct: true,
+    time: clock.elapsedTime,
+    raycaster: picked.raycaster,
+    pick: picked.pick || null,
+  });
   // Keep the gesture routed to the canvas after the initial hit. Without an
   // explicit capture, moving off the tiny charge hit volume can stop emitting
   // pointermove events in unlocked desktop mode.
@@ -4812,11 +4934,17 @@ canvas.addEventListener('pointerdown', (event) => {
 });
 window.addEventListener('pointermove', (event) => {
   if (!unlockedElectroDrag) return;
+  if (
+    unlockedElectroDrag.pointerId != null
+    && event.pointerId != null
+    && event.pointerId !== unlockedElectroDrag.pointerId
+  ) return;
   lastElectroPointerEventTime = performance.now();
   const fallbackDx = Number(event.clientX || 0) - unlockedElectroDrag.lastX;
   const fallbackDy = Number(event.clientY || 0) - unlockedElectroDrag.lastY;
   const dx = Number.isFinite(event.movementX) && event.movementX !== 0 ? event.movementX : fallbackDx;
   const dy = Number.isFinite(event.movementY) && event.movementY !== 0 ? event.movementY : fallbackDy;
+  if (Math.hypot(dx, dy) >= 3) unlockedElectroDrag.moved = true;
   unlockedElectroDrag.lastX = Number(event.clientX || unlockedElectroDrag.lastX);
   unlockedElectroDrag.lastY = Number(event.clientY || unlockedElectroDrag.lastY);
   accumulateMouseDrag(dx, dy, { shiftKey: !!event.shiftKey });
@@ -4836,17 +4964,32 @@ window.addEventListener('pointermove', (event) => {
     totalY: equipment?.electro?.mouseDrag?.movementY || 0,
     shiftKey: !!event.shiftKey || !!equipment?.electro?.mouseDrag?.shiftKey,
     raycaster: unlockedElectroRaycaster,
+    dragged: true,
   });
   gaussPointerDrag.suppressClick = true;
 });
-window.addEventListener('pointerup', (event) => {
-  if (event.button !== 0 || !unlockedElectroDrag) return;
-  expManager?.endManipulation(unlockedElectroDrag.target, { time: clock.elapsedTime });
-  if (event.pointerId != null) canvas.releasePointerCapture?.(event.pointerId);
+function finishUnlockedElectroDrag(event, cancelled = false) {
+  if (!unlockedElectroDrag) return;
+  if (
+    unlockedElectroDrag.pointerId != null
+    && event?.pointerId != null
+    && event.pointerId !== unlockedElectroDrag.pointerId
+  ) return;
+  expManager?.endManipulation(unlockedElectroDrag.target, {
+    time: clock.elapsedTime,
+    cancelled,
+    dragged: !!unlockedElectroDrag.moved,
+  });
+  if (event?.pointerId != null) canvas.releasePointerCapture?.(event.pointerId);
   unlockedElectroDrag = null;
   holdLMB = false;
   syncMouseDragState();
+}
+window.addEventListener('pointerup', (event) => {
+  if (event.button !== 0) return;
+  finishUnlockedElectroDrag(event);
 });
+window.addEventListener('pointercancel', (event) => finishUnlockedElectroDrag(event, true));
 
 // Some desktop automation shells (and older embedded WebViews) expose the
 // legacy mouse stream without forwarding pointermove. Mirror the same bridge
@@ -5072,7 +5215,9 @@ function pickLiveElectroChargeHit(hits) {
   ) || null;
   const preferredRoles = expId === 'electric_field'
     ? ['electric_charge', 'electric_probe']
-    : expId === 'faraday_induction'
+    : expId === 'gauss_theorem'
+      ? ['gauss_charge', 'electric_charge']
+      : expId === 'faraday_induction'
         ? ['faraday_rod']
         : expId === 'induced_electric_field'
           ? ['induced_e_probe']
@@ -5082,11 +5227,17 @@ function pickLiveElectroChargeHit(hits) {
               'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
               'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
             ]
-            : (expId === 'reagent-mix' || chemMode)
-              ? ['chem_cup_a_label', 'chem_cup_b_label', 'chem_cup_a', 'chem_cup_b']
-              : expId === 'viscosity'
-                ? ['mechanics_viscosity_ball']
-                : null;
+            : expId === 'multi_slit_diffraction'
+              ? ['diff_source', 'diff_slit', 'diff_screen']
+              : ['reflection', 'refraction', 'dispersion', 'lens'].includes(expId)
+                ? ['geo_source', 'geo_optic', 'geo_sample', 'geo_slit']
+                : expId === 'calorimetry'
+                  ? ['thermo_hot_beaker', 'thermo_cold_beaker']
+                  : (expId === 'reagent-mix' || chemMode)
+                    ? ['chem_cup_a_label', 'chem_cup_b_label', 'chem_cup_a', 'chem_cup_b']
+                    : expId === 'viscosity'
+                      ? ['mechanics_viscosity_ball']
+                      : null;
   if (!preferredRoles || !hits?.length) return null;
   // Closest matching apparatus wins. Role order alone used to pick a farther
   // source charge over a nearer probe (or keep an oversized probe sphere that
@@ -5914,18 +6065,15 @@ const arInteractionOptions = {
     expManager?.holdInteract(false, clock.elapsedTime, 0, event.target);
   },
   onLook: (dx, dy) => {
-    // Keep euler/quaternion in sync (PointerLockControls also drives the camera this way).
     // Soft clamp avoids rare tracking spikes without hard edge feel.
     const lookDx = THREE.MathUtils.clamp(dx, -48, 48);
     const lookDy = THREE.MathUtils.clamp(dy, -48, 48);
-    camera.rotation.order = 'YXZ';
-    camera.rotation.y -= lookDx * 0.0024;
-    camera.rotation.x = THREE.MathUtils.clamp(
-      camera.rotation.x - lookDy * 0.0024,
-      -THREE.MathUtils.degToRad(80),
-      THREE.MathUtils.degToRad(80),
-    );
-    camera.quaternion.setFromEuler(camera.rotation);
+    applyCameraLookDelta(lookDx, lookDy, {
+      sensitivityX: 0.0024,
+      sensitivityY: 0.0024,
+      minPitch: -THREE.MathUtils.degToRad(80),
+      maxPitch: THREE.MathUtils.degToRad(80),
+    });
   },
   onPhaseChange: updateArPhase,
   dollyOptions: { gain: 48, deadZone: 0.0008 },
@@ -6183,7 +6331,7 @@ const BOUND = {
 function resizeRendererViewport() {
   applyLabViewportSize({
     updateCamera: true,
-    pixelRatio: window.devicePixelRatio || 1,
+    pixelRatio: getLabPixelRatio(),
   });
   // frameCoordinator is created later in this module; avoid TDZ on early RO/resize.
   try { frameCoordinator.invalidate(); } catch { /* boot */ }
@@ -6375,12 +6523,12 @@ canvas.addEventListener('webglcontextrestored', () => {
   webglContextLost = false;
   applyLabViewportSize({
     updateCamera: true,
-    pixelRatio: window.devicePixelRatio || 1,
+    pixelRatio: getLabPixelRatio(),
   });
   labPostProcessing?.resize(
     getLabViewportSize().width,
     getLabViewportSize().height,
-    window.devicePixelRatio || 1,
+    getLabPixelRatio(),
   );
   frameCoordinator.invalidate();
   showToast('Graphics restored; select an experiment to reload it');

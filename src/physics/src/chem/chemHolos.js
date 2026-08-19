@@ -47,12 +47,13 @@ export function makeChemHolo(THREE, opts) {
   g.rotation.y = rotY;
 
   // Vision Pro style light-mode frosted crystal glass panel
-  const panelMat = new THREE.MeshPhysicalMaterial({
+  // The canvas screen is already opaque and carries the readable UI. A
+  // transparent Standard material is enough for the surrounding frosted
+  // frame and avoids a full transmission pass for every chemistry panel.
+  const panelMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     metalness: 0.05,
     roughness: 0.12,
-    transmission: 0.85,
-    thickness: 0.04,
     transparent: true,
     opacity: 0.85,
     side: THREE.DoubleSide,
@@ -60,7 +61,7 @@ export function makeChemHolo(THREE, opts) {
   });
 
   // Large rounded glass panel with Vision Pro corner radius
-  const glass = rbox(panelW, panelH, 0.01, panelMat, 0.14, 14);
+  const glass = rbox(panelW, panelH, 0.01, panelMat, 0.14, 8);
   glass.position.z = 0.004;
   glass.raycast = () => {};
   g.add(glass);
@@ -72,7 +73,7 @@ export function makeChemHolo(THREE, opts) {
       transparent: true,
       opacity: 0.45,
     }),
-    0.15, 14);
+    0.15, 8);
   rim.position.z = -0.008;
   rim.raycast = () => {};
   g.add(rim);
@@ -84,7 +85,7 @@ export function makeChemHolo(THREE, opts) {
     opacity: 0.45,
     side: THREE.FrontSide,
   });
-  const back = rbox(panelW, panelH, 0.012, backMat, 0.14, 14);
+  const back = rbox(panelW, panelH, 0.012, backMat, 0.14, 8);
   back.rotation.y = Math.PI;
   back.position.z = -0.014;
   back.raycast = () => {};
@@ -188,6 +189,9 @@ export function makeChemHolo(THREE, opts) {
       sel: data.selectedComponentId,
       sy: data.rightPanelScrollY,
       q: data.searchQuery,
+      sb: data.searchBusy,
+      ss: data.searchStatus,
+      st: data.searchStatusTone,
       sp: data.speechListening,
       h: data.hint,
       rx: data.cupA?.lastReaction?.name || data.cupB?.lastReaction?.name || '',
@@ -272,8 +276,16 @@ export function makeChemHolo(THREE, opts) {
 
   const _world = new THREE.Vector3();
   const _cam = new THREE.Vector3();
+  let lastFaceCameraX = NaN;
+  let lastFaceCameraZ = NaN;
   function faceCamera(camera) {
     if (!camera || !g.userData.present) return;
+    // Panel yaw depends on the camera's horizontal position, not its pitch or
+    // roll. Skip matrix work on the many frames where the learner is still.
+    if (Math.abs(camera.position.x - lastFaceCameraX) < 1e-4
+      && Math.abs(camera.position.z - lastFaceCameraZ) < 1e-4) return;
+    lastFaceCameraX = camera.position.x;
+    lastFaceCameraZ = camera.position.z;
     g.getWorldPosition(_world);
     camera.getWorldPosition(_cam);
     const dx = _cam.x - _world.x;

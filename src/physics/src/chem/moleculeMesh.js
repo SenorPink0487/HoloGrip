@@ -118,7 +118,7 @@ export function createMoleculeMesh(THREE, source, opts = {}) {
   if (!atoms.length) {
     // Placeholder orb so empty still shows something small
     const orb = new THREE.Mesh(
-      new THREE.SphereGeometry(0.05, 20, 20),
+      new THREE.SphereGeometry(0.05, 14, 10),
       new THREE.MeshStandardMaterial({
         color: 0x34d399,
         emissive: 0x059669,
@@ -168,15 +168,13 @@ export function createMoleculeMesh(THREE, source, opts = {}) {
     const r = baseR * atomRadiusMultiplier * fitScale;
     
     const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(r, 24, 24),
-      new THREE.MeshPhysicalMaterial({
+      new THREE.SphereGeometry(r, 16, 12),
+      new THREE.MeshStandardMaterial({
         color,
         emissive: color,
         emissiveIntensity: 0.08,
         metalness: 0.1,
         roughness: isSpaceFilling ? 0.25 : 0.15,
-        clearcoat: 1.0,
-        clearcoatRoughness: 0.15,
       }),
     );
     mesh.position.set(
@@ -220,26 +218,22 @@ export function createMoleculeMesh(THREE, source, opts = {}) {
         if (side.lengthSq() < 1e-6) side.set(1, 0, 0).cross(_dir);
         side.normalize().multiplyScalar(off);
 
-        const matA = new THREE.MeshPhysicalMaterial({
+        const matA = new THREE.MeshStandardMaterial({
           color: atomColors[bond.a],
           metalness: 0.05,
           roughness: 0.2,
-          clearcoat: 1.0,
-          clearcoatRoughness: 0.2,
         });
-        const matB = new THREE.MeshPhysicalMaterial({
+        const matB = new THREE.MeshStandardMaterial({
           color: atomColors[bond.b],
           metalness: 0.05,
           roughness: 0.2,
-          clearcoat: 1.0,
-          clearcoatRoughness: 0.2,
         });
         const cylA = new THREE.Mesh(
-          new THREE.CylinderGeometry(bondRadius, bondRadius, halfLen, 16),
+          new THREE.CylinderGeometry(bondRadius, bondRadius, halfLen, 8),
           matA,
         );
         const cylB = new THREE.Mesh(
-          new THREE.CylinderGeometry(bondRadius, bondRadius, halfLen, 16),
+          new THREE.CylinderGeometry(bondRadius, bondRadius, halfLen, 8),
           matB,
         );
         cylA.quaternion.copy(_quat);

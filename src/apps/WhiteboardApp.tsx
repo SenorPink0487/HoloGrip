@@ -794,7 +794,8 @@ export function WhiteboardApp() {
 
       {/* 8. 冷启动动画属于独立启动器；原 HoloMath 入口不加载该覆盖层。 */}
       {IS_LAUNCHER_ENTRY && <SplashScreen />}
-      <LoginModal />
+      {/* iPad 版本直接进入白板；登录/工作区锁屏只保留给桌面端。 */}
+      {isDesktop && <LoginModal />}
 
       </div>
 

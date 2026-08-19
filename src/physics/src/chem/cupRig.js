@@ -14,8 +14,8 @@ import { getMoleculePanel } from './moleculePanel.js';
 const POUR_NEAR = 0.55;
 /** Island-scale gravity (scene units ≈ meters/3). */
 const GRAVITY = 3.4;
-const STREAM_POOL = 56;
-const SPLASH_POOL = 18;
+const STREAM_POOL = 40;
+const SPLASH_POOL = 14;
 const LIP_RADIUS = 0.17;
 const CUP_MOUTH_Y = 0.55;
 const CUP_INNER_R = 0.15;
@@ -66,21 +66,22 @@ export function createChemCupRig(THREE, opts = {}) {
 
   // —— Gravity-integrated liquid parcels (stream) + impact splash ——
   const dropGeo = new THREE.SphereGeometry(1, 10, 10);
+  // Keep per-particle materials because each droplet fades independently;
+  // use Standard instead of Physical so the stream does not invoke the
+  // expensive transmission path on iPad.
   /** @type {{ mesh: any, active: boolean, x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, age: number, r: number }[]} */
   const parcels = [];
   for (let i = 0; i < STREAM_POOL; i += 1) {
     const mesh = new THREE.Mesh(
       dropGeo,
-      new THREE.MeshPhysicalMaterial({
+      new THREE.MeshStandardMaterial({
         color: 0x34d399,
         emissive: 0x059669,
         emissiveIntensity: 0.35,
         transparent: true,
         opacity: 0,
-        roughness: 0.12,
+        roughness: 0.18,
         metalness: 0.05,
-        transmission: 0.35,
-        thickness: 0.08,
         depthWrite: false,
       }),
     );
@@ -120,11 +121,11 @@ export function createChemCupRig(THREE, opts = {}) {
   }
 
   // —— Reaction effervescence bubbles pool ——
-  const BUBBLE_POOL = 64;
+  const BUBBLE_POOL = 48;
   const bubbleGeo = new THREE.SphereGeometry(1, 10, 10);
   /** @type {{ mesh: any, active: boolean, cupKind: 'A'|'B', x: number, y: number, z: number, vx: number, vy: number, vz: number, life: number, age: number, baseRadius: number, surfY: number, cupX: number, cupZ: number }[]} */
   const bubbles = [];
-  const bubbleMat = new THREE.MeshPhysicalMaterial({
+  const bubbleMat = new THREE.MeshStandardMaterial({
     color: 0xffffff,
     emissive: 0xe0f2fe,
     emissiveIntensity: 0.5,
@@ -132,8 +133,6 @@ export function createChemCupRig(THREE, opts = {}) {
     opacity: 0.8,
     roughness: 0.05,
     metalness: 0.1,
-    transmission: 0.85,
-    thickness: 0.04,
     depthWrite: false,
   });
 
@@ -165,6 +164,7 @@ export function createChemCupRig(THREE, opts = {}) {
   root.add(ripple);
   let rippleT = 0;
   let rippleStrength = 0;
+  let activeFluidCount = 0;
 
   let emitCarry = 0;
   const _lip = new THREE.Vector3();
@@ -563,20 +563,16 @@ export function createChemCupRig(THREE, opts = {}) {
     }
     const safeDt = Math.min(0.05, Math.max(0, dt));
 
-    // Always integrate free fluid so late drops finish after the cup returns home
-    stepFluid(safeDt);
+    // Most frames are completely idle. Avoid walking all fluid pools and
+    // rewriting transparent mesh transforms until a pour/reaction/ripple is
+    // actually alive. This is particularly important on iPad WebKit.
+    if (hasActiveFluid()) stepFluid(safeDt);
     if (pour?.phase === 'pouring') {
       const target = pour.to === 'A' ? cupA : cupB;
       resolveImpacts(target, pour.color);
     }
 
-    if (drag || !pour) {
-      if (!pour && !drag) {
-        setCupLevel(cupA, state.A.fill, state.A.color, { tiltZ: cupA.rotation.z });
-        setCupLevel(cupB, state.B.fill, state.B.color, { tiltZ: cupB.rotation.z });
-      }
-      return;
-    }
+    if (drag || !pour) return;
 
     const p = pour;
     const cup = p.from === 'A' ? cupA : cupB;
@@ -792,7 +788,7 @@ export function createChemCupRig(THREE, opts = {}) {
   function allocParcel() {
     for (let i = 0; i < parcels.length; i += 1) {
       if (!parcels[i].active) {
-        parcels[i].active = true;
+        activateFluid(parcels[i]);
         return parcels[i];
       }
     }
@@ -802,7 +798,7 @@ export function createChemCupRig(THREE, opts = {}) {
   function allocSplash() {
     for (let i = 0; i < splashes.length; i += 1) {
       if (!splashes[i].active) {
-        splashes[i].active = true;
+        activateFluid(splashes[i]);
         return splashes[i];
       }
     }
@@ -812,11 +808,30 @@ export function createChemCupRig(THREE, opts = {}) {
   function allocBubble() {
     for (let i = 0; i < bubbles.length; i += 1) {
       if (!bubbles[i].active) {
-        bubbles[i].active = true;
+        activateFluid(bubbles[i]);
         return bubbles[i];
       }
     }
     return null;
+  }
+
+  function hasActiveFluid() {
+    return activeFluidCount > 0
+      || rippleStrength > 0.001
+      || (state.A.reactionEffervescence > 0 && state.A.fill > 0.05)
+      || (state.B.reactionEffervescence > 0 && state.B.fill > 0.05);
+  }
+
+  function activateFluid(item) {
+    if (item.active) return;
+    item.active = true;
+    activeFluidCount += 1;
+  }
+
+  function deactivateFluid(item) {
+    if (!item.active) return;
+    item.active = false;
+    activeFluidCount = Math.max(0, activeFluidCount - 1);
   }
 
   function stepFluid(dt) {
@@ -848,7 +863,7 @@ export function createChemCupRig(THREE, opts = {}) {
       p.mesh.visible = fade > 0.04;
 
       if (p.age >= p.life || p.y < -0.2) {
-        p.active = false;
+        deactivateFluid(p);
         p.mesh.visible = false;
         p.mesh.material.opacity = 0;
       }
@@ -869,7 +884,7 @@ export function createChemCupRig(THREE, opts = {}) {
       s.mesh.material.opacity = 0.7 * fade;
       s.mesh.visible = fade > 0.05;
       if (s.age >= s.life || s.y < -0.15) {
-        s.active = false;
+        deactivateFluid(s);
         s.mesh.visible = false;
         s.mesh.material.opacity = 0;
       }
@@ -934,7 +949,7 @@ export function createChemCupRig(THREE, opts = {}) {
       if (distToSurface <= 0.02) {
         // Burst on surface
         triggerRipple(b.cupX, surfY, b.cupZ, 0xffffff);
-        b.active = false;
+        deactivateFluid(b);
         b.mesh.visible = false;
         b.mesh.material.opacity = 0;
       } else {
@@ -942,7 +957,7 @@ export function createChemCupRig(THREE, opts = {}) {
       }
 
       if (b.age >= b.life || b.y > surfY + 0.05) {
-        b.active = false;
+        deactivateFluid(b);
         b.mesh.visible = false;
         b.mesh.material.opacity = 0;
       }
@@ -982,7 +997,7 @@ export function createChemCupRig(THREE, opts = {}) {
           // Absorb + splash
           spawnSplash(p.x, Math.max(p.y, surfY), p.z, p.vx, p.vy, p.vz, color);
           triggerRipple(cx, surfY, cz, color);
-          p.active = false;
+          deactivateFluid(p);
           p.mesh.visible = false;
           p.mesh.material.opacity = 0;
         }
@@ -1020,12 +1035,12 @@ export function createChemCupRig(THREE, opts = {}) {
 
   function clearFluid() {
     for (const p of parcels) {
-      p.active = false;
+      deactivateFluid(p);
       p.mesh.visible = false;
       p.mesh.material.opacity = 0;
     }
     for (const s of splashes) {
-      s.active = false;
+      deactivateFluid(s);
       s.mesh.visible = false;
       s.mesh.material.opacity = 0;
     }
@@ -1259,13 +1274,11 @@ function makeCup(THREE, kind, tint, accent) {
 
   const wall = new THREE.Mesh(
     new THREE.CylinderGeometry(rTop, rBot, h, 28, 1, true),
-    new THREE.MeshPhysicalMaterial({
+    new THREE.MeshStandardMaterial({
       color: 0xd0e6f5,
       transparent: true,
       opacity: 0.28,
       roughness: 0.1,
-      transmission: 0.45,
-      thickness: 0.04,
       side: THREE.DoubleSide,
       depthWrite: false,
     }),
@@ -1275,12 +1288,11 @@ function makeCup(THREE, kind, tint, accent) {
 
   const bottom = new THREE.Mesh(
     new THREE.CylinderGeometry(rBot - 0.01, rBot, 0.03, 24),
-    new THREE.MeshPhysicalMaterial({
+    new THREE.MeshStandardMaterial({
       color: 0xb0cce0,
       transparent: true,
       opacity: 0.4,
       roughness: 0.15,
-      transmission: 0.3,
     }),
   );
   bottom.position.y = 0.1;
@@ -1294,7 +1306,7 @@ function makeCup(THREE, kind, tint, accent) {
 
   const liquid = new THREE.Mesh(
     new THREE.CylinderGeometry(rBot - 0.025, rBot - 0.03, 0.28, 24, 1, true),
-    new THREE.MeshPhysicalMaterial({
+    new THREE.MeshStandardMaterial({
       color: tint,
       emissive: tint,
       emissiveIntensity: 0.22,
@@ -1302,8 +1314,6 @@ function makeCup(THREE, kind, tint, accent) {
       opacity: 0,
       roughness: 0.18,
       metalness: 0.05,
-      transmission: 0.25,
-      thickness: 0.06,
       depthWrite: false,
     }),
   );
@@ -1316,7 +1326,7 @@ function makeCup(THREE, kind, tint, accent) {
 
   const surf = new THREE.Mesh(
     new THREE.CircleGeometry(rBot - 0.03, 28),
-    new THREE.MeshPhysicalMaterial({
+    new THREE.MeshStandardMaterial({
       color: tint,
       emissive: tint,
       emissiveIntensity: 0.12,
@@ -1324,8 +1334,6 @@ function makeCup(THREE, kind, tint, accent) {
       opacity: 0,
       roughness: 0.08,
       metalness: 0.15,
-      transmission: 0.15,
-      thickness: 0.02,
       depthWrite: true,
     }),
   );

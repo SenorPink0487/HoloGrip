@@ -30,6 +30,42 @@ function htmlIndexForPublicDirs(names: string[]): Plugin {
   };
 }
 
+/**
+ * iPad 构建不能直接使用 Vite 默认的 public 目录复制策略：默认策略会
+ * 把火箭、台球等与当前目标无关的整套静态资源一并复制到 dist。
+ * 这里按目录白名单发射静态资源，避免“未作为入口”却仍然被打包。
+ */
+function copyPublicDirsForTarget(names: string[]): Plugin {
+  return {
+    name: 'copy-public-dirs-for-target',
+    apply: 'build',
+    generateBundle() {
+      for (const name of names) {
+        const sourceDir = path.resolve(__dirname, 'public', name);
+        if (!fs.existsSync(sourceDir) || !fs.statSync(sourceDir).isDirectory()) continue;
+
+        const visit = (directory: string) => {
+          for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+            const absolutePath = path.join(directory, entry.name);
+            if (entry.isDirectory()) {
+              visit(absolutePath);
+              continue;
+            }
+
+            this.emitFile({
+              type: 'asset',
+              fileName: path.relative(path.resolve(__dirname, 'public'), absolutePath).replaceAll('\\', '/'),
+              source: fs.readFileSync(absolutePath),
+            });
+          }
+        };
+
+        visit(sourceDir);
+      }
+    },
+  };
+}
+
 
 /**
  * 多入口配置：
@@ -42,6 +78,9 @@ function htmlIndexForPublicDirs(names: string[]): Plugin {
  *  - chem.html      → HoloChem 3D 分子结构观象台（3Dmol + PubChem）
  *  - rocket.html    → HoloRocket 火箭发射仿真（Three.js）
  *  - pool.html      → HoloPool 三维台球室（Three.js + cannon-es）
+ *
+ * iPad 目标不是全量 Web 站点：只输出 whiteboard / holomath / physics，
+ * 化学内容通过 physics.html?mode=chem 进入；rocket、pool 及其静态资源均不进入。
  */
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
@@ -67,13 +106,8 @@ export default defineConfig(({ mode }) => {
     ipad: {
       whiteboard: entries.whiteboard,
       holomath: entries.holomath,
-      // iPad is a self-contained five-subject app. The launchpad opens the
-      // four standalone labs below in an iframe, so each entry must be in
-      // the native asset bundle instead of relying on a web-server path.
+      // 化学是 physics.html 的显式模式，不重复输出 chem.html。
       physics: entries.physics,
-      chem: entries.chem,
-      rocket: entries.rocket,
-      pool: entries.pool,
     },
     all: entries,
   };
@@ -82,7 +116,10 @@ export default defineConfig(({ mode }) => {
     plugins: [
       react(),
       tailwindcss(),
-      htmlIndexForPublicDirs(['pool']),
+      htmlIndexForPublicDirs(target === 'ipad' ? [] : ['pool']),
+      ...(target === 'ipad'
+        ? [copyPublicDirsForTarget(['assets', 'fonts', 'portraits'])]
+        : []),
       // HoloChem: 自然语言 → 分子成分（密钥仅在 dev/preview 服务端）
       deepseekPlugin({
         apiKey: env.DEEPSEEK_API_KEY || process.env.DEEPSEEK_API_KEY || '',
@@ -108,6 +145,8 @@ export default defineConfig(({ mode }) => {
     optimizeDeps: {
       include: ['three'],
     },
+    // iPad 使用 public 白名单复制，避免把未使用的火箭/台球资源带入包体。
+    publicDir: target === 'ipad' ? false : 'public',
     build: {
       // HoloPhysics boot uses top-level await (station cooperative load).
       // Aligns with standalone wuli vite target (es2022 / chrome105+).

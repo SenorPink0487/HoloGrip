@@ -4,6 +4,10 @@
  * - 纯 Web：走 Vite 代理 /api/resolve-molecule
  */
 
+import { apiUrl } from '../lib/apiOrigin.ts'
+
+const IS_IPAD_BUILD = import.meta.env.HOLO_TARGET === 'ipad'
+
 function isTauri() {
   return (
     typeof window !== 'undefined' &&
@@ -15,9 +19,10 @@ function isTauri() {
  * @param {string} query
  */
 export async function resolveWithDeepSeek(query) {
-  // 宿主 monorepo 的 Tauri 未必注册 resolve_molecule；失败时回退 Web 代理
+  // iPad 与网页统一走 hologrip.cn 的服务端代理；桌面端仍可优先尝试本地 Tauri 命令。
+  // 宿主 monorepo 的 Tauri 未必注册 resolve_molecule；失败时回退 Web 代理。
   let data
-  if (isTauri()) {
+  if (isTauri() && !IS_IPAD_BUILD) {
     try {
       data = await resolveViaTauri(query)
     } catch (err) {
@@ -51,7 +56,7 @@ export async function resolveWithDeepSeek(query) {
  * @param {string} condition
  */
 export async function resolveReactionWithDeepSeek(reactants, condition = '') {
-  const res = await fetch('/api/resolve-reaction', {
+  const res = await fetch(apiUrl('/api/resolve-reaction'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ reactants, condition }),
@@ -82,7 +87,7 @@ async function resolveViaTauri(query) {
  * @param {string} query
  */
 async function resolveViaWebProxy(query) {
-  const res = await fetch('/api/resolve-molecule', {
+  const res = await fetch(apiUrl('/api/resolve-molecule'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query }),
