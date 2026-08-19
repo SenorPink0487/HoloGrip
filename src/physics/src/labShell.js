@@ -4773,6 +4773,7 @@ function unlockedElectroPick(event) {
     'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
     'desk_param_panel',
     'chem_cup_a_label', 'chem_cup_b_label', 'chem_cup_a', 'chem_cup_b',
+    'mechanics_viscosity_ball',
   ];
   for (const role of preferredRoles) {
     const hit = hits.find((entry) => {
@@ -5022,6 +5023,7 @@ function resolveInteractivePreferred(hits) {
     faraday_rod: 86,
     induced_e_probe: 88,
     desk_param_panel: 92,
+    mechanics_viscosity_ball: 95,
     hall_terminal_solenoid: 80,
     hall_terminal_helmholtz: 80,
     hall_terminal_output: 80,
@@ -5103,7 +5105,9 @@ function pickLiveElectroChargeHit(hits) {
             ]
             : (expId === 'reagent-mix' || chemMode)
               ? ['chem_cup_a_label', 'chem_cup_b_label', 'chem_cup_a', 'chem_cup_b']
-              : null;
+              : expId === 'viscosity'
+                ? ['mechanics_viscosity_ball']
+                : null;
   if (!preferredRoles || !hits?.length) return null;
   // Closest matching apparatus wins. Role order alone used to pick a farther
   // source charge over a nearer probe (or keep an oversized probe sphere that
@@ -5510,6 +5514,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
     'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
     'desk_param_panel',
     'chem_cup_a_label', 'chem_cup_b_label', 'chem_cup_a', 'chem_cup_b',
+    'mechanics_viscosity_ball',
   ]);
   const directIsCharge = !!(
     directTarget
@@ -5709,6 +5714,10 @@ function resetMouseDragAccum() {
     equipment.electro.mouseDrag.shiftKey = false;
   }
   if (equipment?.optics?.mouseDrag) equipment.optics.mouseDrag.movementX = 0;
+  if (equipment?.mechanics?.mouseDrag) {
+    equipment.mechanics.mouseDrag.movementX = 0;
+    equipment.mechanics.mouseDrag.movementY = 0;
+  }
 }
 
 function accumulateMouseDrag(dx, dy = 0, mods = null) {
@@ -5720,6 +5729,10 @@ function accumulateMouseDrag(dx, dy = 0, mods = null) {
     }
   }
   if (equipment?.optics?.mouseDrag) equipment.optics.mouseDrag.movementX += dx;
+  if (equipment?.mechanics?.mouseDrag) {
+    equipment.mechanics.mouseDrag.movementX = (equipment.mechanics.mouseDrag.movementX || 0) + dx;
+    equipment.mechanics.mouseDrag.movementY = (equipment.mechanics.mouseDrag.movementY || 0) + dy;
+  }
 }
 
 // ── Camera-based AR input powered by local MediaPipe hand tracking ──

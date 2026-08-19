@@ -808,17 +808,17 @@ const CASE_BALL_MM = [1.5, 2.0, 2.5, 3.0, 4.0];
  */
 function buildBallCase(diametersMm = CASE_BALL_MM) {
   const g = new THREE.Group();
-  const w = 0.2;
-  const d = 0.1;
-  const h = 0.028;
+  const w = 0.38;
+  const d = 0.18;
+  const h = 0.048;
   const slots = [];
 
   const box = new THREE.Mesh(
     new THREE.BoxGeometry(w, h, d),
     new THREE.MeshStandardMaterial({
-      color: 0x2a3348,
-      metalness: 0.05,
-      roughness: 0.75,
+      color: 0x1e293b,
+      metalness: 0.1,
+      roughness: 0.65,
     })
   );
   box.position.y = h / 2;
@@ -827,35 +827,39 @@ function buildBallCase(diametersMm = CASE_BALL_MM) {
   g.add(box);
 
   const foam = new THREE.Mesh(
-    new THREE.BoxGeometry(w - 0.012, 0.012, d - 0.012),
-    new THREE.MeshStandardMaterial({ color: 0x1a4050, roughness: 0.9 })
+    new THREE.BoxGeometry(w - 0.016, 0.018, d - 0.016),
+    new THREE.MeshStandardMaterial({ color: 0x0f172a, roughness: 0.9 })
   );
-  foam.position.y = h - 0.004;
+  foam.position.y = h - 0.006;
   g.add(foam);
 
   diametersMm.forEach((dm, i) => {
     const n = diametersMm.length;
-    const x = ((i + 0.5) / n - 0.5) * (w - 0.04);
-    const wellR = 0.012;
+    const x = ((i + 0.5) / n - 0.5) * (w - 0.06);
+    const wellR = 0.024;
     const well = new THREE.Mesh(
-      new THREE.CylinderGeometry(wellR, wellR, 0.008, 20),
-      new THREE.MeshStandardMaterial({ color: 0x0e2430, roughness: 0.85 })
+      new THREE.CylinderGeometry(wellR, wellR, 0.014, 24),
+      new THREE.MeshStandardMaterial({ color: 0x090d16, roughness: 0.9 })
     );
-    well.position.set(x, h - 0.002, 0);
+    well.position.set(x, h - 0.003, 0);
     g.add(well);
 
-    const br = Math.max(0.0045, Math.min(0.01, dm / 320));
+    const br = Math.max(0.011, Math.min(0.024, (dm / 4.0) * 0.022));
     const ballMat = steelMat();
-    const ball = new THREE.Mesh(new THREE.SphereGeometry(br, 28, 20), ballMat);
-    const homeLocal = new THREE.Vector3(x, h + br * 0.35, 0);
+    const ball = new THREE.Mesh(new THREE.SphereGeometry(br, 32, 24), ballMat);
+    const homeLocal = new THREE.Vector3(x, h + br * 0.45, 0);
     ball.position.copy(homeLocal);
     ball.castShadow = true;
     ball.userData.diameterMm = dm;
     ball.userData.pickable = true;
+    ball.userData.interactive = true;
+    ball.userData.role = 'mechanics_viscosity_ball';
     ball.userData.baseColor = ballMat.color.getHex();
-    // 更大隐形拾取体，方便点中/拖拽
+
+    // Large invisible hit proxy for effortless crosshair aiming and picking
+    const hitProxyR = Math.max(0.038, br * 2.4);
     const hit = new THREE.Mesh(
-      new THREE.SphereGeometry(Math.max(0.014, br * 2.2), 12, 10),
+      new THREE.SphereGeometry(hitProxyR, 16, 12),
       new THREE.MeshBasicMaterial({
         transparent: true,
         opacity: 0,
@@ -864,46 +868,50 @@ function buildBallCase(diametersMm = CASE_BALL_MM) {
     );
     hit.userData.diameterMm = dm;
     hit.userData.pickable = true;
+    hit.userData.interactive = true;
+    hit.userData.role = 'mechanics_viscosity_ball';
     hit.userData.isHitProxy = true;
     ball.add(hit);
     g.add(ball);
 
+    // High resolution slot label
     const tCanvas = document.createElement('canvas');
-    tCanvas.width = 64;
-    tCanvas.height = 32;
+    tCanvas.width = 128;
+    tCanvas.height = 64;
     const tctx = tCanvas.getContext('2d');
-    tctx.fillStyle = '#c8d4e8';
-    tctx.font = 'bold 16px sans-serif';
+    tctx.fillStyle = '#f1f5f9';
+    tctx.font = 'bold 34px "Microsoft YaHei", sans-serif';
     tctx.textAlign = 'center';
-    tctx.fillText(`${dm}`, 32, 20);
+    tctx.textBaseline = 'middle';
+    tctx.fillText(`${dm.toFixed(1)} mm`, 64, 32);
     const ttex = new THREE.CanvasTexture(tCanvas);
     const tag = new THREE.Mesh(
-      new THREE.PlaneGeometry(0.022, 0.011),
+      new THREE.PlaneGeometry(0.052, 0.026),
       new THREE.MeshBasicMaterial({ map: ttex, transparent: true })
     );
     tag.rotation.x = -Math.PI / 2;
-    tag.position.set(x, h + 0.007, 0.028);
+    tag.position.set(x, h + 0.008, d * 0.30);
     g.add(tag);
 
-    slots.push({ diameterMm: dm, ball, homeLocal: homeLocal.clone(), br });
+    slots.push({ diameterMm: dm, ball, homeLocal: homeLocal.clone(), br, hitProxy: hit });
   });
 
   const lid = new THREE.Mesh(
-    new THREE.BoxGeometry(w, 0.006, d),
+    new THREE.BoxGeometry(w, 0.008, d),
     new THREE.MeshStandardMaterial({
-      color: 0x343e54,
-      metalness: 0.05,
-      roughness: 0.75,
+      color: 0x334155,
+      metalness: 0.1,
+      roughness: 0.65,
     })
   );
-  lid.position.set(0, h + 0.02, -d * 0.55);
-  lid.rotation.x = -1.05;
+  lid.position.set(0, h + 0.035, -d * 0.52);
+  lid.rotation.x = -1.15;
   g.add(lid);
 
   const plate = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.12, 0.018),
+    new THREE.PlaneGeometry(0.24, 0.030),
     new THREE.MeshBasicMaterial({
-      map: createLabelTexture('STEEL BALLS', '点击取球 · ρ=7.80'),
+      map: createLabelTexture('STEEL BALLS', '标准精密钢球组 · 拖拽投放'),
       transparent: true,
     })
   );
@@ -1146,14 +1154,13 @@ export const viscosity = {
     const gateHi = stand.gateHi;
     const gateLo = stand.gateLo;
 
-    // 台面辅件：钢球盒与量筒共轴对齐（同一 z，沿 +x 排列：盒 → 立柱 → 量筒）
+    // 台面辅件：钢球盒与量筒共轴对齐（同在 Z = cylZ 垂直工作平面内）
     const ballCase = buildBallCase(CASE_BALL_MM);
-    const caseW = 0.2;
-    // 立柱在 originX，量筒在 cylX；盒子放在立柱左侧，中心 z 与量筒一致
-    const caseX = originX - 0.22 - caseW / 2;
+    const caseW = 0.38;
+    const caseX = originX - 0.28 - caseW / 2;
     const caseZ = cylZ;
     ballCase.group.position.set(caseX, by, caseZ);
-    ballCase.group.rotation.y = 0; // 正面朝 +Z，与标尺/量筒同向
+    ballCase.group.rotation.y = 0;
     ballCase.slots.forEach((slot) => {
       slot.ball.userData.interactive = true;
       slot.ball.userData.role = 'mechanics_viscosity_ball';
@@ -1173,7 +1180,7 @@ export const viscosity = {
     // 活动钢球：视觉放大；初始在盒中时隐藏，取出后放漏斗口
     function visRadiusFor(dm) {
       const rr = dm / 2000;
-      return Math.min(innerRVis * 0.32, Math.max(0.009, innerRVis * (rr / R) * 5.5));
+      return Math.min(innerRVis * 0.42, Math.max(0.012, innerRVis * (rr / R) * 4.8));
     }
     let rVis = visRadiusFor(params.diameterMm);
     const ball = steelBallMesh(rVis);
@@ -1870,8 +1877,54 @@ export const viscosity = {
       updateFormula();
     }
 
-    /** Host pointer-lock adapter: preserve the source pick → drag → release path. */
-    function beginHostBallDrag(dm = params._placedBallMm ?? params.diameterMm) {
+    /** Host pointer-lock adapter: track 3D crosshair raycast in world space and stick ball to crosshair in vertical plane */
+    const _invMat = new THREE.Matrix4();
+    const _localRayOrigin = new THREE.Vector3();
+    const _localRayDir = new THREE.Vector3();
+
+    function positionBallFromRay(raycaster, rootObj) {
+      if (!raycaster?.ray) return false;
+      if (rootObj) {
+        rootObj.updateMatrixWorld(true);
+        _invMat.copy(rootObj.matrixWorld).invert();
+        _localRayOrigin.copy(raycaster.ray.origin).applyMatrix4(_invMat);
+        _localRayDir.copy(raycaster.ray.direction).transformDirection(_invMat).normalize();
+      } else {
+        _localRayOrigin.copy(raycaster.ray.origin);
+        _localRayDir.copy(raycaster.ray.direction).normalize();
+      }
+
+      // Intersect with vertical plane Z = cylZ (perpendicular to ground, parallel to desk X axis)
+      const targetPlaneZ = cylZ;
+      if (Math.abs(_localRayDir.z) > 0.0001) {
+        const t = (targetPlaneZ - _localRayOrigin.z) / _localRayDir.z;
+        if (t > 0 && t < 30) {
+          const targetX = THREE.MathUtils.clamp(
+            _localRayOrigin.x + _localRayDir.x * t,
+            caseX - 0.25,
+            cylX + 0.35
+          );
+          const targetY = THREE.MathUtils.clamp(
+            _localRayOrigin.y + _localRayDir.y * t,
+            by + 0.02,
+            by + cyl.topY + 0.28
+          );
+          ball.position.set(targetX, targetY, targetPlaneZ);
+          return true;
+        }
+      }
+
+      // Fallback if ray is nearly parallel: project along ray
+      const fallbackT = THREE.MathUtils.clamp((targetPlaneZ - _localRayOrigin.z) / Math.min(-0.1, _localRayDir.z), 0.5, 3.0);
+      ball.position.set(
+        THREE.MathUtils.clamp(_localRayOrigin.x + _localRayDir.x * fallbackT, caseX - 0.25, cylX + 0.35),
+        THREE.MathUtils.clamp(_localRayOrigin.y + _localRayDir.y * fallbackT, by + 0.02, by + cyl.topY + 0.28),
+        targetPlaneZ
+      );
+      return true;
+    }
+
+    function beginHostBallDrag(dm = params._placedBallMm ?? params.diameterMm, context = {}, rootObj = null) {
       if (phase === 'falling') return false;
       const diameter = Number(dm);
       recomputePhysics(diameter);
@@ -1879,42 +1932,70 @@ export const viscosity = {
       if (diameterSlider) diameterSlider.value = diameter;
       const slot = ballCase.slots.find((s) => Math.abs(s.diameterMm - diameter) < 0.05);
       if (slot) slot.ball.visible = false;
-      hostDragStart = new THREE.Vector3(caseX, by + 0.12, caseZ);
+      hostDragStart = new THREE.Vector3(caseX, by + 0.06, cylZ);
       ball.visible = true;
-      ball.scale.setScalar(1.2);
+      ball.scale.setScalar(1.25);
       ball.position.copy(hostDragStart);
       phase = 'dragging';
       hostDragProgress = 0;
       vel = 0;
       engine.clearTrail(trail);
-      funnelHint.material.opacity = 0.4;
+      funnelHint.material.opacity = 0.45;
       step = Math.max(step, 1);
       refreshWorkflow();
       updateFormula();
       syncCaseVisibility();
+
+      if (context?.raycaster) {
+        positionBallFromRay(context.raycaster, rootObj);
+      }
       return true;
     }
 
-    function updateHostBallDrag(totalX = 0, totalY = 0) {
+    function updateHostBallDrag(totalX = 0, totalY = 0, context = {}, rootObj = null) {
       if (phase !== 'dragging') return false;
-      hostDragProgress = THREE.MathUtils.clamp(
-        Math.max(Math.abs(Number(totalX) || 0) / 150, Math.abs(Number(totalY) || 0) / 110),
-        0,
-        1,
-      );
-      const target = new THREE.Vector3(cylX, dropY, cylZ);
-      ball.position.lerpVectors(hostDragStart, target, hostDragProgress);
-      ball.position.y += Math.sin(hostDragProgress * Math.PI) * 0.16;
-      funnelHint.material.opacity = 0.4 + hostDragProgress * 0.55;
-      funnelHint.material.color.setHex(hostDragProgress >= 0.55 ? 0x6dffb0 : 0x5ec8ff);
+      let rayMoved = false;
+      if (context?.raycaster) {
+        rayMoved = positionBallFromRay(context.raycaster, rootObj);
+      }
+
+      if (!rayMoved) {
+        hostDragProgress = THREE.MathUtils.clamp(
+          Math.max(Math.abs(Number(totalX) || 0) / 150, Math.abs(Number(totalY) || 0) / 110),
+          0,
+          1,
+        );
+        const target = new THREE.Vector3(cylX, dropY, cylZ);
+        ball.position.lerpVectors(hostDragStart, target, hostDragProgress);
+      }
+
+      const funnelMouthY = by + cyl.topY;
+      const dX = Math.abs(ball.position.x - cylX);
+      const dY = ball.position.y - funnelMouthY;
+      const isNearFunnel = dX < 0.14 && dY >= -0.06 && dY <= 0.26;
+
+      // Magnetic snap effect when close to funnel mouth
+      if (dX < 0.06 && dY >= -0.04 && dY <= 0.16) {
+        ball.position.x = THREE.MathUtils.lerp(ball.position.x, cylX, 0.45);
+        ball.position.y = THREE.MathUtils.lerp(ball.position.y, funnelMouthY + 0.02, 0.45);
+      }
+
+      funnelHint.material.opacity = isNearFunnel ? 0.95 : 0.45;
+      funnelHint.material.color.setHex(isNearFunnel ? 0x4ade80 : 0x38bdf8);
       return true;
     }
 
-    function endHostBallDrag(cancelled = false) {
+    function endHostBallDrag(cancelled = false, context = {}, rootObj = null) {
       if (phase !== 'dragging') return false;
       ball.scale.setScalar(1);
       funnelHint.material.opacity = 0;
-      if (!cancelled && hostDragProgress >= 0.55) {
+
+      const funnelMouthY = by + cyl.topY;
+      const dX = Math.abs(ball.position.x - cylX);
+      const dY = ball.position.y - funnelMouthY;
+      const canDrop = !cancelled && dX < 0.16 && dY >= -0.08 && dY <= 0.30;
+
+      if (canDrop) {
         dropIntoCylinder(params._placedBallMm ?? params.diameterMm);
       } else {
         returnBallToCase();

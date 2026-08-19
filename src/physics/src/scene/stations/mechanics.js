@@ -113,9 +113,9 @@ export function createStationEquipment(ctx) {
     action: (id, action) => ensure(id)?.action(action) || false,
     updateSource: (id, dt) => ensure(id)?.update(dt),
     snapshot: (id) => ensure(id)?.snapshot(),
-    beginBallDrag: (diameterMm) => ensure('viscosity')?.beginBallDrag(diameterMm) || false,
-    updateBallDrag: (totalX, totalY) => ensure('viscosity')?.updateBallDrag(totalX, totalY) || false,
-    endBallDrag: (cancelled) => ensure('viscosity')?.endBallDrag(cancelled) || false,
+    beginBallDrag: (diameterMm, context) => ensure('viscosity')?.beginBallDrag(diameterMm, context) || false,
+    updateBallDrag: (totalX, totalY, context) => ensure('viscosity')?.updateBallDrag(totalX, totalY, context) || false,
+    endBallDrag: (cancelled, context) => ensure('viscosity')?.endBallDrag(cancelled, context) || false,
     get activeId() { return activeId; },
     sourceRuntimes: new Proxy(runtimes, {
       get(target, property) {

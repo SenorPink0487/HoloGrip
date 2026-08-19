@@ -3702,7 +3702,7 @@ function drawViscosityRecordsPanel(ctx, hits, cfg) {
     ctx, hits,
     px + panelW - pad - closeW, py + pad,
     closeW, closeH,
-    '✕ 关闭', 'viscosity-records-panel', { open: false },
+    '关闭', 'viscosity-records-panel', { open: false },
     accentHex, false, theme,
   );
 
@@ -3819,12 +3819,12 @@ function drawViscosityRecordsPanel(ctx, hits, cfg) {
 
   // Clear button inside modal
   const clearW = Math.round(110 * scale);
-  const clearH = Math.round(36 * scale);
+  const clearH = Math.round(34 * scale);
   drawPremiumHoloButton(
     ctx, hits,
     px + panelW - pad - clearW - 8, sumY + (sumH - clearH) / 2,
     clearW, clearH,
-    '🗑 清空数据', 'mechanics-source-action', { id: 'clear' },
+    '清空记录', 'mechanics-source-action', { id: 'clear' },
     '#f87171', false, theme,
   );
 }
@@ -3906,7 +3906,7 @@ function drawViscosityExperiment(ctx, _W, _H, cfg) {
   ctx.fillText(hintText, x + Math.round(280 * scale), cy + stepHeaderH / 2);
 
   // Status Badge on Right
-  const badgeW = Math.round(170 * scale);
+  const badgeW = Math.round(160 * scale);
   const badgeH = Math.round(30 * scale);
   const badgeX = x + w - badgeW;
   const badgeY = cy + (stepHeaderH - badgeH) / 2;
@@ -3943,7 +3943,7 @@ function drawViscosityExperiment(ctx, _W, _H, cfg) {
   ctx.fillStyle = badgeColor;
   ctx.font = `bold ${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
   ctx.textAlign = 'center';
-  ctx.fillText(`● ${posItem}`, badgeX + badgeW / 2, badgeY + badgeH / 2);
+  ctx.fillText(posItem, badgeX + badgeW / 2, badgeY + badgeH / 2);
 
   cy += stepHeaderH + dynGap;
 
@@ -4070,7 +4070,7 @@ function drawViscosityExperiment(ctx, _W, _H, cfg) {
     drawPremiumHoloButton(
       ctx, hits,
       chipX, cy, liqChipW, chipH,
-      `${active ? '✓ ' : ''}${opt.label}`,
+      opt.label,
       'mechanics-source-select',
       { key: 'liquid', value: opt.key },
       accentHex,
@@ -4088,49 +4088,49 @@ function drawViscosityExperiment(ctx, _W, _H, cfg) {
 
   const actionButtons = [
     {
-      label: '⬇ 释放钢球',
+      label: '释放钢球',
       action: 'mechanics-source-action',
       meta: { id: 'drop' },
       active: canDrop,
       color: accentHex,
     },
     {
-      label: '↩ 放回球盒',
+      label: '放回球盒',
       action: 'mechanics-source-action',
       meta: { id: 'returnBtn' },
       active: false,
       color: accentHex,
     },
     {
-      label: '📝 记录数据',
+      label: '记录数据',
       action: 'mechanics-source-action',
       meta: { id: 'record' },
       active: canRecord,
       color: '#34d399',
     },
     {
-      label: records.length ? `📊 数据表 (${records.length})` : '📊 数据表',
+      label: records.length ? `数据表 (${records.length})` : '数据表',
       action: 'viscosity-records-panel',
       meta: { open: !panelOpen },
       active: panelOpen || records.length > 0,
       color: accentHex,
     },
     {
-      label: '🗑 清空',
+      label: '清空数据',
       action: 'mechanics-source-action',
       meta: { id: 'clear' },
       active: false,
       color: '#f87171',
     },
     {
-      label: d.paused ? '▶ 继续' : '⏸ 暂停',
+      label: d.paused ? '继续' : '暂停',
       action: 'mechanics-source-pause',
       meta: {},
       active: !!d.paused,
       color: accentHex,
     },
     {
-      label: '🔄 重置',
+      label: '重置',
       action: 'mechanics-source-reset',
       meta: {},
       active: false,

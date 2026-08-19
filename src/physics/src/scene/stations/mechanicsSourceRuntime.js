@@ -445,16 +445,16 @@ export class MechanicsSourceRuntime {
     return !!this.instance?.hostAction?.(action);
   }
 
-  beginBallDrag(diameterMm) {
-    return !!this.instance?.beginHostBallDrag?.(diameterMm);
+  beginBallDrag(diameterMm, context = {}) {
+    return !!this.instance?.beginHostBallDrag?.(diameterMm, context, this.root);
   }
 
-  updateBallDrag(totalX, totalY) {
-    return !!this.instance?.updateHostBallDrag?.(totalX, totalY);
+  updateBallDrag(totalX, totalY, context = {}) {
+    return !!this.instance?.updateHostBallDrag?.(totalX, totalY, context, this.root);
   }
 
-  endBallDrag(cancelled) {
-    return !!this.instance?.endHostBallDrag?.(cancelled);
+  endBallDrag(cancelled, context = {}) {
+    return !!this.instance?.endHostBallDrag?.(cancelled, context, this.root);
   }
 
   update(dt) {

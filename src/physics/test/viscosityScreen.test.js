@@ -126,3 +126,44 @@ test('drawHoloScreen renders viscosity content screen with rich controls and hit
   const panelToggleHit = hits.find((h) => h.action === 'viscosity-records-panel');
   assert.ok(panelToggleHit, 'Should have data records panel toggle button');
 });
+
+test('viscosity ball supports 3D raycaster crosshair drag and drop into cylinder', () => {
+  const events = [];
+  const ctx = createContext({
+    expId: 'viscosity',
+    stepId: 'ball',
+    equipment: {
+      mechanics: {
+        beginBallDrag: (diameter, context) => {
+          events.push(['begin', diameter, !!context.raycaster]);
+          return true;
+        },
+        updateBallDrag: (totalX, totalY, context) => {
+          events.push(['update', totalX, totalY, !!context.raycaster]);
+          return true;
+        },
+        endBallDrag: (cancelled, context) => {
+          events.push(['end', cancelled, !!context.raycaster]);
+          return true;
+        },
+        snapshot: () => ({ params: { diameterMm: 2.5 }, readouts: [], paused: false }),
+      },
+    },
+  });
+
+  const handlers = createMechanicsHandlers(ctx);
+  ctx.state.data = handlers.initData('viscosity');
+
+  const fakeRaycaster = { ray: { origin: { x: 0, y: 1.2, z: 0 }, direction: { x: 0, y: -0.5, z: -1 } } };
+  const target = { userData: { role: 'mechanics_viscosity_ball', diameterMm: 2.5 } };
+
+  assert.equal(handlers.beginManipulation(target, { raycaster: fakeRaycaster }), true);
+  assert.equal(handlers.updateManipulation(target, { raycaster: fakeRaycaster }), true);
+  assert.equal(handlers.endManipulation(target, { raycaster: fakeRaycaster, dragged: true }), true);
+
+  assert.deepEqual(events, [
+    ['begin', 2.5, true],
+    ['update', 0, 0, true],
+    ['end', false, true],
+  ]);
+});

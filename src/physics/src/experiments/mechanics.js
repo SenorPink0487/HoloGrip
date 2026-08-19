@@ -268,10 +268,10 @@ export function createHandlers(ctx) {
     const role = target?.userData?.role;
     if (state.expId === 'viscosity' && role === 'mechanics_viscosity_ball') {
       const diameterMm = Number(target.userData.diameterMm || state.data.params?.diameterMm || 2.5);
-      const ok = equipment.mechanics?.beginBallDrag?.(diameterMm);
+      const ok = equipment.mechanics?.beginBallDrag?.(diameterMm, context);
       if (ok) {
         manipulation = { kind: 'viscosityBall', target, diameterMm };
-        toast('拖动钢球至量筒漏斗，松开完成投放');
+        toast('按住鼠标拖动钢球至量筒漏斗口，松开释放');
       }
       return !!ok;
     }
@@ -285,7 +285,7 @@ export function createHandlers(ctx) {
   function updateManipulation(_target, context = {}) {
     if (!manipulation) return false;
     if (manipulation.kind === 'viscosityBall') {
-      equipment.mechanics?.updateBallDrag?.(context.totalX || 0, context.totalY || 0);
+      equipment.mechanics?.updateBallDrag?.(context.totalX || 0, context.totalY || 0, context);
       mergeSnapshot(equipment.mechanics?.snapshot?.('viscosity'));
     }
     return true;
@@ -296,7 +296,7 @@ export function createHandlers(ctx) {
     const active = manipulation;
     manipulation = null;
     if (active.kind === 'viscosityBall') {
-      equipment.mechanics?.endBallDrag?.(!!context.cancelled || !context.dragged);
+      equipment.mechanics?.endBallDrag?.(!!context.cancelled, context);
       mergeSnapshot(equipment.mechanics?.snapshot?.('viscosity'), true);
       return true;
     }
