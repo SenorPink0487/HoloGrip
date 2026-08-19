@@ -7,6 +7,14 @@
 import { apiUrl } from '../lib/apiOrigin.ts'
 
 const IS_IPAD_BUILD = import.meta.env.HOLO_TARGET === 'ipad'
+const CHEM_API_ORIGIN = String(import.meta.env.VITE_API_ORIGIN || 'https://hologrip.cn').replace(/\/+$/, '')
+
+function chemApiUrl(path) {
+  // Tauri iPad builds must never depend on the WebView origin (tauri:// or
+  // asset://). Keep the web fallback on the same absolute remote ingress as
+  // the native command, while normal website builds remain same-origin.
+  return IS_IPAD_BUILD ? `${CHEM_API_ORIGIN}${path}` : apiUrl(path)
+}
 
 function isTauri() {
   return (
@@ -22,11 +30,11 @@ export async function resolveWithDeepSeek(query) {
   // iPad 与网页统一走 hologrip.cn 的服务端代理；桌面端仍可优先尝试本地 Tauri 命令。
   // 宿主 monorepo 的 Tauri 未必注册 resolve_molecule；失败时回退 Web 代理。
   let data
-  if (isTauri() && !IS_IPAD_BUILD) {
+  if (isTauri()) {
     try {
       data = await resolveViaTauri(query)
     } catch (err) {
-      console.warn('[deepseek] Tauri invoke 失败，回退 Web 代理', err)
+      console.warn(`[deepseek] ${IS_IPAD_BUILD ? 'iPad' : 'Tauri'} native invoke 失败，回退 Web 代理`, err)
       data = await resolveViaWebProxy(query)
     }
   } else {
@@ -56,13 +64,17 @@ export async function resolveWithDeepSeek(query) {
  * @param {string} condition
  */
 export async function resolveReactionWithDeepSeek(reactants, condition = '') {
-  const res = await fetch(apiUrl('/api/resolve-reaction'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reactants, condition }),
-  })
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) throw new Error(data.error || `AI 反应判定失败 (${res.status})`)
+  let data
+  if (isTauri()) {
+    try {
+      data = await resolveViaTauriReaction(reactants, condition)
+    } catch (err) {
+      console.warn('[deepseek] Tauri reaction invoke 失败，回退 Web 代理', err)
+      data = await postJsonWithRetry('/api/resolve-reaction', { reactants, condition }, 'AI 反应判定失败')
+    }
+  } else {
+    data = await postJsonWithRetry('/api/resolve-reaction', { reactants, condition }, 'AI 反应判定失败')
+  }
   if (!data?.ok) throw new Error(data?.reason || 'AI 无法判定该反应。')
   return data
 }
@@ -83,21 +95,53 @@ async function resolveViaTauri(query) {
   }
 }
 
+async function resolveViaTauriReaction(reactants, condition) {
+  const { invoke } = await import('@tauri-apps/api/core')
+  return invoke('resolve_reaction', { reactants, condition })
+}
+
 /**
  * @param {string} query
  */
 async function resolveViaWebProxy(query) {
-  const res = await fetch(apiUrl('/api/resolve-molecule'), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query }),
-  })
+  return postJsonWithRetry('/api/resolve-molecule', { query }, 'AI 解析失败')
+}
 
-  const data = await res.json().catch(() => ({}))
-  if (!res.ok) {
-    throw new Error(data.error || `AI 解析失败 (${res.status})`)
+/**
+ * DeepSeek 偶尔会返回格式异常的响应，生产代理会短暂返回 5xx。
+ * 对这类瞬时失败自动重试，避免用户需要重复点击 AI 解析。
+ * @param {string} path
+ * @param {object} body
+ * @param {string} label
+ */
+async function postJsonWithRetry(path, body, label) {
+  const retryable = new Set([408, 425, 429, 500, 502, 503, 504])
+  const delays = [450, 1000]
+  let lastError
+
+  for (let attempt = 0; attempt <= delays.length; attempt += 1) {
+    try {
+      const res = await fetch(chemApiUrl(path), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) return data
+
+      const error = new Error(data.error || `${label} (${res.status})`)
+      error.status = res.status
+      lastError = error
+      if (!retryable.has(res.status) || attempt === delays.length) throw error
+    } catch (error) {
+      lastError = error
+      if (attempt === delays.length || (error?.status && !retryable.has(error.status))) throw error
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, delays[attempt]))
   }
-  return data
+
+  throw lastError || new Error(`${label}（未知错误）`)
 }
 
 /**

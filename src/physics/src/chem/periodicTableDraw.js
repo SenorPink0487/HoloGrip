@@ -736,19 +736,33 @@ export function pickChemHits(hits, u, v, W, H) {
   }
   const px = u * W;
   const py = (1 - v) * H;
+  const mirroredPy = v * H;
   const pad = 12;
+
+  const inRegion = (h, y) => (
+    px >= h.x - pad
+    && px <= h.x + h.w + pad
+    && y >= h.y - pad
+    && y <= h.y + h.h + pad
+  );
 
   // 1. Check specific interactive UI actions (e.g. chem-show-component, chem-pick-element)
   for (let i = hits.length - 1; i >= 0; i -= 1) {
     const h = hits[i];
     if (h.role === 'scrollable_components' || h.action === 'chem-scroll-right') continue;
-    if (
-      px >= h.x - pad
-      && px <= h.x + h.w + pad
-      && py >= h.y - pad
-      && py <= h.y + h.h + pad
-    ) {
+    if (inRegion(h, py)) {
       return { ...h, px, py };
+    }
+  }
+
+  // Some iPad/WebView + Three.js combinations report the plane UV v-axis
+  // opposite to the CanvasTexture drawing axis. Keep the two bottom search
+  // buttons usable in that path without mirroring the whole picker UI.
+  for (let i = hits.length - 1; i >= 0; i -= 1) {
+    const h = hits[i];
+    if (!/^chem-search-(focus|voice|submit)$/.test(h.action || '')) continue;
+    if (inRegion(h, mirroredPy)) {
+      return { ...h, px, py: mirroredPy, uvMirrored: true };
     }
   }
 
@@ -756,12 +770,7 @@ export function pickChemHits(hits, u, v, W, H) {
   for (let i = hits.length - 1; i >= 0; i -= 1) {
     const h = hits[i];
     if (h.role !== 'scrollable_components' && h.action !== 'chem-scroll-right') continue;
-    if (
-      px >= h.x - pad
-      && px <= h.x + h.w + pad
-      && py >= h.y - pad
-      && py <= h.y + h.h + pad
-    ) {
+    if (inRegion(h, py)) {
       return { ...h, px, py };
     }
   }

@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use tauri::{Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 
 mod ai;
+mod chem;
 mod local_store;
 
 /// 把任何错误映射成可序列化的字符串，方便前端 invoke 直接拿到。
@@ -188,6 +189,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             parse_geometry_image,
+            chem::resolve_molecule,
+            chem::resolve_reaction,
             list_ai_models,
             save_ai_model,
             delete_ai_model,
