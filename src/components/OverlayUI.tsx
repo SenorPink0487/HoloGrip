@@ -557,7 +557,7 @@ export function OverlayUI() {
               {getModelDimensionParams(activeModel).map(param => (
                 <div 
                   key={param.key} 
-                  className="flex items-center gap-2.5 sm:gap-3 bg-white/10 border border-white/20 px-4 py-2 rounded-full backdrop-blur-md shadow-lg"
+                  className="flex items-center gap-2.5 sm:gap-3 bg-white/10 px-4 py-2 rounded-full backdrop-blur-md shadow-lg"
                 >
                   <span className="text-white font-mono text-sm font-bold select-none min-w-[14px] text-center">{param.label}</span>
                   <button
@@ -656,8 +656,9 @@ export function OverlayUI() {
             {/* Draw Lines */}
             <button 
               onClick={() => {
-                setLineDrawingActive(!isLineDrawingActive);
-                if (!isLineDrawingActive && isEraser) setIsEraser(false);
+                const next = !useARStore.getState().isLineDrawingActive;
+                setLineDrawingActive(next);
+                if (next && isEraser) setIsEraser(false);
               }}
               className={cn(
                 "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90 cursor-pointer",
@@ -672,8 +673,9 @@ export function OverlayUI() {
 
             <button 
               onClick={() => {
-                setXYZDrawingActive(!isXYZDrawingActive);
-                if (!isXYZDrawingActive && isEraser) setIsEraser(false);
+                const next = !useARStore.getState().isXYZDrawingActive;
+                setXYZDrawingActive(next);
+                if (next && isEraser) setIsEraser(false);
               }}
               className={cn(
                 "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90 cursor-pointer",
@@ -693,7 +695,9 @@ export function OverlayUI() {
 
             <button 
               onClick={() => {
-                setSectionPlaneActive(!isSectionPlaneActive);
+                const next = !useARStore.getState().isSectionPlaneActive;
+                setSectionPlaneActive(next);
+                if (next && isEraser) setIsEraser(false);
               }}
               className={cn(
                 "relative group shrink-0 p-3 sm:p-4 rounded-full transition-all duration-300 ease-[cubic-bezier(0.25,1,0.5,1)] active:scale-90 cursor-pointer",

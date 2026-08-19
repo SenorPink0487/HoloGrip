@@ -567,8 +567,12 @@ export function MathModel() {
     const sectionDraft = store.sectionDraftPoints;
     const sectionPlanesStore = store.sectionPlanes;
 
-    // 连线 / XYZ / 剖切 任一激活时允许顶点吸附与拾取
-    if ((isLineDrawingActive || isXYZDrawingActive || isSectionPlaneActive) && !isEraser && rightHand.isVisible && !leftPinching) {
+    // 检查光标是否悬停在 2D UI (按钮、面板、Dock、输入框等) 上，避免 3D 拾取与 2D 点击冲突
+    const elUnderCursor = document.elementFromPoint(rightHand.pixelCursor.x, rightHand.pixelCursor.y);
+    const isOverUI = elUnderCursor ? (elUnderCursor.closest('button, input, [role="button"], .pointer-events-auto') !== null) : false;
+
+    // 连线 / XYZ / 剖切 任一激活时允许顶点吸附与拾取 (光标在 2D UI 面板上时优先 2D UI)
+    if ((isLineDrawingActive || isXYZDrawingActive || isSectionPlaneActive) && !isEraser && rightHand.isVisible && !leftPinching && !isOverUI) {
       raycaster.setFromCamera(rightHand.cursor, camera);
       const ray = raycaster.ray;
 
@@ -610,7 +614,7 @@ export function MathModel() {
         let closestDistSq = Infinity;
         let matchedSnapLabel: string | null = null;
         
-        const checkSnapPoint = (vLocal: THREE.Vector3, typeLabel: string) => {
+        const checkSnapPoint = (vLocal: THREE.Vector3, typeLabel: string, customThreshSq?: number) => {
           const vWorld = vLocal.clone().applyMatrix4(meshRef.current!.matrixWorld);
           
           // To ensure we don't snap to vertices behind the camera
@@ -626,14 +630,22 @@ export function MathModel() {
           const dy = vNDC.y - rightHand.cursor.y;
           const distSq = dx*dx + dy*dy;
           
-          // NDC 距离阈值：sqrt(0.0035) ≈ 0.06，约 6% 屏幕高度。
-          if (distSq < 0.0035 && distSq < closestDistSq) {
+          const maxThresh = customThreshSq ?? 0.0035;
+          // NDC 距离阈值：默认 sqrt(0.0035) ≈ 0.06，约 6% 屏幕高度。
+          if (distSq < maxThresh && distSq < closestDistSq) {
             closestDistSq = distSq;
             closestVertLocal.copy(vLocal);
             foundVertex = true;
             matchedSnapLabel = typeLabel;
           }
         };
+
+        // 0. 剖切模式：当已确定>=3个点时，优先对起点赋予高灵敏度磁吸（绘制第4点或闭合点时自动吸附回起点）
+        if (isSectionPlaneActive && sectionDraft.length >= 3) {
+          const startPt = new THREE.Vector3(sectionDraft[0].x, sectionDraft[0].y, sectionDraft[0].z);
+          // 0.0075 约 8.7% 屏高磁吸半径，保证用户接近起点时顺畅吸附
+          checkSnapPoint(startPt, '闭合剖切面（回到起点）', 0.0075);
+        }
 
         // 1. 离散几何特征点吸附（最高优先级：模型顶点、已有线段端点、整数分段点、延长线端点、线线交点）
         for (let i = 0; i < snapPointsRef.current.length; i++) {
@@ -979,17 +991,18 @@ export function MathModel() {
           // 剖切模式：未命中棱边/连线则不落点（禁止自由空间拾取）
         }
 
-        // 剖切模式：落点确定后检测是否贴近首点，可闭合成面
+        // 剖切模式：落点确定后检测是否命中首点，可闭合成面
         let canCloseSection = false;
         if (isSectionPlaneActive && foundVertex && sectionDraft.length >= 3) {
           const first = sectionDraft[0];
+          const firstVec = new THREE.Vector3(first.x, first.y, first.z);
           const closeDistSq =
             (closestVertLocal.x - first.x) ** 2 +
             (closestVertLocal.y - first.y) ** 2 +
             (closestVertLocal.z - first.z) ** 2;
-          if (closeDistSq < 0.08 * 0.08) {
+          if (matchedSnapLabel === '闭合剖切面（回到起点）' || closeDistSq < 1e-4) {
             canCloseSection = true;
-            closestVertLocal.set(first.x, first.y, first.z);
+            closestVertLocal.copy(firstVec);
             matchedSnapLabel = '闭合剖切面（回到起点）';
           }
         }
@@ -1008,12 +1021,13 @@ export function MathModel() {
             hoverSphereRef.current.visible = true;
             
             const t = Math.max(0, Math.min(1, (rightHand.pinchDistance - 0.03) / 0.1));
-            const scale = 0.02 + (t * 0.02);
+            const baseScale = canCloseSection ? 0.035 : 0.02;
+            const scale = baseScale + (t * 0.02);
             hoverSphereRef.current.scale.set(scale, scale, scale);
             
             const material = hoverSphereRef.current.material as THREE.MeshBasicMaterial;
             if (canCloseSection) {
-              material.color.setHex(0xfde047); // 亮黄：可闭合
+              material.color.setHex(0xfde047); // 亮黄高亮：回到起点闭合成面
             } else if (rightPinching) {
                material.color.setHex(isSectionPlaneActive ? 0xfacc15 : 0x22d3ee); 
             } else {
@@ -1696,7 +1710,7 @@ export function MathModel() {
                   </mesh>
                 )}
                 {/* 长度标注 */}
-                {line.showLength && (
+                {showAllLengths && line.showLength && (
                   <LineLengthLabel
                     p1={p1}
                     p2={p2}

@@ -49,6 +49,26 @@ export function createEquipmentRuntime({
       if (scene?.add && target && target.parent !== scene) scene.add(target);
       if (target) target.visible = true;
       target?.updateWorldMatrix?.(true, true);
+      // The shared prepare scene also contains chrome clones for intent
+      // prediction. They are useful for a focused card prewarm, but compiling
+      // every station's controls for each runtime makes an active A→B switch
+      // pay for hundreds of unrelated meshes. Isolate the incoming apparatus;
+      // labShell compiles the committed chrome once after activation.
+      const hiddenPrepareObjects = [];
+      const belongsToTarget = (object) => {
+        let parent = object;
+        while (parent) {
+          if (parent === target) return true;
+          parent = parent.parent;
+        }
+        return false;
+      };
+      scene?.traverse?.((object) => {
+        if (object === target || object.isLight || belongsToTarget(object)) return;
+        if (!('visible' in object) || !object.visible) return;
+        hiddenPrepareObjects.push([object, object.visible]);
+        object.visible = false;
+      });
       try {
         const compileStart = gpuTrace ? performance.now() : 0;
         const programCountBefore = gpuTrace ? (renderer?.info?.programs?.length || 0) : 0;
@@ -74,15 +94,17 @@ export function createEquipmentRuntime({
           }));
         }
       } finally {
+        hiddenPrepareObjects.forEach(([object, value]) => { object.visible = value; });
         if (previousParent && target?.parent !== previousParent) previousParent.add(target);
         else if (!previousParent && target?.parent === scene) scene?.remove?.(target);
         if (target && previousVisible !== undefined) target.visible = previousVisible;
       }
       // compileAsync creates program objects, but ANGLE can still defer the
-      // first actual draw/buffer upload until render(). Do one 1x1 render of
-      // the real lab scene while the selected rig is still hidden from the
-      // learner. This warms the exact first-frame path without touching the
-      // visible canvas framebuffer.
+      // first actual draw/buffer upload until render(). Draw only the isolated
+      // prepare scene here. Rendering compileTargetScene would traverse the
+      // entire room on every experiment switch and turn a background GPU
+      // prepare into a multi-second synchronous stall; labShell performs one
+      // shared default-framebuffer warm draw after the final visual commit.
       if (offscreenTarget && compileTargetScene && typeof renderer?.render === 'function') {
         const previousTarget = renderer.getRenderTarget?.() || null;
         const previousViewport = renderer.getViewport?.(new THREE.Vector4()) || null;
@@ -106,7 +128,7 @@ export function createEquipmentRuntime({
           renderer.setScissorTest?.(false);
           renderer.clear?.();
           const hiddenRenderStart = gpuTrace ? performance.now() : 0;
-          renderer.render(compileTargetScene, camera);
+          renderer.render(scene || compileTargetScene, camera);
           if (gpuTrace) {
             console.warn('[gpu-prewarm-render-trace]', JSON.stringify({
               id,

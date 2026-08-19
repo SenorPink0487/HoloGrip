@@ -232,55 +232,67 @@ export function ARExperience({ stageRef }: ARExperienceProps) {
         // @ts-expect-error - cursor is copied into THREE.Vector2 in the store.
         updateHands(leftNode, rightNode);
 
-        const arState = useARStore.getState();
-        const isAnyPanelOpen = arState.isModelPanelOpen || arState.isPenPanelOpen;
-        const rightHandCanClick =
-          isAnyPanelOpen ||
-          (!arState.isPenActive &&
-            !arState.isLineDrawingActive &&
-            !arState.isXYZDrawingActive &&
-            !arState.isSectionPlaneActive);
-
-        const triggerSyntheticClick = (x: number, y: number) => {
+        const triggerSyntheticClick = (x: number, y: number): boolean => {
           const stage = stageRef.current;
           const rect = stage?.getBoundingClientRect();
           const cx = (rect?.left ?? 0) + x;
           const cy = (rect?.top ?? 0) + y;
+          
+          // 1. 直接命中检测
           let el = document.elementFromPoint(cx, cy);
+          let btn: HTMLElement | null = el
+            ? (el.tagName.toLowerCase() === 'button' ? (el as HTMLElement) : (el.closest('button') as HTMLElement | null))
+            : null;
 
-          // 若直接拾取未命中按钮，检查 20px 容差范围内的所有按钮
-          if (!el || el.tagName.toLowerCase() === 'div') {
-            const buttons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
-            for (const btn of buttons) {
-              const bRect = btn.getBoundingClientRect();
-              if (
-                cx >= bRect.left - 15 &&
-                cx <= bRect.right + 15 &&
-                cy >= bRect.top - 15 &&
-                cy <= bRect.bottom + 15
-              ) {
-                el = btn;
-                break;
+          // 2. 磁吸检测：若未直接点中按钮，在 35px 手势容差范围内寻找最近的可交互按钮
+          if (!btn) {
+            const allButtons = Array.from(document.querySelectorAll('button')) as HTMLButtonElement[];
+            let closestBtn: HTMLButtonElement | null = null;
+            let minDistanceSq = Infinity;
+            const MAX_RADIUS = 36; // 36px 磁吸手势容差
+
+            for (const b of allButtons) {
+              if (b.disabled || b.offsetParent === null) continue;
+              const bRect = b.getBoundingClientRect();
+              if (bRect.width === 0 || bRect.height === 0) continue;
+
+              const clampX = Math.max(bRect.left, Math.min(cx, bRect.right));
+              const clampY = Math.max(bRect.top, Math.min(cy, bRect.bottom));
+              const dx = cx - clampX;
+              const dy = cy - clampY;
+              const distSq = dx * dx + dy * dy;
+
+              if (distSq <= MAX_RADIUS * MAX_RADIUS && distSq < minDistanceSq) {
+                minDistanceSq = distSq;
+                closestBtn = b;
               }
+            }
+
+            if (closestBtn) {
+              btn = closestBtn;
             }
           }
 
-          if (!el) return;
-          const btn = el.tagName.toLowerCase() === 'button' ? el : el.closest('button');
-          const target = btn ?? el;
-          const event = new MouseEvent('click', {
-            view: window,
-            bubbles: true,
-            cancelable: true,
-            clientX: cx,
-            clientY: cy,
-          });
-          target.dispatchEvent(event);
-          if (btn) {
-            const htmlEl = btn as HTMLElement;
-            htmlEl.style.transform = 'scale(0.88)';
-            setTimeout(() => (htmlEl.style.transform = ''), 150);
+          if (!btn) {
+            // 普通可点击控件（例如 input, a 标签）
+            if (el && (el.tagName.toLowerCase() === 'input' || el.tagName.toLowerCase() === 'a')) {
+              (el as HTMLElement).click?.();
+              return true;
+            }
+            return false;
           }
+
+          // 3. 派发单次真实点击（使用原生 .click() 确保 React 及各组件单一触发，防止 toggle 按钮二次翻转）
+          btn.click();
+
+          // 视觉点击缩放反馈
+          const prevTransform = btn.style.transform;
+          btn.style.transform = `${prevTransform ? prevTransform + ' ' : ''}scale(0.88)`;
+          setTimeout(() => {
+            btn.style.transform = prevTransform;
+          }, 150);
+
+          return true;
         };
 
         const checkSliderGesture = (
@@ -383,7 +395,7 @@ export function ARExperience({ stageRef }: ARExperienceProps) {
             triggerSyntheticClick(leftNode.pixelCursor.x, leftNode.pixelCursor.y);
           }
         }
-        if (rightHandCanClick && rightCanClick) {
+        if (rightCanClick) {
           const isPinchDown1 = rightNode.isPinched && !prevPinch1.current;
           const isSliderHandled = checkSliderGesture(
             rightNode.pixelCursor.x,

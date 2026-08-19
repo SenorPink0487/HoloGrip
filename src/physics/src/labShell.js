@@ -6782,14 +6782,19 @@ async function startExperimentSafe(expId) {
       }
       return false;
     }
-    // The transactional runtime is mounted/activated, while HUD state is
-    // still idle. Compile the exact visible graph before manager.startExperiment
-    // commits it. While compileAsync yields between GPU jobs, keep the old lab
-    // frame on screen; otherwise the new apparatus can appear ready and then
-    // block on its first post-process draw.
+    // Keep the old lab frame on screen while the runtime is mounted and the
+    // manager applies its initial visual state. The manager commit is cheap,
+    // but it changes material/maps and must happen before the final compile;
+    // compiling first leaves those new variants for the first visible frame.
     gpuPrepareInProgress = true;
+    let committed = false;
     try {
       ensureActiveApparatusVisible(stationId, expId, { includeChrome: true });
+      const commitStart = performance.now();
+      committed = (await expManager?.startExperiment?.(expId, { immediate: true })) !== false;
+      console.log(`[open-trace] manager commit dt=${(performance.now() - commitStart).toFixed(1)}ms`);
+      if (!committed) return false;
+
       switchLoader.setMessage(`正在完成 ${found?.experiment?.name || expId} 的图形编译…`);
       const sceneCompileStart = performance.now();
       try {
@@ -6799,12 +6804,11 @@ async function startExperimentSafe(expId) {
       }
       console.log(`[open-trace] visible scene compile dt=${(performance.now() - sceneCompileStart).toFixed(1)}ms`);
 
-      // compileAsync prepares programs but does not upload every geometry or
-      // execute the first real draw. Touch the exact active scene once in a
-      // 1×1 target while the guarded loader is still up; otherwise the first
-      // learner-visible frame still pays the buffer upload/draw-list stall.
+      // Upload the final active graph in small cooperative draws. A single
+      // full-scene render here can block ANGLE for seconds; these 1×1 slices
+      // keep the loader and input responsive while warming the same buffers.
       const drawWarmStart = performance.now();
-      prewarmVisibleSceneGpu();
+      await prewarmVisibleSceneGpu(stationId, expId);
       console.log(`[open-trace] visible scene draw prewarm dt=${(performance.now() - drawWarmStart).toFixed(1)}ms`);
 
       // renderer.compile() does not touch the fullscreen materials owned by
@@ -6816,20 +6820,11 @@ async function startExperimentSafe(expId) {
     } finally {
       gpuPrepareInProgress = false;
     }
-    // Never schedule prepareExperiment after click — Runtime prepare/prepareGpu
-    // already owns geometry + compileAsync/1x1. A post-click light prepare used
-    // to re-enter multi-second station work on the drain path.
-    const commitStart = performance.now();
-    // GPU preparation has already completed under the switch loader. Commit
-    // the small manager state/HUD transaction immediately instead of waiting
-    // for a later animation-frame scheduler pulse.
-    const committed = await expManager?.startExperiment?.(expId, { immediate: true });
-    console.log(`[open-trace] manager commit dt=${(performance.now() - commitStart).toFixed(1)}ms`);
-    if (committed !== false) {
+    if (committed) {
       // The manager's final visual step only marks the apparatus ready; the
-      // next composer/default-frame draw can still be the first expensive GPU
-      // present. Keep the experiment switch status visible through two frames
-      // so the learner never sees a loaded experiment that is still blocking.
+      // next default-frame draw can still be the first GPU present. Keep the
+      // switch status visible through one paint so the learner never sees a
+      // loaded experiment that is still blocking.
       switchLoader.setMessage(`正在显示 ${found?.experiment?.name || expId}…`);
       await nextPaint();
       preparedExperimentIds.add(expId);
@@ -6910,15 +6905,24 @@ async function compileVisibleExperimentGpu(stationId, expId) {
       renderer?.compile?.(root, camera, scene);
     }
   }
+
+  // The first present traverses the complete room, not only the active
+  // apparatus. Compile that exact scene graph while the switch loader still
+  // covers the canvas; otherwise static room materials that were not visible
+  // during boot all link on the first post-commit frame and freeze it.
+  scene.updateWorldMatrix?.(true, true);
+  if (typeof renderer?.compileAsync === 'function') {
+    await renderer.compileAsync(scene, camera, scene);
+  } else {
+    renderer?.compile?.(scene, camera, scene);
+  }
 }
 
-function prewarmVisibleSceneGpu() {
-  // Use the default framebuffer, not the intent 1×1 target. Three.js can
-  // select a different fragment-output variant for an offscreen target, so a
-  // target-only draw does not guarantee that the first canvas draw is warm.
-  // The switch loader remains visible and the guarded frame loop does not
-  // present concurrently, so this exact draw is preparation, not a partially
-  // interactive experiment frame.
+async function prewarmVisibleSceneGpu(stationId, expId) {
+  // Touch the complete visible graph through the default framebuffer while the
+  // switch loader is already painted. A 1×1 scissored draw still uploads the
+  // same programs, buffers and textures as the first canvas draw, without the
+  // fill-rate cost of rendering the room at its full resolution.
   if (typeof renderer?.render !== 'function') return;
 
   const previousTarget = renderer.getRenderTarget?.() || null;
@@ -6926,14 +6930,19 @@ function prewarmVisibleSceneGpu() {
   const previousScissor = renderer.getScissor?.(new THREE.Vector4()) || null;
   const previousScissorTest = renderer.getScissorTest?.();
   const previousAutoClear = renderer.autoClear;
+  const previousShadowAutoUpdate = renderer.shadowMap?.autoUpdate;
   try {
+    // Give the loader one compositor turn after the commit, then do the only
+    // synchronous driver call while gpuPrepareInProgress keeps the canvas
+    // hidden behind the switch state.
+    await yieldToBrowser(0);
     renderer.autoClear = true;
     renderer.setRenderTarget?.(null);
-    // The current viewport is already the live canvas viewport. Reassert it
-    // after the intent prewarm's offscreen render rather than shrinking this
-    // draw to 1×1.
-    if (previousViewport) renderer.setViewport?.(previousViewport);
-    renderer.setScissorTest?.(false);
+    renderer.setViewport?.(0, 0, 1, 1);
+    renderer.setScissor?.(0, 0, 1, 1);
+    renderer.setScissorTest?.(true);
+    if (renderer.shadowMap) renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = false;
     renderer.clear?.();
     renderer.render(scene, camera);
   } finally {
@@ -6942,6 +6951,9 @@ function prewarmVisibleSceneGpu() {
     if (previousScissor) renderer.setScissor?.(previousScissor);
     renderer.setScissorTest?.(!!previousScissorTest);
     renderer.autoClear = previousAutoClear;
+    if (renderer.shadowMap && previousShadowAutoUpdate !== undefined) {
+      renderer.shadowMap.autoUpdate = previousShadowAutoUpdate;
+    }
   }
 }
 
@@ -6955,6 +6967,30 @@ const intentPrewarmPromises = new Map();
 let focusedExperimentKey = null;
 let focusedExperimentTimer = 0;
 let activeIntentPrewarm = null;
+
+/**
+ * Clone a display/control graph for shader preparation without copying its
+ * live interaction bridge. These graphs keep Object3D references and
+ * callbacks in userData (including self-references), while Three.js' default
+ * Object3D.copy() serializes userData through JSON.stringify(). The prepare
+ * scene only needs geometry, materials, and textures, so an empty userData is
+ * the correct and safer representation for this offscreen clone.
+ */
+function cloneGpuPrepareGraph(source) {
+  if (!source?.clone || !source?.traverse) return null;
+  const userData = [];
+  source.traverse((object) => {
+    userData.push([object, object.userData]);
+    object.userData = {};
+  });
+  try {
+    return source.clone(true);
+  } finally {
+    userData.forEach(([object, value]) => {
+      object.userData = value;
+    });
+  }
+}
 
 function ensureIntentPrepareScene() {
   if (intentPrepareScene) return intentPrepareScene;
@@ -6973,13 +7009,13 @@ function ensureIntentPrepareScene() {
   // are compiled in the same transaction; otherwise the experiment appears
   // ready and the panel's first frame still stalls on a second shader burst.
   Object.entries(deskSliderPanels).forEach(([stationId, panel]) => {
-    const clone = panel?.clone?.(true);
+    const clone = cloneGpuPrepareGraph(panel);
     if (!clone) return;
     clone.name = `intent-warm-${stationId}-desk-sliders`;
     intentPrepareScene.add(clone);
   });
   Object.entries(stationDisplays).forEach(([stationId, display]) => {
-    const clone = display?.clone?.(true);
+    const clone = cloneGpuPrepareGraph(display);
     if (!clone) return;
     clone.name = `intent-warm-${stationId}-display`;
     intentPrepareScene.add(clone);
