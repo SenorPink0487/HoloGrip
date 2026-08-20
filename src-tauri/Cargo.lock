@@ -80,6 +80,7 @@ name = "app"
 version = "0.2.1"
 dependencies = [
  "anyhow",
+ "cc",
  "chrono",
  "log",
  "reqwest 0.12.28",

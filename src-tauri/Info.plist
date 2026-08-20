@@ -15,5 +15,9 @@
   <string>HoloMath 需要访问照片，以便上传几何题目图片并生成三维模型。</string>
   <key>NSPhotoLibraryAddUsageDescription</key>
   <string>HoloMath 需要保存处理后的几何图片和学习内容。</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>HoloGrip 需要使用麦克风，将说出的化学物质名称填入搜索框。</string>
+  <key>NSSpeechRecognitionUsageDescription</key>
+  <string>HoloGrip 使用系统语音识别，将化学物质名称转换为文字。</string>
 </dict>
 </plist>

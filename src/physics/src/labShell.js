@@ -78,10 +78,11 @@ const BOOT_STATION_IDS = stationIdsForMode(labMode);
 // Chemistry keeps several translucent panels and beaker layers visible at
 // once. Retina iPads otherwise render the whole lab at 2x–3x pixels, which is
 // disproportionate for this scene and makes touch interaction feel sticky.
-const chemTouchDisplay = chemMode && (
+const touchDisplay = (
   Number((typeof navigator !== 'undefined' && navigator.maxTouchPoints) || 0) > 0
   || ('ontouchstart' in window)
 );
+const chemTouchDisplay = chemMode && touchDisplay;
 const CHEM_PIXEL_RATIO_CAP = chemTouchDisplay ? 1.25 : null;
 
 /** Continuous track or discrete action chip on the tabletop desk panel. */
@@ -281,11 +282,29 @@ if (isTauri()) {
 //  Renderer — bright cinematic look
 // ═══════════════════════════════════════════════
 const canvas = document.getElementById('c');
+const isEditableTouchTarget = (target) => !!target?.closest?.(
+  'input, textarea, select, [contenteditable="true"]',
+);
+// iPadOS treats a sustained finger as text/image selection even inside some
+// WebView overlays. Suppress native selection/callouts across the lab while
+// preserving normal editing in the chemistry search input.
+document.addEventListener('contextmenu', (event) => {
+  if (!isEditableTouchTarget(event.target)) event.preventDefault();
+});
+document.addEventListener('selectstart', (event) => {
+  if (!isEditableTouchTarget(event.target)) event.preventDefault();
+});
+document.addEventListener('dragstart', (event) => {
+  if (!isEditableTouchTarget(event.target)) event.preventDefault();
+});
 // Keep compute off the UI thread on the web whenever Workers are available.
 // The backends still fall back to main when a browser/WebView refuses module
 // workers or SharedArrayBuffer.
-globalThis.__PHYSICS_BACKEND_MODE__ ??= 'auto';
-globalThis.__SIM_BACKEND_MODE__ ??= 'auto';
+// iPad WKWebView can construct a module Worker successfully yet stop
+// delivering pose batches after the app is backgrounded or the camera starts.
+// Use the deterministic main backend there; desktop/web retain worker auto mode.
+globalThis.__PHYSICS_BACKEND_MODE__ ??= touchDisplay ? 'main' : 'auto';
+globalThis.__SIM_BACKEND_MODE__ ??= touchDisplay ? 'main' : 'auto';
 globalThis.__SIM_WORKER_POOL_SIZE__ ??= 2;
 const renderer = new THREE.WebGLRenderer({
   canvas,
@@ -4791,6 +4810,13 @@ const unlockedElectroRaycaster = new THREE.Raycaster();
 const unlockedElectroPointer = new THREE.Vector2();
 let unlockedElectroDrag = null;
 let lastElectroPointerEventTime = 0;
+// iPad WebKit can emit a compatibility mouse sequence after a completed touch
+// pointer sequence. Screen buttons act on pointerdown for immediate feedback,
+// so accepting that synthetic mousedown would toggle discrete controls twice.
+let lastTouchPointerEventTime = -Infinity;
+function isChemSearchControlPick(pick) {
+  return /^chem-search-(focus|voice|submit)$/.test(String(pick?.action || ''));
+}
 function isHierarchyVisible(object) {
   let current = object;
   while (current) {
@@ -4814,11 +4840,15 @@ function unlockedElectroPick(event) {
   // front. A charge/probe closer on the same ray must win — otherwise aiming a
   // charge that overlaps the floating display "clicks through" to the UI.
   const holoControl = getAimedHoloControl(unlockedElectroRaycaster);
-  if (holoControl?.target && !apparatusBeatsHolo(livePick, holoControl)) {
+  if (
+    holoControl?.target
+    && (isChemSearchControlPick(holoControl.pick) || !apparatusBeatsHolo(livePick, holoControl))
+  ) {
     return {
       target: holoControl.target,
       raycaster: unlockedElectroRaycaster,
       holoControl: true,
+      pick: holoControl.pick || null,
     };
   }
   // Physical desk sliders (tabletop) — absolute track pick like content screens.
@@ -4879,6 +4909,9 @@ function unlockedElectroPick(event) {
 }
 canvas.addEventListener('pointerdown', (event) => {
   if (event.button !== 0 || controls.isLocked || holoFsState?.open) return;
+  if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+    lastTouchPointerEventTime = performance.now();
+  }
   const picked = unlockedElectroPick(event);
   if (!picked) return;
   // Content-screen / desk-slider UI: route through the normal screen path
@@ -4987,15 +5020,27 @@ function finishUnlockedElectroDrag(event, cancelled = false) {
 }
 window.addEventListener('pointerup', (event) => {
   if (event.button !== 0) return;
+  if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+    lastTouchPointerEventTime = performance.now();
+  }
   finishUnlockedElectroDrag(event);
 });
-window.addEventListener('pointercancel', (event) => finishUnlockedElectroDrag(event, true));
+window.addEventListener('pointercancel', (event) => {
+  if (event.pointerType === 'touch' || event.pointerType === 'pen') {
+    lastTouchPointerEventTime = performance.now();
+  }
+  finishUnlockedElectroDrag(event, true);
+});
 
 // Some desktop automation shells (and older embedded WebViews) expose the
 // legacy mouse stream without forwarding pointermove. Mirror the same bridge
 // for that path; ignore synthetic mouse events that immediately follow a
 // native pointer event so movement is not applied twice.
 canvas.addEventListener('mousedown', (event) => {
+  if (performance.now() - lastTouchPointerEventTime < 1000) {
+    event.preventDefault();
+    return;
+  }
   if (unlockedElectroDrag || event.button !== 0 || controls.isLocked || holoFsState?.open) return;
   const picked = unlockedElectroPick(event);
   if (!picked) return;
@@ -5321,6 +5366,9 @@ function getAimedHoloControl(rc) {
       best = {
         target: screen,
         hit: { object: screen, distance: aim.distance },
+        // Preserve the first discrete hit. Re-sampling a gently floating
+        // hologram later in the same noisy iPad gesture can miss small keys.
+        pick,
       };
     }
   }
@@ -5361,7 +5409,10 @@ function getFocusTarget(inputRaycaster = raycaster) {
   // Content UI wins only when it is clearly closer than live apparatus.
   // Otherwise aiming a charge that overlaps the floating screen clicks the UI.
   const holoControl = getAimedHoloControl(inputRaycaster);
-  if (holoControl?.target && !apparatusBeatsHolo(livePick, holoControl)) {
+  if (
+    holoControl?.target
+    && (isChemSearchControlPick(holoControl.pick) || !apparatusBeatsHolo(livePick, holoControl))
+  ) {
     return holoControl.target;
   }
 
@@ -5422,7 +5473,10 @@ function getHandFocusInfo(inputRaycaster, handNdc = null) {
   // Distance-aware: closer charge beats holo/desk on the same ray (matches
   // getFocusTarget / unlocked desktop pick).
   let priorityInteraction = null;
-  if (holoControl?.target && !apparatusBeatsHolo(livePick, holoControl)) {
+  if (
+    holoControl?.target
+    && (isChemSearchControlPick(holoControl.pick) || !apparatusBeatsHolo(livePick, holoControl))
+  ) {
     priorityInteraction = holoControl;
   } else if (deskControl?.target && !apparatusBeatsHolo(livePick, deskControl)) {
     priorityInteraction = deskControl;
@@ -5528,7 +5582,10 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
   if (aimedHoloControl?.target) {
     const probeHits = inputRaycaster.intersectObjects(interactables, true);
     const livePick = pickLiveElectroChargeHit(probeHits);
-    if (apparatusBeatsHolo(livePick, aimedHoloControl)) {
+    if (
+      !isChemSearchControlPick(aimedHoloControl.pick || directContext?.pick)
+      && apparatusBeatsHolo(livePick, aimedHoloControl)
+    ) {
       aimedHoloControl = null;
     }
   }
@@ -5542,11 +5599,11 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
     const isSelector = aimedHolo.userData.type === 'holo'
       || aimedHolo.userData.role === 'holo_selector';
     const screenLive = !!(aimedHolo.userData.active || aimedHolo.userData.present);
-    // Always try UV pick first — idle selectors return action:'activate'.
-    const pick = aimedHolo.userData.pickFromRay?.(inputRaycaster)
-      || (directContext?.pick && isParamSliderAction(directContext.pick?.action)
-        ? directContext.pick
-        : null);
+    // The pointer/hand acquisition pass already resolved the exact button.
+    // Use that stable result before asking a floating plane to sample again.
+    const pick = directContext?.pick
+      || aimedHoloControl?.pick
+      || aimedHolo.userData.pickFromRay?.(inputRaycaster);
     if (pick) {
       if (isParamSliderAction(pick.action)) {
         expManager.beginManipulation(aimedHolo, {
@@ -6029,7 +6086,7 @@ const arInteractionOptions = {
       direct: true,
       target,
       time: clock.elapsedTime,
-      pick: isDeskPanelPick(deskPick) ? deskPick : null,
+      pick: isDeskPanelPick(deskPick) ? deskPick : (holo?.pick || null),
     });
     // Stash resolved target so drag/end use the same object the click armed.
     if (hit && target && event) event.target = target;

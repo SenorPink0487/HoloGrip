@@ -11,7 +11,7 @@ import {
   K_COULOMB,
   chargeUiToCoulomb,
 } from '../src/experiments/electro.js';
-import { drawHoloScreen, getHoloScreenLayoutSize } from '../src/holoScreen.js';
+import { drawHoloScreen, getHoloScreenLayoutSize, pickHoloScreen } from '../src/holoScreen.js';
 
 function close(actual, expected, tolerance = 1e-6) {
   assert.ok(
@@ -322,6 +322,15 @@ test('electric-field content screen renders full controls without error', () => 
   assert.ok(actions.includes('electric-reset'));
   assert.ok(actions.includes('electric-probe-sign'));
   assert.ok(actions.includes('electric-axis-lock'));
+  const locks = res.hits.filter((hit) => hit.action === 'electric-axis-lock');
+  assert.deepEqual(locks.map((hit) => hit.axis), ['x', 'y', 'z']);
+  for (const lock of locks) {
+    const u = (lock.x + lock.w / 2) / layout.width;
+    const v = 1 - (lock.y + lock.h / 2) / layout.height;
+    const picked = pickHoloScreen(u, v, layout.width, layout.height, res.hits, 1);
+    assert.equal(picked?.action, 'electric-axis-lock');
+    assert.equal(picked?.axis, lock.axis);
+  }
 });
 
 test('electric-field side camera view drag projects deltas without inversion', () => {
@@ -380,5 +389,4 @@ test('electric-field side camera keeps single free Y axis under the cursor', () 
   assert.ok(state.data.charges[0].y > 0, `left drag should increase Y in side view, got ${state.data.charges[0].y}`);
   handlers.endManipulation(target);
 });
-
 

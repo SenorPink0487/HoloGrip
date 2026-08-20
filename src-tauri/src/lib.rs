@@ -16,6 +16,7 @@ use tauri::{Manager, Runtime, WebviewUrl, WebviewWindowBuilder};
 mod ai;
 mod chem;
 mod local_store;
+mod native_speech;
 
 /// 把任何错误映射成可序列化的字符串，方便前端 invoke 直接拿到。
 #[derive(Debug, thiserror::Error)]
@@ -198,6 +199,9 @@ pub fn run() {
             ai_models_dir,
             app_info,
             open_simulation_window,
+            native_speech::request_speech_permissions_native,
+            native_speech::recognize_speech_native,
+            native_speech::stop_speech_native,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

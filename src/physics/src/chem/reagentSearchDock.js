@@ -10,6 +10,25 @@ let inputEl = null;
 let onSubmit = null;
 /** @type {null | ((val: string) => void)} */
 let onChange = null;
+/** @type {null | (() => void)} */
+let onVoice = null;
+const boundInputs = new WeakSet();
+
+function bindInputHandlers(el) {
+  if (!el || boundInputs.has(el)) return;
+  boundInputs.add(el);
+  el.addEventListener('input', () => {
+    onChange?.(el.value || '');
+  });
+  el.addEventListener('keydown', (e) => {
+    e.stopPropagation();
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    onSubmit?.(el.value || '', '');
+  });
+  el.addEventListener('keyup', (e) => e.stopPropagation());
+  el.addEventListener('keypress', (e) => e.stopPropagation());
+}
 
 function ensureHiddenInput() {
   if (inputEl) return inputEl;
@@ -30,31 +49,17 @@ function ensureHiddenInput() {
     'z-index:-1',
   ].join(';');
 
-  inputEl.addEventListener('input', () => {
-    const val = inputEl?.value || '';
-    onChange?.(val);
-  });
-
-  // Update for both hidden and iPad dock
-  if (inputEl) {
-    inputEl.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        e.stopPropagation();
-        const val = inputEl?.value || '';
-        onSubmit?.(val, '');
-      }
-      e.stopPropagation();
-    });
-  }
-  inputEl.addEventListener('keyup', (e) => e.stopPropagation());
-  inputEl.addEventListener('keypress', (e) => e.stopPropagation());
+  bindInputHandlers(inputEl);
 
   document.body.appendChild(inputEl);
   return inputEl;
 }
 
-export function focusSearchInput(initialVal = '', changeCb = null, submitCb = null) {
+export function focusSearchInput(initialVal = '', changeCb = null, submitCb = null, voiceCb = null) {
+  onChange = typeof changeCb === 'function' ? changeCb : null;
+  if (typeof submitCb === 'function') onSubmit = submitCb;
+  onVoice = typeof voiceCb === 'function' ? voiceCb : null;
+
   // iPad/WebView: show visible keyboard dock instead of hidden input
   // (hidden inputs frequently fail to trigger virtual keyboard on iPad)
   const isCoarse = 'ontouchstart' in window || navigator.maxTouchPoints > 1;
@@ -67,32 +72,55 @@ export function focusSearchInput(initialVal = '', changeCb = null, submitCb = nu
       left: 0;
       right: 0;
       z-index: 99999;
-      background: rgba(255,255,255,0.95);
+      background: rgba(248,250,252,0.96);
       border-top: 1px solid rgba(0,0,0,0.1);
-      padding: 12px 16px;
+      padding: 10px max(16px, env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
       backdrop-filter: blur(20px);
       font-size: 16px;
-      inputmode: text;
-      enterkeyhint: search;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 10px;
+      align-items: center;
+      box-shadow: 0 -10px 30px rgba(15,23,42,0.12);
+      touch-action: manipulation;
     `;
     dock.innerHTML = `
       <input id="chem-reagent-iPad" 
         type="text" 
         autocomplete="off" 
         spellcheck="false"
-        style="width: 100%; padding: 12px 16px; border: 1px solid #ccc; border-radius: 12px; font-size: 16px; background: white;"
+        inputmode="text"
+        enterkeyhint="search"
+        style="min-width:0; width:100%; box-sizing:border-box; padding:12px 16px; border:1px solid #cbd5e1; border-radius:14px; font-size:16px; color:#0f172a; background:white; outline:none;"
         placeholder="输入化学式、名称或 SMILES..."
       />
+      <button id="chem-reagent-voice" type="button" aria-label="语音输入" title="语音输入" style="width:46px; height:46px; padding:0; display:grid; place-items:center; border:1px solid #bae6fd; border-radius:14px; background:#fff; color:#0369a1;" >
+        <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="2" width="6" height="12" rx="3"></rect>
+          <path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"></path>
+        </svg>
+      </button>
+      <button id="chem-reagent-submit" type="button" style="height:46px; padding:0 18px; border:0; border-radius:14px; background:linear-gradient(135deg,#0ea5e9,#0284c7); color:#fff; font-size:15px; font-weight:800; white-space:nowrap;">AI 解析</button>
     `;
     document.body.appendChild(dock);
     inputEl = dock.querySelector('#chem-reagent-iPad');
+    bindInputHandlers(inputEl);
+    dock.addEventListener('pointerdown', (event) => event.stopPropagation());
+    dock.addEventListener('touchstart', (event) => event.stopPropagation(), { passive: true });
+    dock.querySelector('#chem-reagent-voice')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onVoice?.();
+    });
+    dock.querySelector('#chem-reagent-submit')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      onSubmit?.(inputEl?.value || '', '');
+    });
   }
 
   const el = inputEl || ensureHiddenInput();
-  onChange = typeof changeCb === 'function' ? changeCb : null;
-  if (typeof submitCb === 'function') {
-    onSubmit = submitCb;
-  }
+  bindInputHandlers(el);
   el.value = String(initialVal || '');
   el.focus({ preventScroll: true });
 }
@@ -145,7 +173,89 @@ export function setReagentSearchValue(v) {
 /** @type {any} */
 let activeRecognition = null;
 
+function setVoiceDockPhase(phase = 'idle') {
+  const button = document.getElementById('chem-reagent-voice');
+  if (!button) return;
+  const states = {
+    requesting: ['正在请求语音权限', '#92400e', '#fef3c7', '#f59e0b'],
+    listening: ['正在聆听，再次点击可结束', '#ffffff', '#dc2626', '#fca5a5'],
+    stopping: ['正在生成识别文字', '#075985', '#e0f2fe', '#38bdf8'],
+    idle: ['语音输入', '#0369a1', '#ffffff', '#bae6fd'],
+  };
+  const [label, color, background, border] = states[phase] || states.idle;
+  button.setAttribute('aria-label', label);
+  button.setAttribute('title', label);
+  button.setAttribute('aria-pressed', phase === 'listening' ? 'true' : 'false');
+  button.style.color = color;
+  button.style.background = background;
+  button.style.borderColor = border;
+}
+
 export function toggleSpeechRecognition(onResult, onStatusChange) {
+  const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+  const isAppleTouchDevice = /iPad|iPhone|iPod/i.test(navigator.userAgent || '')
+    || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+  // WKWebView does not expose window.webkitSpeechRecognition. The iPad Tauri
+  // shell bridges this action to Speech.framework (SFSpeechRecognizer) and
+  // AVAudioEngine instead.
+  if (isTauri && isAppleTouchDevice) {
+    if (activeRecognition?.kind === 'native-ios') {
+      const current = activeRecognition;
+      if (current.phase === 'requesting') {
+        current.cancelled = true;
+        activeRecognition = null;
+        setVoiceDockPhase('idle');
+        onStatusChange?.('stopped');
+        return false;
+      }
+      void import('@tauri-apps/api/core')
+        .then(({ invoke }) => invoke('stop_speech_native'))
+        .catch((err) => console.warn('[speech] Native stop failed:', err));
+      current.phase = 'stopping';
+      current.stopping = true;
+      setVoiceDockPhase('stopping');
+      onStatusChange?.('stopping');
+      return false;
+    }
+
+    const session = {
+      kind: 'native-ios', phase: 'requesting', stopping: false, cancelled: false,
+    };
+    activeRecognition = session;
+    setVoiceDockPhase('requesting');
+    onStatusChange?.('requesting');
+    void import('@tauri-apps/api/core')
+      .then(async ({ invoke }) => {
+        await invoke('request_speech_permissions_native');
+        if (session.cancelled || activeRecognition !== session) return null;
+        session.phase = 'listening';
+        setVoiceDockPhase('listening');
+        onStatusChange?.('listening');
+        return invoke('recognize_speech_native');
+      })
+      .then((text) => {
+        if (activeRecognition !== session) return;
+        const resultText = String(text || '').trim();
+        activeRecognition = null;
+        if (resultText) {
+          setReagentSearchValue(resultText);
+          onResult?.(resultText);
+        }
+        setVoiceDockPhase('idle');
+        onStatusChange?.('ended');
+      })
+      .catch((err) => {
+        if (activeRecognition !== session) return;
+        activeRecognition = null;
+        setVoiceDockPhase('idle');
+        const message = String(err || 'speech-recognition-failed');
+        const code = /permission-denied/i.test(message) ? 'not-allowed' : message;
+        onStatusChange?.('error', code);
+      });
+    return true;
+  }
+
   const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRec) {
     onStatusChange?.('unsupported');
@@ -155,6 +265,7 @@ export function toggleSpeechRecognition(onResult, onStatusChange) {
   if (activeRecognition) {
     try { activeRecognition.stop(); } catch { /* ignore */ }
     activeRecognition = null;
+    setVoiceDockPhase('idle');
     onStatusChange?.('stopped');
     return false;
   }
@@ -166,6 +277,7 @@ export function toggleSpeechRecognition(onResult, onStatusChange) {
     recognition.interimResults = true;
 
     recognition.onstart = () => {
+      setVoiceDockPhase('listening');
       onStatusChange?.('listening');
     };
 
@@ -183,11 +295,13 @@ export function toggleSpeechRecognition(onResult, onStatusChange) {
     recognition.onerror = (err) => {
       console.warn('[speech] Recognition error:', err);
       activeRecognition = null;
+      setVoiceDockPhase('idle');
       onStatusChange?.('error', err?.error);
     };
 
     recognition.onend = () => {
       activeRecognition = null;
+      setVoiceDockPhase('idle');
       onStatusChange?.('ended');
     };
 
@@ -197,10 +311,8 @@ export function toggleSpeechRecognition(onResult, onStatusChange) {
   } catch (err) {
     console.warn('[speech] Start failed:', err);
     activeRecognition = null;
+    setVoiceDockPhase('idle');
     onStatusChange?.('error', String(err));
     return false;
   }
 }
-
-
-

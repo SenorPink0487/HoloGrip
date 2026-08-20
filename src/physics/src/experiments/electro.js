@@ -1470,6 +1470,8 @@ export function createHandlers(ctx) {
     data.records = data.records.slice(-12);
     data.motionStart = null;
     data.dragging = false;
+    data._dragDirection = 0;
+    data._dragReverseDistance = 0;
     data.measureMode = null;
     data.currentSense = 'none';
     data.liveEmf = 0;
@@ -1735,10 +1737,19 @@ export function createHandlers(ctx) {
       }
       if (u >= 1) finishFaradayAnim(data);
     } else if (data.dragging && data.motionStart) {
-      const v = step > 1e-8 ? (data.x - data._prevX) / step : 0;
-      const dFluxDt = data.B * data.rodLength * v;
-      data.currentSense = faradaySense(dFluxDt);
-      data.liveEmf = -dFluxDt;
+      const dx = data.x - data._prevX;
+      if (Math.abs(dx) > 1e-6) {
+        updateFaradayDragCurrent(data, dx, step);
+      } else if (Number(data.currentLinger || 0) > 0 && data.lingerSense !== 'none') {
+        // MediaPipe/touch samples do not necessarily land on every 60 Hz
+        // fixed tick. Preserve the last direction between input samples so
+        // current arrows remain visibly animated throughout a continuous drag.
+        data.currentLinger = Math.max(0, Number(data.currentLinger) - step);
+        data.currentSense = data.lingerSense;
+      } else {
+        data.currentSense = 'none';
+        data.liveEmf = 0;
+      }
     } else if (data.sliderDragging && data.sliderStart) {
       const elapsed = Math.max(step, data._time - data.sliderStart.t0);
       const dFluxDt = data.sliderStart.area * (data.B - data.sliderStart.B0) / elapsed;
@@ -1763,6 +1774,47 @@ export function createHandlers(ctx) {
       pushHud();
     }
     return data;
+  }
+
+  /**
+   * Convert rod motion into an induced-current direction with input hysteresis.
+   * Touch/MediaPipe coordinates naturally wander by a few pixels; requiring a
+   * meaningful accumulated reverse distance prevents that noise from flipping
+   * the Lenz-law arrows every other sample while preserving deliberate reversal.
+   */
+  function updateFaradayDragCurrent(data, dx, dt) {
+    const delta = Number(dx || 0);
+    if (Math.abs(delta) <= 1e-6) return false;
+    const movementDirection = Math.sign(delta);
+    let direction = Number(data._dragDirection || 0);
+    if (!direction) {
+      direction = movementDirection;
+      data._dragReverseDistance = 0;
+    } else if (movementDirection === direction) {
+      data._dragReverseDistance = 0;
+    } else {
+      data._dragReverseDistance = Number(data._dragReverseDistance || 0) + Math.abs(delta);
+      // ~4 CSS px at the current 0.015 m/px mapping. Small tracking wobble is
+      // ignored; a clear reverse drag crosses this quickly and changes sense.
+      if (data._dragReverseDistance < 0.06) {
+        data.currentSense = data.lingerSense || data.currentSense || 'none';
+        data.currentLinger = 0.14;
+        return false;
+      }
+      direction = movementDirection;
+      data._dragReverseDistance = 0;
+    }
+    data._dragDirection = direction;
+    const seconds = Math.max(Number(dt) || 0, 1 / 60);
+    const dFluxDt = Number(data.B || 0)
+      * Number(data.rodLength || FARADAY_ROD_LENGTH)
+      * (Math.abs(delta) / seconds)
+      * direction;
+    data.currentSense = faradaySense(dFluxDt);
+    data.lingerSense = data.currentSense;
+    data.currentLinger = 0.14;
+    data.liveEmf = -dFluxDt;
+    return data.currentSense !== 'none';
   }
 
   function calculateHallField(data, pos = data.probePos) {
@@ -2197,6 +2249,8 @@ export function createHandlers(ctx) {
                 flux0: faradayFlux(data.B, data.x, data.rodLength, data.xEnd),
               };
               data._prevX = data.x;
+              data._dragDirection = 0;
+              data._dragReverseDistance = 0;
               data.currentSense = 'none';
               data.liveEmf = 0;
             }
@@ -2653,6 +2707,8 @@ export function createHandlers(ctx) {
           flux0: faradayFlux(data.B, data.x, data.rodLength, data.xEnd),
         };
         data._prevX = data.x;
+        data._dragDirection = 0;
+        data._dragReverseDistance = 0;
         data.currentSense = 'none';
         toast('已抓住铜棒：沿导轨拖动，松开后显示动生电动势');
         syncFaraday(data);
@@ -2961,8 +3017,15 @@ export function createHandlers(ctx) {
       }
       if (holding && data.dragging && data.motionStart) {
         const totalX = Number(equipment.electro?.mouseDrag?.movementX || 0);
-        data.x = clamp(data.motionStart.x0 + totalX * 0.015, data.xMin, data.xMax);
-        // Rod drag: updateFaraday syncs once per frame (avoids double field/HUD work).
+        const nextX = clamp(data.motionStart.x0 + totalX * 0.015, data.xMin, data.xMax);
+        if (Math.abs(nextX - data.x) > 1e-6) {
+          const visualDt = Math.max(Number(dt) || 0, 1 / 60);
+          const dx = nextX - data.x;
+          data.x = nextX;
+          updateFaradayDragCurrent(data, dx, visualDt);
+          data._prevX = nextX;
+          syncFaraday(data, false, visualDt);
+        }
         return;
       }
       if (!holding && data.dragging) {
@@ -3275,7 +3338,17 @@ export function createHandlers(ctx) {
         const totalX = Number.isFinite(context.totalX)
           ? Number(context.totalX) - Number(data.dragMouseX || 0)
           : Number(context.dx || 0);
-        data.x = clamp(data.motionStart.x0 + totalX * 0.015, data.xMin, data.xMax);
+        const nextX = clamp(data.motionStart.x0 + totalX * 0.015, data.xMin, data.xMax);
+        if (Math.abs(nextX - data.x) > 1e-6) {
+          const visualDt = Math.max(Number(context.dt) || 0, 1 / 60);
+          const dx = nextX - data.x;
+          data.x = nextX;
+          updateFaradayDragCurrent(data, dx, visualDt);
+          data._prevX = nextX;
+          // Hand-tracking samples are slower than rAF. Sync the rod and current
+          // arrows on each sample instead of waiting for a later fixed tick.
+          syncFaraday(data, false, visualDt);
+        }
         return true;
       }
       holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget, context.raycaster || null);

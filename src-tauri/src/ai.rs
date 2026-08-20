@@ -5,7 +5,7 @@
 //!
 //! 配置通过环境变量读取：
 //!  - `HOLOGRIP_API_ORIGIN`：服务器反代入口，默认 `https://hologrip.cn`
-//!  - `GEMAI_MODEL`：模型名，默认 `[福利]gemini-3.5-flash`
+//!  - `GEMAI_MODEL`：模型名，默认 `[福利]gemini-3.7-flash`
 //!
 //! 桌面端绝不读取 API key 或直连上游；所有 AI 调用都经由与网页版相同的
 //! `/api/gemini` 反向代理，由服务器注入真实凭据。
@@ -19,7 +19,7 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 const DEFAULT_API_ORIGIN: &str = "https://hologrip.cn";
-const DEFAULT_MODEL: &str = "[福利]gemini-3.5-flash";
+const DEFAULT_MODEL: &str = "[福利]gemini-3.7-flash";
 
 const SYSTEM_PROMPT: &str = r#"你是一个精通中国高中立体几何的数学专家。你的任务是分析数学题目截图中的立体几何图形，输出精确的三维模型数据。
 

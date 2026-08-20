@@ -1170,8 +1170,19 @@ function createFullStationEquipment(ctx) {
       const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.12 * S, 0.12 * S, ROD_LEN * S, 20), copperMat);
       rod.rotation.x = Math.PI / 2;
       rod.castShadow = true;
+      // Make the visible conductor itself grabable. The old interaction lived
+      // only on a very thin invisible proxy, which was effectively a one-pixel
+      // target after the tabletop scale was applied on iPad.
+      rod.userData.interactive = true;
+      rod.userData.role = 'faraday_rod';
       circuitGroup.add(rod);
-      const hit = new THREE.Mesh(new THREE.BoxGeometry(0.16 * S, 0.28 * S, ROD_LEN * S + 0.08), new THREE.MeshBasicMaterial({ visible: false }));
+      // Finger/hand tracking needs a forgiving grab volume around the rod.
+      // It remains narrow along the rail direction so neighbouring controls
+      // are not stolen, but is deliberately wider/taller than the geometry.
+      const hit = new THREE.Mesh(
+        new THREE.BoxGeometry(0.72 * S, 1.0 * S, ROD_LEN * S + 0.14),
+        new THREE.MeshBasicMaterial({ visible: false }),
+      );
       hit.userData.interactive = true;
       hit.userData.role = 'faraday_rod';
       circuitGroup.add(hit);

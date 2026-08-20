@@ -711,30 +711,40 @@ export function createHandlers(ctx) {
             if (submitVal.trim()) {
               void runAiReagentQuery(submitVal.trim(), cond);
             }
-          });
+          }, () => onUiAction('chem-search-voice'));
           pushHud();
           return true;
         }
         case 'chem-search-voice': {
           toggleSpeechRecognition((text) => {
             d.searchQuery = text;
+            toast(`已识别：${text}`);
             pushHud();
           }, (status, err) => {
-            if (status === 'listening') {
+            d.speechPhase = status;
+            if (status === 'requesting') {
+              d.speechListening = false;
+              toast('请按系统提示允许“语音识别”和“麦克风”，授权后直接说出物质名称');
+            } else if (status === 'listening') {
               d.speechListening = true;
-              toast('🎙️ 正在聆听，请说出试剂名称');
+              toast('🎙️ 正在聆听 · 说出物质名称，再次点击麦克风可结束');
+            } else if (status === 'stopping') {
+              d.speechListening = false;
+              toast('正在结束录音并生成识别文字…');
             } else if (status === 'unsupported') {
               d.speechListening = false;
               toast('当前浏览器环境不支持语音识别，请键盘输入');
             } else if (status === 'error') {
               d.speechListening = false;
               if (err === 'not-allowed') {
-                toast('麦克风权限被拒绝，请允许访问麦克风');
+                toast('语音权限未开启，请在“设置 → HoloGrip”中允许麦克风和语音识别');
               } else {
                 toast('语音识别中断，请重试');
               }
             } else {
               d.speechListening = false;
+              d.speechPhase = 'idle';
+              if (status === 'stopped') toast('已取消语音输入');
             }
             pushHud();
           });

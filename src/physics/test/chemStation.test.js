@@ -124,6 +124,7 @@ describe('SDF parse + periodic hits', () => {
       strokeRect() {},
       beginPath() {},
       moveTo() {},
+      lineTo() {},
       arc() {},
       arcTo() {},
       closePath() {},
@@ -147,6 +148,39 @@ describe('SDF parse + periodic hits', () => {
     const v = 1 - (elHit.y + elHit.h / 2) / canvas.height;
     const picked = pickChemHits(hits, u, v, canvas.width, canvas.height);
     assert.equal(picked?.element, 'Na');
+
+    // iPad WKWebView may expose the canvas plane with an inverted v axis.
+    // Bottom search controls must win before a mirrored periodic-table cell.
+    const submitHit = hits.find((h) => h.action === 'chem-search-submit');
+    const voiceHit = hits.find((h) => h.action === 'chem-search-voice');
+    assert.ok(submitHit);
+    assert.ok(voiceHit);
+    assert.ok(voiceHit.w < voiceHit.h * 1.5, 'voice control stays compact and icon-sized');
+    const submitU = (submitHit.x + submitHit.w / 2) / canvas.width;
+    const submitV = 1 - (submitHit.y + submitHit.h / 2) / canvas.height;
+    const submitNormalPick = pickChemHits(hits, submitU, submitV, canvas.width, canvas.height);
+    assert.equal(submitNormalPick?.action, 'chem-search-submit');
+    const invertedV = (submitHit.y + submitHit.h / 2) / canvas.height;
+    const submitPick = pickChemHits(hits, submitU, invertedV, canvas.width, canvas.height);
+    assert.equal(submitPick?.action, 'chem-search-submit');
+    assert.equal(submitPick?.uvMirrored, true);
+
+    const voiceU = (voiceHit.x + voiceHit.w / 2) / canvas.width;
+    const voiceV = 1 - (voiceHit.y + voiceHit.h / 2) / canvas.height;
+    assert.equal(
+      pickChemHits(hits, voiceU, voiceV, canvas.width, canvas.height)?.action,
+      'chem-search-voice',
+    );
+    const invertedVoiceV = (voiceHit.y + voiceHit.h / 2) / canvas.height;
+    const invertedVoicePick = pickChemHits(
+      hits,
+      voiceU,
+      invertedVoiceV,
+      canvas.width,
+      canvas.height,
+    );
+    assert.equal(invertedVoicePick?.action, 'chem-search-voice');
+    assert.equal(invertedVoicePick?.uvMirrored, true);
   });
 
   it('draws right panel circular percentage chart and ingredient list', () => {
@@ -164,6 +198,7 @@ describe('SDF parse + periodic hits', () => {
       strokeRect() {},
       beginPath() {},
       moveTo() {},
+      lineTo() {},
       arc() {},
       arcTo() {},
       closePath() {},

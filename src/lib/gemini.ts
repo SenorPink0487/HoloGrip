@@ -11,7 +11,7 @@
  *        bundle 里不再含密钥;token 1 小时过期、绑定 IP、有调用次数上限。
  *        token 失效(401)时自动重签并重试一次。
  *
- * 模型名 `[福利]gemini-3.5-flash` 含中文括号,encodeURIComponent 一下避免 URL 截断。
+ * 模型名 `[福利]gemini-3.7-flash` 含中文括号,encodeURIComponent 一下避免 URL 截断。
  */
 
 import { getProxyToken, invalidateProxyToken } from './auth';
@@ -19,7 +19,7 @@ import { apiUrl } from './apiOrigin';
 
 const RAW_API_KEY = import.meta.env.VITE_GEMINI_API_KEY || '';
 const RAW_BASE_URL = (import.meta.env.VITE_GEMINI_BASE_URL || 'https://api.gemai.cc').replace(/\/+$/, '');
-const RAW_MODEL = import.meta.env.VITE_GEMINI_MODEL || '[福利]gemini-3.5-flash';
+const RAW_MODEL = import.meta.env.VITE_GEMINI_MODEL || '[福利]gemini-3.7-flash';
 
 /**
  * Packaged desktop/iPad clients use the same hosted `/api/gemini` reverse

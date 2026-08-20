@@ -387,9 +387,12 @@ export function WhiteboardCanvas() {
   const shouldAcceptPointerEvent = useCallback((e: PointerEvent) => {
     if (interactMode === 'interact') return false;
     // iPadOS exposes Pencil samples as PointerEvents in current WKWebView and
-    // Safari. This route carries pressure, tilt and coalesced high-rate points.
-    // TouchEvents below remain a fallback for older WebViews only.
-    if (isIPadOS) return e.pointerType === 'pen';
+    // Safari. The whiteboard also deliberately supports one-finger writing;
+    // requiring pointerType=pen made the canvas appear completely broken to
+    // users without an Apple Pencil.
+    if (isIPadOS) {
+      return e.pointerType === 'pen' || (e.pointerType === 'touch' && e.isPrimary);
+    }
     if (activePointerId.current !== null) {
       return e.pointerId === activePointerId.current || (e.type === 'pointerdown' && e.pointerType === 'pen');
     }
@@ -468,8 +471,10 @@ export function WhiteboardCanvas() {
       const touch = touches[i] as AppleTouch;
       if (touch.touchType === 'stylus') return touch;
     }
-    // Pencil-only mode: a finger or palm must never begin an ink stroke.
-    return undefined;
+    // Older WKWebViews may expose Pencil/finger input only as TouchEvents.
+    // The caller rejects multi-touch before reaching here, which preserves
+    // palm/gesture rejection while allowing intentional one-finger writing.
+    return touches[0] as AppleTouch | undefined;
   }, []);
 
   const startDrawingFromTouch = useCallback((touch: AppleTouch) => {
@@ -535,6 +540,10 @@ export function WhiteboardCanvas() {
       // Pointer Events win whenever the WebView provides them for Pencil. This
       // prevents Safari from starting the same stroke through both APIs.
       if (activePointerId.current !== null || Date.now() - lastPenInputAt.current < 100) return;
+      const hasStylus = Array.from(e.changedTouches).some(
+        (touch) => (touch as AppleTouch).touchType === 'stylus',
+      );
+      if (!hasStylus && e.touches.length !== 1) return;
       const touch = pickDrawingTouch(e.changedTouches);
       if (!touch || !startDrawingFromTouch(touch)) return;
       e.preventDefault();

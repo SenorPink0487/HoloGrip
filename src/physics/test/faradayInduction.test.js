@@ -166,6 +166,32 @@ test('live faraday-set x drag arms motional current while x changes', () => {
   close(state.data.lastMotion.x1, 5, 1e-5);
 });
 
+test('AR rod drag synchronizes induction direction before the next fixed tick', () => {
+  const { state, handlers } = faradayContext();
+  handlers.onUiAction('faraday-set', { key: 'B', value: -1 });
+  const rod = { userData: { role: 'faraday_rod' } };
+  assert.equal(handlers.beginManipulation(rod, { time: 0 }), true);
+  assert.equal(handlers.updateManipulation(rod, { totalX: 80, dt: 1 / 30, dragged: true }), true);
+  assert.notEqual(state.data.currentSense, 'none');
+  assert.ok(Math.abs(state.data.liveEmf) > 1e-6);
+  const forwardSense = state.data.currentSense;
+  assert.equal(
+    handlers.updateManipulation(rod, { totalX: 79, dt: 1 / 30, dragged: true }),
+    true,
+  );
+  assert.equal(state.data.currentSense, forwardSense, 'one-pixel reverse jitter does not flip current');
+  assert.equal(
+    handlers.updateManipulation(rod, { totalX: 70, dt: 1 / 30, dragged: true }),
+    true,
+  );
+  assert.notEqual(state.data.currentSense, forwardSense, 'a deliberate reverse drag flips current');
+  handlers.update(0, 1 / 60);
+  const direction = state.data.currentSense;
+  handlers.update(0, 1 / 60);
+  assert.equal(state.data.currentSense, direction, 'direction persists between sparse hand samples');
+  assert.ok(state.data.currentLinger > 0);
+});
+
 test('live faraday-set B drag arms induction current while B changes', () => {
   const { state, handlers } = faradayContext();
   handlers.onUiAction('faraday-set', { key: 'B', value: -1 });

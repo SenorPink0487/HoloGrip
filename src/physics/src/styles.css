@@ -17,6 +17,17 @@ html, body {
   background: #e8f4ff;
   font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", "SF Pro Display", sans-serif;
   color: #0c1a2e;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Keep real text fields editable while the surrounding WebGL lab behaves
+   like a native touch surface instead of a selectable web page. */
+input, textarea, [contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+  -webkit-touch-callout: default;
 }
 
 .mobile-controls { display: none; }

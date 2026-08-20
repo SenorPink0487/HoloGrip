@@ -64,7 +64,7 @@ function stripSourceShadowCasters(root) {
 }
 
 class SourceEngineAdapter {
-  constructor({ scene, camera, renderer, physicsMode = 'auto' } = {}) {
+  constructor({ scene, camera, renderer, physicsMode } = {}) {
     this.scene = scene;
     this.camera = camera;
     this.renderer = renderer;
@@ -75,9 +75,10 @@ class SourceEngineAdapter {
     this.canvas.width = 8;
     this.canvas.height = 8;
     this.controls = { enabled: false };
-    // PhysicsBackend owns the Cannon world. Default is auto → worker when
-    // available (latest-complete-wins), else main. Override with physicsMode
-    // or globalThis.__PHYSICS_BACKEND_MODE__ = 'main'|'worker'|'auto'.
+    // PhysicsBackend owns the Cannon world. Leave `mode` undefined unless the
+    // caller explicitly overrides it so the host-level mode can take effect.
+    // This matters in iPad WKWebView, where the host forces the deterministic
+    // main backend because module workers can stop returning pose batches.
     // Formula-only labs still skip empty world.step via dynamicCount===0.
     this.physics = createPhysicsBackend({ mode: physicsMode });
     const physics = this.physics;
@@ -250,7 +251,7 @@ export class MechanicsSourceRuntime {
    *   physicsMode?: 'main' | 'worker' | 'auto',
    * }} opts
    */
-  constructor({ id, camera, renderer, physicsMode = 'auto' }) {
+  constructor({ id, camera, renderer, physicsMode }) {
     this.id = id;
     this.source = SOURCE_MECHANICS_EXPERIMENTS[id];
     this.camera = camera;

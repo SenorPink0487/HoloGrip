@@ -454,7 +454,7 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
   ctx.fillText(`当前烧杯 ${activeCup}  ·  点击元素或在下方输入 AI 检索`, pad, 108);
 
   // Dedicated Compact Search Bar centered at bottom of Main Front Screen (W=1920, H=1120)
-  const slotW = 960;
+  const slotW = 1080;
   const slotX = (W - slotW) / 2;
   const slotY = H - 124;
   const slotH = 92;
@@ -468,9 +468,8 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
   // Input Field (Full Width & Proportional)
   const inputX = slotX + 18;
   const inputY = slotY + 12;
-  const btnW = 136;
-  const condW = 160;
-  const inputW = 600;
+  const btnW = 190;
+  const inputW = 712;
   const inputH = 68;
 
   roundRect(ctx, inputX, inputY, inputW, inputH, 16);
@@ -481,11 +480,23 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
   ctx.stroke();
 
   const query = data.searchQuery != null ? data.searchQuery : '';
-  const searchMessage = data.searchBusy || data.searchStatusTone === 'error'
-    ? String(data.searchStatus || '')
-    : '';
+  const speechPhase = String(data.speechPhase || 'idle');
+  const speechMessage = speechPhase === 'requesting'
+    ? '请按系统提示允许语音识别和麦克风'
+    : speechPhase === 'listening'
+      ? '正在聆听…再次点击麦克风结束'
+      : speechPhase === 'stopping'
+        ? '正在生成识别文字…'
+        : '';
+  const searchMessage = speechMessage || (
+    data.searchBusy || data.searchStatusTone === 'error'
+      ? String(data.searchStatus || '')
+      : ''
+  );
   if (searchMessage) {
-    ctx.fillStyle = data.searchStatusTone === 'error' ? '#dc2626' : '#0284c7';
+    ctx.fillStyle = speechPhase === 'requesting'
+      ? '#b45309'
+      : data.searchStatusTone === 'error' ? '#dc2626' : '#0284c7';
     ctx.font = '700 23px "Noto Sans SC", system-ui, sans-serif';
     ctx.fillText(searchMessage.slice(0, 30), inputX + 20, inputY + 44);
   } else if (query) {
@@ -503,11 +514,13 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
     action: 'chem-search-focus', role: 'chem_ui',
   });
 
-  // Voice Input Button (Replaces condition dropdown)
+  // Compact icon-only voice button beside the search field.
   const voiceX = inputX + inputW + 14;
-  const voiceW = 160;
+  const voiceW = 78;
   roundRect(ctx, voiceX, inputY, voiceW, inputH, 16);
-  const isListening = !!data.speechListening;
+  const isListening = speechPhase === 'listening' || !!data.speechListening;
+  const isRequesting = speechPhase === 'requesting';
+  const isStopping = speechPhase === 'stopping';
 
   if (isListening) {
     const voiceGrad = ctx.createLinearGradient(voiceX, inputY, voiceX + voiceW, inputY + inputH);
@@ -519,11 +532,15 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
     ctx.lineWidth = 2.5;
     ctx.stroke();
 
-    ctx.fillStyle = '#ffffff';
-    ctx.font = '800 22px "Noto Sans SC", system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('🔴 聆听中…', voiceX + voiceW / 2, inputY + 44);
-    ctx.textAlign = 'left';
+  } else if (isRequesting || isStopping) {
+    const phaseGrad = ctx.createLinearGradient(voiceX, inputY, voiceX + voiceW, inputY + inputH);
+    phaseGrad.addColorStop(0, isRequesting ? '#f59e0b' : '#38bdf8');
+    phaseGrad.addColorStop(1, isRequesting ? '#d97706' : '#0284c7');
+    ctx.fillStyle = phaseGrad;
+    ctx.fill();
+    ctx.strokeStyle = isRequesting ? '#fcd34d' : '#7dd3fc';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
   } else {
     ctx.fillStyle = '#ffffff';
     ctx.fill();
@@ -531,11 +548,31 @@ export function drawChemPeriodicPanel(ctx, W, H, data = {}) {
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    ctx.fillStyle = '#0284c7';
-    ctx.font = '700 22px "Noto Sans SC", system-ui, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('🎙️ 语音输入', voiceX + voiceW / 2, inputY + 44);
-    ctx.textAlign = 'left';
+  }
+
+  // Draw a stable vector microphone instead of an emoji/text glyph; emoji
+  // rendering differs between Safari and WKWebView and previously shifted.
+  const micX = voiceX + voiceW / 2;
+  const micY = inputY + inputH / 2 - 3;
+  ctx.strokeStyle = (isListening || isRequesting || isStopping) ? '#ffffff' : '#0284c7';
+  ctx.lineWidth = 4.5;
+  ctx.lineCap = 'round';
+  roundRect(ctx, micX - 8, micY - 14, 16, 27, 8);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.arc(micX, micY, 15, 0.15 * Math.PI, 0.85 * Math.PI);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(micX, micY + 15);
+  ctx.lineTo(micX, micY + 23);
+  ctx.moveTo(micX - 9, micY + 23);
+  ctx.lineTo(micX + 9, micY + 23);
+  ctx.stroke();
+  if (isListening) {
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(voiceX + voiceW - 14, inputY + 14, 5, 0, Math.PI * 2);
+    ctx.fill();
   }
 
   hits.push({
@@ -746,23 +783,26 @@ export function pickChemHits(hits, u, v, W, H) {
     && y <= h.y + h.h + pad
   );
 
-  // 1. Check specific interactive UI actions (e.g. chem-show-component, chem-pick-element)
-  for (let i = hits.length - 1; i >= 0; i -= 1) {
-    const h = hits[i];
-    if (h.role === 'scrollable_components' || h.action === 'chem-scroll-right') continue;
-    if (inRegion(h, py)) {
-      return { ...h, px, py };
-    }
-  }
-
-  // Some iPad/WebView + Three.js combinations report the plane UV v-axis
-  // opposite to the CanvasTexture drawing axis. Keep the two bottom search
-  // buttons usable in that path without mirroring the whole picker UI.
+  // Search controls sit at the bottom edge and are the most sensitive to the
+  // inverted-v quirk seen in iPad WKWebView. Resolve both UV orientations
+  // before generic element cards so a tap on AI/voice cannot be stolen by a
+  // periodic-table cell at the mirrored coordinate.
   for (let i = hits.length - 1; i >= 0; i -= 1) {
     const h = hits[i];
     if (!/^chem-search-(focus|voice|submit)$/.test(h.action || '')) continue;
+    if (inRegion(h, py)) return { ...h, px, py };
     if (inRegion(h, mirroredPy)) {
       return { ...h, px, py: mirroredPy, uvMirrored: true };
+    }
+  }
+
+  // 1. Check other specific interactive UI actions.
+  for (let i = hits.length - 1; i >= 0; i -= 1) {
+    const h = hits[i];
+    if (/^chem-search-(focus|voice|submit)$/.test(h.action || '')) continue;
+    if (h.role === 'scrollable_components' || h.action === 'chem-scroll-right') continue;
+    if (inRegion(h, py)) {
+      return { ...h, px, py };
     }
   }
 
