@@ -226,10 +226,11 @@ export function createChemCupRig(THREE, opts = {}) {
     const allReagents = [...list1, ...list2];
     if (allReagents.length < 2) return null;
 
-    const getStr = (r) => `${r.id || ''} ${r.formula || ''} ${r.name_zh || ''}`.toUpperCase();
-    const all = allReagents.map(getStr);
-
-    const has = (key) => all.some((s) => s.includes(key.toUpperCase()));
+    const normalize = (value) => String(value || '').replace(/\s+/g, '').toUpperCase();
+    const has = (...keys) => allReagents.some((reagent) => {
+      const values = [reagent.id, reagent.formula, reagent.name_zh].map(normalize);
+      return keys.some((key) => values.includes(normalize(key)));
+    });
 
     // 1. HCl + Na2CO3 / NaHCO3 / CaCO3 / K2CO3 (酸 + 碳酸盐 -> 大量 CO2 气泡)
     if ((has('HCL') || has('盐酸')) && (has('NA2CO3') || has('NAHCO3') || has('CACO3') || has('K2CO3') || has('碳酸钠') || has('碳酸氢钠') || has('碳酸钙'))) {
@@ -283,25 +284,48 @@ export function createChemCupRig(THREE, opts = {}) {
       };
     }
 
-    // 3. HCl / H2SO4 + Mg / Zn / Fe (酸与活泼金属 -> H2 气泡)
-    if ((has('HCL') || has('H2SO4') || has('盐酸')) && (has('MG') || has('ZN') || has('FE') || has('镁') || has('锌'))) {
+    // 3. Fe2O3 + HCl (氧化铁 + 盐酸 -> 氯化铁 + 水)
+    // Keep this before the elemental-metal rule. A substring match such as
+    // "FE" would incorrectly classify Fe2O3 as metallic iron.
+    if (has('HCL', '盐酸') && has('FE2O3', '氧化铁')) {
+      return {
+        reacts: true,
+        name: '氧化铁与盐酸反应',
+        equation: '6HCl + Fe2O3 = 2FeCl3 + 3H2O',
+        productColor: 0xd97706,
+        intensity: 0.7,
+        description: '氧化铁与盐酸反应，生成氯化铁和水。',
+        products: [
+          { formula: 'FeCl3', name_zh: '氯化铁', color: 0xea580c, percent: 65 },
+          { formula: 'H2O', name_zh: '水', color: 0x60a5fa, percent: 35 },
+        ],
+      };
+    }
+
+    // 4. HCl / H2SO4 + Mg / Zn / Fe (酸与活泼金属 -> H2 气泡)
+    const acid = has('HCL', '盐酸') ? 'HCl' : has('H2SO4', '硫酸') ? 'H2SO4' : null;
+    const metal = has('MG', '镁') ? 'Mg' : has('ZN', '锌') ? 'Zn' : has('FE', '铁') ? 'Fe' : null;
+    if (acid && metal) {
+      const sulfate = acid === 'H2SO4';
+      const salt = `${metal}${sulfate ? 'SO4' : 'Cl2'}`;
+      const coefficient = sulfate ? '' : '2';
       return {
         reacts: true,
         gas: true,
         gasType: 'H2',
         name: '金属与酸置换反应',
-        equation: '2HCl + Mg = MgCl2 + H2↑',
+        equation: `${coefficient}${acid} + ${metal} = ${salt} + H2↑`,
         productColor: 0xcbd5e1,
         intensity: 1.0,
         description: '活泼金属与酸置换反应，剧烈冒出氢气（H₂）气泡！',
         products: [
-          { formula: 'MgCl2', name_zh: '氯化镁', color: 0x38bdf8, percent: 70 },
+          { formula: salt, name_zh: salt === 'MgCl2' ? '氯化镁' : salt === 'ZnCl2' ? '氯化锌' : salt === 'FeCl2' ? '氯化亚铁' : salt, color: 0x38bdf8, percent: 70 },
           { formula: 'H2', name_zh: '氢气(气)', color: 0xe0f2fe, percent: 30 },
         ],
       };
     }
 
-    // 4. H2O2 + MnO2 (过氧化氢催化分解 -> O2 气泡)
+    // 5. H2O2 + MnO2 (过氧化氢催化分解 -> O2 气泡)
     if ((has('H2O2') || has('过氧化氢')) && (has('MNO2') || has('二氧化锰'))) {
       return {
         reacts: true,
@@ -319,7 +343,7 @@ export function createChemCupRig(THREE, opts = {}) {
       };
     }
 
-    // 5. CuSO4 + NaOH (硫酸铜 + 氢氧化钠 -> 蓝色沉淀)
+    // 6. CuSO4 + NaOH (硫酸铜 + 氢氧化钠 -> 蓝色沉淀)
     if ((has('CUSO4') || has('硫酸铜')) && (has('NAOH') || has('氢氧化钠'))) {
       return {
         reacts: true,
@@ -336,7 +360,7 @@ export function createChemCupRig(THREE, opts = {}) {
       };
     }
 
-    // 6. AgNO3 + NaCl (硝酸银 + 氯化钠 -> 白色沉淀)
+    // 7. AgNO3 + NaCl (硝酸银 + 氯化钠 -> 白色沉淀)
     if ((has('AGNO3') || has('硝酸银')) && (has('NACL') || has('氯化钠') || has('HCL'))) {
       return {
         reacts: true,
@@ -368,6 +392,34 @@ export function createChemCupRig(THREE, opts = {}) {
       description: opts.description || '发生化学反应',
     };
     applyCupVisual(kind);
+  }
+
+  /**
+   * Apply a reaction resolved by the shared chemistry service after a pour.
+   * Local demonstrations stay synchronous; this path covers other reagent
+   * pairs without blocking the render loop on network I/O.
+   */
+  function applyExternalReaction(kind, reaction) {
+    if (kind !== 'A' && kind !== 'B') return false;
+    if (!reaction || reaction.kind !== 'reaction' || !Array.isArray(reaction.components) || !reaction.components.length) {
+      return false;
+    }
+    const normalized = {
+      ...reaction,
+      reacts: true,
+      description: reaction.reason || '两种试剂发生化学反应',
+      products: reaction.components.map((component) => ({
+        formula: component.formula,
+        name_zh: component.name_zh || component.formula,
+        color: component.color,
+        percent: component.percent,
+        query: component.query,
+      })),
+      productColor: reaction.components[0]?.color,
+    };
+    const applied = applyReactionProducts(state[kind], normalized);
+    if (applied) applyCupVisual(kind);
+    return applied;
   }
 
   /**
@@ -1253,6 +1305,7 @@ export function createChemCupRig(THREE, opts = {}) {
     setDimmed,
     detectReaction,
     triggerReactionEffect,
+    applyExternalReaction,
   };
 }
 

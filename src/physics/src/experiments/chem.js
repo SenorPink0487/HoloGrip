@@ -20,6 +20,7 @@ const _deskPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const _vertPlane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -0.15);
 const _hitPoint = new THREE.Vector3();
 const _sdfCache = new Map();
+let pourReactionRequestId = 0;
 
 export const station = {
   id: 'chem',
@@ -358,6 +359,51 @@ export function createHandlers(ctx) {
     }
     setStep('inspect');
     pushHud();
+
+    // The rig handles the curated classroom reactions synchronously. For any
+    // other pair, ask the shared proxy after the animation has committed so
+    // a network request never blocks pouring or the render loop.
+    if (!dstState?.lastReaction?.reacts) {
+      void resolveUnmatchedPourReaction(to);
+    }
+  }
+
+  async function resolveUnmatchedPourReaction(to) {
+    const requestId = ++pourReactionRequestId;
+    const dst = (eq()?.getCupState?.() || {})[to];
+    const reactants = [...new Map(
+      (dst?.reagents || [])
+        .map((item) => [String(item.formula || item.name_zh || item.id || '').trim(), item])
+        .filter(([name]) => name),
+    ).values()];
+    if (reactants.length < 2) return;
+
+    try {
+      const { resolveReaction } = await import('../../../chem/reaction.js');
+      const reaction = await resolveReaction(
+        reactants.map((item) => ({ name: item.name_zh || item.formula || item.id })),
+        state.data.searchCondition || '',
+      );
+      if (requestId !== pourReactionRequestId) return;
+      if (!eq()?.rig?.applyExternalReaction?.(to, reaction)) return;
+
+      state.data.viewCup = to;
+      syncFromRig();
+      const productState = (eq()?.getCupState?.() || {})[to];
+      const products = state.data.components || [];
+      const label = products.map((item) => formatSubscriptFormula(item.formula)).join(' · ')
+        || formatSubscriptFormula(productState?.formula || '')
+        || '产物';
+      state.data.selectedComponentId = products[0]?.id || null;
+      state.data.hint = `✨ ${reaction.reason || '两种试剂发生化学反应'} · 右侧已更新为：${label}`;
+      toast(`✨ ${reaction.reason || '两种试剂发生化学反应'}`);
+      if (products[0]) void loadAndShowMolecule(eq(), products[0], toast);
+      pushHud();
+    } catch (error) {
+      // NO_REACTION is a valid chemistry result for ordinary mixtures. It
+      // should leave the already-committed mixture visible without an error.
+      if (error?.code !== 'NO_REACTION') console.warn('[chem] pour reaction lookup failed', error);
+    }
   }
 
   /** Wait until rig pour FSM is idle, then refresh HUD / right panel. */

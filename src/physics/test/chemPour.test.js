@@ -3,7 +3,9 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 import { blendColors, getReagent } from '../src/chem/reagentCatalog.js';
+import { createChemCupRig } from '../src/chem/cupRig.js';
 
 function emptyCup() {
   return { reagents: [], fill: 0, color: 0x38bdf8, formula: '' };
@@ -33,6 +35,33 @@ function commitPour(state, from, to) {
 }
 
 describe('chem pour merge', () => {
+  it('resolves Fe2O3 + HCl to FeCl3 instead of MgCl2', () => {
+    const previousDocument = globalThis.document;
+    globalThis.document = {
+      createElement: () => ({
+        width: 0,
+        height: 0,
+        getContext: () => ({
+          clearRect() {}, beginPath() {}, moveTo() {}, arcTo() {}, closePath() {},
+          fill() {}, stroke() {}, fillText() {},
+        }),
+      }),
+    };
+
+    try {
+      const rig = createChemCupRig(THREE);
+      const reaction = rig.detectReaction(
+        [{ id: 'hcl', formula: 'HCl', name_zh: '盐酸' }],
+        [{ id: 'fe2o3', formula: 'Fe2O3', name_zh: '氧化铁' }],
+      );
+      assert.equal(reaction?.equation, '6HCl + Fe2O3 = 2FeCl3 + 3H2O');
+      assert.deepEqual(reaction?.products.map((item) => item.formula), ['FeCl3', 'H2O']);
+    } finally {
+      if (previousDocument === undefined) delete globalThis.document;
+      else globalThis.document = previousDocument;
+    }
+  });
+
   it('pours NaCl from A into empty B', () => {
     const nacl = getReagent('nacl');
     const state = {
