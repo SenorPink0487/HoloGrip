@@ -24,7 +24,9 @@ function bindInputHandlers(el) {
     e.stopPropagation();
     if (e.key !== 'Enter') return;
     e.preventDefault();
-    onSubmit?.(el.value || '', '');
+    const val = el.value || '';
+    hideReagentSearchDock();
+    onSubmit?.(val, '');
   });
   el.addEventListener('keyup', (e) => e.stopPropagation());
   el.addEventListener('keypress', (e) => e.stopPropagation());
@@ -66,6 +68,7 @@ export function focusSearchInput(initialVal = '', changeCb = null, submitCb = nu
   if (isCoarse && !inputEl) {
     // Create visible bottom keyboard dock
     const dock = document.createElement('div');
+    dock.id = 'chem-reagent-dock-wrap';
     dock.style.cssText = `
       position: fixed;
       bottom: 0;
@@ -78,7 +81,7 @@ export function focusSearchInput(initialVal = '', changeCb = null, submitCb = nu
       backdrop-filter: blur(20px);
       font-size: 16px;
       display: grid;
-      grid-template-columns: minmax(0, 1fr) auto auto;
+      grid-template-columns: minmax(0, 1fr) auto auto auto;
       gap: 10px;
       align-items: center;
       box-shadow: 0 -10px 30px rgba(15,23,42,0.12);
@@ -94,13 +97,18 @@ export function focusSearchInput(initialVal = '', changeCb = null, submitCb = nu
         style="min-width:0; width:100%; box-sizing:border-box; padding:12px 16px; border:1px solid #cbd5e1; border-radius:14px; font-size:16px; color:#0f172a; background:white; outline:none;"
         placeholder="输入化学式、名称或 SMILES..."
       />
-      <button id="chem-reagent-voice" type="button" aria-label="语音输入" title="语音输入" style="width:46px; height:46px; padding:0; display:grid; place-items:center; border:1px solid #bae6fd; border-radius:14px; background:#fff; color:#0369a1;" >
+      <button id="chem-reagent-voice" type="button" aria-label="语音输入" title="语音输入" style="width:46px; height:46px; padding:0; display:grid; place-items:center; border:1px solid #bae6fd; border-radius:14px; background:#fff; color:#0369a1; cursor:pointer;" >
         <svg aria-hidden="true" width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="9" y="2" width="6" height="12" rx="3"></rect>
           <path d="M5 10a7 7 0 0 0 14 0M12 17v5M8 22h8"></path>
         </svg>
       </button>
-      <button id="chem-reagent-submit" type="button" style="height:46px; padding:0 18px; border:0; border-radius:14px; background:linear-gradient(135deg,#0ea5e9,#0284c7); color:#fff; font-size:15px; font-weight:800; white-space:nowrap;">AI 解析</button>
+      <button id="chem-reagent-submit" type="button" style="height:46px; padding:0 18px; border:0; border-radius:14px; background:linear-gradient(135deg,#0ea5e9,#0284c7); color:#fff; font-size:15px; font-weight:800; white-space:nowrap; cursor:pointer;">AI 解析</button>
+      <button id="chem-reagent-dismiss" type="button" aria-label="收起键盘" title="收起键盘" style="width:46px; height:46px; padding:0; display:grid; place-items:center; border:1px solid #e2e8f0; border-radius:14px; background:#f1f5f9; color:#64748b; font-size:18px; font-weight:600; cursor:pointer;">
+        <svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+      </button>
     `;
     document.body.appendChild(dock);
     inputEl = dock.querySelector('#chem-reagent-iPad');
@@ -115,7 +123,14 @@ export function focusSearchInput(initialVal = '', changeCb = null, submitCb = nu
     dock.querySelector('#chem-reagent-submit')?.addEventListener('click', (event) => {
       event.preventDefault();
       event.stopPropagation();
-      onSubmit?.(inputEl?.value || '', '');
+      const val = inputEl?.value || '';
+      hideReagentSearchDock();
+      onSubmit?.(val, '');
+    });
+    dock.querySelector('#chem-reagent-dismiss')?.addEventListener('click', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      hideReagentSearchDock();
     });
   }
 
@@ -145,12 +160,15 @@ export function hideReagentSearchDock() {
   if (inputEl) {
     try { inputEl.blur(); } catch { /* ignore */ }
   }
+  if (typeof document !== 'undefined' && document.activeElement && typeof document.activeElement.blur === 'function') {
+    try { document.activeElement.blur(); } catch { /* ignore */ }
+  }
   // iPad dock cleanup
   const dock = document.getElementById('chem-reagent-iPad')?.parentElement;
   if (dock) {
     dock.remove();
-    inputEl = null;
   }
+  inputEl = null;
 }
 
 export function updateReagentSearchDockPosition() {

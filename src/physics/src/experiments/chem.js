@@ -155,6 +155,9 @@ export function createHandlers(ctx) {
     }
     if (state.data.searchBusy) return false;
 
+    state.data.searchFocused = false;
+    hideReagentSearchDock();
+
     // Try zero-latency local resolution first for determined single formulas (e.g. h2o, NaCl, C8H18)
     const localMatch = tryResolveLocalFormula(raw);
     if (localMatch && !condition) {
@@ -691,6 +694,8 @@ export function createHandlers(ctx) {
           pushHud();
           return true;
         case 'chem-ai-search': {
+          d.searchFocused = false;
+          hideReagentSearchDock();
           const q = String(payload.query || payload.q || '').trim();
           if (!q) {
             toast('请输入要检索的物质');
@@ -707,6 +712,8 @@ export function createHandlers(ctx) {
             pushHud();
           }, (submitVal) => {
             d.searchQuery = submitVal;
+            d.searchFocused = false;
+            hideReagentSearchDock();
             const cond = d.searchCondition || '';
             if (submitVal.trim()) {
               void runAiReagentQuery(submitVal.trim(), cond);
@@ -752,6 +759,8 @@ export function createHandlers(ctx) {
         }
         case 'chem-search-submit': {
           d.condMenuOpen = false;
+          d.searchFocused = false;
+          hideReagentSearchDock();
           const q = String(d.searchQuery || '').trim();
           if (!q) {
             toast('请输入化学式、名称或 SMILES');
@@ -761,6 +770,8 @@ export function createHandlers(ctx) {
           return true;
         }
         case 'chem-pick-element': {
+          d.searchFocused = false;
+          hideReagentSearchDock();
           const el = getElement(payload.element);
           if (!el) return false;
           d.pickedElement = el.symbol;
