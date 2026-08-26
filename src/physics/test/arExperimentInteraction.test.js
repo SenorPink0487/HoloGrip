@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { createHandlers as createMechanicsHandlers, station as mechanicsStation } from '../src/experiments/mechanics.js';
 import { createHandlers as createOpticsHandlers } from '../src/experiments/optics.js';
-import { createHandlers as createElectroHandlers } from '../src/experiments/electro.js';
+import { createHandlers as createElectroHandlers, analyzeHallWiring } from '../src/experiments/electro.js';
 
 function createContext({ expId, stepId, equipment }) {
   const state = { expId, stepIndex: 0, data: {} };
@@ -468,3 +468,57 @@ test('Hall identify requires sequential order and reports correct/wrong picks', 
     true,
   );
 });
+
+test('Hall wiring analysis correctly identifies 3-terminal Helmholtz connections', () => {
+  const ctx = createContext({
+    expId: 'hall_effect',
+    stepId: 'configure',
+    equipment: {
+      electro: {
+        updateHall: () => {},
+        setHallWiring: () => {},
+      },
+    },
+  });
+  const handlers = createElectroHandlers(ctx);
+  ctx.state.data = handlers.initData('hall_effect');
+  const data = ctx.state.data;
+
+  // 1. Both coils (Helmholtz: ③ common + ⑤ moving/both)
+  data.wires = [['out_red', 'hh_red'], ['out_black', 'hh_black']];
+  handlers.update(0.016);
+  assert.equal(data.wiring.energized, true);
+  assert.equal(data.wiring.target, 'helmholtz');
+  assert.equal(data.wiring.coilMode, 'both');
+  assert.equal(data.wiring.direction, 1);
+  const vhBoth = data.vh;
+  assert.ok(Math.abs(vhBoth) > 0);
+
+  // 2. Fixed coil only (③ common + ④ fixed L1)
+  data.wires = [['out_red', 'hh_fixed'], ['out_black', 'hh_black']];
+  handlers.update(0.016);
+  assert.equal(data.wiring.energized, true);
+  assert.equal(data.wiring.target, 'helmholtz');
+  assert.equal(data.wiring.coilMode, 'fixed');
+  const vhFixed = data.vh;
+  assert.ok(Math.abs(vhFixed) > 0);
+  assert.ok(Math.abs(vhFixed) < Math.abs(vhBoth));
+
+  // 3. Moving coil only (④ fixed + ⑤ moving L2)
+  data.wires = [['out_red', 'hh_red'], ['out_black', 'hh_fixed']];
+  handlers.update(0.016);
+  assert.equal(data.wiring.energized, true);
+  assert.equal(data.wiring.target, 'helmholtz');
+  assert.equal(data.wiring.coilMode, 'moving');
+  const vhMoving = data.vh;
+  assert.ok(Math.abs(vhMoving) > 0);
+
+  // 4. Reversed polarity on fixed coil
+  data.wires = [['out_red', 'hh_black'], ['out_black', 'hh_fixed']];
+  handlers.update(0.016);
+  assert.equal(data.wiring.direction, -1);
+  assert.equal(data.wiring.reversed, true);
+  assert.equal(data.vh, -vhFixed);
+});
+
+

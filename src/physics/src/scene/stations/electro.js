@@ -233,10 +233,11 @@ function createFullStationEquipment(ctx) {
 
     const deckMat = new THREE.MeshStandardMaterial({ color: 0xd6d8da, metalness: 0.16, roughness: 0.48 });
     const blackMat = new THREE.MeshStandardMaterial({ color: 0x08090b, metalness: 0.28, roughness: 0.55 });
-    const hallCopper = new THREE.MeshStandardMaterial({
+    const hallLeftCopper = new THREE.MeshStandardMaterial({
       color: 0xb85b27, metalness: 0.82, roughness: 0.34,
       emissive: 0x321006, emissiveIntensity: 0.08,
     });
+    const hallRightCopper = hallLeftCopper.clone();
     const acrylic = new THREE.MeshPhysicalMaterial({
       color: 0xe8f7ff, transparent: true, opacity: 0.24, transmission: 0.76,
       roughness: 0.08, side: THREE.DoubleSide, depthWrite: false,
@@ -528,12 +529,12 @@ function createFullStationEquipment(ctx) {
     // Helmholtz coils: thick multi-layer copper windings and clear flanges.
     const hallHelm = new THREE.Group();
     hallHelm.position.set(-0.04, 0.28, -0.02);
-    function makeHallCoil() {
+    function makeHallCoil(copperMat = hallLeftCopper) {
       const cg = new THREE.Group();
       const widthTurns = 20;
       const layerTurns = 12;
       const windings = new THREE.InstancedMesh(
-        new THREE.TorusGeometry(1, 0.014, 6, 48), hallCopper, widthTurns * layerTurns,
+        new THREE.TorusGeometry(1, 0.014, 6, 48), copperMat, widthTurns * layerTurns,
       );
       const dummy = new THREE.Object3D();
       let idx = 0;
@@ -563,9 +564,9 @@ function createFullStationEquipment(ctx) {
       cg.add(foot);
       return cg;
     }
-    const hallLeftCoil = makeHallCoil();
+    const hallLeftCoil = makeHallCoil(hallLeftCopper);
     hallLeftCoil.position.x = -0.1;
-    const hallRightCoil = makeHallCoil();
+    const hallRightCoil = makeHallCoil(hallRightCopper);
     hallRightCoil.position.x = 0.1;
     hallHelm.add(hallLeftCoil, hallRightCoil);
     hallGroup.add(hallHelm);
@@ -659,55 +660,88 @@ function createFullStationEquipment(ctx) {
       hallKnobs.push(knob);
     });
 
-    // Exactly three terminal pairs. Ports occupy the left column; silk-screen
-    // labels occupy a separate right column so neither the supports nor wires
-    // can cover the text.
+    // Terminal rows: solenoid (2), helmholtz (3: common/ground, fixed L1, moving L2), output (2).
+    // Sockets are positioned directly onto the schematic nodes (Col 1: -0.58, Col 2: -0.51, Col 3: -0.44).
     function makeTerminalLabel(primary, secondary, z, kind) {
       const canvas = document.createElement('canvas');
-      canvas.width = 720; canvas.height = 180;
+      canvas.width = 920; canvas.height = 140;
       const ctx = canvas.getContext('2d');
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.strokeStyle = '#30383d';
       ctx.fillStyle = '#30383d';
-      ctx.lineWidth = 8;
+      ctx.lineWidth = 7;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
-      if (kind !== 'output') {
+      const Y = 70;
+
+      if (kind === 'solenoid') {
+        // Line from left socket (X=40) to coil (X=110)
         ctx.beginPath();
-        ctx.moveTo(20, 72);
-        ctx.lineTo(64, 72);
-        for (let i = 0; i < 8; i++) {
-          ctx.lineTo(64 + (i + 1) * 18, 72 + (i % 2 === 0 ? -18 : 18));
+        ctx.moveTo(40, Y);
+        ctx.lineTo(110, Y);
+        // 7 zigzags between 110 and 250
+        for (let i = 0; i < 7; i++) {
+          ctx.lineTo(110 + (i + 1) * 20, Y + (i % 2 === 0 ? -18 : 18));
         }
-        ctx.lineTo(250, 72);
+        ctx.lineTo(270, Y);
+        ctx.lineTo(320, Y);
         ctx.stroke();
-        ctx.font = 'italic 32px Georgia, serif';
+
+        ctx.font = 'italic 30px Georgia, serif';
         ctx.textAlign = 'center';
-        ctx.fillText(kind === 'solenoid' ? 'L' : 'L1 — L2', 135, 42);
-      } else {
+        ctx.fillText('L', 180, Y - 26);
+      } else if (kind === 'helmholtz') {
+        // Line from left socket (X=40) to coil L1 (X=65)
         ctx.beginPath();
-        ctx.moveTo(26, 72);
-        ctx.lineTo(250, 72);
+        ctx.moveTo(40, Y);
+        ctx.lineTo(65, Y);
+        // Coil L1: 4 zigzags between 65 and 145
+        for (let i = 0; i < 4; i++) {
+          ctx.lineTo(65 + (i + 1) * 20, Y + (i % 2 === 0 ? -16 : 16));
+        }
+        ctx.lineTo(155, Y);
+        ctx.lineTo(180, Y); // Connects to middle socket (X=180)
+        ctx.lineTo(205, Y);
+        // Coil L2: 4 zigzags between 205 and 285
+        for (let i = 0; i < 4; i++) {
+          ctx.lineTo(205 + (i + 1) * 20, Y + (i % 2 === 0 ? -16 : 16));
+        }
+        ctx.lineTo(295, Y);
+        ctx.lineTo(320, Y); // Connects to right socket (X=320)
         ctx.stroke();
-        ctx.font = 'italic 32px Georgia, serif';
+
+        ctx.font = 'italic 26px Georgia, serif';
         ctx.textAlign = 'center';
-        ctx.fillText('Im', 138, 42);
+        ctx.fillText('L1', 110, Y - 24);
+        ctx.fillText('L2', 250, Y - 24);
+      } else {
+        // Output row: straight line from left socket (X=40) to right socket (X=320)
+        ctx.beginPath();
+        ctx.moveTo(40, Y);
+        ctx.lineTo(320, Y);
+        ctx.stroke();
+
+        ctx.font = 'italic 30px Georgia, serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Im', 180, Y - 20);
       }
 
       ctx.textAlign = 'left';
-      ctx.font = 'bold 39px "Microsoft YaHei", sans-serif';
-      ctx.fillText(primary, 286, 76);
+      ctx.font = 'bold 36px "Microsoft YaHei", sans-serif';
       if (secondary) {
+        ctx.fillText(primary, 410, Y - 2);
         ctx.fillStyle = '#5b6469';
-        ctx.font = '28px "Microsoft YaHei", sans-serif';
-        ctx.fillText(secondary, 286, 126);
+        ctx.font = '24px "Microsoft YaHei", sans-serif';
+        ctx.fillText(secondary, 410, Y + 36);
+      } else {
+        ctx.fillText(primary, 410, Y + 12);
       }
 
       const texture = new THREE.CanvasTexture(canvas);
       texture.colorSpace = THREE.SRGBColorSpace;
       const label = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.25, 0.063),
+        new THREE.PlaneGeometry(0.46, 0.07),
         new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false }),
       );
       label.rotation.x = -Math.PI / 2;
@@ -724,22 +758,23 @@ function createFullStationEquipment(ctx) {
       {
         key: 'solenoid', role: 'hall_terminal_solenoid',
         sockets: [
-          ['sol_black', -0.6, -0.12, lab.rubberBlack, 0x171717],
-          ['sol_red', -0.535, -0.12, lab.rubberRed, 0xd72d2d],
+          ['sol_black', -0.58, -0.12, lab.rubberBlack, 0x171717],
+          ['sol_red', -0.44, -0.12, lab.rubberRed, 0xd72d2d],
         ],
       },
       {
         key: 'helmholtz', role: 'hall_terminal_helmholtz',
         sockets: [
-          ['hh_black', -0.6, -0.025, lab.rubberBlack, 0x171717],
-          ['hh_red', -0.535, -0.025, lab.rubberRed, 0xd72d2d],
+          ['hh_black', -0.58, -0.025, lab.rubberBlack, 0x171717],
+          ['hh_fixed', -0.51, -0.025, lab.rubberRed, 0xd72d2d],
+          ['hh_red', -0.44, -0.025, lab.rubberRed, 0xd72d2d],
         ],
       },
       {
         key: 'output', role: 'hall_terminal_output',
         sockets: [
-          ['out_black', -0.6, 0.07, lab.rubberBlack, 0x171717],
-          ['out_red', -0.535, 0.07, lab.rubberRed, 0xd72d2d],
+          ['out_black', -0.58, 0.07, lab.rubberBlack, 0x171717],
+          ['out_red', -0.44, 0.07, lab.rubberRed, 0xd72d2d],
         ],
       },
     ];
@@ -887,7 +922,7 @@ function createFullStationEquipment(ctx) {
       }
       if (!end) end = start.clone();
       if (!snappedPortId) {
-        let nearestDistance = 0.072;
+        let nearestDistance = 0.048;
         hallTerminalPorts.forEach((post, portId) => {
           if (portId === fromPortId) return;
           const anchor = terminalAnchor(portId);
@@ -1040,37 +1075,64 @@ function createFullStationEquipment(ctx) {
       if (mirror) draw(-1);
     }
 
-    function rebuildHelmholtzFieldLines() {
+    function rebuildHelmholtzFieldLines(coilMode = 'both') {
       const leftCentre = hallHelm.position.x + hallLeftCoil.position.x;
       const rightCentre = hallHelm.position.x + hallRightCoil.position.x;
-      const signature = `${leftCentre.toFixed(3)}:${rightCentre.toFixed(3)}`;
+      const signature = `${coilMode}:${leftCentre.toFixed(3)}:${rightCentre.toFixed(3)}`;
       if (signature === helmholtzFieldSignature) return;
       helmholtzFieldSignature = signature;
       clearHallFieldGroup(helmholtzFieldLines);
 
       const radius = 0.116;
-      const fieldAt = (x, radial) => {
-        const left = getLoopField2D(x, radial, leftCentre, radius);
-        const right = getLoopField2D(x, radial, rightCentre, radius);
-        return { bx: left.bx + right.bx, br: left.br + right.br };
-      };
-      const bounds = { minX: -0.38, maxX: 0.34, minRadial: 0, maxRadial: 0.22 };
-      const centreX = (leftCentre + rightCentre) / 2;
+      if (coilMode === 'fixed') {
+        // 固定单线圈模式（仅左侧固定线圈通电）
+        const fieldAt = (x, radial) => getLoopField2D(x, radial, leftCentre, radius);
+        const bounds = { minX: leftCentre - 0.42, maxX: leftCentre + 0.42, minRadial: 0, maxRadial: 0.22 };
+        [0, 0.025, 0.05, 0.075, 0.1].forEach((radial) => {
+          const traced = traceAxisymmetricField(fieldAt, leftCentre, radial, bounds, 0.006, 380);
+          addFlowingFieldLine(helmholtzFieldLines, traced, 0.28, -0.02, radial > 0);
+        });
+        [0.12, 0.15].forEach((radial) => {
+          const tracedLeft = traceAxisymmetricField(fieldAt, leftCentre, radial, bounds, 0.006, 280);
+          addFlowingFieldLine(helmholtzFieldLines, tracedLeft, 0.28, -0.02, true);
+        });
+      } else if (coilMode === 'moving') {
+        // 移动单线圈模式（仅右侧移动线圈通电）
+        const fieldAt = (x, radial) => getLoopField2D(x, radial, rightCentre, radius);
+        const bounds = { minX: rightCentre - 0.42, maxX: rightCentre + 0.42, minRadial: 0, maxRadial: 0.22 };
+        [0, 0.025, 0.05, 0.075, 0.1].forEach((radial) => {
+          const traced = traceAxisymmetricField(fieldAt, rightCentre, radial, bounds, 0.006, 380);
+          addFlowingFieldLine(helmholtzFieldLines, traced, 0.28, -0.02, radial > 0);
+        });
+        [0.12, 0.15].forEach((radial) => {
+          const tracedRight = traceAxisymmetricField(fieldAt, rightCentre, radial, bounds, 0.006, 280);
+          addFlowingFieldLine(helmholtzFieldLines, tracedRight, 0.28, -0.02, true);
+        });
+      } else {
+        // 亥姆霍兹双线圈模式（两线圈同向通电）
+        const fieldAt = (x, radial) => {
+          const left = getLoopField2D(x, radial, leftCentre, radius);
+          const right = getLoopField2D(x, radial, rightCentre, radius);
+          return { bx: left.bx + right.bx, br: left.br + right.br };
+        };
+        const bounds = { minX: -0.38, maxX: 0.34, minRadial: 0, maxRadial: 0.22 };
+        const centreX = (leftCentre + rightCentre) / 2;
 
-      // More radial samples → denser, easier-to-read field tube set.
-      [0, 0.025, 0.05, 0.075, 0.1].forEach((radial) => {
-        const traced = traceAxisymmetricField(fieldAt, centreX, radial, bounds, 0.006, 420);
-        addFlowingFieldLine(helmholtzFieldLines, traced, 0.28, -0.02, radial > 0);
-      });
+        // 密集轴向线圈流
+        [0, 0.025, 0.05, 0.075, 0.1].forEach((radial) => {
+          const traced = traceAxisymmetricField(fieldAt, centreX, radial, bounds, 0.006, 420);
+          addFlowingFieldLine(helmholtzFieldLines, traced, 0.28, -0.02, radial > 0);
+        });
 
-      // Local return loops around each coil (top/bottom mirrors).
-      [0.12, 0.15].forEach((radial) => {
-        const tracedLeft = traceAxisymmetricField(fieldAt, leftCentre, radial, bounds, 0.006, 300);
-        addFlowingFieldLine(helmholtzFieldLines, tracedLeft, 0.28, -0.02, true);
+        // 左右两线圈各自的回流闭合回路
+        [0.12, 0.15].forEach((radial) => {
+          const tracedLeft = traceAxisymmetricField(fieldAt, leftCentre, radial, bounds, 0.006, 300);
+          addFlowingFieldLine(helmholtzFieldLines, tracedLeft, 0.28, -0.02, true);
 
-        const tracedRight = traceAxisymmetricField(fieldAt, rightCentre, radial, bounds, 0.006, 300);
-        addFlowingFieldLine(helmholtzFieldLines, tracedRight, 0.28, -0.02, true);
-      });
+          const tracedRight = traceAxisymmetricField(fieldAt, rightCentre, radial, bounds, 0.006, 300);
+          addFlowingFieldLine(helmholtzFieldLines, tracedRight, 0.28, -0.02, true);
+        });
+      }
     }
 
     function buildSolenoidFieldLines() {
@@ -1845,12 +1907,16 @@ function createFullStationEquipment(ctx) {
       const energy = d.wiring?.energized
         ? THREE.MathUtils.clamp(Number(d.Im || 0), 0, 1)
         : 0;
-      hallCopper.emissiveIntensity = 0.12 + energy * 0.58;
-      solWindMat.emissiveIntensity = 0.08 + energy * 0.5;
+      const coilMode = d.wiring?.coilMode || 'both';
+      const leftActive = energy > 0 && !targetSolenoid && (coilMode === 'both' || coilMode === 'fixed');
+      const rightActive = energy > 0 && !targetSolenoid && (coilMode === 'both' || coilMode === 'moving');
+      hallLeftCopper.emissiveIntensity = leftActive ? (0.12 + energy * 0.58) : 0.08;
+      hallRightCopper.emissiveIntensity = rightActive ? (0.12 + energy * 0.58) : 0.08;
+      solWindMat.emissiveIntensity = (targetSolenoid && energy > 0) ? (0.08 + energy * 0.5) : 0.08;
       const fieldVisible = energy > 0.01;
       if (fieldVisible) {
         if (targetSolenoid) buildSolenoidFieldLines();
-        else rebuildHelmholtzFieldLines();
+        else rebuildHelmholtzFieldLines(coilMode);
       }
       helmholtzFieldLines.visible = fieldVisible && !targetSolenoid;
       solenoidFieldLines.visible = fieldVisible && targetSolenoid;

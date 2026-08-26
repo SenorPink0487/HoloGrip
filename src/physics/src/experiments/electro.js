@@ -474,11 +474,29 @@ const HALL_WIRING_RULES = {
     positive: ['sol_red'],
     negative: ['sol_black'],
     label: '螺线管',
+    target: 'solenoid',
+    coilMode: 'solenoid',
   },
   helmholtz: {
     positive: ['hh_red'],
     negative: ['hh_black'],
-    label: '亥姆霍兹线圈',
+    label: '亥姆霍兹线圈 (双线圈)',
+    target: 'helmholtz',
+    coilMode: 'both',
+  },
+  helmholtz_fixed: {
+    positive: ['hh_fixed'],
+    negative: ['hh_black'],
+    label: '固定线圈 (L1)',
+    target: 'helmholtz',
+    coilMode: 'fixed',
+  },
+  helmholtz_moving: {
+    positive: ['hh_red'],
+    negative: ['hh_fixed'],
+    label: '移动线圈 (L2)',
+    target: 'helmholtz',
+    coilMode: 'moving',
   },
 };
 
@@ -492,13 +510,15 @@ export function analyzeHallWiring(wires = []) {
   });
   const redPeer = links.get('out_red') || null;
   const blackPeer = links.get('out_black') || null;
-  for (const [target, rule] of Object.entries(HALL_WIRING_RULES)) {
+  for (const [ruleKey, rule] of Object.entries(HALL_WIRING_RULES)) {
     const direct = rule.positive.includes(redPeer) && rule.negative.includes(blackPeer);
     const reversed = rule.negative.includes(redPeer) && rule.positive.includes(blackPeer);
     if (direct || reversed) {
       return {
         energized: true,
-        target,
+        target: rule.target || ruleKey,
+        coilMode: rule.coilMode || 'both',
+        ruleKey,
         direction: reversed ? -1 : 1,
         reversed,
         status: reversed ? 'reversed' : 'forward',
@@ -509,6 +529,8 @@ export function analyzeHallWiring(wires = []) {
   return {
     energized: false,
     target: null,
+    coilMode: null,
+    ruleKey: null,
     direction: 1,
     reversed: false,
     status: redPeer || blackPeer ? 'invalid' : 'open',
@@ -1829,7 +1851,13 @@ export function createHandlers(ctx) {
         HALL_MU0 * HALL_COIL_TURNS * Im * HALL_COIL_RADIUS_M ** 2
         / (2 * Math.pow(HALL_COIL_RADIUS_M ** 2 + (x - centreX) ** 2, 1.5))
       );
-      bTesla = fieldAt(fixedX) + fieldAt(movingX);
+      if (data.wiring?.coilMode === 'fixed') {
+        bTesla = fieldAt(fixedX);
+      } else if (data.wiring?.coilMode === 'moving') {
+        bTesla = fieldAt(movingX);
+      } else {
+        bTesla = fieldAt(fixedX) + fieldAt(movingX);
+      }
     } else {
       const halfLength = HALL_SOLENOID_LENGTH_M / 2;
       const turnsPerMetre = Number(data.turns || 100) / HALL_SOLENOID_LENGTH_M;
