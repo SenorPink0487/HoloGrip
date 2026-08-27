@@ -5640,11 +5640,11 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
           handleHoloScreenAction({ action: 'activate', stationId: sid }, sid);
           return true;
         }
-        showToast('请瞄准桌面终端上的实验卡片');
-        return true;
+        if (!directContext) showToast('请瞄准桌面终端上的实验卡片');
+        return !directContext;
       } else {
-        showToast('请瞄准内容屏上的控件');
-        return true;
+        if (!directContext) showToast('请瞄准内容屏上的控件');
+        return false;
       }
     } else if (isSelector) {
       // Fallback if pickFromRay failed to sample UV but the terminal is aimed.
@@ -5654,8 +5654,8 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
       expManager.interact(aimedHolo, t);
       return true;
     } else {
-      showToast('请先在桌面终端选择实验');
-      return true;
+      if (!directContext) showToast('请先在桌面终端选择实验');
+      return !directContext;
     }
   }
 
@@ -5727,7 +5727,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
   // the adjacent red/black sockets.
   // AR directContext used to suppress this fallback — keep it for pinch too.
   const terminalFallback = expManager?.state?.expId === 'hall_effect'
-    ? hallBench.userData.getHallTerminalTarget?.(inputRaycaster, { maxDistance: 0.11 })
+    ? hallBench?.userData?.getHallTerminalTarget?.(inputRaycaster, { maxDistance: 0.11 })
     : null;
   const target = directTarget || terminalFallback?.target || resolveInteractivePreferred(hits);
 
@@ -5739,8 +5739,8 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
       return o && (o.userData.type === 'formula_board' || o.userData.role === 'formula_board');
     });
     if (boardHit && !withinInteractDist(board, boardHit.distance)) {
-      frontWallTooFarToast();
-      return true;
+      if (!directContext) frontWallTooFarToast();
+      return false;
     }
     const pick = board?.userData?.pickFromRay?.(inputRaycaster);
     if (pick) {
@@ -5748,9 +5748,9 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
       return true;
     }
     if (!boardHit || withinInteractDist(board, boardHit.distance)) {
-      showToast('瞄准分类标签或公式卡片后点击');
+      if (!directContext) showToast('瞄准分类标签或公式卡片后点击');
     }
-    return true;
+    return !directContext;
   }
 
   // Front-wall chalkboards share the same near-third range to avoid far mis-taps.
@@ -5761,15 +5761,15 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
       return o && (o.userData.type === 'side_blackboard' || o.userData.role === 'side_blackboard');
     });
     if (boardHit && !withinInteractDist(board, boardHit.distance)) {
-      frontWallTooFarToast();
-      return true;
+      if (!directContext) frontWallTooFarToast();
+      return false;
     }
     const pick = board.userData.pickFromRay?.(inputRaycaster);
     if (!pick) {
       if (boardHit && withinInteractDist(board, boardHit.distance)) {
-        showToast('瞄准黑板工具栏或书写区后点击');
+        if (!directContext) showToast('瞄准黑板工具栏或书写区后点击');
       }
-      return true;
+      return !directContext;
     }
     if (pick.action === 'color' || pick.action === 'size' || pick.action === 'eraser' || pick.action === 'clear') {
       board.userData.applyPick(pick);
@@ -5835,10 +5835,12 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
         handleHoloScreenAction({ action: 'activate', stationId: sid }, sid);
         return true;
       }
-      showToast(isDisplay
-        ? '请瞄准内容屏上的控件'
-        : '请瞄准桌面终端上的实验卡片');
-      return true;
+      if (!directContext) {
+        showToast(isDisplay
+          ? '请瞄准内容屏上的控件'
+          : '请瞄准桌面终端上的实验卡片');
+      }
+      return false;
     } else if (!isDisplay) {
       expManager.interact(screen, t);
       return true;

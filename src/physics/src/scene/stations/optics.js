@@ -674,8 +674,6 @@ function createFullStationEquipment(ctx) {
     g.userData.clearIdentifyVisuals = clearIdentifyVisuals;
     g.userData.diffractionGroup = diffractionGroup;
     g.userData.animateDiffraction = animateDiffraction;
-    g.userData.interactive = true;
-    g.userData.role = 'optics';
     return g;
   }
 
@@ -894,8 +892,6 @@ function createFullStationEquipment(ctx) {
     } catch { /* ignore */ }
     optics.userData.cancelDeferredDiffraction?.();
   }
-
-  optics.userData.interactive = true;
 
   /**
    * GPU warm gate for geometric optics.

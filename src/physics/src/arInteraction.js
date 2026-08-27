@@ -184,16 +184,19 @@ export function createArInteractionController({
 
   function beginSingleHandAction(hand, event) {
     // Pinch maps to mouse down + click: always attempt beginManipulation first
-    // (ray-based click). If it returns true or a target existed, stay in
-    // manipulating. If nothing was hit, fall back to smoothed look.
+    // (ray-based click). If it returns true, stay in manipulating.
+    // If nothing was hit or interaction was rejected, fall back to smoothed look.
     endLooking();
     const hinted = isEquipmentTarget(event?.target) ? event.target : null;
     const clickEvent = { ...event, target: hinted, dragged: false };
-    const hit = beginManipulation?.(clickEvent);
-    if (hit || hinted) {
+    const hit = typeof beginManipulation === 'function'
+      ? beginManipulation(clickEvent)
+      : !!hinted;
+    const shouldManipulate = hit === true || (hit !== false && !!hinted);
+    if (shouldManipulate) {
       manipulation = {
         hand,
-        target: hinted || clickEvent.target || null,
+        target: clickEvent.target || hinted || null,
         hoverTarget: event?.hoverTarget || hinted || null,
         totalX: 0,
         totalY: 0,
@@ -203,7 +206,7 @@ export function createArInteractionController({
       snapshot.manipulating = true;
       return;
     }
-    // True empty space → smoothed look (mouse-free orbit).
+    // True empty space or unhit surface → smoothed look (mouse-free orbit).
     lookingHand = hand;
     snapshot.looking = true;
     resetLookFilter();

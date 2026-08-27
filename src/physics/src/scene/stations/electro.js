@@ -1214,6 +1214,7 @@ function createFullStationEquipment(ctx) {
         mesh.rotation.z = Math.PI / 2;
         mesh.position.set(OFFSET_X + (0.2 + (X_MAX - 0.2) / 2) * S, Y * S, z * S);
         mesh.castShadow = true;
+        mesh.raycast = () => {};
         return mesh;
       };
       circuitGroup.add(makeRail(RAIL_Z), makeRail(-RAIL_Z));
@@ -1221,12 +1222,14 @@ function createFullStationEquipment(ctx) {
       const end = new THREE.Mesh(new THREE.CylinderGeometry(0.09 * S, 0.09 * S, ROD_LEN * S, 14), endMat);
       end.rotation.x = Math.PI / 2;
       end.position.set(OFFSET_X + X_END * S, Y * S, 0);
+      end.raycast = () => {};
       circuitGroup.add(end);
 
       const areaMat = new THREE.MeshBasicMaterial({ color: 0xfb923c, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false });
       const areaMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, ROD_LEN), areaMat);
       areaMesh.rotation.x = -Math.PI / 2;
       areaMesh.position.y = Y * S + 0.004;
+      areaMesh.raycast = () => {};
       circuitGroup.add(areaMesh);
 
       const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.12 * S, 0.12 * S, ROD_LEN * S, 20), copperMat);
@@ -1303,6 +1306,7 @@ function createFullStationEquipment(ctx) {
             edges,
             new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.24 }),
           );
+          fieldFrame.raycast = () => {};
           fieldFrame.position.set(
             OFFSET_X + (fieldBounds.x0 + fieldBounds.x1) * S / 2,
             (fieldBounds.y0 + fieldBounds.y1) * S / 2,
@@ -1325,6 +1329,9 @@ function createFullStationEquipment(ctx) {
             );
             arrow.userData.ix = ix;
             arrow.userData.iz = iz;
+            arrow.raycast = () => {};
+            arrow.line.raycast = () => {};
+            arrow.cone.raycast = () => {};
             arrow.line.material.transparent = true;
             arrow.line.material.opacity = 0.7;
             arrow.line.material.depthWrite = false;
@@ -1489,6 +1496,7 @@ function createFullStationEquipment(ctx) {
       const pathLine = new THREE.LineLoop(pathGeo, pathMat);
       pathLine.renderOrder = 4;
       pathLine.visible = false;
+      pathLine.raycast = () => {};
       currentGroup.add(pathLine);
       function updatePathLine(rodX, color, active) {
         pathLine.visible = active;
@@ -1548,12 +1556,15 @@ function createFullStationEquipment(ctx) {
             FLOW_HEAD_LEN,
             FLOW_HEAD_W,
           );
+          arrow.raycast = () => {};
           if (arrow.line?.material) {
+            arrow.line.raycast = () => {};
             arrow.line.material.transparent = true;
             arrow.line.material.depthWrite = false;
             arrow.line.material.opacity = 0.9;
           }
           if (arrow.cone?.material) {
+            arrow.cone.raycast = () => {};
             arrow.cone.material.transparent = true;
             arrow.cone.material.depthWrite = false;
             arrow.cone.material.opacity = 1;
@@ -1589,6 +1600,7 @@ function createFullStationEquipment(ctx) {
         }));
         sprite.scale.set(0.65, 0.1625, 1);
         sprite.renderOrder = 30;
+        sprite.raycast = () => {};
 
         let lastFormula = '';
         let lastColor = '';
@@ -2002,8 +2014,6 @@ function createFullStationEquipment(ctx) {
       return outline;
     }
 
-    g.userData.interactive = true;
-    g.userData.role = 'electro';
     g.userData.getHallProbePos = (cam, target = 'helmholtz') => {
       if (!cam) return null;
       const y = target === 'solenoid' ? 0.245 : 0.28;
@@ -2043,7 +2053,6 @@ function createFullStationEquipment(ctx) {
   hallBench.position.set(-4.15, 0.93, 2.42);
   root.add(hallBench);
 
-  hallBench.userData.interactive = true;
   const equipment = {
     getHallProbePos: (cam, target) => hallBench.userData.getHallProbePos?.(cam, target) ?? null,
     setMode: (mode) => hallBench.userData.setMode?.(mode),

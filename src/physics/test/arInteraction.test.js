@@ -230,3 +230,16 @@ test('look output is continuous and directionally stable while aim moves steadil
   const first = looks[0];
   assert.ok(peak > first, 'smoothed look should ramp instead of dumping full steps at once');
 });
+
+test('pinch on unmanipulable target falls back to look when beginManipulation returns false', () => {
+  const hands = createHands();
+  const controller = createArInteractionController({
+    getHandState: (label) => hands[label],
+    beginManipulation: () => false,
+  });
+  controller.setEnabled(true);
+  controller.onPinchStart({ hand: 'Right', target: { id: 'background_wall' } });
+  assert.equal(controller.isLooking(), true);
+  assert.equal(controller.isManipulating(), false);
+});
+
