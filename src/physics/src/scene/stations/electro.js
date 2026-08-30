@@ -874,10 +874,14 @@ function createFullStationEquipment(ctx) {
         const end = terminalAnchor(to);
         if (!start || !end || from === to) return;
         const sourcePost = hallTerminalPorts.get(from);
+        const targetPost = hallTerminalPorts.get(to);
+        const wireColor = (String(from).includes('black') || String(to).includes('black'))
+          ? 0x171717
+          : (sourcePost?.userData.wireColor ?? targetPost?.userData.wireColor ?? 0xd72d2d);
         const cable = new THREE.Mesh(
           new THREE.TubeGeometry(makeCableCurve(start, end), 36, 0.006, 8, false),
           new THREE.MeshStandardMaterial({
-            color: sourcePost?.userData.wireColor ?? 0xd72d2d,
+            color: wireColor,
             roughness: 0.68,
             metalness: 0.02,
           }),
@@ -1279,7 +1283,6 @@ function createFullStationEquipment(ctx) {
       let fieldShowKey = '';
       let fieldLastB = NaN;
       let fieldLastSign = 0;
-      let fieldFrame = null;
       const fieldArrows = [];
       const fieldDir = new THREE.Vector3(0, 1, 0);
       function clearFieldMeshes() {
@@ -1287,33 +1290,12 @@ function createFullStationEquipment(ctx) {
           const child = fieldGroup.children.pop();
           child.traverse?.((node) => { node.geometry?.dispose?.(); node.material?.dispose?.(); });
         }
-        fieldFrame = null;
         fieldArrows.length = 0;
         fieldShowKey = '';
         fieldLastB = NaN;
         fieldLastSign = 0;
       }
       function ensureFieldAssets(color) {
-        if (!fieldFrame) {
-          const box = new THREE.BoxGeometry(
-            (fieldBounds.x1 - fieldBounds.x0) * S,
-            (fieldBounds.y1 - fieldBounds.y0) * S,
-            (fieldBounds.z1 - fieldBounds.z0) * S,
-          );
-          const edges = new THREE.EdgesGeometry(box);
-          box.dispose();
-          fieldFrame = new THREE.LineSegments(
-            edges,
-            new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.24 }),
-          );
-          fieldFrame.raycast = () => {};
-          fieldFrame.position.set(
-            OFFSET_X + (fieldBounds.x0 + fieldBounds.x1) * S / 2,
-            (fieldBounds.y0 + fieldBounds.y1) * S / 2,
-            (fieldBounds.z0 + fieldBounds.z1) * S / 2,
-          );
-          fieldGroup.add(fieldFrame);
-        }
         if (fieldArrows.length >= FIELD_POOL) return;
         // Fixed (ix,iz) pool — densest fill; layout only moves roots / fades edges.
         for (let ix = 0; ix < FIELD_NX; ix += 1) {
@@ -1598,7 +1580,7 @@ function createFullStationEquipment(ctx) {
           depthTest: true,
           depthWrite: false,
         }));
-        sprite.scale.set(0.65, 0.1625, 1);
+        sprite.scale.set(0.48, 0.12, 1);
         sprite.renderOrder = 30;
         sprite.raycast = () => {};
 
@@ -1639,12 +1621,12 @@ function createFullStationEquipment(ctx) {
         areaMat.color.setHex(B >= 0 ? 0x60a5fa : 0xfb923c);
         areaMat.opacity = 0.12 + Math.min(Math.abs(flux) * 0.012, 0.18);
 
-        // Update real-time 3D text labels (using LaTeX drawMathFormula with subscript B)
-        rodXLabel.sprite.position.set(OFFSET_X + x * S, (Y + 1.8) * S, 0);
+        // Update real-time 3D text labels (rod label directly above conductor, flux label floating at medium height)
+        rodXLabel.sprite.position.set(OFFSET_X + x * S, (Y + 0.45) * S, 0);
         rodXLabel.update(`x = ${x.toFixed(2)} \\mathrm{m}`, '#f472b6');
 
         const areaCenterX = X_END + width / 2;
-        areaFluxLabel.sprite.position.set(OFFSET_X + areaCenterX * S, (Y + 1.8) * S, 0);
+        areaFluxLabel.sprite.position.set(OFFSET_X + areaCenterX * S, (Y + 1.35) * S, 0);
         areaFluxLabel.update(`\\Phi_B = ${flux >= 0 ? '+' : ''}${flux.toFixed(2)} \\mathrm{Wb}`, B >= 0 ? '#38bdf8' : '#fb923c');
         rebuildField(Number(data?.B || 0), data?.showField !== false);
         buildFlow(data?.currentSense || 'none', x);
@@ -1727,7 +1709,7 @@ function createFullStationEquipment(ctx) {
       // Already-identified parts stop blocking rays so rear apparatus (e.g. solenoid
       // behind Helmholtz) can be selected from the front during sequential identify.
       if (hit) {
-        if (mode === 'done') {
+        if (mode === 'done' || (mode === 'off' && role === 'hall_console')) {
           hit.raycast = () => {};
           hit.userData.interactive = false;
         } else {
@@ -1963,17 +1945,12 @@ function createFullStationEquipment(ctx) {
       // After identify: keep probe/coil grab volumes, but disable the console-wide
       // recognition box so it cannot swallow Im/Is/zero knobs and terminals.
       Object.keys(hallRecognitionHits).forEach((role) => {
-        const hit = hallRecognitionHits[role];
-        if (hit) {
-          if (role === 'hall_console') {
-            hit.raycast = () => {};
-            hit.userData.interactive = false;
-          } else {
-            hit.raycast = meshRaycast;
-            hit.userData.interactive = true;
-          }
-        }
         setHallRecognitionMode(role, 'off');
+        const hit = hallRecognitionHits[role];
+        if (hit && role === 'hall_console') {
+          hit.raycast = () => {};
+          hit.userData.interactive = false;
+        }
       });
     };
     // helpers for experiment handlers / rail picking

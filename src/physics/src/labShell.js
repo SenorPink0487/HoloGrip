@@ -4897,13 +4897,12 @@ function unlockedElectroPick(event) {
     'chem_cup_a_label', 'chem_cup_b_label', 'chem_cup_a', 'chem_cup_b',
     'mechanics_viscosity_ball',
   ];
-  for (const role of preferredRoles) {
-    const hit = hits.find((entry) => {
-      const target = resolveInteractive(entry.object);
-      return target?.userData?.role === role && isHierarchyVisible(target);
-    });
-    const target = hit ? resolveInteractive(hit.object) : null;
-    if (target) return { target, raycaster: unlockedElectroRaycaster };
+  const roleSet = new Set(preferredRoles);
+  for (const hit of hits) {
+    const target = resolveInteractive(hit.object);
+    if (target && isHierarchyVisible(target) && roleSet.has(target.userData?.role)) {
+      return { target, raycaster: unlockedElectroRaycaster };
+    }
   }
   return null;
 }
@@ -5269,7 +5268,8 @@ function pickLiveElectroChargeHit(hits) {
           : expId === 'hall_effect'
             ? [
               'hall_knob_im', 'hall_knob_is', 'hall_knob_zero',
-              'hall_probe', 'hall_helmholtz', 'hall_solenoid', 'hall_console',
+              'hall_probe', 'hall_helmholtz', 'hall_solenoid',
+              ...(expManager.currentStep?.()?.id === 'identify' ? ['hall_console'] : []),
               'hall_terminal_solenoid', 'hall_terminal_helmholtz', 'hall_terminal_output',
             ]
             : expId === 'multi_slit_diffraction'
@@ -5437,7 +5437,7 @@ function getFocusTarget(inputRaycaster = raycaster) {
   // Run before empty-glass holo so terminals remain usable when the panel
   // occludes the bench but the aim is still near a socket.
   if (expManager?.state?.expId === 'hall_effect') {
-    const terminal = hallBench.userData.getHallTerminalTarget?.(inputRaycaster, { maxDistance: 0.11 });
+    const terminal = hallBench.userData.getHallTerminalTarget?.(inputRaycaster, { maxDistance: 0.045 });
     if (terminal?.target) {
       lastFocusHit = terminal.hit;
       return terminal.target;
@@ -5727,7 +5727,7 @@ function tryInteract(inputRaycaster = raycaster, allowUnlocked = false, directCo
   // the adjacent red/black sockets.
   // AR directContext used to suppress this fallback — keep it for pinch too.
   const terminalFallback = expManager?.state?.expId === 'hall_effect'
-    ? hallBench?.userData?.getHallTerminalTarget?.(inputRaycaster, { maxDistance: 0.11 })
+    ? hallBench?.userData?.getHallTerminalTarget?.(inputRaycaster, { maxDistance: 0.045 })
     : null;
   const target = directTarget || terminalFallback?.target || resolveInteractivePreferred(hits);
 

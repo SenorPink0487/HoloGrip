@@ -7,14 +7,55 @@ import {
 import { formatPhysicsNumber, drawMathFormula } from '../physicsFormula.js';
 
 const WORLD_PER_SOURCE = 0.13;
-/** Fixed source-space radii r_source (0.45 to 4.50) for the concentric induced electric field lines.
- *  Their spatial extent is FIXED to cover the entire black measurement disk (R_disk = 4.6)
- *  and DOES NOT change when the magnetic cylinder radius R changes.
- */
-const MAX_E_RINGS = 28;
+export const MAX_E_RINGS = 24;
 const E_MARKERS_PER_RING = 8;
+
+/**
+ * 物理原理：
+ * 感生电场强度在蓝色分隔层边界 r = R 处达到峰值 E_max：
+ * - 分隔层以内 (r < R)：E ∝ r，随半径向圆心减小而线性衰减至 E=0；
+ * - 分隔层以外 (r > R)：E ∝ 1/r，随半径向外圈增大而反比衰减。
+ *
+ * 因此，电场线在蓝色分隔层 (r = R) 处最为密集（间距最小）；
+ * 从蓝色分隔层分别【向内（往圆心）】和【向外（往外圈）】，场线间距严格 1:1 对称对应并显著递增拉开（变稀疏）。
+ */
+export function computeInducedFieldRingRadii(regionR, rateD, Rdisk = 4.55) {
+  const absRate = Math.abs(Number(rateD || 0));
+  if (absRate < 0.02) return [];
+
+  const safeR = Math.max(0.6, Math.min(3.2, Number(regionR || 2)));
+  
+  // 距蓝色分隔层 R 的对称步长增量序列：0.13 -> 0.20 -> 0.30 -> 0.45 -> 0.68 -> 1.02 -> 1.53
+  const stepSteps = [0.13, 0.20, 0.30, 0.45, 0.68, 1.02, 1.53];
+  const offsets = [];
+  let acc = 0;
+  for (let i = 0; i < stepSteps.length; i += 1) {
+    acc += stepSteps[i];
+    offsets.push(acc);
+  }
+
+  // 1. 内圈 (r < R)：从蓝色分隔层 R 向内递增步长（靠近分隔层最密，靠近圆心最疏）
+  const inRadii = [];
+  for (let i = 0; i < offsets.length; i += 1) {
+    const rIn = safeR - offsets[i];
+    if (rIn < 0.15) break;
+    inRadii.push(Number(rIn.toFixed(4)));
+  }
+  inRadii.reverse(); // 按半径升序排列
+
+  // 2. 外圈 (r > R)：从蓝色分隔层 R 向外递增步长（与内圈 1:1 严格对称对应，向外显著拉开）
+  const outRadii = [];
+  for (let i = 0; i < offsets.length; i += 1) {
+    const rOut = safeR + offsets[i];
+    if (rOut > Rdisk) break;
+    outRadii.push(Number(rOut.toFixed(4)));
+  }
+
+  return [...inRadii, ...outRadii];
+}
+
 /** Source-space R max (matches desk slider R max). Lattice covers densest fill of this disk. */
-const B_R_MAX = 3.2;
+const B_R_MAX = 3.0;
 /** Faraday-style lattice spacing in source units: sparse ↔ dense vs |B|. */
 const B_SPACING_SPARSE = 1.45;
 const B_SPACING_DENSE = 0.48;
@@ -510,48 +551,7 @@ export function createInducedElectricFieldEquipment() {
       const stepDt = Math.max(0, Number(dt || 0));
       const canSpin = showSpin && sense !== 'none' && absD > 1e-4;
 
-      const dynamicRadii = (function computePhysicalRingRadii(regionR, rateD, bVal = 0, Rdisk = 4.5) {
-        const absRate = Math.abs(Number(rateD || 0));
-        const absB = Math.abs(Number(bVal || 0));
-        if (absRate < 0.02 && absB < 0.02) return [];
-
-        const safeR = Math.max(0.6, Math.min(3.6, Number(regionR || 2)));
-        const radii = [];
-
-        // 1. 面内同心圆 (r < R)：内圈独立计算，最内圈小巧居中（r1 = 0.38）
-        // 阶梯间距采用极陡峭的几何递减比例（0.65 -> 0.43 -> 0.30 -> 0.22 -> 0.17...）
-        // 确保在只有 2~3 根圆环的局部视野下，各环间距的收缩反差依然极其显著且一眼可见！
-        let currR = 0.38;
-        radii.push(currR);
-        let k = 1;
-        while (k <= 8) {
-          const step = 0.55 * Math.pow(0.60, k - 1) + 0.10;
-          const nextR = currR + step;
-          if (nextR >= safeR - 0.12) break;
-          radii.push(nextR);
-          currR = nextR;
-          k += 1;
-        }
-
-        // 2. 边界环 r = R (磁场柱体边缘，感生电场强度达到峰值 E_max)
-        radii.push(safeR);
-
-        // 3. 面外同心圆 (r > R)：外圈独立计算，间距与密度受 B / dBdt 强度动态调控
-        // 适度加密基准间距 (outBase: 0.55 -> 0.24)
-        const bDrive = Math.max(absB, absRate);
-        const bNorm = THREE.MathUtils.clamp(bDrive / 2.5, 0, 1);
-        const outBase = THREE.MathUtils.lerp(0.55, 0.24, bNorm);
-        let m = 1;
-        while (m <= 9) {
-          const outStep = outBase * Math.pow(m, 1.38);
-          const outR = safeR + outStep;
-          if (outR > Rdisk) break;
-          radii.push(outR);
-          m += 1;
-        }
-
-        return radii;
-      }(R, dBdt, B));
+      const dynamicRadii = computeInducedFieldRingRadii(R, dBdt);
 
       eRings.forEach(({ ring, line, mat, markers }, index) => {
         if (index >= dynamicRadii.length || absD < 0.02) {
@@ -559,24 +559,23 @@ export function createInducedElectricFieldEquipment() {
           return;
         }
         ring.visible = true;
+
         const sourceR = dynamicRadii[index];
         const rWorld = sourceR * S;
         const mag = inducedEMagnitude(sourceR, R, dBdt);
         line.scale.set(rWorld, 1, rWorld);
 
-        const isBoundary = Math.abs(sourceR - R) < 0.06;
-        const isInside = sourceR <= R + 1e-6;
-        const ringColor = isBoundary
-          ? 0xf43f5e
-          : isInside
-            ? (sense === 'cw' ? 0xf472b6 : sense === 'ccw' ? 0xa78bfa : 0xec4899)
-            : (sense === 'cw' ? 0xc084fc : sense === 'ccw' ? 0x818cf8 : 0x64748b);
+        const isInside = sourceR <= R + 1e-4;
+        const ringColor = isInside
+          ? (sense === 'cw' ? 0xf472b6 : sense === 'ccw' ? 0xa78bfa : 0xec4899)
+          : (sense === 'cw' ? 0xc084fc : sense === 'ccw' ? 0x818cf8 : 0x64748b);
         mat.color.setHex(ringColor);
 
-        // Field strength weighting: dense/strong regions (near R) are vivid (opacity ~0.95);
-        // weak/sparse regions (r->0 and r->4.5) are translucent (opacity ~0.22).
+        // 场线与箭头保持高对比度清晰明亮，避免外圈被过度半透明化
         const relStrength = THREE.MathUtils.clamp(mag / maxMag, 0, 1);
-        mat.opacity = eOpacityBase * THREE.MathUtils.lerp(0.22, 0.96, Math.pow(relStrength, 0.75));
+        mat.opacity = eOpacityBase * THREE.MathUtils.lerp(0.65, 0.95, relStrength);
+
+        const arrowScale = THREE.MathUtils.lerp(0.80, 1.10, relStrength);
 
         markers.forEach(({ marker, phase }) => {
           if (sense === 'none' || mag < 1e-5) {
@@ -584,24 +583,24 @@ export function createInducedElectricFieldEquipment() {
             return;
           }
           marker.visible = true;
-          // Local positions on the ring; parent spin carries them around.
+
           const lx = Math.cos(phase) * rWorld;
           const lz = Math.sin(phase) * rWorld;
           marker.position.set(lx, 0.12 * S, lz);
-          // Local tangent; ring.rotation.y maps it to the correct world direction.
+
           const dir = inducedEDirection(Math.cos(phase), Math.sin(phase), sense);
           _tangentDir.set(dir.x, 0, dir.z);
           if (_tangentDir.lengthSq() > 1e-12) marker.setDirection(_tangentDir);
-          // Length is created fixed — never call setLength.
-          const strength = THREE.MathUtils.clamp(mag / maxMag, 0, 1);
+          
+          marker.scale.set(arrowScale, arrowScale, arrowScale);
           marker.setColor(ringColor);
           if (marker.line?.material) {
             marker.line.material.color?.setHex?.(ringColor);
-            marker.line.material.opacity = THREE.MathUtils.lerp(0.72, 1, strength);
+            marker.line.material.opacity = THREE.MathUtils.lerp(0.70, 0.98, relStrength);
           }
           if (marker.cone?.material) {
             marker.cone.material.color?.setHex?.(ringColor);
-            marker.cone.material.opacity = THREE.MathUtils.lerp(0.78, 1, strength);
+            marker.cone.material.opacity = THREE.MathUtils.lerp(0.75, 1.0, relStrength);
           }
         });
 

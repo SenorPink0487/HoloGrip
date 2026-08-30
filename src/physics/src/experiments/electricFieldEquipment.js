@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MarchingCubes } from 'three/addons/objects/MarchingCubes.js';
 import { createInstancedArrowField } from '../scene/shared/instancedBatch.js';
 import { K_COULOMB, CHARGE_UI_TO_C, formatPhysicsNumber, drawMathFormula } from '../physicsFormula.js';
 import { labFrameScheduler } from '../frameBudget.js';
@@ -23,10 +24,12 @@ function disposeObject(object) {
  * Lines: q₀, optional r, |E|, |F| (force from F = q₀E).
  */
 function createFloatingHudLabel({ worldScale = 1 } = {}) {
-  const canvas = document.createElement('canvas');
+  const canvas = typeof document !== 'undefined'
+    ? document.createElement('canvas')
+    : { width: 512, height: 280, getContext: () => null };
   canvas.width = 512;
   canvas.height = 280;
-  const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext ? canvas.getContext('2d') : null;
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.anisotropy = 2;
@@ -54,6 +57,7 @@ function createFloatingHudLabel({ worldScale = 1 } = {}) {
    * @param {string|null} [fText]
    */
   function setQE(qText, eText, accent = '#fde68a', rText = null, fText = null) {
+    if (!ctx) return;
     const key = `${accent}|${qText}|${eText}|${rText || ''}|${fText || ''}`;
     if (key === lastKey) return;
     lastKey = key;
@@ -544,6 +548,12 @@ export function createElectricFieldEquipment() {
   zCone.position.y = axisLength / 2;
 
   function createAxisLabelSprite(text, colorStr = '#ffffff') {
+    if (typeof document === 'undefined') {
+      const sprite = new THREE.Sprite();
+      sprite.scale.set(0.065, 0.065, 1);
+      sprite.raycast = () => {};
+      return sprite;
+    }
     const canvas = document.createElement('canvas');
     canvas.width = 128;
     canvas.height = 128;
@@ -824,61 +834,217 @@ export function createElectricFieldEquipment() {
     if (!charges.length) return;
 
     if (data.showEquipot === 'concentric') {
-      charges.forEach((ch) => {
-        const q = Number(ch.q || 0);
-        if (Math.abs(q) < 1e-6) return;
-        const isPos = q > 0;
-        const radiiLevels = [0.8, 1.4, 2.1, 2.9];
+      const active = charges.filter((c) => Math.abs(Number(c.q || 0)) > 1e-4);
+      if (!active.length) return;
 
-        radiiLevels.forEach((rLevel, idx) => {
-          const worldR = rLevel * WORLD_PER_SOURCE_UNIT;
-          const shellColor = isPos
-            ? new THREE.Color().setHSL(0.08 - idx * 0.02, 0.95, 0.52)
-            : new THREE.Color().setHSL(0.60 + idx * 0.03, 0.95, 0.52);
+      let minX = Infinity;
+      let maxX = -Infinity;
+      let minY = Infinity;
+      let maxY = -Infinity;
+      let minZ = Infinity;
+      let maxZ = -Infinity;
+      let maxAbsQ = 0;
+      let hasPos = false;
+      let hasNeg = false;
+      const posCharges = [];
+      const negCharges = [];
 
-          const wireColor = shellColor.clone().offsetHSL(0, 0, 0.2);
-          const geo = new THREE.SphereGeometry(worldR, 36, 24);
-          const wireGeo = new THREE.WireframeGeometry(geo);
+      for (let i = 0; i < active.length; i += 1) {
+        const c = active[i];
+        const q = Number(c.q || 0);
+        const x = Number(c.x || 0);
+        const y = Number(c.y || 0);
+        const z = Number(c.z || 0);
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+        if (z < minZ) minZ = z;
+        if (z > maxZ) maxZ = z;
+        const absQ = Math.abs(q);
+        if (absQ > maxAbsQ) maxAbsQ = absQ;
+        if (q > 0) {
+          hasPos = true;
+          posCharges.push(c);
+        }
+        if (q < 0) {
+          hasNeg = true;
+          negCharges.push(c);
+        }
+      }
 
-          const mat = new THREE.MeshPhysicalMaterial({
-            color: shellColor,
-            emissive: shellColor,
-            emissiveIntensity: 0.18,
-            transparent: true,
-            opacity: 0.24 - idx * 0.04,
-            transmission: 0.65,
-            roughness: 0.15,
-            metalness: 0.08,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-          });
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const cz = (minZ + maxZ) / 2;
 
-          const wireMat = new THREE.LineBasicMaterial({
-            color: wireColor,
-            transparent: true,
-            opacity: 0.65 - idx * 0.08,
-            depthWrite: false,
-          });
+      const spanX = (maxX - minX) / 2;
+      const spanY = (maxY - minY) / 2;
+      const spanZ = (maxZ - minZ) / 2;
+      const maxSpan = Math.max(spanX, spanY, spanZ);
 
-          const mesh = new THREE.Mesh(geo, mat);
-          const wire = new THREE.LineSegments(wireGeo, wireMat);
-          disablePick(mesh);
-          disablePick(wire);
+      // Margin around charges so outer equipotential shells and combined envelopes close naturally
+      const margin = Math.max(2.6, maxSpan * 0.85 + 1.8);
+      const hx = Math.max(2.4, spanX + margin);
+      const hy = Math.max(2.4, spanY + margin);
+      const hz = Math.max(2.4, spanZ + margin);
 
-          const shellGroup = new THREE.Group();
-          shellGroup.position.set(
-            Number(ch.x || 0),
-            Number(ch.z || 0),
-            Number(ch.y || 0),
-          ).multiplyScalar(WORLD_PER_SOURCE_UNIT);
+      let minDist = Infinity;
+      for (let i = 0; i < active.length; i += 1) {
+        for (let j = i + 1; j < active.length; j += 1) {
+          const d = Math.hypot(
+            Number(active[i].x || 0) - Number(active[j].x || 0),
+            Number(active[i].y || 0) - Number(active[j].y || 0),
+            Number(active[i].z || 0) - Number(active[j].z || 0),
+          );
+          if (d < minDist) minDist = d;
+        }
+      }
+      if (!Number.isFinite(minDist)) minDist = 2.4;
 
-          shellGroup.add(mesh, wire);
-          shellGroup.userData.concentricEquipot = true;
-          shellGroup.userData.speed = (idx % 2 === 0 ? 1 : -1) * (0.18 - idx * 0.03);
+      const N = 48;
+      const N2 = N * N;
+      const field = new Float32Array(N * N * N);
+      const absField = new Float32Array(N * N * N);
 
-          equipotGroup.add(shellGroup);
+      // Sample connected superposition potential field U(r) = sum |q_i|/r_i
+      // Physics: At near-field it forms separate core shells; at mid/far-field it fuses into
+      // continuous bridging tubes (dumbbell/peanut) and overarching envelopes connecting all charges
+      for (let iz = 0; iz < N; iz += 1) {
+        const fz = (iz - N / 2) / (N / 2);
+        const py = cy + fz * hy;
+        const zOffset = iz * N2;
+        for (let iy = 0; iy < N; iy += 1) {
+          const fy = (iy - N / 2) / (N / 2);
+          const pz = cz + fy * hz;
+          const yOffset = zOffset + iy * N;
+          for (let ix = 0; ix < N; ix += 1) {
+            const fx = (ix - N / 2) / (N / 2);
+            const px = cx + fx * hx;
+
+            let u = 0;
+            for (let c = 0; c < active.length; c += 1) {
+              const ch = active[c];
+              const dx = px - Number(ch.x || 0);
+              const dy = py - Number(ch.y || 0);
+              const dz = pz - Number(ch.z || 0);
+              const r = Math.sqrt(dx * dx + dy * dy + dz * dz);
+              u += Math.abs(Number(ch.q || 0)) / Math.max(0.06, r);
+            }
+
+            // Smooth boundary taper to ensure all MarchingCubes isosurfaces close gracefully
+            const distEdge = Math.min(ix, N - 1 - ix, iy, N - 1 - iy, iz, N - 1 - iz);
+            const edgeFade = THREE.MathUtils.smoothstep(distEdge, 0.5, 3.5);
+
+            field[yOffset + ix] = u * edgeFade;
+          }
+        }
+      }
+
+      // Original holographic cyber color tiers (Cyan, Sky-Blue, Indigo, Emerald)
+      const holoPalette = [
+        {
+          meshColor: 0x00f0ff,
+          emissive: 0x0088cc,
+          wireColor: 0x67e8f9,
+          opacity: 0.22,
+          wireOpacity: 0.40,
+          transmission: 0.75,
+        },
+        {
+          meshColor: 0x38bdf8,
+          emissive: 0x0284c7,
+          wireColor: 0x38bdf8,
+          opacity: 0.18,
+          wireOpacity: 0.32,
+          transmission: 0.78,
+        },
+        {
+          meshColor: 0x818cf8,
+          emissive: 0x4f46e5,
+          wireColor: 0xa78bfa,
+          opacity: 0.15,
+          wireOpacity: 0.28,
+          transmission: 0.80,
+        },
+        {
+          meshColor: 0x34d399,
+          emissive: 0x059669,
+          wireColor: 0x6ee7b7,
+          opacity: 0.12,
+          wireOpacity: 0.25,
+          transmission: 0.82,
+        },
+      ];
+
+      const addShell = (fieldArray, isolationVal, matIdx) => {
+        const cfg = holoPalette[matIdx % holoPalette.length];
+
+        const mat = new THREE.MeshPhysicalMaterial({
+          color: cfg.meshColor,
+          emissive: cfg.emissive,
+          emissiveIntensity: 0.28,
+          transparent: true,
+          opacity: cfg.opacity,
+          transmission: cfg.transmission,
+          roughness: 0.12,
+          metalness: 0.08,
+          side: THREE.DoubleSide,
+          depthWrite: false,
+          depthTest: true,
         });
-      });
+
+        const wireMat = new THREE.MeshBasicMaterial({
+          color: cfg.wireColor,
+          wireframe: true,
+          transparent: true,
+          opacity: cfg.wireOpacity,
+          depthWrite: false,
+        });
+
+        const mc = new MarchingCubes(N, mat, false, false, 80000);
+        mc.reset();
+        mc.field.set(fieldArray);
+        mc.isolation = isolationVal;
+        mc.update();
+
+        if (mc.count > 0) {
+          const wireMesh = new THREE.Mesh(mc.geometry, wireMat);
+          disablePick(mc);
+          disablePick(wireMesh);
+          mc.add(wireMesh);
+
+          // Map physics (x, y, z) -> Three.js (x, z, y) * WORLD_PER_SOURCE_UNIT
+          mc.position.set(cx, cz, cy).multiplyScalar(WORLD_PER_SOURCE_UNIT);
+          mc.scale.set(hx, hz, hy).multiplyScalar(WORLD_PER_SOURCE_UNIT);
+
+          mc.renderOrder = 4 + matIdx;
+          mc.userData.concentricEquipot = true;
+
+          equipotGroup.add(mc);
+        }
+      };
+
+      // Calculate midpoint / center interaction scalar for multi-charge superposition
+      let uMid = 0;
+      for (let c = 0; c < active.length; c += 1) {
+        const ch = active[c];
+        const r = Math.hypot(cx - Number(ch.x || 0), cy - Number(ch.y || 0), cz - Number(ch.z || 0));
+        uMid += Math.abs(Number(ch.q || 0)) / Math.max(0.06, r);
+      }
+
+      // 4-tier connected equipotential manifold:
+      // Single charge: 4 concentric radial spheres
+      // Multi-charge: All inner & outer layers actively superpose and merge across the midpoint:
+      //   - Layer 0 (Cyan): Inner teardrop cores stretching towards each other (1.35 * uMid)
+      //   - Layer 1 (Sky-Blue): Inner merged dumbbell bridge connecting the charges inside (0.98 * uMid)
+      //   - Layer 2 (Indigo): Middle merged peanut capsule enclosing both charges (0.70 * uMid)
+      //   - Layer 3 (Emerald): Overarching continuous envelope (0.45 * uMid)
+      const isSingle = active.length === 1;
+      const levels = isSingle
+        ? [2.20, 1.25, 0.75, 0.45].map((m) => m * maxAbsQ)
+        : [1.35, 0.98, 0.70, 0.45].map((m) => m * uMid);
+
+      levels.forEach((lvl, idx) => addShell(field, lvl, idx));
       return;
     }
 
@@ -1050,24 +1216,20 @@ export function createElectricFieldEquipment() {
 
     if (needLines || needArrows) {
       // Prefer host SimBackend packed polylines when present (off-thread trace).
-      // A worker snapshot can lag behind a just-released drag. Do not paint
-      // that old buffer at the new charge position and do not fall back to a
-      // synchronous main-thread integration; keep the previous decoration
-      // until the matching snapshot arrives.
       const hostLines = data._simFieldLines
         && (!data._simFieldLinesSignature || !data._simFieldSig || data._simFieldLinesSignature === data._simFieldSig)
         ? unpackHostFieldLines(data._simFieldLines, charges)
         : null;
-      const lines = hostLines;
-      if (!lines) {
-        pendingDecoration = true;
-        return;
-      }
-      if (needLines) rebuildLines(charges, lines);
-      else clearGroup(lineGroup);
+      const lines = hostLines || (data._forceDecorations ? traceFieldLines(charges) : null);
+      if (lines) {
+        if (needLines) rebuildLines(charges, lines);
+        else clearGroup(lineGroup);
 
-      if (needArrows) rebuildArrows(charges, lines);
-      else arrowBatch.setCount(0);
+        if (needArrows) rebuildArrows(charges, lines);
+        else arrowBatch.setCount(0);
+      } else {
+        pendingDecoration = true;
+      }
     } else {
       clearGroup(lineGroup);
       clearGroup(arrowGroup);
@@ -1075,7 +1237,7 @@ export function createElectricFieldEquipment() {
 
     if (Boolean(data.showEquipot)) rebuildEquipotential(charges, data);
     else clearGroup(equipotGroup);
-    pendingDecoration = false;
+    if (!needLines && !needArrows) pendingDecoration = false;
   }
 
   /**
@@ -1317,7 +1479,7 @@ export function createElectricFieldEquipment() {
     if (data.autoRotate && dt > 0) root.rotation.y += dt * 0.18;
     if (data.showEquipot === 'concentric' && equipotGroup.children.length > 0 && dt > 0) {
       equipotGroup.children.forEach((child) => {
-        if (child.userData?.concentricEquipot) {
+        if (child.userData?.concentricEquipot && child.userData.spin) {
           child.rotation.y += dt * (child.userData.speed || 0.15);
         }
       });

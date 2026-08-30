@@ -521,4 +521,59 @@ test('Hall wiring analysis correctly identifies 3-terminal Helmholtz connections
   assert.equal(data.vh, -vhFixed);
 });
 
+test('Hall sequential wiring connects wire 1 then wire 2 without overwriting start point', () => {
+  const ctx = createContext({
+    expId: 'hall_effect',
+    stepId: 'configure',
+    equipment: {
+      electro: {
+        startHallWirePreview: () => {},
+        cancelHallWirePreview: () => {},
+        updateHall: () => {},
+        setHallWiring: () => {},
+      },
+    },
+  });
+  const handlers = createElectroHandlers(ctx);
+  ctx.state.data = handlers.initData('hall_effect');
+
+  // Wire 1: out_black -> sol_black
+  const outBlack = { userData: { role: 'hall_terminal_output', portId: 'out_black' } };
+  const solBlack = { userData: { role: 'hall_terminal_solenoid', portId: 'sol_black' } };
+  handlers.beginManipulation(outBlack);
+  assert.equal(ctx.state.data.terminalDragFrom, 'out_black');
+  handlers.endManipulation(outBlack, { hoverTarget: solBlack });
+  assert.deepEqual(ctx.state.data.wires, [['out_black', 'sol_black']]);
+
+  // Wire 2: out_red -> sol_red
+  const outRed = { userData: { role: 'hall_terminal_output', portId: 'out_red' } };
+  const solRed = { userData: { role: 'hall_terminal_solenoid', portId: 'sol_red' } };
+  handlers.beginManipulation(outRed);
+  assert.equal(ctx.state.data.terminalDragFrom, 'out_red');
+  handlers.endManipulation(outRed, { hoverTarget: solRed });
+  assert.deepEqual(ctx.state.data.wires, [['out_black', 'sol_black'], ['out_red', 'sol_red']]);
+  assert.equal(ctx.state.data.wiring.energized, true);
+  assert.equal(ctx.state.data.wiring.target, 'solenoid');
+
+  // Re-plug Wire 1: grab sol_black and move to hh_black (start point out_black stays fixed!)
+  const hhBlack = { userData: { role: 'hall_terminal_helmholtz', portId: 'hh_black' } };
+  handlers.beginManipulation(solBlack);
+  assert.equal(ctx.state.data.terminalDragFrom, 'out_black');
+  assert.equal(ctx.state.data.terminalOriginalFrom, 'sol_black');
+  handlers.endManipulation(solBlack, { hoverTarget: hhBlack });
+  assert.deepEqual(ctx.state.data.wires, [['out_red', 'sol_red'], ['out_black', 'hh_black']]);
+
+  // Re-plug Wire 2: grab sol_red and move to hh_red (start point out_red stays fixed!)
+  const hhRed = { userData: { role: 'hall_terminal_helmholtz', portId: 'hh_red' } };
+  handlers.beginManipulation(solRed);
+  assert.equal(ctx.state.data.terminalDragFrom, 'out_red');
+  assert.equal(ctx.state.data.terminalOriginalFrom, 'sol_red');
+  handlers.endManipulation(solRed, { hoverTarget: hhRed });
+  assert.deepEqual(ctx.state.data.wires, [['out_black', 'hh_black'], ['out_red', 'hh_red']]);
+  assert.equal(ctx.state.data.wiring.energized, true);
+  assert.equal(ctx.state.data.wiring.target, 'helmholtz');
+});
+
+
+
 

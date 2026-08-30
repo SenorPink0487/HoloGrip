@@ -36,8 +36,8 @@ export const station = {
       goal: '设定 B 或铜棒位置 x 的目标值与变化时长，播放动态过程，观察磁通量变化、感应电动势与楞次定律方向。',
       theory: '\\Phi_B = BS, S = (x - x_0)L; \\varepsilon_i = n\\Delta\\Phi_B/\\Delta t（方向由楞次定律判定）',
       steps: [
-        { id: 'motion', text: '设定目标 x 并播放，测量动生电动势', hint: '模式选「动生·x」，设目标位置与时长，点「播放变化」；也可手拖铜棒。' },
-        { id: 'field', text: '设定目标 B 并播放，测量感生电动势', hint: '模式选「感生·B」，设目标磁场与时长，点「播放变化」；或点「反向 B」快速演示。' },
+        { id: 'motion', text: '设定目标 x 并播放，测量动生电动势', hint: '模式选「动生」，设目标位置与时长，点「自动演示」；也可手拖铜棒。' },
+        { id: 'field', text: '设定目标 B 并播放，测量感生电动势', hint: '模式选「感生」，设目标磁场与时长，点「自动演示」；或点「反向变化」快速演示。' },
         { id: 'conclude', text: '完成法拉第定律验证', hint: '比较 \\varepsilon_i = BL\\Delta x/\\Delta t 与 \\varepsilon_i = S\\cdot\\Delta B/\\Delta t 的结果，并用楞次定律判定方向。' },
       ],
     },
@@ -373,7 +373,7 @@ export function faradaySenseLabel(sense) {
 // Uniform axial B confined to a cylinder of radius R. Changing B produces
 // azimuthal E with |E|∝r inside and |E|∝1/r outside (normalized SI-like units).
 export const INDUCED_E_R_MIN = 0.8;
-export const INDUCED_E_R_MAX = 3.2;
+export const INDUCED_E_R_MAX = 3.0;
 export const INDUCED_E_PROBE_R_MAX = 4.5;
 export const INDUCED_E_AMP_MAX = 2.5;
 export const INDUCED_E_OMEGA_MAX = 2.5;
@@ -2426,7 +2426,7 @@ export function createHandlers(ctx) {
             toast('等势线模式: 平面 (2D)');
           } else if (data.showEquipot === 'flat' || data.showEquipot === true) {
             data.showEquipot = 'concentric';
-            toast('等势面模式: 立体同心球包裹');
+            toast('等势面模式: 立体空间叠加');
           } else {
             data.showEquipot = false;
             toast('等势线/面已关闭');
@@ -2801,13 +2801,30 @@ export function createHandlers(ctx) {
       if (target?.userData?.role === 'ui_action') return onUiAction('hall-demo-pause');
       return false;
     }
-    if (state.expId !== 'hall_effect' || !step) return false;
     const role = target?.userData?.role;
     const terminalKey = HALL_TERMINAL_KEYS[role];
     const portId = target?.userData?.portId;
     if (terminalKey && portId) {
       const data = state.data;
+      const existingWire = (data.wires || []).find((pair) => {
+        const [a, b] = Array.isArray(pair) ? pair : [pair?.from, pair?.to];
+        return a === portId || b === portId;
+      });
+      if (existingWire) {
+        const [a, b] = Array.isArray(existingWire) ? existingWire : [existingWire.from, existingWire.to];
+        const fixedEnd = (a === portId) ? b : a;
+        data.wires = (data.wires || []).filter((pair) => pair !== existingWire);
+        data.terminalDragFrom = fixedEnd;
+        data.terminalOriginalFrom = portId;
+        data.terminalDragGroup = terminalKey;
+        data.terminalSnapPort = null;
+        equipment.electro?.startHallWirePreview?.(fixedEnd);
+        toast(`已拔出该插头：拖动至新端口接线（松开在原处或空白处取消）`);
+        syncHall(data);
+        return true;
+      }
       data.terminalDragFrom = portId;
+      data.terminalOriginalFrom = null;
       data.terminalDragGroup = terminalKey;
       data.terminalSnapPort = null;
       equipment.electro?.startHallWirePreview?.(portId);
@@ -3116,6 +3133,7 @@ export function createHandlers(ctx) {
       }
       const from = data.terminalDragFrom;
       const to = hoverPortId || data.terminalSnapPort;
+      const orig = data.terminalOriginalFrom;
       if (to && to !== from) {
         const retained = (data.wires || []).filter((pair) => {
           const [a, b] = Array.isArray(pair) ? pair : [pair?.from, pair?.to];
@@ -3129,20 +3147,30 @@ export function createHandlers(ctx) {
         } else {
           toast('导线已连接，但 Im 输出回路尚未按规则闭合');
         }
+      } else if (orig && to === orig) {
+        const retained = (data.wires || []).filter((pair) => {
+          const [a, b] = Array.isArray(pair) ? pair : [pair?.from, pair?.to];
+          return a !== from && b !== from && a !== orig && b !== orig;
+        });
+        retained.push([from, orig]);
+        data.wires = retained;
+        applyWiringState(data);
+        toast('导线已放回原端口');
       } else {
         const initialLen = (data.wires || []).length;
         const retained = (data.wires || []).filter((pair) => {
           const [a, b] = Array.isArray(pair) ? pair : [pair?.from, pair?.to];
           return a !== from && b !== from;
         });
-        if (retained.length < initialLen) {
+        if (retained.length < initialLen || orig) {
           data.wires = retained;
-          toast('已取消该接线端的导线连接');
+          toast('已拔出并移除该导线');
         } else {
           toast('未对准另一个接线口，已取消接线');
         }
       }
       data.terminalDragFrom = null;
+      data.terminalOriginalFrom = null;
       data.terminalDragGroup = null;
       data.terminalSnapPort = null;
       equipment.electro?.cancelHallWirePreview?.();
@@ -3496,7 +3524,19 @@ export function createHandlers(ctx) {
       return true;
     }
     if (context.cancelled && data.terminalDragFrom) {
+      if (data.terminalOriginalFrom) {
+        const orig = data.terminalOriginalFrom;
+        const from = data.terminalDragFrom;
+        const retained = (data.wires || []).filter((pair) => {
+          const [a, b] = Array.isArray(pair) ? pair : [pair?.from, pair?.to];
+          return a !== from && b !== from && a !== orig && b !== orig;
+        });
+        retained.push([from, orig]);
+        data.wires = retained;
+        applyWiringState(data);
+      }
       data.terminalDragFrom = null;
+      data.terminalOriginalFrom = null;
       data.terminalDragGroup = null;
       data.terminalSnapPort = null;
       equipment.electro?.cancelHallWirePreview?.();

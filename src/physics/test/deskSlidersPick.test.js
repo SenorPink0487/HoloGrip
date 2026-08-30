@@ -37,7 +37,7 @@ globalThis.document = {
 const { createDeskSliderPanel } = await import('../src/scene/shared/deskSliders.js');
 
 const INDUCED_SPECS = [
-  { key: 'R', label: '半径 R', min: 0.8, max: 3.2, value: 0.81, setAction: 'induced-e-set', action: 'induced-e-slider' },
+  { key: 'R', label: '半径 R', min: 0.8, max: 3.0, value: 0.81, setAction: 'induced-e-set', action: 'induced-e-slider' },
   { key: 'dBdt', label: 'dB/dt', min: -6.25, max: 6.25, value: 5.68, setAction: 'induced-e-set', action: 'induced-e-slider' },
 ];
 
@@ -164,7 +164,7 @@ test('desk panel actionGroup resolves discrete buttons based on local X aim', as
   panel.userData.setSpecs(config.specs);
   panel.updateMatrixWorld(true);
 
-  // Scan top row Z for actionGroup hits (感应·B / 动生·x / B→...)
+  // Scan top row Z for actionGroup hits (感生 / 动生)
   let topZ = null;
   for (let z = -0.35; z <= 0.35; z += 0.005) {
     const pick = panel.userData.pickFromRay(rayTowardLocal(panel, -0.18, 0.03, z));
@@ -175,11 +175,11 @@ test('desk panel actionGroup resolves discrete buttons based on local X aim', as
   }
   assert.ok(topZ != null, 'expected to find top row actionGroup Z');
 
-  // Scan bottom row Z for actionGroup hits (反向 B / 播放变化 / 重置)
+  // Scan bottom row Z for actionGroup hits (自动演示 / 反向变化)
   let botZ = null;
   for (let z = -0.35; z <= 0.35; z += 0.005) {
     const pick = panel.userData.pickFromRay(rayTowardLocal(panel, -0.18, 0.03, z));
-    if (pick?.action === 'faraday-reverse') {
+    if (pick?.action === 'faraday-play') {
       botZ = z;
       break;
     }
@@ -188,12 +188,14 @@ test('desk panel actionGroup resolves discrete buttons based on local X aim', as
 
   const leftPick = panel.userData.pickFromRay(rayTowardLocal(panel, -0.18, 0.03, topZ));
   const midPick = panel.userData.pickFromRay(rayTowardLocal(panel, 0, 0.03, topZ));
-  const botMidPick = panel.userData.pickFromRay(rayTowardLocal(panel, 0, 0.03, botZ));
+  const botLeftPick = panel.userData.pickFromRay(rayTowardLocal(panel, -0.18, 0.03, botZ));
+  const botRightPick = panel.userData.pickFromRay(rayTowardLocal(panel, 0.18, 0.03, botZ));
 
   assert.equal(leftPick?.action, 'faraday-channel');
   assert.equal(leftPick?.payload?.channel, 'B');
   assert.equal(midPick?.action, 'faraday-channel');
   assert.equal(midPick?.payload?.channel, 'x');
-  assert.equal(botMidPick?.action, 'faraday-play');
+  assert.equal(botLeftPick?.action, 'faraday-play');
+  assert.equal(botRightPick?.action, 'faraday-reverse');
 });
 

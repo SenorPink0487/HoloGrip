@@ -251,11 +251,46 @@ test('equipment disables raycast picking on forceArrow and non-probe lines/helpe
   });
 });
 
-test('equipment computes physical ring radii with uniform inner spacing and expanding outer spacing', async () => {
-  const { createInducedElectricFieldEquipment } = await import('../src/experiments/inducedElectricFieldEquipment.js');
+test('computeInducedFieldRingRadii increases spacing starting from the blue separator inwards and outwards', async () => {
+  const { computeInducedFieldRingRadii, createInducedElectricFieldEquipment } = await import('../src/experiments/inducedElectricFieldEquipment.js');
+  const R = 1.4;
+  const dBdt = 2.0;
+  const radii = computeInducedFieldRingRadii(R, dBdt);
+  assert.ok(Array.isArray(radii) && radii.length >= 6);
+
+  const innerRadii = radii.filter((r) => r <= R);
+  const outerRadii = radii.filter((r) => r > R);
+
+  assert.ok(innerRadii.length >= 2, 'Should have inner rings');
+  assert.ok(outerRadii.length >= 2, 'Should have outer rings');
+
+  // 1. Inward from R towards center: spacing increases
+  // innerRadii is sorted ascending, so gaps between consecutive inner rings should DECREASE as r increases (meaning gap to R is smallest)
+  for (let i = 0; i < innerRadii.length - 2; i += 1) {
+    const gapFarFromR = innerRadii[i + 1] - innerRadii[i];
+    const gapNearToR = innerRadii[i + 2] - innerRadii[i + 1];
+    assert.ok(gapFarFromR > gapNearToR, `Gap near center (${gapFarFromR}) should be larger than gap near R (${gapNearToR})`);
+  }
+
+  // 2. Outward from R towards edge: spacing increases
+  for (let m = 0; m < outerRadii.length - 2; m += 1) {
+    const gapNearToR = outerRadii[m + 1] - outerRadii[m];
+    const gapFarFromR = outerRadii[m + 2] - outerRadii[m + 1];
+    assert.ok(gapFarFromR > gapNearToR, `Gap far from R (${gapFarFromR}) should be larger than gap near R (${gapNearToR})`);
+  }
+
+  // 3. Inner first offset and outer first offset match exactly (1:1 symmetric)
+  const innerFirstGap = R - innerRadii[innerRadii.length - 1];
+  const outerFirstGap = outerRadii[0] - R;
+  assert.ok(Math.abs(innerFirstGap - outerFirstGap) < 1e-3, 'Inner and outer first gap must correspond 1:1');
+
   const root = createInducedElectricFieldEquipment();
   root.visible = true;
   root.userData.update({ R: 2.0, dBdt: 2.0, B: 1.0, showE: true });
   assert.equal(root.visible, true);
 });
+
+
+
+
 

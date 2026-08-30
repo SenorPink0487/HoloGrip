@@ -61,7 +61,7 @@ function inducedSpecs(d) {
     ]),
     range('bStart', '起点 B', -2.5, 2.5, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
     range('bEnd', '终点 B', -2.5, 2.5, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
-    range('R', '半径 R', 0.8, 3.2, { unit: 'cm', setAction: 'induced-e-set', action: 'induced-e-slider' }),
+    range('R', '半径 R', 0.8, 3.0, { unit: 'cm', setAction: 'induced-e-set', action: 'induced-e-slider' }),
     range('dBdt', 'dB/dt', -6.25, 6.25, { setAction: 'induced-e-set', action: 'induced-e-slider' }),
   ];
 }
@@ -199,27 +199,22 @@ export function getDeskSliderConfig(stationId, expId, data = {}, experiment = nu
         ? (d.lastMotion && Math.abs(d.lastMotion.x1 - (d.targetX ?? d.x)) > 1e-4)
         : (d.lastInduction && Math.abs(d.lastInduction.B1 - (d.targetB ?? d.B)) > 1e-4);
       const hasPlayed = channelX ? !!(d.lastMotion && !targetChanged) : !!(d.lastInduction && !targetChanged);
-      const playLabel = animating ? '停止' : (hasPlayed ? '重复变化' : '播放变化');
-      const fmt = (v) => (Number.isFinite(Number(v)) ? Number(v).toFixed(2) : '0.00');
-      const fromLabel = channelX
-        ? `x ${fmt(d.x)}→${fmt(d.targetX ?? 6.5)}`
-        : `B ${fmt(d.B)}→${fmt(d.targetB ?? 1.5)}T`;
+      const playLabel = animating ? '停止' : (hasPlayed ? '重复变化' : '自动演示');
 
       return {
         title: '法拉第电磁感应',
         specs: [
           actionGroup([
-            { label: '感应·B', action: 'faraday-channel', payload: { channel: 'B' }, active: !channelX },
-            { label: '动生·x', action: 'faraday-channel', payload: { channel: 'x' }, active: channelX },
-            { label: fromLabel },
+            { label: '感生', action: 'faraday-channel', payload: { channel: 'B' }, active: !channelX },
+            { label: '动生', action: 'faraday-channel', payload: { channel: 'x' }, active: channelX },
           ]),
           channelX
             ? range('targetX', '目标 x', 1.2, 8, { setAction: 'faraday-set' })
             : range('targetB', '目标 B', -3, 3, { unit: 'T', setAction: 'faraday-set' }),
           range('animDuration', '时长 Δt', 0.3, 6, { unit: 's', setAction: 'faraday-set' }),
           actionGroup([
-            { label: '反向 B', action: 'faraday-reverse' },
             { label: playLabel, action: animating ? 'faraday-stop' : 'faraday-play', active: animating },
+            { label: '反向变化', action: 'faraday-reverse' },
           ]),
           range('B', '实时 B', -3, 3, { unit: 'T', setAction: 'faraday-set' }),
           range('x', '实时 x', 1.2, 8, { setAction: 'faraday-set' }),

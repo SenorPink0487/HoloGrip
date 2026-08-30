@@ -547,7 +547,7 @@ function drawFaradayExperiment(ctx, _W, _H, cfg) {
       data: induction,
       lines: induction
         ? [`B: ${fmt(induction.B0, 2)} \\rightarrow ${fmt(induction.B1, 2)} \\mathrm{T}`, `\\Delta B = ${fmt(induction.dB, 3)} \\quad \\Delta t = ${fmt(induction.dt, 3)} \\mathrm{s}`, `\\varepsilon_i = ${fmt(induction.emf, 4)} \\mathrm{V}`, induction.senseLabel]
-        : ['设目标 B 后播放', '或点「反向 B」'],
+        : ['设目标 B 后播放', '或点「反向变化」'],
     },
   ];
   cards.forEach((card, i) => {
@@ -1317,7 +1317,7 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   // Row B: 等势线/等势面 / 高斯面 / 试探电荷 (Merged probe toggle + sign per draft)
   const probeLabel = probe.q0 >= 0 ? '试探电荷 q₀(+)' : '试探电荷 q₀(−)';
   const equipotMode = d.showEquipot;
-  const equipotLabel = equipotMode === 'concentric' ? '等势面(立体)' : (equipotMode ? '等势线(平面)' : '等势线');
+  const equipotLabel = equipotMode === 'concentric' ? '等势面(立体)' : '等势线';
   const toggleItems = [
     { label: equipotLabel, action: 'electric-toggle', meta: { key: 'equipot' }, color: accentHex, active: Boolean(d.showEquipot) },
     { label: '高斯面', action: 'electric-toggle', meta: { key: 'gauss' }, color: accentHex, active: Boolean(d.showGauss) },

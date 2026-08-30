@@ -223,7 +223,7 @@ test('non-live faraday-set B/x does not leave a stuck gesture', () => {
   assert.ok(state.data.pendingAnim);
 });
 
-test('manual parameter modification reverts played state to 播放变化', () => {
+test('manual parameter modification reverts played state to 自动演示', () => {
   const { state, handlers } = faradayContext();
   handlers.onUiAction('faraday-set', { key: 'B', value: -1 });
   handlers.onUiAction('faraday-set', { key: 'targetB', value: 2 });
@@ -238,10 +238,10 @@ test('manual parameter modification reverts played state to 播放变化', () =>
   let playBtn = actionGrp.buttons.find((it) => it.action === 'faraday-play');
   assert.equal(playBtn.label, '重复变化');
 
-  // Manual parameter modification changes targetB -> reverts label to 播放变化
+  // Manual parameter modification changes targetB -> reverts label to 自动演示
   handlers.onUiAction('faraday-set', { key: 'targetB', value: 2.5 });
   cfg = getDeskSliderConfig('electro', 'faraday_induction', state.data);
   actionGrp = cfg.specs.find((s) => s.kind === 'actionGroup' && s.buttons?.some((it) => it.action === 'faraday-play'));
   playBtn = actionGrp.buttons.find((it) => it.action === 'faraday-play');
-  assert.equal(playBtn.label, '播放变化');
+  assert.equal(playBtn.label, '自动演示');
 });

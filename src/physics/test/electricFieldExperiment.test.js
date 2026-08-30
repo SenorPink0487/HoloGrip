@@ -11,6 +11,8 @@ import {
   K_COULOMB,
   chargeUiToCoulomb,
 } from '../src/experiments/electro.js';
+import { createElectricFieldEquipment } from '../src/experiments/electricFieldEquipment.js';
+import { labFrameScheduler } from '../src/frameBudget.js';
 import { drawHoloScreen, getHoloScreenLayoutSize, pickHoloScreen } from '../src/holoScreen.js';
 
 function close(actual, expected, tolerance = 1e-6) {
@@ -389,4 +391,27 @@ test('electric-field side camera keeps single free Y axis under the cursor', () 
   assert.ok(state.data.charges[0].y > 0, `left drag should increase Y in side view, got ${state.data.charges[0].y}`);
   handlers.endManipulation(target);
 });
+
+test('3D equipotential surfaces superpose across multiple charges', () => {
+  const equip = createElectricFieldEquipment();
+  const charges = [
+    { id: 1, q: 1.0, x: -1.2, y: 0, z: 0 },
+    { id: 2, q: -1.0, x: 1.2, y: 0, z: 0 },
+  ];
+  const data = {
+    charges,
+    showEquipot: 'concentric',
+    showLines: false,
+    showArrows: false,
+    _forceDecorations: true,
+  };
+  equip.userData.update(data, 0.016);
+  labFrameScheduler.drain(100);
+  // Find equipotential group
+  const equipotGroup = equip.children.find((c) => c.isGroup && c.children.some((ch) => ch.isMarchingCubes));
+  assert.ok(equipotGroup, 'Equipotential group with MarchingCubes children should exist');
+  // Must generate both positive and negative level shells for dipole
+  assert.ok(equipotGroup.children.length >= 2, `Expected at least 2 equipotential shells, got ${equipotGroup.children.length}`);
+});
+
 
