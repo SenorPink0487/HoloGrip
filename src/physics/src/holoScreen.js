@@ -129,33 +129,33 @@ function screenPalette(theme = 'dark', accentHex = '#38bdf8', isDisplay = false)
       accent: accentHex,
       title: '#0f172a',
       text: '#1e293b',
-      muted: '#334155',
-      soft: '#1e293b',
-      headerBg: isDisplay ? 'rgba(255, 255, 255, 0.42)' : 'rgba(255, 255, 255, 0.76)',
-      panel: isDisplay ? 'rgba(255, 255, 255, 0.38)' : 'rgba(255, 255, 255, 0.72)',
-      panelAlt: isDisplay ? 'rgba(248, 250, 252, 0.42)' : 'rgba(248, 250, 252, 0.76)',
-      panelStroke: 'rgba(14, 165, 233, 0.48)',
-      card: isDisplay ? 'rgba(255, 255, 255, 0.38)' : 'rgba(255, 255, 255, 0.75)',
-      cardStroke: 'rgba(2, 132, 199, 0.65)',
-      dataBg: isDisplay ? 'rgba(248, 250, 252, 0.42)' : 'rgba(248, 250, 252, 0.78)',
+      muted: '#475569',
+      soft: '#334155',
+      headerBg: isDisplay ? 'rgba(255, 255, 255, 0.55)' : 'rgba(255, 255, 255, 0.72)',
+      panel: isDisplay ? 'rgba(255, 255, 255, 0.42)' : 'rgba(255, 255, 255, 0.65)',
+      panelAlt: isDisplay ? 'rgba(241, 245, 249, 0.42)' : 'rgba(248, 250, 252, 0.65)',
+      panelStroke: 'rgba(14, 165, 233, 0.35)',
+      card: isDisplay ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255, 255, 255, 0.65)',
+      cardStroke: 'rgba(14, 165, 233, 0.40)',
+      dataBg: isDisplay ? 'rgba(255, 255, 255, 0.48)' : 'rgba(248, 250, 252, 0.70)',
       dataText: '#0f172a',
-      hintBg: 'rgba(240, 249, 255, 0.82)',
+      hintBg: 'rgba(224, 242, 254, 0.65)',
       hintText: '#0369a1',
-      btnFill: 'rgba(14, 165, 233, 0.20)',
-      btnFillStrong: 'rgba(14, 165, 233, 0.32)',
+      btnFill: 'rgba(14, 165, 233, 0.16)',
+      btnFillStrong: 'rgba(14, 165, 233, 0.28)',
       btnText: '#0f172a',
-      btnIdle: isDisplay ? 'rgba(255, 255, 255, 0.45)' : 'rgba(255, 255, 255, 0.78)',
+      btnIdle: isDisplay ? 'rgba(255, 255, 255, 0.50)' : 'rgba(255, 255, 255, 0.72)',
       btnIdleText: '#0f172a',
-      closeFill: 'rgba(248, 113, 113, 0.18)',
-      closeStroke: 'rgba(239, 68, 68, 0.65)',
-      closeText: '#b91c1c',
-      maxFill: 'rgba(14, 165, 233, 0.18)',
-      maxFillOn: 'rgba(14, 165, 233, 0.35)',
-      maxIcon: '#0369a1',
-      scanline: 'rgba(14, 165, 233, 0.012)',
-      done: '#15803d',
-      theoryBg: 'rgba(240, 249, 255, 0.82)',
-      stepBox: isDisplay ? 'rgba(255, 255, 255, 0.42)' : 'rgba(255, 255, 255, 0.78)',
+      closeFill: 'rgba(239, 68, 68, 0.12)',
+      closeStroke: 'rgba(239, 68, 68, 0.45)',
+      closeText: '#dc2626',
+      maxFill: 'rgba(14, 165, 233, 0.14)',
+      maxFillOn: 'rgba(14, 165, 233, 0.28)',
+      maxIcon: '#0284c7',
+      scanline: 'rgba(14, 165, 233, 0.008)',
+      done: '#16a34a',
+      theoryBg: 'rgba(224, 242, 254, 0.60)',
+      stepBox: isDisplay ? 'rgba(255, 255, 255, 0.48)' : 'rgba(255, 255, 255, 0.70)',
     };
   }
   return {
@@ -193,105 +193,77 @@ function screenPalette(theme = 'dark', accentHex = '#38bdf8', isDisplay = false)
   };
 }
 
-/** Threaded through specialized experiment drawers for light content screens. */
 let _uiTheme = 'dark';
+let _uiPressedAction = null;
+let _uiPressedId = null;
+let _uiHoverAction = null;
+let _uiHoverId = null;
 
-function drawPremiumHoloButton(ctx, hits, x, y, w, h, label, action, meta, accent, active = false, theme = 'dark') {
+function drawPremiumHoloButton(ctx, hits, x, y, w, h, label, action, meta, accent, active = false, theme = 'dark', pressed = false) {
+  const isPressed = pressed || (action && _uiPressedAction === action) || (meta?.id && _uiPressedId === meta.id);
   const isLight = theme === 'light';
   ctx.save();
 
-  if (active && !isLight) {
-    ctx.shadowColor = accent;
-    ctx.shadowBlur = 16;
-  }
+  // Physical mechanical press sink (both mouse click and touch tap)
+  const bx = isPressed ? x + 1 : x;
+  const by = isPressed ? y + 2 : y;
+  const bw = isPressed ? w - 2 : w;
+  const bh = isPressed ? h - 2 : h;
 
-  const bgGrad = ctx.createLinearGradient(x, y, x, y + h);
-  if (active) {
-    if (isLight) {
-      bgGrad.addColorStop(0, 'rgba(14, 165, 233, 0.28)');
-      bgGrad.addColorStop(1, 'rgba(14, 165, 233, 0.12)');
-    } else {
-      bgGrad.addColorStop(0, `${accent}40`);
-      bgGrad.addColorStop(1, `${accent}15`);
-    }
+  // Solid translucent glass - no pale wash or cursor hover flash
+  if (isPressed || active) {
+    ctx.fillStyle = isLight ? 'rgba(14, 165, 233, 0.25)' : (accent ? `${accent}40` : 'rgba(56, 189, 248, 0.32)');
   } else {
-    if (isLight) {
-      bgGrad.addColorStop(0, 'rgba(255, 255, 255, 0.52)');
-      bgGrad.addColorStop(1, 'rgba(240, 244, 248, 0.65)');
-    } else {
-      bgGrad.addColorStop(0, 'rgba(14, 30, 60, 0.45)');
-      bgGrad.addColorStop(1, 'rgba(6, 14, 30, 0.58)');
-    }
+    ctx.fillStyle = isLight ? 'rgba(255, 255, 255, 0.65)' : 'rgba(12, 24, 45, 0.55)';
   }
-  ctx.fillStyle = bgGrad;
-  roundRect(ctx, x, y, w, h, 8);
+  roundRect(ctx, bx, by, bw, bh, 8);
   ctx.fill();
 
-  ctx.shadowBlur = 0;
-  ctx.lineWidth = active ? 2.0 : 1.2;
-  if (active) {
-    ctx.strokeStyle = isLight ? '#0284c7' : accent;
+  // 1px crisp border
+  ctx.lineWidth = (isPressed || active) ? 1.4 : 1.0;
+  if (isPressed || active) {
+    ctx.strokeStyle = isLight ? '#0284c7' : (accent || '#38bdf8');
   } else {
-    ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.45)' : 'rgba(56, 189, 248, 0.28)';
+    ctx.strokeStyle = isLight ? 'rgba(14, 165, 233, 0.35)' : 'rgba(56, 189, 248, 0.25)';
   }
-  roundRect(ctx, x, y, w, h, 8);
+  roundRect(ctx, bx, by, bw, bh, 8);
   ctx.stroke();
 
-  if (active) {
-    ctx.fillStyle = isLight ? '#0284c7' : accent;
-    roundRect(ctx, x + 10, y + 2, w - 20, 3, 1.5);
-    ctx.fill();
-  }
   ctx.restore();
 
   ctx.save();
-  ctx.fillStyle = active ? (isLight ? '#0f172a' : '#ffffff') : (isLight ? '#1e293b' : 'rgba(224, 242, 254, 0.92)');
-  if (isLight) {
-    ctx.shadowColor = 'rgba(255, 255, 255, 0.98)';
-    ctx.shadowBlur = 4;
-  } else {
-    ctx.shadowColor = active ? accent : 'rgba(56, 189, 248, 0.35)';
-    ctx.shadowBlur = active ? 4 : 2;
-  }
+  const text = String(label || '');
+  const textColor = (isPressed || active)
+    ? (isLight ? '#0369a1' : '#ffffff')
+    : (isLight ? '#1e293b' : 'rgba(241, 245, 249, 0.90)');
+
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  let fontSize = Math.max(14, Math.min(24, Math.round(h * 0.52)));
-  const text = String(label || '');
-  const textColor = active ? (isLight ? '#0f172a' : '#ffffff') : (isLight ? '#1e293b' : 'rgba(224, 242, 254, 0.92)');
-  const isFormula = /[\\_^{}]/.test(text) && !/[\u4e00-\u9fa5]/.test(text);
-  if (isFormula) {
-    drawMathFormula(ctx, text, x + w / 2, y + h / 2, {
+  let fontSize = Math.max(13, Math.min(20, Math.round(bh * 0.46)));
+
+  if (/[\\_^{}]/.test(text) && !/[\u4e00-\u9fa5]/.test(text)) {
+    drawMathFormula(ctx, text, bx + bw / 2, by + bh / 2, {
       fontSize,
       color: textColor,
       align: 'center',
       textBaseline: 'middle',
     });
   } else {
-    ctx.font = `bold ${fontSize}px "Microsoft YaHei", sans-serif`;
-    while (fontSize > 11 && ctx.measureText(text).width > w - 12) {
+    ctx.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, "PingFang SC", "SF Pro Text", "Microsoft YaHei", sans-serif`;
+    while (fontSize > 11 && ctx.measureText(text).width > bw - 12) {
       fontSize -= 1;
-      ctx.font = `bold ${fontSize}px "Microsoft YaHei", sans-serif`;
+      ctx.font = `600 ${fontSize}px -apple-system, BlinkMacSystemFont, "PingFang SC", "SF Pro Text", "Microsoft YaHei", sans-serif`;
     }
-    ctx.fillText(text, x + w / 2, y + h / 2);
+    ctx.fillStyle = textColor;
+    ctx.fillText(text, bx + bw / 2, by + bh / 2);
   }
   ctx.restore();
-
-  if (w >= 120 && h >= 52 && !isLight && action && !/[\u4e00-\u9fa5]/.test(text)) {
-    ctx.save();
-    ctx.fillStyle = active ? `${accent}bb` : 'rgba(56, 189, 248, 0.38)';
-    ctx.font = '9px "Microsoft YaHei", sans-serif';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'bottom';
-    const code = String(action).replace(/^(gauss|hall|optics|demo)-?/g, '').toUpperCase().slice(0, 6);
-    if (code) ctx.fillText(`[${code}]`, x + w - 6, y + h - 3);
-    ctx.restore();
-  }
 
   hits.push({ x, y, w, h, action, ...meta });
 }
 
-function drawHallButton(ctx, hits, x, y, w, h, label, action, meta, accent, active = false) {
-  drawPremiumHoloButton(ctx, hits, x, y, w, h, label, action, meta, accent, active, _uiTheme);
+function drawHallButton(ctx, hits, x, y, w, h, label, action, meta, accent, active = false, hovered = false) {
+  drawPremiumHoloButton(ctx, hits, x, y, w, h, label, action, meta, accent, active, _uiTheme, hovered);
 }
 
 /**
@@ -4377,7 +4349,13 @@ export function getHoloScreenLayoutSize(opts = {}) {
   }
 
   if (!running) {
-    return { width: 1024, height: 640 };
+    const experiments = hud?.station?.experiments || [];
+    const count = experiments.length;
+    const cardH = HOLO_MENU_CARD_H;
+    const gap = HOLO_MENU_CARD_GAP;
+    const minH = 460;
+    const menuH = Math.max(minH, 180 + count * (cardH + gap));
+    return { width: 1024, height: Math.min(840, menuH) };
   }
 
   const denseExperimentHeights = {
@@ -4405,12 +4383,12 @@ export function getHoloScreenLayoutSize(opts = {}) {
     viscosity: 960,
   };
   const denseHeight = denseExperimentHeights[experiment.id];
-  if (denseHeight) return { width, height: denseHeight };
+  if (denseHeight) return { width: 1024, height: denseHeight };
 
   const stepCount = experiment.steps?.length || 0;
   const dataLines = String(opts.dataHtml || '').split(/<br\s*\/?\s*>|\n/i).filter(Boolean).length;
   const contentHeight = 300 + stepCount * 54 + Math.min(dataLines, 6) * 30;
-  return { width, height: Math.max(680, Math.min(900, contentHeight)) };
+  return { width: 1024, height: Math.max(680, Math.min(900, contentHeight)) };
 }
 
 /**
@@ -4432,6 +4410,12 @@ export function drawHoloScreen(ctx, W, H, opts) {
     theme: themeOpt,
   } = opts;
 
+  const pressedPick = opts?.pressedPick || opts?.hoverPick || null;
+  _uiPressedAction = pressedPick?.action || opts?.pressedAction || null;
+  _uiPressedId = pressedPick?.id || opts?.pressedId || null;
+  _uiHoverAction = _uiPressedAction;
+  _uiHoverId = _uiPressedId;
+
   const hits = [];
   const isSelector = surface === 'selector';
   const isDisplay = surface === 'display';
@@ -4440,7 +4424,7 @@ export function drawHoloScreen(ctx, W, H, opts) {
   const innerY = pad;
   const innerW = W - pad * 2;
   const innerH = H - pad * 2;
-  const theme = themeOpt || (isDisplay ? 'dark' : 'dark');
+  const theme = themeOpt || (isDisplay ? 'light' : 'dark');
   _uiTheme = theme;
   const P = screenPalette(theme, accentHex, isDisplay);
 
@@ -4481,23 +4465,23 @@ export function drawHoloScreen(ctx, W, H, opts) {
     ctx.fillStyle = active ? 'rgba(10, 18, 36, 0.55)' : 'rgba(8, 16, 32, 0.48)';
     roundRect(ctx, 12, 12, W - 24, H - 24, 18);
     ctx.fill();
+  } else if (isDisplay && theme === 'light') {
+    // Pure flat semi-transparent alabaster/light glass
+    ctx.fillStyle = active ? 'rgba(255, 255, 255, 0.48)' : 'rgba(255, 255, 255, 0.38)';
+    roundRect(ctx, 12, 12, W - 24, H - 24, 18);
+    ctx.fill();
   } else {
     const bg = ctx.createLinearGradient(0, 0, 0, H);
     if (theme === 'light') {
       if (active) {
-        bg.addColorStop(0, isDisplay ? 'rgba(255, 255, 255, 0.38)' : 'rgba(255, 255, 255, 0.68)');
-        bg.addColorStop(0.45, isDisplay ? 'rgba(248, 250, 252, 0.30)' : 'rgba(248, 250, 252, 0.62)');
-        bg.addColorStop(1, isDisplay ? 'rgba(241, 245, 249, 0.34)' : 'rgba(241, 245, 249, 0.66)');
+        bg.addColorStop(0, 'rgba(255, 255, 255, 0.68)');
+        bg.addColorStop(0.45, 'rgba(248, 250, 252, 0.62)');
+        bg.addColorStop(1, 'rgba(241, 245, 249, 0.66)');
       } else {
-        bg.addColorStop(0, isDisplay ? 'rgba(248, 250, 252, 0.28)' : 'rgba(248, 250, 252, 0.55)');
-        bg.addColorStop(0.5, isDisplay ? 'rgba(241, 245, 249, 0.22)' : 'rgba(241, 245, 249, 0.48)');
-        bg.addColorStop(1, isDisplay ? 'rgba(226, 232, 240, 0.28)' : 'rgba(226, 232, 240, 0.55)');
+        bg.addColorStop(0, 'rgba(248, 250, 252, 0.55)');
+        bg.addColorStop(0.5, 'rgba(241, 245, 249, 0.48)');
+        bg.addColorStop(1, 'rgba(226, 232, 240, 0.55)');
       }
-    } else if (isDisplay) {
-      // Ultra-clean translucent obsidian-sapphire crystal HUD glass
-      bg.addColorStop(0, 'rgba(6, 16, 36, 0.38)');
-      bg.addColorStop(0.45, 'rgba(10, 24, 48, 0.30)');
-      bg.addColorStop(1, 'rgba(4, 12, 28, 0.40)');
     } else if (active) {
       bg.addColorStop(0, 'rgba(8, 20, 42, 0.74)');
       bg.addColorStop(0.5, 'rgba(12, 28, 54, 0.66)');
@@ -4532,93 +4516,31 @@ export function drawHoloScreen(ctx, W, H, opts) {
     }
   }
 
-  // Glass Specular Gloss and Reflection Highlights
-  if (theme === 'light') {
-    ctx.save();
-    if (active) {
-      const sheen = ctx.createLinearGradient(0, 0, W * 0.75, H * 0.55);
-      sheen.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
-      sheen.addColorStop(0.35, 'rgba(255, 255, 255, 0.18)');
-      sheen.addColorStop(1, 'rgba(255, 255, 255, 0.0)');
-      ctx.fillStyle = sheen;
-      ctx.beginPath();
-      ctx.moveTo(12, 12);
-      ctx.lineTo(W * 0.72, 12);
-      ctx.lineTo(12, H * 0.6);
-      ctx.closePath();
-      ctx.fill();
-    }
-    const borderGrad = ctx.createLinearGradient(12, 12, W - 12, H - 12);
-    borderGrad.addColorStop(0, 'rgba(255, 255, 255, 0.96)');
-    borderGrad.addColorStop(0.35, 'rgba(186, 230, 253, 0.75)');
-    borderGrad.addColorStop(0.75, 'rgba(148, 163, 184, 0.42)');
-    borderGrad.addColorStop(1, 'rgba(255, 255, 255, 0.85)');
-    ctx.strokeStyle = borderGrad;
-    ctx.lineWidth = 2.2;
-    roundRect(ctx, 12, 12, W - 24, H - 24, 18);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // Isometric / Orthogonal Cyber HUD Grid
-  if (theme === 'dark' || isDisplay) {
-    if (!isDisplay) {
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.035)';
-      ctx.lineWidth = 1;
-      const gridSpacing = 36;
-      for (let gx = 24; gx < W - 24; gx += gridSpacing) {
-        ctx.beginPath(); ctx.moveTo(gx, 20); ctx.lineTo(gx, H - 20); ctx.stroke();
-      }
-      for (let gy = 24; gy < H - 20; gy += gridSpacing) {
-        ctx.beginPath(); ctx.moveTo(20, gy); ctx.lineTo(W - 20, gy); ctx.stroke();
-      }
-    } else {
-      ctx.fillStyle = theme === 'light' ? 'rgba(2, 132, 199, 0.28)' : 'rgba(56, 189, 248, 0.22)';
-      for (let tx = 40; tx < W - 40; tx += 20) {
-        ctx.fillRect(tx, 14, 1, tx % 100 === 0 ? 6 : 3);
-        ctx.fillRect(tx, H - (tx % 100 === 0 ? 20 : 17), 1, tx % 100 === 0 ? 6 : 3);
-      }
-    }
-  }
-
-  // Outer Cyber Frame
+  // Outer Cyber Frame (Single clean rounded stroke)
+  ctx.save();
   if (isSelector) {
-    ctx.save();
     ctx.strokeStyle = accentHex || '#38bdf8';
-    ctx.lineWidth = 2.0;
+    ctx.lineWidth = 1.8;
     if (active && theme !== 'light') {
       ctx.shadowColor = accentHex;
       ctx.shadowBlur = 10;
     }
-    roundRect(ctx, 14, 14, W - 28, H - 28, 16);
-    ctx.stroke();
-    ctx.restore();
-
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
-    ctx.lineWidth = 1.0;
-    roundRect(ctx, 18, 18, W - 36, H - 36, 12);
+    roundRect(ctx, 12, 12, W - 24, H - 24, 18);
     ctx.stroke();
   } else {
-    ctx.strokeStyle = theme === 'light' ? '#0284c7' : accentHex;
-    ctx.lineWidth = isDisplay ? 1.8 : 2.5;
+    ctx.strokeStyle = theme === 'light' ? (accentHex ? `${accentHex}66` : 'rgba(14, 165, 233, 0.45)') : accentHex;
+    ctx.lineWidth = 1.6;
     ctx.globalAlpha = active ? 0.95 : 0.65;
     if (isDisplay && active && theme !== 'light') {
       ctx.shadowColor = accentHex;
       ctx.shadowBlur = 12;
     }
-    roundRect(ctx, 14, 14, W - 28, H - 28, 16);
+    roundRect(ctx, 12, 12, W - 24, H - 24, 18);
     ctx.stroke();
     ctx.shadowBlur = 0;
     ctx.globalAlpha = 1;
   }
-
-  // Inner Subtle Framing Wire
-  if (isDisplay) {
-    ctx.strokeStyle = theme === 'light' ? 'rgba(2, 132, 199, 0.32)' : 'rgba(56, 189, 248, 0.24)';
-    ctx.lineWidth = 1;
-    roundRect(ctx, 20, 20, W - 40, H - 40, 12);
-    ctx.stroke();
-  }
+  ctx.restore();
 
   // Content display with a running experiment: no station header bar — experiment UI owns the title.
   const compactChrome = isDisplay && active && !!(hud?.running && hud?.experiment);
@@ -4637,11 +4559,7 @@ export function drawHoloScreen(ctx, W, H, opts) {
 
     // Header Bar — clean glass header
     if (theme === 'light') {
-      const hBg = ctx.createLinearGradient(innerX, innerY, innerX + innerW, innerY);
-      hBg.addColorStop(0, 'rgba(255, 255, 255, 0.78)');
-      hBg.addColorStop(0.5, 'rgba(241, 245, 249, 0.72)');
-      hBg.addColorStop(1, 'rgba(255, 255, 255, 0.78)');
-      ctx.fillStyle = hBg;
+      ctx.fillStyle = isDisplay ? 'rgba(255, 255, 255, 0.55)' : 'rgba(255, 255, 255, 0.72)';
     } else if (isDisplay) {
       const hBg = ctx.createLinearGradient(innerX, innerY, innerX + innerW, innerY);
       hBg.addColorStop(0, 'rgba(8, 20, 42, 0.88)');
@@ -4659,7 +4577,9 @@ export function drawHoloScreen(ctx, W, H, opts) {
     roundRect(ctx, innerX, innerY, innerW, headerH, 12);
     ctx.fill();
 
-    ctx.strokeStyle = isSelector ? (accentHex ? `${accentHex}44` : 'rgba(255, 255, 255, 0.16)') : (isDisplay ? 'rgba(56, 189, 248, 0.35)' : 'transparent');
+    ctx.strokeStyle = isSelector
+      ? (accentHex ? `${accentHex}44` : 'rgba(255, 255, 255, 0.16)')
+      : (isDisplay ? (theme === 'light' ? 'rgba(14, 165, 233, 0.35)' : 'rgba(56, 189, 248, 0.35)') : 'transparent');
     ctx.lineWidth = 1;
     roundRect(ctx, innerX, innerY, innerW, headerH, 12);
     ctx.stroke();
@@ -4680,8 +4600,8 @@ export function drawHoloScreen(ctx, W, H, opts) {
         ctx.fill();
         ctx.fillText(headerTag, innerX + 42, innerY + headerH / 2);
       } else {
-        ctx.fillStyle = '#0284c7';
-        ctx.font = `bold 30px "Segoe UI", monospace`;
+        ctx.fillStyle = '#0369a1';
+        ctx.font = `bold 28px "Segoe UI", monospace`;
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.beginPath();
@@ -4731,13 +4651,20 @@ export function drawHoloScreen(ctx, W, H, opts) {
     const maxX = closeX - cw - gap;
 
     if (!isSelector) {
-      ctx.fillStyle = maximized ? P.maxFillOn : P.maxFill;
+      const isHoverMax = _uiHoverAction === 'maximize' || _uiHoverId === 'maximize';
+      ctx.save();
+      ctx.fillStyle = maximized ? P.maxFillOn : (isHoverMax ? (theme === 'light' ? 'rgba(14, 165, 233, 0.28)' : 'rgba(56, 189, 248, 0.35)') : P.maxFill);
       roundRect(ctx, maxX, cy, cw, ch, 8);
       ctx.fill();
-      ctx.strokeStyle = theme === 'light' ? '#0284c7' : accentHex;
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = isHoverMax ? '#0284c7' : (theme === 'light' ? '#0284c7' : accentHex);
+      ctx.lineWidth = isHoverMax ? 2.0 : 1.5;
+      if (isHoverMax) {
+        ctx.shadowColor = accentHex || '#38bdf8';
+        ctx.shadowBlur = 8;
+      }
       roundRect(ctx, maxX, cy, cw, ch, 8);
       ctx.stroke();
+      ctx.shadowBlur = 0;
       ctx.strokeStyle = P.maxIcon;
       ctx.lineWidth = 2.0;
       if (maximized) {
@@ -4746,6 +4673,7 @@ export function drawHoloScreen(ctx, W, H, opts) {
       } else {
         ctx.strokeRect(maxX + cw * 0.28, cy + ch * 0.26, cw * 0.36, ch * 0.4);
       }
+      ctx.restore();
       hits.push({
         id: 'maximize',
         x: maxX - 4,
@@ -4757,15 +4685,26 @@ export function drawHoloScreen(ctx, W, H, opts) {
       });
     }
 
+    const isHoverClose = _uiHoverAction === 'close' || _uiHoverId === 'close';
     ctx.save();
-    ctx.fillStyle = isSel ? 'rgba(255, 255, 255, 0.09)' : P.closeFill;
+    ctx.fillStyle = isHoverClose
+      ? 'rgba(239, 68, 68, 0.30)'
+      : (isSel ? 'rgba(255, 255, 255, 0.09)' : P.closeFill);
     roundRect(ctx, closeX, cy, cw, ch, 8);
     ctx.fill();
-    ctx.strokeStyle = isSel ? 'rgba(255, 255, 255, 0.18)' : P.closeStroke;
-    ctx.lineWidth = 1.0;
+    ctx.strokeStyle = isHoverClose
+      ? '#ef4444'
+      : (isSel ? 'rgba(255, 255, 255, 0.18)' : P.closeStroke);
+    ctx.lineWidth = isHoverClose ? 1.8 : 1.0;
+    if (isHoverClose) {
+      ctx.shadowColor = '#ef4444';
+      ctx.shadowBlur = 10;
+    }
     roundRect(ctx, closeX, cy, cw, ch, 8);
     ctx.stroke();
-    ctx.fillStyle = isSel ? '#f1f5f9' : P.closeText;
+    ctx.fillStyle = isHoverClose
+      ? '#ef4444'
+      : (isSel ? '#f1f5f9' : P.closeText);
     ctx.font = `bold ${isSel ? 22 : (compactChrome ? 28 : (isDisplay ? 48 : 32))}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -4796,6 +4735,7 @@ export function drawHoloScreen(ctx, W, H, opts) {
     // Display panels stay hidden until an experiment is chosen — idle art is for tabletop only.
     if (isDisplay) return { hits };
 
+    const isHoverAct = _uiHoverAction === 'activate' || _uiHoverId === 'activate';
     ctx.fillStyle = P.title;
     ctx.font = `bold ${F.idleTitle}px "Microsoft YaHei", sans-serif`;
     ctx.textAlign = 'center';
@@ -4813,14 +4753,19 @@ export function drawHoloScreen(ctx, W, H, opts) {
     const ctaX = (W - ctaW) / 2;
     const ctaY = H * 0.52;
 
-    ctx.fillStyle = 'rgba(34, 211, 238, 0.15)';
+    ctx.fillStyle = isHoverAct ? (accentHex ? `${accentHex}35` : 'rgba(34, 211, 238, 0.28)') : 'rgba(34, 211, 238, 0.15)';
     ctx.strokeStyle = accentHex;
-    ctx.lineWidth = 1.8;
+    ctx.lineWidth = isHoverAct ? 2.4 : 1.8;
+    if (isHoverAct) {
+      ctx.shadowColor = accentHex;
+      ctx.shadowBlur = 14;
+    }
     roundRect(ctx, ctaX, ctaY, ctaW, ctaH, 12);
     ctx.fill();
     ctx.stroke();
+    ctx.shadowBlur = 0;
 
-    ctx.fillStyle = P.text;
+    ctx.fillStyle = isHoverAct ? '#ffffff' : P.text;
     ctx.font = `bold ${F.idleCta}px "Microsoft YaHei", sans-serif`;
     ctx.fillText('瞄准桌面终端 · 点击激活', W / 2, ctaY + ctaH * 0.58);
 
@@ -4829,6 +4774,7 @@ export function drawHoloScreen(ctx, W, H, opts) {
     ctx.fillText('选实验后，内容投射到前方悬浮大屏', W / 2, H * 0.80);
 
     hits.push({
+      id: 'activate',
       x: 0,
       y: 0,
       w: W,
@@ -4872,91 +4818,99 @@ export function drawHoloScreen(ctx, W, H, opts) {
     experiments.forEach((ex, i) => {
       if (y + cardH > contentTop + contentH) return;
       const selected = running && experiment?.id === ex.id;
+      const isPressed = _uiPressedId === `exp-${ex.id}` || _uiPressedAction === `start-${ex.id}` || (pressedPick?.expId === ex.id);
+
+      // Tactile physical displacement on press (down 3px, inset 2px)
+      const cardX = isPressed ? x + 3 : x;
+      const cardY = isPressed ? y + 3 : y;
+      const cardW = isPressed ? w - 6 : w;
+      const cardActualH = isPressed ? cardH - 3 : cardH;
 
       ctx.save();
-      // Card background: flat translucent fill (no gradient)
-      ctx.fillStyle = selected
-        ? (accentHex ? `${accentHex}33` : 'rgba(56, 189, 248, 0.28)')
-        : 'rgba(18, 28, 48, 0.45)';
-      roundRect(ctx, x, y, w, cardH, 12);
+      // Steady translucent glass body - no cursor hover flash
+      if (selected) {
+        ctx.fillStyle = accentHex ? `${accentHex}33` : 'rgba(56, 189, 248, 0.28)';
+      } else if (isPressed) {
+        ctx.fillStyle = accentHex ? `${accentHex}26` : 'rgba(56, 189, 248, 0.20)';
+      } else {
+        ctx.fillStyle = 'rgba(12, 22, 42, 0.60)';
+      }
+      roundRect(ctx, cardX, cardY, cardW, cardActualH, 12);
       ctx.fill();
 
-      // Card border
-      ctx.lineWidth = selected ? 1.8 : 1.0;
-      if (selected) {
+      // Border
+      ctx.lineWidth = (selected || isPressed) ? 1.4 : 1.0;
+      if (selected || isPressed) {
         ctx.strokeStyle = accentHex || '#38bdf8';
-        ctx.shadowColor = accentHex || '#38bdf8';
-        ctx.shadowBlur = 10;
       } else {
-        ctx.strokeStyle = accentHex ? `${accentHex}33` : 'rgba(255, 255, 255, 0.14)';
-        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
       }
-      roundRect(ctx, x, y, w, cardH, 12);
+      roundRect(ctx, cardX, cardY, cardW, cardActualH, 12);
       ctx.stroke();
-      ctx.shadowBlur = 0;
 
       // Active state left indicator pill
       if (selected) {
         ctx.fillStyle = accentHex || '#38bdf8';
-        roundRect(ctx, x + 5, y + (cardH - 36) / 2, 4.5, 36, 2.25);
+        roundRect(ctx, cardX + 5, cardY + (cardActualH - 34) / 2, 4, 34, 2);
         ctx.fill();
       }
 
-      // Left number badge
-      const numW = 54;
-      const numH = 40;
-      const numX = x + 16;
-      const numY = y + (cardH - numH) / 2;
-      ctx.fillStyle = selected
-        ? (accentHex ? `${accentHex}44` : 'rgba(56, 189, 248, 0.45)')
-        : (accentHex ? `${accentHex}1a` : 'rgba(255, 255, 255, 0.08)');
+      // Left Number Badge
+      const numW = 50;
+      const numH = 38;
+      const numX = cardX + 16;
+      const numY = cardY + (cardActualH - numH) / 2;
+      ctx.fillStyle = (selected || isPressed)
+        ? (accentHex ? `${accentHex}44` : 'rgba(56, 189, 248, 0.40)')
+        : 'rgba(255, 255, 255, 0.08)';
       roundRect(ctx, numX, numY, numW, numH, 8);
       ctx.fill();
-      ctx.strokeStyle = selected
+      ctx.strokeStyle = (selected || isPressed)
         ? (accentHex || '#38bdf8')
-        : (accentHex ? `${accentHex}55` : 'rgba(255, 255, 255, 0.20)');
+        : 'rgba(255, 255, 255, 0.15)';
       ctx.lineWidth = 1.0;
       roundRect(ctx, numX, numY, numW, numH, 8);
       ctx.stroke();
 
-      ctx.fillStyle = selected ? '#ffffff' : (accentHex || '#38bdf8');
-      ctx.font = `bold 20px monospace`;
+      ctx.fillStyle = (selected || isPressed) ? '#ffffff' : (accentHex || '#38bdf8');
+      ctx.font = '600 18px -apple-system, BlinkMacSystemFont, "SF Pro Display", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(String(i + 1).padStart(2, '0'), numX + numW / 2, numY + numH / 2);
 
-      // Card Title (LARGE & BOLD - 25px)
-      ctx.fillStyle = selected ? '#ffffff' : '#f8fafc';
-      ctx.font = `bold 25px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif`;
+      // Card Title
+      ctx.fillStyle = (selected || isPressed) ? '#ffffff' : '#f8fafc';
+      ctx.font = '600 24px -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(ex.name, x + 88, y + cardH / 2);
+      ctx.fillText(ex.name, cardX + 84, cardY + cardActualH / 2);
 
-      // Right action / status indicator
+      // Right status / action indicator
       if (selected) {
-        const tagW = 86;
-        const tagH = 30;
-        const tagX = x + w - tagW - 16;
-        const tagY = y + (cardH - tagH) / 2;
+        const tagW = 84;
+        const tagH = 28;
+        const tagX = cardX + cardW - tagW - 16;
+        const tagY = cardY + (cardActualH - tagH) / 2;
         ctx.fillStyle = accentHex ? `${accentHex}33` : 'rgba(56, 189, 248, 0.25)';
         roundRect(ctx, tagX, tagY, tagW, tagH, 6);
         ctx.fill();
         ctx.strokeStyle = accentHex || '#38bdf8';
-        ctx.lineWidth = 1.2;
+        ctx.lineWidth = 1.0;
         roundRect(ctx, tagX, tagY, tagW, tagH, 6);
         ctx.stroke();
 
         ctx.fillStyle = '#f0fdf4';
-        ctx.font = `bold 14px "PingFang SC", "Microsoft YaHei", sans-serif`;
+        ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText('进行中', tagX + tagW / 2, tagY + tagH / 2);
       } else {
-        ctx.fillStyle = 'rgba(226, 232, 240, 0.75)';
-        ctx.font = `26px sans-serif`;
+        ctx.fillStyle = isPressed ? (accentHex || '#38bdf8') : 'rgba(226, 232, 240, 0.65)';
+        ctx.font = '600 24px -apple-system, BlinkMacSystemFont, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('›', x + w - 24, y + cardH / 2);
+        const arrowX = isPressed ? (cardX + cardW - 18) : (cardX + cardW - 24);
+        ctx.fillText('›', arrowX, cardY + cardActualH / 2);
       }
       ctx.restore();
 

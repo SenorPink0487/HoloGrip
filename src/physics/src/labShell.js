@@ -75,6 +75,7 @@ import { resolveLabMode, isChemMode, CHEM_ACCENT, CHEM_ACCENT_NUM } from './chem
 const labMode = resolveLabMode();
 const chemMode = isChemMode(labMode);
 const BOOT_STATION_IDS = stationIdsForMode(labMode);
+let _lastFocusedTarget = null;
 // Chemistry keeps several translucent panels and beaker layers visible at
 // once. Retina iPads otherwise render the whole lab at 2x–3x pixels, which is
 // disproportionate for this scene and makes touch interaction feel sticky.
@@ -2194,7 +2195,8 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
     const layoutChanged = syncScreenLayout(active);
     const rev = boundHud?._rev ?? 0;
     const maxed = g.userData.maximized ? 1 : 0;
-    const key = `${active ? 1 : 0}|${maxed}|${rev}|${boundHud?.expId || ''}|${boundHud?.stepIndex ?? ''}|${boundHud?.running ? 1 : 0}|${c.width}x${c.height}|${boundDataHtml.slice(0, 48)}`;
+    const pressedKey = g.userData._pressedHitId || '';
+    const key = `${active ? 1 : 0}|${maxed}|${rev}|${pressedKey}|${boundHud?.expId || ''}|${boundHud?.stepIndex ?? ''}|${boundHud?.running ? 1 : 0}|${c.width}x${c.height}|${boundDataHtml.slice(0, 48)}`;
     if (!force && !layoutChanged && key === lastDrawKey) return;
     lastDrawKey = key;
 
@@ -2209,6 +2211,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
       dataHtml: boundDataHtml,
       maximized: !!g.userData.maximized,
       surface: HOLO_SURFACE,
+      pressedPick: g.userData._pressedHit || null,
     });
     hitRegions = result.hits || [];
     g.userData.hitRegions = hitRegions;
@@ -2438,39 +2441,6 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
   const enTitle = STATION_EN[stationId] || 'STATION';
   const SURFACE = 'display';
 
-  // Ultra-Thin Titanium Micro-Bezel (Stark Industries Zero-Bezel Minimalist Glass)
-  const rimMat = new THREE.MeshStandardMaterial({
-    color: 0xd8dee9,
-    metalness: 0.65,
-    roughness: 0.22,
-  });
-  const rim = rbox(panelW + 0.014, panelH + 0.014, 0.01, rimMat, 0.004);
-  rim.position.z = -0.005;
-  g.add(rim);
-
-  // Optical Edge Glow Wire (Subtle Luminous Halo around Rim)
-  const haloMat = new THREE.MeshBasicMaterial({
-    color: accentNum,
-    transparent: true,
-    opacity: 0.55,
-  });
-  const halo = rbox(panelW + 0.02, panelH + 0.02, 0.003, haloMat, 0.004);
-  halo.position.z = -0.006;
-  g.add(halo);
-
-  // Floating Micro-Stabilizer Lines (Futuristic Optical Suspension Bars)
-  const stabMat = new THREE.MeshBasicMaterial({
-    color: accentNum,
-    transparent: true,
-    opacity: 0.45,
-  });
-  const topStab = new THREE.Mesh(new THREE.BoxGeometry(panelW * 0.35, 0.003, 0.003), stabMat);
-  topStab.position.set(0, panelH / 2 + 0.018, 0);
-  g.add(topStab);
-  const botStab = new THREE.Mesh(new THREE.BoxGeometry(panelW * 0.35, 0.003, 0.003), stabMat);
-  botStab.position.set(0, -panelH / 2 - 0.018, 0);
-  g.add(botStab);
-
   // Fixed modest resolution: full dense UI still fits; ~half the fill cost of 1280×1200.
   // Never reallocate on experiment switch (that was a major hitch).
   const FIXED_DISPLAY_W = 960;
@@ -2508,33 +2478,16 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
 
   const screenMat = new THREE.MeshBasicMaterial({
     map: tex,
-    transparent: false,
+    transparent: true,
     opacity: 1.0,
     side: THREE.FrontSide,
-    depthWrite: true,
+    depthWrite: false,
     toneMapped: false,
   });
   const screen = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), screenMat);
   screen.position.z = 0.01;
+  screen.renderOrder = 20;
   g.add(screen);
-
-  // Anti-glare Glass Substrate (Matte non-reflective glass substrate, eliminates glare reflections)
-  const substrateMat = new THREE.MeshPhysicalMaterial({
-    color: 0xffffff,
-    metalness: 0,
-    roughness: 1.0,
-    transmission: 0,
-    thickness: 0,
-    transparent: true,
-    opacity: 0,
-    clearcoat: 0,
-    clearcoatRoughness: 1.0,
-    ior: 1.0,
-    reflectivity: 0,
-  });
-  const substrate = rbox(panelW, panelH, 0.006, substrateMat, 0.004);
-  substrate.position.z = 0.003;
-  g.add(substrate);
 
   // Soft rear face so the panel stays readable if viewed from a slight angle
   const backMat = new THREE.MeshBasicMaterial({
@@ -2548,6 +2501,7 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
   const backFace = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), backMat);
   backFace.rotation.y = Math.PI;
   backFace.position.z = -0.03;
+  backFace.renderOrder = 20;
   g.add(backFace);
 
   const hit = new THREE.Mesh(
@@ -2564,13 +2518,8 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
   if (g.userData._fixedScale) {
     const { sx, sy } = g.userData._fixedScale;
     screen.scale.set(sx, sy, 1);
-    substrate.scale.set(sx, sy, 1);
     backFace.scale.set(sx, sy, 1);
-    rim.scale.set(sx, sy, 1);
-    halo.scale.set(sx, sy, 1);
     hit.scale.set(sx, sy, 1);
-    topStab.position.set(0, (panelH * sy) / 2 + 0.018, 0);
-    botStab.position.set(0, -(panelH * sy) / 2 - 0.018, 0);
     g.userData.canvasW = FIXED_DISPLAY_W;
     g.userData.canvasH = FIXED_DISPLAY_H;
     g.userData.screenWorldSize = { width: panelW * sx, height: panelH * sy };
@@ -2591,12 +2540,9 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
     const W = c.width;
     const H = c.height;
     ctx.clearRect(0, 0, W, H);
-    const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, 'rgba(255,255,255,0.55)');
-    bg.addColorStop(1, 'rgba(241,245,249,0.48)');
-    ctx.fillStyle = bg;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.45)';
     ctx.fillRect(12, 12, W - 24, H - 24);
-    ctx.strokeStyle = 'rgba(14,165,233,0.45)';
+    ctx.strokeStyle = 'rgba(14, 165, 233, 0.45)';
     ctx.lineWidth = 2;
     ctx.strokeRect(12, 12, W - 24, H - 24);
     ctx.fillStyle = '#0f172a';
@@ -2619,7 +2565,8 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
     const layoutChanged = syncScreenLayout(active);
     const rev = boundHud?._rev ?? 0;
     const maxed = g.userData.maximized ? 1 : 0;
-    const key = `${active ? 1 : 0}|${maxed}|${rev}|${boundHud?.expId || ''}|${boundHud?.stepIndex ?? ''}|${boundHud?.running ? 1 : 0}|${c.width}x${c.height}|${boundDataHtml.slice(0, 48)}`;
+    const pressedKey = g.userData._pressedHitId || '';
+    const key = `${active ? 1 : 0}|${maxed}|${rev}|${pressedKey}|${boundHud?.expId || ''}|${boundHud?.stepIndex ?? ''}|${boundHud?.running ? 1 : 0}|${c.width}x${c.height}|${boundDataHtml.slice(0, 48)}`;
     if (!force && !layoutChanged && key === lastDrawKey) return;
     lastDrawKey = key;
 
@@ -2633,6 +2580,7 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
       maximized: !!g.userData.maximized,
       surface: SURFACE,
       theme: 'light',
+      pressedPick: g.userData._pressedHit || null,
     });
     hitRegions = result.hits || [];
     g.userData.hitRegions = hitRegions;
@@ -2658,11 +2606,6 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
   tag(hit);
   tag(screen);
   tag(backFace);
-  tag(rim);
-  tag(halo);
-  tag(topStab);
-  tag(botStab);
-  tag(substrate);
   defineInteractionTarget(g, {
     kind: INTERACTION_KIND.HOLO_DISPLAY,
     role: 'holo_display',
@@ -2690,19 +2633,19 @@ function makeStationDisplay(stationId, title, accentHex, accentNum = 0x38bdf8, s
       // Hide path: skip raycast rebinding on the close click (was a small hitch
       // ×4 stations). Disabled meshes stay non-interactive while invisible;
       // re-enable when shown again.
-      [hit, screen, backFace, rim, halo, topStab, botStab].forEach((mesh) => {
+      [hit, screen, backFace].forEach((mesh) => {
         mesh.raycast = () => {};
       });
       return;
     }
     // Show path: restore raycasts.
-    [hit, screen, backFace, rim, halo, topStab, botStab].forEach((mesh) => {
+    [hit, screen, backFace].forEach((mesh) => {
       mesh.raycast = THREE.Mesh.prototype.raycast;
     });
   }
 
   // Start with raycasts disabled (hidden).
-  [hit, screen, backFace, rim, halo, topStab, botStab].forEach((mesh) => {
+  [hit, screen, backFace].forEach((mesh) => {
     mesh.raycast = () => {};
   });
 
@@ -3484,12 +3427,15 @@ if (holoFsCanvas) {
     // Table region is scroll-only — clicks are not a discrete action.
     if (pick?.action === 'hall-scroll-table') return;
     // Continuous sliders are owned by pointerdown/move, not click.
-    if (isParamSliderAction(pick?.action)) return;
     if (pick) handleHoloScreenAction(pick, holoFsState.stationId);
   });
   holoFsCanvas.addEventListener('pointerdown', (e) => {
     if (!holoFsState.open || e.button !== 0) return;
     const pick = pickFsAt(e.clientX, e.clientY);
+    if (pick) {
+      holoFsState.pressedPick = pick;
+      paintHoloFs();
+    }
     if (isParamSliderAction(pick?.action)) {
       fsSliderDrag = { pointerId: e.pointerId, pick, moved: false };
       fsDispatchSlider(pick, e.clientX);
@@ -3544,6 +3490,17 @@ if (holoFsCanvas) {
     });
     if (ok) e.preventDefault();
   });
+  const endFsPressFeedback = () => {
+    setTimeout(() => {
+      if (holoFsState.pressedPick) {
+        holoFsState.pressedPick = null;
+        paintHoloFs();
+      }
+    }, 120);
+  };
+  holoFsCanvas.addEventListener('pointerup', endFsPressFeedback);
+  holoFsCanvas.addEventListener('pointercancel', endFsPressFeedback);
+  holoFsCanvas.addEventListener('pointerleave', endFsPressFeedback);
   const endFsTableDrag = (e) => {
     if (!fsTableDrag || (e && fsTableDrag.pointerId !== e.pointerId)) return;
     try { holoFsCanvas.releasePointerCapture(fsTableDrag.pointerId); } catch { /* ignore */ }
@@ -4917,6 +4874,13 @@ canvas.addEventListener('pointerdown', (event) => {
   // Content-screen / desk-slider UI: route through the normal screen path
   // instead of the apparatus drag bridge.
   if (picked.holoControl || picked.deskSlider || resolveScreenHost(picked.target) || resolveDeskSliderHost(picked.target)) {
+    const screenHost = resolveScreenHost(picked.target) || (picked.holoControl ? picked.target : null);
+    if (screenHost?.userData) {
+      const pickKey = picked.pick?.id || picked.pick?.action || (picked.pick?.expId ? `exp-${picked.pick.expId}` : '');
+      screenHost.userData._hoverHitId = pickKey;
+      screenHost.userData._hoverHit = picked.pick || null;
+      screenHost.userData.draw?.(screenHost.userData.active ?? true, true);
+    }
     gaussPointerDrag = { suppressClick: true };
     holdLMB = true;
     resetMouseDragAccum();
@@ -4935,6 +4899,7 @@ canvas.addEventListener('pointerdown', (event) => {
       moved: false,
       screenUi: true,
       deskSlider: !!picked.deskSlider || !!resolveDeskSliderHost(picked.target),
+      screenHost,
     };
     if (event.pointerId != null) canvas.setPointerCapture?.(event.pointerId);
     event.preventDefault();
@@ -4990,6 +4955,16 @@ window.addEventListener('pointermove', (event) => {
     );
     unlockedElectroRaycaster.setFromCamera(unlockedElectroPointer, camera);
   }
+  if (unlockedElectroDrag.screenHost?.userData) {
+    const screenHost = unlockedElectroDrag.screenHost;
+    const livePick = screenHost.userData.pickFromRay ? screenHost.userData.pickFromRay(unlockedElectroRaycaster) : null;
+    const pickKey = livePick?.id || livePick?.action || (livePick?.expId ? `exp-${livePick.expId}` : '');
+    if (screenHost.userData._hoverHitId !== pickKey) {
+      screenHost.userData._hoverHitId = pickKey;
+      screenHost.userData._hoverHit = livePick;
+      screenHost.userData.draw?.(screenHost.userData.active ?? true, true);
+    }
+  }
   expManager?.updateManipulation(unlockedElectroDrag.target, {
     dt: 1 / 60,
     time: clock.elapsedTime,
@@ -5008,6 +4983,16 @@ function finishUnlockedElectroDrag(event, cancelled = false) {
     && event?.pointerId != null
     && event.pointerId !== unlockedElectroDrag.pointerId
   ) return;
+  if (unlockedElectroDrag.screenHost?.userData) {
+    const screenHost = unlockedElectroDrag.screenHost;
+    setTimeout(() => {
+      if (screenHost?.userData) {
+        screenHost.userData._hoverHitId = '';
+        screenHost.userData._hoverHit = null;
+        screenHost.userData.draw?.(screenHost.userData.active ?? true, true);
+      }
+    }, 120);
+  }
   expManager?.endManipulation(unlockedElectroDrag.target, {
     time: clock.elapsedTime,
     cancelled,
@@ -6801,6 +6786,11 @@ function animate() {
       || (opticsRun && expManager.state.data?.dragging)
       || (hallRun && expManager.currentStep?.()?.id === 'identify')
     );
+
+    if (focusedTarget !== _lastFocusedTarget) {
+      _lastFocusedTarget = focusedTarget;
+    }
+
     if (crosshair) {
       if (canInteract) crosshair.classList.add('can-interact');
       else crosshair.classList.remove('can-interact');

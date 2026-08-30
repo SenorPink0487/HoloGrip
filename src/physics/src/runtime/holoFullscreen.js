@@ -59,6 +59,7 @@ export function createHoloFullscreenController({
       maximized: true,
       surface: 'display',
       theme: 'light',
+      pressedPick: state.pressedPick || null,
     });
     state.hits = result?.hits || [];
   }
