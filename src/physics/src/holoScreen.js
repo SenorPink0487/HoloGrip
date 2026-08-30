@@ -42,8 +42,8 @@ export function holoUiScale(surface = 'full') {
 }
 
 /** Experiment-card height on the station menu / tabletop selector. */
-export const HOLO_MENU_CARD_H = 148;
-export const HOLO_MENU_CARD_GAP = 18;
+export const HOLO_MENU_CARD_H = 76;
+export const HOLO_MENU_CARD_GAP = 10;
 
 function roundRect(ctx, x, y, w, h, r) {
   const rr = Math.min(r, w / 2, h / 2);
@@ -1317,7 +1317,7 @@ function drawElectricFieldExperiment(ctx, _W, _H, cfg) {
   // Row B: 等势线/等势面 / 高斯面 / 试探电荷 (Merged probe toggle + sign per draft)
   const probeLabel = probe.q0 >= 0 ? '试探电荷 q₀(+)' : '试探电荷 q₀(−)';
   const equipotMode = d.showEquipot;
-  const equipotLabel = equipotMode === 'concentric' ? '等势面(立体)' : '等势线';
+  const equipotLabel = equipotMode === 'concentric' ? '等势面' : '等势线';
   const toggleItems = [
     { label: equipotLabel, action: 'electric-toggle', meta: { key: 'equipot' }, color: accentHex, active: Boolean(d.showEquipot) },
     { label: '高斯面', action: 'electric-toggle', meta: { key: 'gauss' }, color: accentHex, active: Boolean(d.showGauss) },
@@ -4324,19 +4324,16 @@ function drawSourceMechanicsExperiment(ctx, _W, _H, cfg) {
  */
 export function getHoloScreenLayoutSize(opts = {}) {
   const { active = false, hud = null, surface = 'full' } = opts;
-  const width = 1024;
-  if (!active) return { width, height: 640 };
+  // Tabletop selector maintains stable 720x540 canvas (4:3 balanced tactical ratio)
+  if (surface === 'selector') {
+    return { width: 720, height: 540 };
+  }
 
   const experiment = hud?.experiment;
   const running = !!(hud?.running && experiment);
 
-  // Tabletop selector never hosts dense experiment controls.
-  if (surface === 'selector') {
-    const cardCount = hud?.station?.experiments?.length || 0;
-    const menuHeight = 220 + cardCount * HOLO_MENU_CARD_H
-      + Math.max(0, cardCount - 1) * HOLO_MENU_CARD_GAP;
-    return { width, height: Math.max(720, menuHeight + (running ? 88 : 0)) };
-  }
+  const width = 1024;
+  if (!active) return { width, height: 640 };
 
   // Content display idles compact until an experiment is running.
   if (surface === 'display' && !running) {
@@ -4380,10 +4377,7 @@ export function getHoloScreenLayoutSize(opts = {}) {
   }
 
   if (!running) {
-    const cardCount = hud?.station?.experiments?.length || 0;
-    const menuHeight = 220 + cardCount * HOLO_MENU_CARD_H
-      + Math.max(0, cardCount - 1) * HOLO_MENU_CARD_GAP;
-    return { width, height: Math.max(720, menuHeight) };
+    return { width: 1024, height: 640 };
   }
 
   const denseExperimentHeights = {
@@ -4439,13 +4433,13 @@ export function drawHoloScreen(ctx, W, H, opts) {
   } = opts;
 
   const hits = [];
-  const pad = 28;
+  const isSelector = surface === 'selector';
+  const isDisplay = surface === 'display';
+  const pad = isSelector ? 16 : 28;
   const innerX = pad;
   const innerY = pad;
   const innerW = W - pad * 2;
   const innerH = H - pad * 2;
-  const isSelector = surface === 'selector';
-  const isDisplay = surface === 'display';
   const theme = themeOpt || (isDisplay ? 'dark' : 'dark');
   _uiTheme = theme;
   const P = screenPalette(theme, accentHex, isDisplay);
@@ -4460,10 +4454,10 @@ export function drawHoloScreen(ctx, W, H, opts) {
   const F = {
     headerMeta: Math.round(28 * scaleF),
     headerTitle: Math.round(40 * scaleF),
-    idleTitle: Math.round(76 * scaleF),
-    idleSub: Math.round(32 * scaleF),
-    idleCta: Math.round(40 * scaleF),
-    idleHint: Math.round(28 * scaleF),
+    idleTitle: Math.round(isSelector ? 36 : 76 * scaleF),
+    idleSub: Math.round(isSelector ? 14 : 32 * scaleF),
+    idleCta: Math.round(isSelector ? 21 : 40 * scaleF),
+    idleHint: Math.round(isSelector ? 14 : 28 * scaleF),
     listHint: Math.round(28 * scaleF),
     cardNum: Math.round(28 * scaleF),
     cardName: Math.round(40 * scaleF),
@@ -4483,39 +4477,64 @@ export function drawHoloScreen(ctx, W, H, opts) {
 
   // High-Tech Holographic Cyber Glass Body
   ctx.save();
-  const bg = ctx.createLinearGradient(0, 0, 0, H);
-  if (theme === 'light') {
-    if (active) {
-      bg.addColorStop(0, isDisplay ? 'rgba(255, 255, 255, 0.38)' : 'rgba(255, 255, 255, 0.68)');
-      bg.addColorStop(0.45, isDisplay ? 'rgba(248, 250, 252, 0.30)' : 'rgba(248, 250, 252, 0.62)');
-      bg.addColorStop(1, isDisplay ? 'rgba(241, 245, 249, 0.34)' : 'rgba(241, 245, 249, 0.66)');
-    } else {
-      bg.addColorStop(0, isDisplay ? 'rgba(248, 250, 252, 0.28)' : 'rgba(248, 250, 252, 0.55)');
-      bg.addColorStop(0.5, isDisplay ? 'rgba(241, 245, 249, 0.22)' : 'rgba(241, 245, 249, 0.48)');
-      bg.addColorStop(1, isDisplay ? 'rgba(226, 232, 240, 0.28)' : 'rgba(226, 232, 240, 0.55)');
-    }
-  } else if (isDisplay) {
-    // Ultra-clean translucent obsidian-sapphire crystal HUD glass
-    bg.addColorStop(0, 'rgba(6, 16, 36, 0.38)');
-    bg.addColorStop(0.45, 'rgba(10, 24, 48, 0.30)');
-    bg.addColorStop(1, 'rgba(4, 12, 28, 0.40)');
-  } else if (active) {
-    bg.addColorStop(0, 'rgba(6, 40, 64, 0.92)');
-    bg.addColorStop(0.45, 'rgba(8, 55, 88, 0.9)');
-    bg.addColorStop(1, 'rgba(6, 32, 54, 0.94)');
+  if (isSelector) {
+    ctx.fillStyle = active ? 'rgba(10, 18, 36, 0.55)' : 'rgba(8, 16, 32, 0.48)';
+    roundRect(ctx, 12, 12, W - 24, H - 24, 18);
+    ctx.fill();
   } else {
-    bg.addColorStop(0, 'rgba(15, 23, 42, 0.78)');
-    bg.addColorStop(0.5, 'rgba(30, 58, 95, 0.72)');
-    bg.addColorStop(1, 'rgba(15, 23, 42, 0.82)');
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    if (theme === 'light') {
+      if (active) {
+        bg.addColorStop(0, isDisplay ? 'rgba(255, 255, 255, 0.38)' : 'rgba(255, 255, 255, 0.68)');
+        bg.addColorStop(0.45, isDisplay ? 'rgba(248, 250, 252, 0.30)' : 'rgba(248, 250, 252, 0.62)');
+        bg.addColorStop(1, isDisplay ? 'rgba(241, 245, 249, 0.34)' : 'rgba(241, 245, 249, 0.66)');
+      } else {
+        bg.addColorStop(0, isDisplay ? 'rgba(248, 250, 252, 0.28)' : 'rgba(248, 250, 252, 0.55)');
+        bg.addColorStop(0.5, isDisplay ? 'rgba(241, 245, 249, 0.22)' : 'rgba(241, 245, 249, 0.48)');
+        bg.addColorStop(1, isDisplay ? 'rgba(226, 232, 240, 0.28)' : 'rgba(226, 232, 240, 0.55)');
+      }
+    } else if (isDisplay) {
+      // Ultra-clean translucent obsidian-sapphire crystal HUD glass
+      bg.addColorStop(0, 'rgba(6, 16, 36, 0.38)');
+      bg.addColorStop(0.45, 'rgba(10, 24, 48, 0.30)');
+      bg.addColorStop(1, 'rgba(4, 12, 28, 0.40)');
+    } else if (active) {
+      bg.addColorStop(0, 'rgba(8, 20, 42, 0.74)');
+      bg.addColorStop(0.5, 'rgba(12, 28, 54, 0.66)');
+      bg.addColorStop(1, 'rgba(6, 16, 36, 0.76)');
+    } else {
+      bg.addColorStop(0, 'rgba(10, 22, 42, 0.72)');
+      bg.addColorStop(0.5, 'rgba(14, 30, 56, 0.64)');
+      bg.addColorStop(1, 'rgba(8, 18, 38, 0.74)');
+    }
+    ctx.fillStyle = bg;
+    roundRect(ctx, 12, 12, W - 24, H - 24, 18);
+    ctx.fill();
   }
-  ctx.fillStyle = bg;
-  roundRect(ctx, 12, 12, W - 24, H - 24, 18);
-  ctx.fill();
+
+  // Bottom Projector Uplight Glow
+  if (theme !== 'light' && !isDisplay && !isSelector) {
+    if (typeof ctx.createRadialGradient === 'function') {
+      const bottomGlow = ctx.createRadialGradient(W / 2, H - 10, 20, W / 2, H - 10, W * 0.65);
+      bottomGlow.addColorStop(0, accentHex ? `${accentHex}30` : 'rgba(56, 189, 248, 0.18)');
+      bottomGlow.addColorStop(0.55, accentHex ? `${accentHex}0c` : 'rgba(56, 189, 248, 0.05)');
+      bottomGlow.addColorStop(1, 'rgba(0, 0, 0, 0)');
+      ctx.fillStyle = bottomGlow;
+      roundRect(ctx, 12, 12, W - 24, H - 24, 18);
+      ctx.fill();
+    } else if (typeof ctx.createLinearGradient === 'function') {
+      const bottomGlow = ctx.createLinearGradient(0, H - 120, 0, H);
+      bottomGlow.addColorStop(0, 'rgba(0, 0, 0, 0)');
+      bottomGlow.addColorStop(1, accentHex ? `${accentHex}1a` : 'rgba(56, 189, 248, 0.12)');
+      ctx.fillStyle = bottomGlow;
+      roundRect(ctx, 12, 12, W - 24, H - 24, 18);
+      ctx.fill();
+    }
+  }
 
   // Glass Specular Gloss and Reflection Highlights
   if (theme === 'light') {
     ctx.save();
-    // 1. Diagonal Glass Reflection / Gloss Sweep
     if (active) {
       const sheen = ctx.createLinearGradient(0, 0, W * 0.75, H * 0.55);
       sheen.addColorStop(0, 'rgba(255, 255, 255, 0.45)');
@@ -4529,7 +4548,6 @@ export function drawHoloScreen(ctx, W, H, opts) {
       ctx.closePath();
       ctx.fill();
     }
-    // 2. Crystal Specular Edge Highlight (Light bouncing off top-left rim of thick glass)
     const borderGrad = ctx.createLinearGradient(12, 12, W - 12, H - 12);
     borderGrad.addColorStop(0, 'rgba(255, 255, 255, 0.96)');
     borderGrad.addColorStop(0.35, 'rgba(186, 230, 253, 0.75)');
@@ -4542,20 +4560,19 @@ export function drawHoloScreen(ctx, W, H, opts) {
     ctx.restore();
   }
 
-  // Isometric / Orthogonal Cyber HUD Grid (Only on non-display or subtle top/bottom ruler marks)
+  // Isometric / Orthogonal Cyber HUD Grid
   if (theme === 'dark' || isDisplay) {
     if (!isDisplay) {
-      ctx.strokeStyle = theme === 'light' ? 'rgba(14, 165, 233, 0.08)' : 'rgba(56, 189, 248, 0.055)';
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.035)';
       ctx.lineWidth = 1;
-      const gridSpacing = 32;
-      for (let gx = 20; gx < W - 20; gx += gridSpacing) {
+      const gridSpacing = 36;
+      for (let gx = 24; gx < W - 24; gx += gridSpacing) {
         ctx.beginPath(); ctx.moveTo(gx, 20); ctx.lineTo(gx, H - 20); ctx.stroke();
       }
-      for (let gy = 20; gy < H - 20; gy += gridSpacing) {
+      for (let gy = 24; gy < H - 20; gy += gridSpacing) {
         ctx.beginPath(); ctx.moveTo(20, gy); ctx.lineTo(W - 20, gy); ctx.stroke();
       }
     } else {
-      // For content screen, keep middle perfectly clean and only draw precision ruler ticks along edges
       ctx.fillStyle = theme === 'light' ? 'rgba(2, 132, 199, 0.28)' : 'rgba(56, 189, 248, 0.22)';
       for (let tx = 40; tx < W - 40; tx += 20) {
         ctx.fillRect(tx, 14, 1, tx % 100 === 0 ? 6 : 3);
@@ -4564,18 +4581,36 @@ export function drawHoloScreen(ctx, W, H, opts) {
     }
   }
 
-  // Outer Neon Cyber Frame
-  ctx.strokeStyle = theme === 'light' ? '#0284c7' : accentHex;
-  ctx.lineWidth = isDisplay ? 1.8 : 2.5;
-  ctx.globalAlpha = active ? 0.95 : 0.65;
-  if (isDisplay && active && theme !== 'light') {
-    ctx.shadowColor = accentHex;
-    ctx.shadowBlur = 12;
+  // Outer Cyber Frame
+  if (isSelector) {
+    ctx.save();
+    ctx.strokeStyle = accentHex || '#38bdf8';
+    ctx.lineWidth = 2.0;
+    if (active && theme !== 'light') {
+      ctx.shadowColor = accentHex;
+      ctx.shadowBlur = 10;
+    }
+    roundRect(ctx, 14, 14, W - 28, H - 28, 16);
+    ctx.stroke();
+    ctx.restore();
+
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
+    ctx.lineWidth = 1.0;
+    roundRect(ctx, 18, 18, W - 36, H - 36, 12);
+    ctx.stroke();
+  } else {
+    ctx.strokeStyle = theme === 'light' ? '#0284c7' : accentHex;
+    ctx.lineWidth = isDisplay ? 1.8 : 2.5;
+    ctx.globalAlpha = active ? 0.95 : 0.65;
+    if (isDisplay && active && theme !== 'light') {
+      ctx.shadowColor = accentHex;
+      ctx.shadowBlur = 12;
+    }
+    roundRect(ctx, 14, 14, W - 28, H - 28, 16);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
   }
-  roundRect(ctx, 14, 14, W - 28, H - 28, 16);
-  ctx.stroke();
-  ctx.shadowBlur = 0;
-  ctx.globalAlpha = 1;
 
   // Inner Subtle Framing Wire
   if (isDisplay) {
@@ -4587,7 +4622,7 @@ export function drawHoloScreen(ctx, W, H, opts) {
 
   // Content display with a running experiment: no station header bar — experiment UI owns the title.
   const compactChrome = isDisplay && active && !!(hud?.running && hud?.experiment);
-  const headerH = compactChrome ? 0 : (isDisplay ? 96 : 64);
+  const headerH = compactChrome ? 0 : (isDisplay ? 96 : (isSelector ? 68 : 64));
 
   if (!compactChrome) {
     if (isDisplay && active) {
@@ -4600,7 +4635,7 @@ export function drawHoloScreen(ctx, W, H, opts) {
       ctx.textAlign = 'left';
     }
 
-    // Header Bar (Sci-Fi Cyber Header) — menu / idle surfaces only
+    // Header Bar — clean glass header
     if (theme === 'light') {
       const hBg = ctx.createLinearGradient(innerX, innerY, innerX + innerW, innerY);
       hBg.addColorStop(0, 'rgba(255, 255, 255, 0.78)');
@@ -4613,80 +4648,86 @@ export function drawHoloScreen(ctx, W, H, opts) {
       hBg.addColorStop(0.5, 'rgba(12, 28, 56, 0.82)');
       hBg.addColorStop(1, 'rgba(8, 20, 42, 0.88)');
       ctx.fillStyle = hBg;
+    } else if (isSelector) {
+      ctx.fillStyle = 'rgba(15, 26, 48, 0.40)';
     } else {
-      ctx.fillStyle = P.headerBg;
+      const hBg = ctx.createLinearGradient(innerX, innerY, innerX, innerY + headerH);
+      hBg.addColorStop(0, 'rgba(255, 255, 255, 0.08)');
+      hBg.addColorStop(1, 'rgba(255, 255, 255, 0.02)');
+      ctx.fillStyle = hBg;
     }
-    roundRect(ctx, innerX, innerY, innerW, headerH, 10);
+    roundRect(ctx, innerX, innerY, innerW, headerH, 12);
     ctx.fill();
-    if (isDisplay) {
-      ctx.strokeStyle = theme === 'light' ? 'rgba(2, 132, 199, 0.42)' : 'rgba(56, 189, 248, 0.35)';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(innerX + 12, innerY + headerH);
-      ctx.lineTo(innerX + innerW - 12, innerY + headerH);
-      ctx.stroke();
-    }
 
-    // Header Tag / Badge
-    ctx.fillStyle = theme === 'light' ? '#0284c7' : accentHex;
-    ctx.font = `bold ${isDisplay ? 30 : 22}px "Segoe UI", monospace`;
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'middle';
-    const headerTag = isDisplay ? `[ ${hud?.experiment?.name || 'EXPERIMENT'} • HUD ]` : `HOLO // ${enTitle}`;
-    if (isDisplay && theme !== 'light') {
+    ctx.strokeStyle = isSelector ? (accentHex ? `${accentHex}44` : 'rgba(255, 255, 255, 0.16)') : (isDisplay ? 'rgba(56, 189, 248, 0.35)' : 'transparent');
+    ctx.lineWidth = 1;
+    roundRect(ctx, innerX, innerY, innerW, headerH, 12);
+    ctx.stroke();
+
+    // Header Tag / Badge (for large front display only)
+    if (isDisplay) {
+      const headerTag = `[ ${hud?.experiment?.name || 'EXPERIMENT'} • HUD ]`;
       ctx.save();
-      ctx.shadowColor = accentHex;
-      ctx.shadowBlur = 8;
-      ctx.beginPath();
-      ctx.arc(innerX + 26, innerY + headerH / 2, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.restore();
-      ctx.fillText(headerTag, innerX + 42, innerY + headerH / 2);
-    } else if (isDisplay && theme === 'light') {
-      ctx.beginPath();
-      ctx.arc(innerX + 26, innerY + headerH / 2, 5, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.save();
-      ctx.shadowColor = 'rgba(255, 255, 255, 0.98)';
-      ctx.shadowBlur = 6;
-      ctx.fillText(headerTag, innerX + 42, innerY + headerH / 2);
-      ctx.restore();
-    } else {
-      ctx.save();
-      if (theme === 'light') {
+      if (theme !== 'light') {
+        ctx.fillStyle = accentHex;
+        ctx.font = `bold 30px "Segoe UI", monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = accentHex;
+        ctx.shadowBlur = 8;
+        ctx.beginPath();
+        ctx.arc(innerX + 26, innerY + headerH / 2, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillText(headerTag, innerX + 42, innerY + headerH / 2);
+      } else {
+        ctx.fillStyle = '#0284c7';
+        ctx.font = `bold 30px "Segoe UI", monospace`;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.beginPath();
+        ctx.arc(innerX + 26, innerY + headerH / 2, 5, 0, Math.PI * 2);
+        ctx.fill();
         ctx.shadowColor = 'rgba(255, 255, 255, 0.98)';
         ctx.shadowBlur = 6;
+        ctx.fillText(headerTag, innerX + 42, innerY + headerH / 2);
       }
-      ctx.fillText(headerTag, innerX + 14, innerY + headerH / 2);
       ctx.restore();
     }
 
     // Header Title
     ctx.save();
     ctx.fillStyle = P.title;
-    ctx.font = `bold ${isDisplay ? 52 : 34}px "Microsoft YaHei", "Segoe UI", sans-serif`;
     ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
     if (isDisplay && theme !== 'light') {
       ctx.shadowColor = accentHex;
       ctx.shadowBlur = 10;
-    } else if (theme === 'light') {
-      ctx.shadowColor = 'rgba(255, 255, 255, 0.98)';
-      ctx.shadowBlur = 6;
+      ctx.font = `bold 52px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif`;
+      const headerTitle = hud?.running && hud?.experiment?.name
+        ? `${fullTitle} · ${hud.experiment.name}`
+        : fullTitle;
+      ctx.fillText(headerTitle, W / 2, innerY + headerH / 2);
+    } else if (isSelector) {
+      ctx.shadowColor = accentHex || '#38bdf8';
+      ctx.shadowBlur = 10;
+      ctx.font = `bold 30px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif`;
+      ctx.fillText(fullTitle, W / 2, innerY + headerH / 2);
+      ctx.shadowBlur = 0;
+    } else {
+      ctx.font = `bold 28px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif`;
+      ctx.fillText(fullTitle, W / 2, innerY + headerH / 2);
     }
-    const headerTitle = isDisplay && hud?.running && hud?.experiment?.name
-      ? `${fullTitle} · ${hud.experiment.name}`
-      : fullTitle;
-    ctx.fillText(headerTitle, W / 2, innerY + headerH / 2);
     ctx.restore();
   }
 
   // window chrome: maximize + close (active only; floating when compact)
   if (active) {
-    const cy = compactChrome ? (innerY + 4) : (innerY + (isDisplay ? 18 : 12));
-    const cw = compactChrome ? 44 : (isDisplay ? 68 : 48);
-    const ch = compactChrome ? 40 : (isDisplay ? 60 : 40);
+    const isSel = isSelector;
+    const cw = isSel ? 38 : (compactChrome ? 44 : (isDisplay ? 68 : 48));
+    const ch = isSel ? 38 : (compactChrome ? 40 : (isDisplay ? 60 : 40));
+    const cy = isSel ? (innerY + (headerH - ch) / 2) : (compactChrome ? (innerY + 4) : (innerY + (isDisplay ? 18 : 12)));
     const gap = compactChrome ? 8 : 10;
-    const closeX = innerX + innerW - cw - (compactChrome ? 6 : 12);
+    const closeX = innerX + innerW - cw - (isSel ? 12 : (compactChrome ? 6 : 12));
     const maxX = closeX - cw - gap;
 
     if (!isSelector) {
@@ -4716,18 +4757,20 @@ export function drawHoloScreen(ctx, W, H, opts) {
       });
     }
 
-    ctx.fillStyle = P.closeFill;
+    ctx.save();
+    ctx.fillStyle = isSel ? 'rgba(255, 255, 255, 0.09)' : P.closeFill;
     roundRect(ctx, closeX, cy, cw, ch, 8);
     ctx.fill();
-    ctx.strokeStyle = P.closeStroke;
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = isSel ? 'rgba(255, 255, 255, 0.18)' : P.closeStroke;
+    ctx.lineWidth = 1.0;
     roundRect(ctx, closeX, cy, cw, ch, 8);
     ctx.stroke();
-    ctx.fillStyle = P.closeText;
-    ctx.font = `bold ${compactChrome ? 28 : (isDisplay ? 48 : 32)}px sans-serif`;
+    ctx.fillStyle = isSel ? '#f1f5f9' : P.closeText;
+    ctx.font = `bold ${isSel ? 22 : (compactChrome ? 28 : (isDisplay ? 48 : 32))}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('×', closeX + cw / 2, cy + ch / 2 + 1);
+    ctx.fillText('×', closeX + cw / 2, cy + ch / 2);
+    ctx.restore();
     hits.push({
       id: 'close',
       x: closeX - 4,
@@ -4758,30 +4801,33 @@ export function drawHoloScreen(ctx, W, H, opts) {
     ctx.textAlign = 'center';
     ctx.shadowColor = accentHex;
     ctx.shadowBlur = 16;
-    ctx.fillText(fullTitle, W / 2, H * 0.36);
+    ctx.fillText(fullTitle, W / 2, H * 0.35);
     ctx.shadowBlur = 0;
 
     ctx.fillStyle = accentHex;
     ctx.font = `${F.idleSub}px "Segoe UI", monospace`;
-    ctx.fillText('HOLOGRAPHIC WORKSTATION', W / 2, H * 0.46);
+    ctx.fillText('HOLOGRAPHIC WORKSTATION', W / 2, H * 0.45);
+
+    const ctaW = W * 0.84;
+    const ctaH = 80;
+    const ctaX = (W - ctaW) / 2;
+    const ctaY = H * 0.52;
 
     ctx.fillStyle = 'rgba(34, 211, 238, 0.15)';
     ctx.strokeStyle = accentHex;
-    ctx.lineWidth = 2;
-    roundRect(ctx, W * 0.12, H * 0.54, W * 0.76, 100, 14);
+    ctx.lineWidth = 1.8;
+    roundRect(ctx, ctaX, ctaY, ctaW, ctaH, 12);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = P.text;
     ctx.font = `bold ${F.idleCta}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText('瞄准桌面终端 · 点击激活', W / 2, H * 0.54 + 58);
+    ctx.fillText('瞄准桌面终端 · 点击激活', W / 2, ctaY + ctaH * 0.58);
 
     ctx.fillStyle = P.soft;
     ctx.font = `${F.idleHint}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText('选实验后，内容投射到前方悬浮大屏', W / 2, H * 0.78);
+    ctx.fillText('选实验后，内容投射到前方悬浮大屏', W / 2, H * 0.80);
 
-    // Full-panel hit so UV pickers (and tests) can activate the idle terminal.
-    // Runtime also treats any idle-screen UV as action:'activate'.
     hits.push({
       x: 0,
       y: 0,
@@ -4809,67 +4855,110 @@ export function drawHoloScreen(ctx, W, H, opts) {
 
   // Tabletop selector always shows experiment cards (never dense experiment UI).
   if (isSelector || !running) {
-    if (running && isSelector) {
-      ctx.fillStyle = 'rgba(34, 211, 238, 0.16)';
-      ctx.strokeStyle = accentHex;
-      ctx.lineWidth = 1.6;
-      roundRect(ctx, innerX, contentTop, innerW, 54, 10);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = '#e0f2fe';
-      ctx.font = `bold ${F.listHint}px "Microsoft YaHei", sans-serif`;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(
-        `进行中：${experiment?.name || '实验'} · 内容见前方大屏`,
-        innerX + 14,
-        contentTop + 27,
-      );
-    } else {
-      ctx.fillStyle = 'rgba(148, 163, 184, 0.95)';
-      ctx.font = `${F.listHint}px "Microsoft YaHei", sans-serif`;
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      ctx.fillText(
-        isSelector
-          ? '选择实验 · 内容将显示于前方悬浮大屏'
-          : '选择实验 · 准星对准卡片后点击',
-        innerX + 4,
-        contentTop,
-      );
-    }
-
     const experiments = station?.experiments || [];
     const cardH = HOLO_MENU_CARD_H;
     const gap = HOLO_MENU_CARD_GAP;
-    let y = contentTop + (running && isSelector ? 72 : 24);
+    const totalCardsH = experiments.length > 0
+      ? (experiments.length * cardH + (experiments.length - 1) * gap)
+      : 0;
+    const startY = contentTop + Math.max(4, Math.round((contentH - totalCardsH) * 0.45));
+    let y = startY;
+
+    // Comfortable card width padding
+    const padX = isSelector ? 4 : 0;
+    const x = innerX + padX;
+    const w = innerW - padX * 2;
+
     experiments.forEach((ex, i) => {
       if (y + cardH > contentTop + contentH) return;
-      const x = innerX;
-      const w = innerW;
       const selected = running && experiment?.id === ex.id;
-      ctx.fillStyle = selected ? 'rgba(14, 165, 233, 0.28)' : 'rgba(14, 165, 233, 0.12)';
-      ctx.strokeStyle = selected ? '#67e8f9' : accentHex;
-      ctx.lineWidth = selected ? 3.5 : 2.4;
-      roundRect(ctx, x, y, w, cardH, 14);
+
+      ctx.save();
+      // Card background: flat translucent fill (no gradient)
+      ctx.fillStyle = selected
+        ? (accentHex ? `${accentHex}33` : 'rgba(56, 189, 248, 0.28)')
+        : 'rgba(18, 28, 48, 0.45)';
+      roundRect(ctx, x, y, w, cardH, 12);
       ctx.fill();
+
+      // Card border
+      ctx.lineWidth = selected ? 1.8 : 1.0;
+      if (selected) {
+        ctx.strokeStyle = accentHex || '#38bdf8';
+        ctx.shadowColor = accentHex || '#38bdf8';
+        ctx.shadowBlur = 10;
+      } else {
+        ctx.strokeStyle = accentHex ? `${accentHex}33` : 'rgba(255, 255, 255, 0.14)';
+        ctx.shadowBlur = 0;
+      }
+      roundRect(ctx, x, y, w, cardH, 12);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+
+      // Active state left indicator pill
+      if (selected) {
+        ctx.fillStyle = accentHex || '#38bdf8';
+        roundRect(ctx, x + 5, y + (cardH - 36) / 2, 4.5, 36, 2.25);
+        ctx.fill();
+      }
+
+      // Left number badge
+      const numW = 54;
+      const numH = 40;
+      const numX = x + 16;
+      const numY = y + (cardH - numH) / 2;
+      ctx.fillStyle = selected
+        ? (accentHex ? `${accentHex}44` : 'rgba(56, 189, 248, 0.45)')
+        : (accentHex ? `${accentHex}1a` : 'rgba(255, 255, 255, 0.08)');
+      roundRect(ctx, numX, numY, numW, numH, 8);
+      ctx.fill();
+      ctx.strokeStyle = selected
+        ? (accentHex || '#38bdf8')
+        : (accentHex ? `${accentHex}55` : 'rgba(255, 255, 255, 0.20)');
+      ctx.lineWidth = 1.0;
+      roundRect(ctx, numX, numY, numW, numH, 8);
       ctx.stroke();
 
-      ctx.fillStyle = accentHex;
-      ctx.font = `bold ${F.cardNum}px monospace`;
+      ctx.fillStyle = selected ? '#ffffff' : (accentHex || '#38bdf8');
+      ctx.font = `bold 20px monospace`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(String(i + 1).padStart(2, '0'), numX + numW / 2, numY + numH / 2);
+
+      // Card Title (LARGE & BOLD - 25px)
+      ctx.fillStyle = selected ? '#ffffff' : '#f8fafc';
+      ctx.font = `bold 25px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif`;
       ctx.textAlign = 'left';
-      ctx.fillText(String(i + 1).padStart(2, '0'), x + 20, y + 32);
+      ctx.textBaseline = 'middle';
+      ctx.fillText(ex.name, x + 88, y + cardH / 2);
 
-      ctx.fillStyle = '#f0f9ff';
-      ctx.font = `bold ${F.cardName}px "Microsoft YaHei", sans-serif`;
-      ctx.fillText(ex.name, x + 72, y + 24);
+      // Right action / status indicator
+      if (selected) {
+        const tagW = 86;
+        const tagH = 30;
+        const tagX = x + w - tagW - 16;
+        const tagY = y + (cardH - tagH) / 2;
+        ctx.fillStyle = accentHex ? `${accentHex}33` : 'rgba(56, 189, 248, 0.25)';
+        roundRect(ctx, tagX, tagY, tagW, tagH, 6);
+        ctx.fill();
+        ctx.strokeStyle = accentHex || '#38bdf8';
+        ctx.lineWidth = 1.2;
+        roundRect(ctx, tagX, tagY, tagW, tagH, 6);
+        ctx.stroke();
 
-      ctx.fillStyle = 'rgba(186, 230, 253, 0.9)';
-      ctx.font = `${F.cardGoal}px "Microsoft YaHei", sans-serif`;
-      const goals = wrapText(ctx, selected ? '当前实验 · 前方大屏操作控件' : ex.goal, w - 96);
-      goals.slice(0, 2).forEach((ln, li) => {
-        ctx.fillText(ln, x + 72, y + 74 + li * 34);
-      });
+        ctx.fillStyle = '#f0fdf4';
+        ctx.font = `bold 14px "PingFang SC", "Microsoft YaHei", sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('进行中', tagX + tagW / 2, tagY + tagH / 2);
+      } else {
+        ctx.fillStyle = 'rgba(226, 232, 240, 0.75)';
+        ctx.font = `26px sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('›', x + w - 24, y + cardH / 2);
+      }
+      ctx.restore();
 
       hits.push({
         id: `exp-${ex.id}`,
@@ -4879,29 +4968,6 @@ export function drawHoloScreen(ctx, W, H, opts) {
       });
       y += cardH + gap;
     });
-
-    if (running && isSelector) {
-      const btnH = 64;
-      const btnY = Math.min(y + 10, contentTop + contentH - btnH);
-      const btnW = (innerW - 16) / 2;
-      [
-        { label: '返回列表', action: 'back', x: innerX },
-        { label: '关闭终端', action: 'close', x: innerX + btnW + 12 },
-      ].forEach((b) => {
-        ctx.fillStyle = 'rgba(56, 189, 248, 0.2)';
-        ctx.strokeStyle = accentHex;
-        ctx.lineWidth = 1.5;
-        roundRect(ctx, b.x, btnY, btnW, btnH, 10);
-        ctx.fill();
-        ctx.stroke();
-        ctx.fillStyle = '#f0f9ff';
-        ctx.font = `bold ${F.btn}px "Microsoft YaHei", sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(b.label, b.x + btnW / 2, btnY + btnH / 2);
-        hits.push({ id: b.action, x: b.x, y: btnY, w: btnW, h: btnH, action: b.action });
-      });
-    }
   } else {
     const stepIndex = hud.stepIndex || 0;
     const steps = experiment.steps || [];

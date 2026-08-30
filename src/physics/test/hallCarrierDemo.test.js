@@ -182,7 +182,7 @@ test('hologram canvas sizes match dense layout table', () => {
     active: true,
     hud: { station: { experiments: [{}, {}, {}, {}] } },
   });
-  assert.ok(menu.height > 720);
+  assert.ok(menu.height >= 460);
 });
 
 test('selector surface stays menu-sized while display hosts experiment content', () => {
@@ -197,7 +197,7 @@ test('selector surface stays menu-sized while display hosts experiment content',
     surface: 'selector',
   });
   assert.ok(selector.height < 920);
-  assert.ok(selector.height >= 720);
+  assert.ok(selector.height >= 460);
 
   const display = getHoloScreenLayoutSize({
     active: true,

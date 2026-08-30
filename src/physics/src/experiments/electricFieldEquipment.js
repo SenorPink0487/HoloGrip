@@ -944,49 +944,44 @@ export function createElectricFieldEquipment() {
       const holoPalette = [
         {
           meshColor: 0x00f0ff,
-          emissive: 0x0088cc,
+          emissive: 0x00a8e8,
           wireColor: 0x67e8f9,
-          opacity: 0.22,
-          wireOpacity: 0.40,
-          transmission: 0.75,
+          opacity: 0.38,
+          wireOpacity: 0.65,
         },
         {
           meshColor: 0x38bdf8,
           emissive: 0x0284c7,
           wireColor: 0x38bdf8,
-          opacity: 0.18,
-          wireOpacity: 0.32,
-          transmission: 0.78,
+          opacity: 0.30,
+          wireOpacity: 0.55,
         },
         {
           meshColor: 0x818cf8,
           emissive: 0x4f46e5,
           wireColor: 0xa78bfa,
-          opacity: 0.15,
-          wireOpacity: 0.28,
-          transmission: 0.80,
+          opacity: 0.24,
+          wireOpacity: 0.48,
         },
         {
           meshColor: 0x34d399,
           emissive: 0x059669,
           wireColor: 0x6ee7b7,
-          opacity: 0.12,
-          wireOpacity: 0.25,
-          transmission: 0.82,
+          opacity: 0.18,
+          wireOpacity: 0.40,
         },
       ];
 
       const addShell = (fieldArray, isolationVal, matIdx) => {
         const cfg = holoPalette[matIdx % holoPalette.length];
 
-        const mat = new THREE.MeshPhysicalMaterial({
+        const mat = new THREE.MeshStandardMaterial({
           color: cfg.meshColor,
           emissive: cfg.emissive,
-          emissiveIntensity: 0.28,
+          emissiveIntensity: 0.45,
           transparent: true,
           opacity: cfg.opacity,
-          transmission: cfg.transmission,
-          roughness: 0.12,
+          roughness: 0.15,
           metalness: 0.08,
           side: THREE.DoubleSide,
           depthWrite: false,
@@ -1059,7 +1054,7 @@ export function createElectricFieldEquipment() {
       for (let ix = 0; ix < size; ix += 1) {
         // Cell centers → isotropic sampling on fixed horizontal plane (physics Z = 0).
         const sx = -extent + (2 * extent * (ix + 0.5)) / size;
-        const sy = -extent + (2 * extent * (iy + 0.5)) / size;
+        const sy = extent - (2 * extent * (iy + 0.5)) / size;
         let phi = 0;
         for (let c = 0; c < charges.length; c += 1) {
           const ch = charges[c];

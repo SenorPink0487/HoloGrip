@@ -2016,9 +2016,9 @@ const _holoParentEuler = new THREE.Euler();
 
 function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   const g = new THREE.Group();
-  // Larger tabletop terminal so experiment cards are easy to aim at.
-  const panelW = 0.98;
-  const panelH = 0.68;
+  // 4:3 balanced tactical holographic screen (0.72m x 0.54m) matching 720x540 canvas
+  const panelW = 0.72;
+  const panelH = 0.54;
   const fullTitle = STATION_LABEL[stationId] || title;
   const enTitle = STATION_EN[stationId] || 'STATION';
 
@@ -2091,8 +2091,8 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
 
   // ── Canvas UI (full interactive screen on hologram) ──
   let c = document.createElement('canvas');
-  c.width = 1024;
-  c.height = 640;
+  c.width = 720;
+  c.height = 540;
   let ctx = c.getContext('2d');
   let lastDrawKey = '';
   let hitRegions = [];
@@ -2120,7 +2120,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
     transparent: true,
     opacity: 1.0,
     side: THREE.FrontSide,
-    depthWrite: true,
+    depthWrite: false,
     toneMapped: false,
   });
   const frontMat = makeFaceMat();
@@ -2128,11 +2128,14 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
 
   const front = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), frontMat);
   front.position.z = 0.008;
+  front.renderOrder = 20;
   floatG.add(front);
 
   const backFace = new THREE.Mesh(new THREE.PlaneGeometry(panelW, panelH), backMat);
   backFace.rotation.y = Math.PI; // correct text orientation from behind
   backFace.position.z = -0.008;
+  backFace.visible = false;
+  backFace.renderOrder = 20;
   floatG.add(backFace);
 
   // Dedicated pick targets (have UVs — unlike the broad hit box)
@@ -2175,8 +2178,8 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
     backMat.needsUpdate = true;
     g.userData.tex = tex;
     previousTexture.dispose();
-    const sx = layout.width / 1024;
-    const sy = layout.height / 640;
+    const sx = layout.width / 720;
+    const sy = layout.height / 540;
     front.scale.set(sx, sy, 1);
     backFace.scale.set(sx, sy, 1);
     hit.scale.set(sx, sy, 1);
@@ -2396,15 +2399,13 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
     const facing = _holoFront.dot(_holoCamDir) >= 0 ? 1 : -1;
     g.userData.facingSide = facing;
 
-    // Emphasize the face toward the player; other side stays readable & interactive
-    const pulse = 0.84 + 0.08 * Math.sin(t * 2.4);
-    const activeBoost = g.userData.active ? 0.08 : 0;
+    // Show only the face oriented toward the player for 100% solid, non-transparent rendering
     if (facing >= 0) {
-      frontMat.opacity = Math.min(0.96, pulse + activeBoost);
-      backMat.opacity = 0.52;
+      front.visible = true;
+      backFace.visible = false;
     } else {
-      backMat.opacity = Math.min(0.96, pulse + activeBoost);
-      frontMat.opacity = 0.52;
+      backFace.visible = true;
+      front.visible = false;
     }
     // projector idle FX
     coreMat.emissiveIntensity = 1.05 + 0.35 * Math.sin(t * 3.5);
