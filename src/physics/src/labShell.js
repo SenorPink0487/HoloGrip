@@ -1309,45 +1309,6 @@ tableLayouts.forEach(({ w, d, p }) => {
   scene.add(t);
 });
 
-// Station edge nameplates on tabletops
-function makeStationPlate(title, subtitle, accentHex) {
-  const c = document.createElement('canvas');
-  c.width = 512;
-  c.height = 128;
-  const ctx = c.getContext('2d');
-  ctx.fillStyle = 'rgba(255,255,255,0.92)';
-  ctx.fillRect(0, 0, 512, 128);
-  ctx.fillStyle = accentHex;
-  ctx.fillRect(0, 0, 10, 128);
-  ctx.fillRect(0, 0, 512, 4);
-  ctx.fillStyle = accentHex;
-  ctx.font = 'bold 42px "Microsoft YaHei", "Segoe UI", sans-serif';
-  ctx.fillText(title, 28, 58);
-  ctx.fillStyle = '#64748b';
-  ctx.font = '22px "Segoe UI", sans-serif';
-  ctx.fillText(subtitle, 28, 98);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  const mesh = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.55, 0.14),
-    new THREE.MeshStandardMaterial({ map: tex, metalness: 0.1, roughness: 0.4 })
-  );
-  mesh.rotation.x = -Math.PI / 2;
-  return mesh;
-}
-
-// Nameplates on the sitting-edge free corner; leave a clear strip for desk sliders.
-const stationMeta = [
-  { title: '力学', sub: 'MECHANICS', accent: '#0ea5e9', p: [-2.85, 0.94, -2.32] },
-  { title: '光学', sub: 'OPTICS', accent: '#f59e0b', p: [2.85, 0.94, -2.32] },
-  { title: '电磁学', sub: 'ELECTRO', accent: '#ec4899', p: [-3.2, 0.94, 3.02] },
-  { title: '热力学', sub: 'THERMO', accent: '#f97316', p: [3.2, 0.94, 3.02] },
-];
-stationMeta.forEach(({ title, sub, accent, p }) => {
-  const plate = makeStationPlate(title, sub, accent);
-  plate.position.set(...p);
-  scene.add(plate);
-});
 
 // Center island — holographic research console (unchanged role)
 const island = makeTechTable(3.2, 1.6, 0.95);
@@ -2048,138 +2009,107 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   const fullTitle = STATION_LABEL[stationId] || title;
   const enTitle = STATION_EN[stationId] || 'STATION';
 
-  // ── Projector pedestal on tabletop (Hard-Surface Sci-Fi Platform) ──
+  // ── Projector pedestal on tabletop (Sleek High-Tech Base) ──
   const pedestalG = new THREE.Group();
   g.add(pedestalG);
 
-  // 1. Octagonal Beveled Heavy Base Chassis (Dark Carbon / Titanium)
-  const basePlinth = cyl(0.19, 0.21, 0.032, mat.carbon, 8);
-  basePlinth.position.y = 0.016;
-  pedestalG.add(basePlinth);
+  // 1. Smooth 64-segment Chamfered Base Chassis (Dark Titanium/Carbon)
+  const base = cyl(0.185, 0.20, 0.018, mat.carbon, 64);
+  base.position.y = 0.009;
+  pedestalG.add(base);
 
-  // 2. Base Energy Trench (Recessed glowing accent trench)
-  const trenchMat = new THREE.MeshStandardMaterial({
-    color: accentNum, emissive: accentNum, emissiveIntensity: 1.2,
-    metalness: 0.2, roughness: 0.3,
-  });
-  const energyTrench = torus(0.165, 0.005, trenchMat, 8, 36);
-  energyTrench.rotation.x = Math.PI / 2;
-  energyTrench.position.y = 0.033;
-  pedestalG.add(energyTrench);
-
-  // 3. Step-down Metallic Housing (Anodized Dark Silver with bevels)
-  const middleCollar = cyl(0.14, 0.155, 0.024, mat.silver, 24);
-  middleCollar.position.y = 0.044;
-  pedestalG.add(middleCollar);
-
-  // 4. Optical Laser Turntable (Mirror Chrome Rotor with concentric bevel)
-  const rotorRing = torus(0.125, 0.009, mat.chrome, 10, 48);
-  rotorRing.rotation.x = Math.PI / 2;
-  rotorRing.position.y = 0.056;
-  pedestalG.add(rotorRing);
-
-  // 5. Triple Magnetic Focusing Claws (120-degree radial confinement arms)
-  const clawGroup = new THREE.Group();
-  clawGroup.position.y = 0.056;
-  for (let ci = 0; ci < 3; ci++) {
-    const angle = (ci * Math.PI * 2) / 3;
-    const clawArm = rbox(0.02, 0.04, 0.032, mat.carbon, 0.004);
-    clawArm.position.set(Math.cos(angle) * 0.105, 0.018, Math.sin(angle) * 0.105);
-    clawArm.rotation.y = -angle;
-    clawArm.rotation.z = 0.22;
-    clawGroup.add(clawArm);
-
-    const tipPin = cyl(0.004, 0.004, 0.012, mat.chrome, 8);
-    tipPin.position.set(Math.cos(angle) * 0.094, 0.038, Math.sin(angle) * 0.094);
-    tipPin.rotation.x = Math.PI / 2;
-    clawGroup.add(tipPin);
-  }
-  pedestalG.add(clawGroup);
-
-  // 6. Deep Optical Well & Anti-Reflective Dark Glass Floor
-  const lensWell = cyl(0.082, 0.065, 0.028, mat.carbon, 24);
-  lensWell.position.y = 0.068;
-  pedestalG.add(lensWell);
-
-  const innerLens = cyl(0.062, 0.062, 0.006, mat.darkGlass, 24);
-  innerLens.position.y = 0.076;
-  pedestalG.add(innerLens);
-
-  // 7. Quantum Faceted Crystal Core (Faceted holographic emitter prism)
-  const crystalGeo = new THREE.OctahedronGeometry(0.028, 0);
-  const crystalMat = new THREE.MeshPhysicalMaterial({
+  // 2. Embedded Luminous LED Accent Ring
+  const ledMat = new THREE.MeshStandardMaterial({
     color: accentNum,
     emissive: accentNum,
-    emissiveIntensity: 1.5,
-    roughness: 0.1,
-    metalness: 0.1,
-    transmission: 0.65,
-    thickness: 0.4,
+    emissiveIntensity: 1.2,
+    metalness: 0.2,
+    roughness: 0.3,
+  });
+  const ledRing = torus(0.165, 0.0035, ledMat, 8, 64);
+  ledRing.rotation.x = Math.PI / 2;
+  ledRing.position.y = 0.019;
+  pedestalG.add(ledRing);
+
+  // 3. Precision Anodized Alloy Stepped Collar
+  const plate = cyl(0.125, 0.138, 0.014, mat.silver, 48);
+  plate.position.y = 0.024;
+  pedestalG.add(plate);
+
+  const ring = torus(0.125, 0.003, mat.chrome, 8, 48);
+  ring.rotation.x = Math.PI / 2;
+  ring.position.y = 0.031;
+  pedestalG.add(ring);
+
+  // 4. Mirror Chrome Optical Emitter Nozzle & Dark Glass Well
+  const emitter = cyl(0.075, 0.060, 0.018, mat.chrome, 32);
+  emitter.position.y = 0.038;
+  pedestalG.add(emitter);
+
+  const innerWell = cyl(0.055, 0.055, 0.004, mat.darkGlass, 32);
+  innerWell.position.y = 0.044;
+  pedestalG.add(innerWell);
+
+  // 5. Central Glowing Energy Core
+  const coreMat = new THREE.MeshStandardMaterial({
+    color: accentNum,
+    emissive: accentNum,
+    emissiveIntensity: 1.35,
+    metalness: 0.15,
+    roughness: 0.28,
     transparent: true,
     opacity: 0.95,
   });
-  const coreCrystal = new THREE.Mesh(crystalGeo, crystalMat);
-  coreCrystal.position.y = 0.115;
-  pedestalG.add(coreCrystal);
+  const core = sphere(0.024, coreMat, 32);
+  core.position.y = 0.068;
+  pedestalG.add(core);
 
-  // Optical scanning reticle on the lens surface
-  const reticleMat = new THREE.MeshBasicMaterial({
-    color: accentNum, transparent: true, opacity: 0.45,
-    side: THREE.DoubleSide, depthWrite: false, toneMapped: false,
-  });
-  const reticleRing = torus(0.072, 0.002, reticleMat, 4, 32);
-  reticleRing.rotation.x = Math.PI / 2;
-  reticleRing.position.y = 0.082;
-  pedestalG.add(reticleRing);
-
-  // ── Cinematic Volumetric Hologram Light Field ──
-  // Outer Atmospheric Soft Volumetric Cone
+  // ── Volumetric Hologram Light Field (Dynamic Expanding Holographic Wavefield) ──
+  // Volumetric beam cone (tip into emitter)
   const coneMat = new THREE.MeshBasicMaterial({
-    color: accentNum, transparent: true, opacity: 0.07,
-    side: THREE.DoubleSide, depthWrite: false, toneMapped: false,
+    color: accentNum,
+    transparent: true,
+    opacity: 0.08,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    toneMapped: false,
   });
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.68, 32, 1, true), coneMat);
-  cone.position.y = 0.46;
+  const cone = new THREE.Mesh(new THREE.ConeGeometry(0.32, 0.62, 32, 1, true), coneMat);
+  cone.position.y = 0.42;
   cone.rotation.x = Math.PI;
   g.add(cone);
 
-  // Inner High-Intensity Focused Core Beam
+  // Inner beam core
   const beamMat = new THREE.MeshBasicMaterial({
-    color: 0xffffff, transparent: true, opacity: 0.065,
-    side: THREE.DoubleSide, depthWrite: false, toneMapped: false,
+    color: 0xffffff,
+    transparent: true,
+    opacity: 0.06,
+    blending: THREE.AdditiveBlending,
+    side: THREE.DoubleSide,
+    depthWrite: false,
+    toneMapped: false,
   });
-  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.095, 0.58, 16, 1, true), beamMat);
-  beam.position.y = 0.42;
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.065, 0.54, 16, 1, true), beamMat);
+  beam.position.y = 0.38;
   g.add(beam);
 
-  // 4 Delicate Sci-Fi Resonance Wavefront Rings
-  const spinRings = [];
+  // Dynamic upward expanding & diffusing harmonic wave pulse rings
+  const waveRings = [];
   for (let i = 0; i < 4; i++) {
     const rm = new THREE.MeshBasicMaterial({
-      color: accentNum, transparent: true, opacity: 0.35,
-      side: THREE.DoubleSide, depthWrite: false, toneMapped: false,
+      color: accentNum,
+      transparent: true,
+      opacity: 0.45,
+      blending: THREE.AdditiveBlending,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+      toneMapped: false,
     });
-    const ringRadius = 0.06 + i * 0.042;
-    const sr = torus(ringRadius, 0.002, rm, 4, 48);
-    sr.rotation.x = Math.PI / 2;
-    const baseY = 0.22 + i * 0.125;
-    sr.position.y = baseY;
-    g.add(sr);
-    spinRings.push({ mesh: sr, mat: rm, i, baseY });
-  }
-
-  // 2 Sci-Fi Laser Vector Anchor Rays (Base -> Screen Bottom Anchors)
-  const vectorRays = [];
-  const vectorMat = new THREE.MeshBasicMaterial({
-    color: accentNum, transparent: true, opacity: 0.35,
-    side: THREE.DoubleSide, depthWrite: false, toneMapped: false,
-  });
-  for (let vi = 0; vi < 2; vi++) {
-    const rayMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.0015, 0.0015, 0.62, 6), vectorMat);
-    rayMesh.position.set(vi === 0 ? -0.14 : 0.14, 0.45, 0);
-    rayMesh.rotation.z = vi === 0 ? -0.30 : 0.30;
-    g.add(rayMesh);
-    vectorRays.push(rayMesh);
+    const wr = torus(0.1, 0.0018, rm, 4, 48);
+    wr.rotation.x = Math.PI / 2;
+    g.add(wr);
+    waveRings.push({ mesh: wr, mat: rm, phase: i / 4 });
   }
 
   // ── Floating hologram group (yaw tracks player) ──
@@ -2198,11 +2128,24 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   let boundHud = null;
   let boundDataHtml = '';
 
+  // ── Proximity & Deployment State (Default dormant until player approaches table) ──
+  let currentReveal = 0.0;
+  const PROXIMITY_DIST = 3.6; // meters: activates when player approaches the bench
+
   g.userData.maximized = false;
   g.userData._floatBaseY = FLOAT_Y_NORMAL;
+  g.userData._screenSx = 1.0;
+  g.userData._screenSy = 1.0;
+  g.userData.revealProgress = 0.0;
   g.userData.accentHex = accentHex;
   g.userData.fullTitle = fullTitle;
   g.userData.enTitle = enTitle;
+
+  // Default dormant: hidden until learner is near the table
+  floatG.visible = false;
+  cone.visible = false;
+  beam.visible = false;
+  waveRings.forEach((r) => { r.mesh.visible = false; });
 
   const createScreenTexture = () => {
     const texture = new THREE.CanvasTexture(c);
@@ -2216,7 +2159,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   const makeFaceMat = () => new THREE.MeshBasicMaterial({
     map: tex,
     transparent: true,
-    opacity: 1.0,
+    opacity: 0.0,
     side: THREE.FrontSide,
     depthWrite: false,
     toneMapped: false,
@@ -2239,7 +2182,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   // Dedicated pick targets (have UVs — unlike the broad hit box)
   g.userData.screenFaces = [front, backFace];
 
-  const holoLight = new THREE.PointLight(accentNum, 0.65, 2.8, 2);
+  const holoLight = new THREE.PointLight(accentNum, 0, 2.8, 2);
   holoLight.position.set(0, 0.55, 0);
   g.add(holoLight);
 
@@ -2278,9 +2221,8 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
     previousTexture.dispose();
     const sx = layout.width / 720;
     const sy = layout.height / 540;
-    front.scale.set(sx, sy, 1);
-    backFace.scale.set(sx, sy, 1);
-    hit.scale.set(sx, sy, 1);
+    g.userData._screenSx = sx;
+    g.userData._screenSy = sy;
     g.userData._floatBaseY = FLOAT_Y_NORMAL + (panelH * (sy - 1)) / 2;
     g.userData.canvasW = layout.width;
     g.userData.canvasH = layout.height;
@@ -2329,8 +2271,8 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   tag(hit);
   tag(front);
   tag(backFace);
-  tag(basePlinth);
-  tag(coreCrystal);
+  tag(base);
+  tag(core);
   defineInteractionTarget(g, {
     kind: INTERACTION_KIND.HOLO_SELECTOR,
     role: 'holo_selector',
@@ -2344,7 +2286,7 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
   g.userData.floatG = floatG;
   g.userData.screenRoot = floatG;
   g.userData.holoLight = holoLight;
-  g.userData.coreMat = crystalMat;
+  g.userData.coreMat = coreMat;
   g.userData.facingSide = 1; // +1 front primary, -1 back primary
   g.userData.canvasW = c.width;
   g.userData.canvasH = c.height;
@@ -2443,11 +2385,12 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
    * Ensures matrixWorld is current (important after maximize scale / float bob).
    */
   g.userData.pickFromRay = (raycaster) => {
+    // Only accept picks when hologram screen has deployed
+    if (currentReveal < 0.25) return null;
+
     const samples = collectScreenSamples(raycaster);
     if (!samples.length) return null;
     // Idle tabletop terminal: any screen-plane hit powers on the experiment menu.
-    // Previously pickFromRay returned null while inactive, so unlocked desktop
-    // clicks never activated the electro/mechanics/… terminals.
     if (!g.userData.active) {
       return {
         action: 'activate',
@@ -2469,12 +2412,74 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
     return pickHoloScreen(s0.u, s0.v, c.width, c.height, hitRegions, s0.face === backFace ? -1 : 1);
   };
 
-  // Billboard yaw + dual-face emphasis based on camera side
+  // Billboard yaw + proximity deployment + bottom-to-top rising reveal
   animators.push((t) => {
+    // 1. Proximity Check: only deploy when player approaches the bench or station is actively open
+    g.getWorldPosition(_holoWorldPos);
+    const camDist = Math.hypot(camera.position.x - _holoWorldPos.x, camera.position.z - _holoWorldPos.z);
+    const isNear = camDist < PROXIMITY_DIST || !!g.userData.active;
+    const targetReveal = isNear ? 1.0 : 0.0;
+
+    // Smooth deployment lerp (takes ~0.9s to deploy from bottom to top with high-tech feel)
+    currentReveal += (targetReveal - currentReveal) * 0.06;
+    if (currentReveal < 0.002) currentReveal = 0.0;
+    if (currentReveal > 0.998) currentReveal = 1.0;
+    g.userData.revealProgress = currentReveal;
+
+    if (currentReveal <= 0.0001) {
+      floatG.visible = false;
+      cone.visible = false;
+      beam.visible = false;
+      waveRings.forEach((r) => { r.mesh.visible = false; });
+      holoLight.intensity = 0;
+      // Soft standby breathing on the pedestal
+      const idlePulse = Math.sin(t * 1.8);
+      coreMat.emissiveIntensity = 0.35 + 0.12 * idlePulse;
+      ledMat.emissiveIntensity = 0.35 + 0.12 * idlePulse;
+      return;
+    }
+
+    floatG.visible = true;
+    cone.visible = true;
+    beam.visible = true;
+    waveRings.forEach((r) => { r.mesh.visible = true; });
+
+    // Smoothstep / S-curve ease for cinematic deployment
+    const ease = currentReveal * currentReveal * (3 - 2 * currentReveal);
+
     const phase = t + stationId.length * 0.7;
-    const baseY = g.userData._floatBaseY ?? FLOAT_Y_NORMAL;
-    floatG.position.y = baseY + Math.sin(phase * 1.35) * 0.022;
+    const targetBaseY = g.userData._floatBaseY ?? FLOAT_Y_NORMAL;
+    // Rises from optical well (0.10m) up to floating height (0.78m)
+    const deployedY = 0.10 + (targetBaseY - 0.10) * ease;
+    floatG.position.y = deployedY + Math.sin(phase * 1.35) * (0.022 * ease);
     hit.position.y = floatG.position.y;
+
+    // Scale screen from bottom to top as it emerges
+    const sx = g.userData._screenSx ?? 1.0;
+    const sy = g.userData._screenSy ?? 1.0;
+    const currentSx = sx * (0.2 + 0.8 * ease);
+    const currentSy = sy * ease;
+    front.scale.set(currentSx, currentSy, 1);
+    backFace.scale.set(currentSx, currentSy, 1);
+    hit.scale.set(currentSx, currentSy, 1);
+
+    // Anchor expansion to the bottom edge so it physically rises/wipes upwards
+    const bottomShiftY = -panelH * sy * (1 - ease) * 0.5;
+    front.position.y = bottomShiftY;
+    backFace.position.y = bottomShiftY;
+
+    // High-tech holographic opacity fade
+    frontMat.opacity = ease;
+    backMat.opacity = ease;
+
+    // Volumetric cone & beam expansion
+    cone.scale.set(ease, ease, ease);
+    cone.position.y = 0.08 + (0.42 - 0.08) * ease;
+    coneMat.opacity = (0.06 + 0.025 * Math.sin(t * 2.1)) * ease * (g.userData.active ? 1.2 : 0.9);
+
+    beam.scale.set(ease, ease, ease);
+    beam.position.y = 0.06 + (0.38 - 0.06) * ease;
+    beamMat.opacity = (0.05 + 0.025 * Math.sin(t * 2.6)) * ease * (g.userData.active ? 1.3 : 0.9);
 
     // Soft-yaw so the hologram faces the player (works from either side of the table)
     floatG.getWorldPosition(_holoWorldPos);
@@ -2507,26 +2512,24 @@ function makeHoloPanel(stationId, title, accentHex, accentNum = 0x38bdf8) {
       backFace.visible = true;
       front.visible = false;
     }
-    // Cinematic Sci-Fi Projector FX
+
+    // Dynamic Expanding Holographic Wavefield FX
     const pulse = Math.sin(t * 3.2);
-    crystalMat.emissiveIntensity = 1.35 + 0.45 * pulse;
-    coreCrystal.rotation.y = t * 0.85;
-    coreCrystal.rotation.x = Math.sin(t * 1.5) * 0.15;
-    reticleRing.rotation.z = t * 1.1;
-    energyTrench.material.emissiveIntensity = 1.0 + 0.35 * Math.sin(t * 2.5);
+    coreMat.emissiveIntensity = (1.2 + 0.35 * pulse) * ease * (g.userData.active ? 1.3 : 1.0);
+    ledMat.emissiveIntensity = (1.0 + 0.3 * Math.sin(t * 2.8)) * ease * (g.userData.active ? 1.2 : 1.0);
+    holoLight.intensity = (g.userData.active ? 0.75 : 0.42 + 0.15 * pulse) * ease;
 
-    coneMat.opacity = 0.06 + 0.025 * Math.sin(t * 1.8);
-    beamMat.opacity = 0.06 + 0.025 * Math.sin(t * 2.4);
-    holoLight.intensity = g.userData.active ? 0.75 : 0.45 + 0.15 * pulse;
-
-    spinRings.forEach(({ mesh, mat: rm, i, baseY }) => {
-      mesh.rotation.z = t * (0.8 + i * 0.3) * (i % 2 ? -1 : 1);
-      mesh.position.y = baseY + Math.sin(t * 2.2 + i * 0.9) * 0.015;
-      rm.opacity = 0.22 + 0.15 * Math.sin(t * 2.8 + i * 1.2);
-    });
-
-    vectorRays.forEach((ray, vi) => {
-      ray.material.opacity = 0.25 + 0.12 * Math.sin(t * 3.0 + vi);
+    // Upward expanding and diffusing harmonic wave pulse rings
+    waveRings.forEach(({ mesh, mat: rm, phase: rPhase }) => {
+      const progress = (t * 0.65 + rPhase) % 1.0;
+      const ringY = 0.08 + progress * (0.62 * ease);
+      mesh.position.y = ringY;
+      const currentRadius = (0.04 + progress * 0.24) * (0.4 + 0.6 * ease);
+      const scale = currentRadius / 0.1;
+      mesh.scale.set(scale, scale, 1);
+      const ringOpacity = Math.sin(progress * Math.PI) * (g.userData.active ? 0.55 : 0.38) * ease;
+      rm.opacity = ringOpacity;
+      mesh.rotation.z = t * (0.85 + rPhase * 0.4);
     });
 
     draw(!!g.userData.active);
