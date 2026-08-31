@@ -77,11 +77,15 @@ export function createStationEquipment(ctx) {
     setPartState: (...args) => call('setPartState', ...args),
     clearIdentifyVisuals: (...args) => call('clearIdentifyVisuals', ...args),
     getCamera: () => ctx.camera,
+    getRoot: () => full?.root || root,
+    getRuntimeRoot: (mode) => (mode === 'multi_slit_diffraction' || mode === 'diffraction' ? full?.refs?.optics : full?.refs?.geoRig) || full?.root || root,
+    root,
+    get opticsGroup() { return full?.refs?.optics || null; },
+    get geoRig() { return full?.equipment?.geoRig || full?.refs?.geoRig || null; },
     mouseDrag: { holdLMB: false, movementX: 0 },
     get activeMode() { return full?.equipment?.activeMode || 'off'; },
     get geoGpuReady() { return !!full?.equipment?.geoGpuReady; },
     get geoWarming() { return !!full?.equipment?.geoWarming; },
-    get geoRig() { return full?.equipment?.geoRig || null; },
   };
   const animators = [(_t, _dt) => {
     full?.animators?.forEach((animate) => animate(_t, _dt));

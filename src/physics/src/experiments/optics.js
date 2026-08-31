@@ -10,6 +10,7 @@
  * 3. 核对曲线 → 在理论 I(x) 上标主极大、包络零点与远场条件
  */
 
+import * as THREE from 'three';
 import {
   GEOMETRIC_EXPERIMENTS,
   SHAPE_LABELS,
@@ -1227,9 +1228,93 @@ export function createHandlers(ctx) {
     return true;
   }
 
+  const _invMat = new THREE.Matrix4();
+  const _localRay = new THREE.Ray();
+
+  function resolveOpticsApparatusRoot(mode) {
+    if (!equipment.optics) return null;
+    return equipment.optics.getRuntimeRoot?.(mode)
+      || (mode === 'multi_slit_diffraction' || mode === 'diffraction' ? equipment.optics.opticsGroup : equipment.optics.geoRig)
+      || equipment.optics.getRoot?.()
+      || equipment.optics.root
+      || (equipment.optics.isObject3D ? equipment.optics : null);
+  }
+
   function updateManipulation(_target, context = {}) {
-    if (!directManipulation || !context.dragged) return !!directManipulation;
+    if (!directManipulation) return false;
     directManipulation.dragged = true;
+    const role = directManipulation.role;
+    const key = directManipulation.key;
+
+    // ── 3D Crosshair / Raycast direct tracking ("指哪打哪",跟手) ──
+    if (context.raycaster?.ray) {
+      if (state.expId === 'multi_slit_diffraction' && role === 'diff_screen') {
+        const root = resolveOpticsApparatusRoot('multi_slit_diffraction');
+        if (root) {
+          if (typeof root.updateMatrixWorld === 'function') root.updateMatrixWorld(true);
+          if (root.matrixWorld) {
+            _invMat.copy(root.matrixWorld).invert();
+            _localRay.copy(context.raycaster.ray).applyMatrix4(_invMat);
+          } else {
+            _localRay.copy(context.raycaster.ray);
+          }
+          const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.39);
+          const hit = new THREE.Vector3();
+          if (_localRay.intersectPlane(plane, hit)) {
+            // slitX is -0.32, screenX = slitX + 0.34 + ((distM - 0.4) / 1.6) * 0.9
+            const slitX = -0.32;
+            const targetDistM = THREE.MathUtils.clamp(
+              0.4 + ((hit.x - (slitX + 0.34)) / 0.9) * 1.6,
+              0.4,
+              2.0,
+            );
+            return onUiAction('optics-diff-param', {
+              key: 'distM',
+              value: targetDistM,
+            });
+          }
+        }
+      }
+
+      if (isGeometricOpticsExp(state.expId) && (key === 'angle' || key === 'rotate')) {
+        const root = resolveOpticsApparatusRoot('geometric');
+        if (root) {
+          if (typeof root.updateMatrixWorld === 'function') root.updateMatrixWorld(true);
+          if (root.matrixWorld) {
+            _invMat.copy(root.matrixWorld).invert();
+            _localRay.copy(context.raycaster.ray).applyMatrix4(_invMat);
+          } else {
+            _localRay.copy(context.raycaster.ray);
+          }
+          const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.38);
+          const hit = new THREE.Vector3();
+          if (_localRay.intersectPlane(plane, hit)) {
+            if (key === 'angle') {
+              const angDeg = THREE.MathUtils.clamp(
+                Math.abs(Math.atan2(hit.z, -hit.x) * (180 / Math.PI)),
+                0,
+                85,
+              );
+              return onUiAction('optics-geo-param', {
+                key: 'angle',
+                value: angDeg,
+                live: true,
+              });
+            }
+            if (key === 'rotate') {
+              const rotDeg = Math.atan2(hit.z, hit.x) * (180 / Math.PI);
+              return onUiAction('optics-geo-param', {
+                key: 'rotate',
+                value: rotDeg,
+                live: true,
+              });
+            }
+          }
+        }
+      }
+    }
+
+    // ── Fallback relative delta drag ──
     const totalX = Number(context.totalX || 0);
     if (isGeometricOpticsExp(state.expId)) {
       const sensitivities = { angle: 0.12, rotate: 0.2, rayCount: 0.04, ior: 0.004 };

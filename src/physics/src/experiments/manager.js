@@ -521,7 +521,7 @@ export function createExperimentManager({
     });
   }
 
-  function armUiSlider(pick, value) {
+  function armUiSlider(pick, value, hostTarget = null) {
     const min = Number(pick.min);
     const max = Number(pick.max);
     state.data._uiSlider = {
@@ -534,6 +534,7 @@ export function createExperimentManager({
       max: Number.isFinite(max) ? max : 1,
       base: Number.isFinite(value) ? value : null,
       originX: mouseDragTotalX(),
+      hostTarget: hostTarget || null,
     };
   }
 
@@ -571,7 +572,7 @@ export function createExperimentManager({
     // arm the shared continuous-drag state so holdInteract can drive them.
     if (sliderPick) {
       const value = valueFromParamSliderPick(sliderPick);
-      armUiSlider(sliderPick, value);
+      armUiSlider(sliderPick, value, target);
       if (sliderPick.action === 'param-slider') {
         if (Number.isFinite(value)) dispatchSliderValue(sliderPick, value, true);
         return true;
@@ -595,9 +596,10 @@ export function createExperimentManager({
     if (!state.running || !state.expId) return false;
     const s = state.data._uiSlider;
     if (s) {
+      const activeHost = target || s.hostTarget;
       // Prefer absolute UV pick when the ray still hits the same control.
-      if (context.raycaster && target?.userData?.pickFromRay) {
-        const live = target.userData.pickFromRay(context.raycaster);
+      if (context.raycaster && activeHost?.userData?.pickFromRay) {
+        const live = activeHost.userData.pickFromRay(context.raycaster);
         if (isParamSliderAction(live?.action)
           && live.action === s.action
           && (!s.key || live.key === s.key)
@@ -605,8 +607,10 @@ export function createExperimentManager({
           && Number.isFinite(live.px)) {
           const value = valueFromParamSliderPick(live);
           if (Number.isFinite(value)) {
-            dispatchSliderValue(live, value, true);
-            s.base = value;
+            if (s.base == null || Math.abs(value - s.base) > 1e-4) {
+              dispatchSliderValue(live, value, true);
+              s.base = value;
+            }
             s.originX = Number.isFinite(context.totalX)
               ? Number(context.totalX)
               : mouseDragTotalX();

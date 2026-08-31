@@ -1155,7 +1155,180 @@ export function createElectricFieldEquipment() {
         return;
       }
 
-      // Multi-charge system:
+      if (active.length === 2) {
+        const c1 = active[0];
+        const c2 = active[1];
+        const q1 = Number(c1.q || 0);
+        const q2 = Number(c2.q || 0);
+
+        // Three.js world positions
+        const w1 = new THREE.Vector3(c1.x, c1.z, c1.y).multiplyScalar(WORLD_PER_SOURCE_UNIT);
+        const w2 = new THREE.Vector3(c2.x, c2.z, c2.y).multiplyScalar(WORLD_PER_SOURCE_UNIT);
+        const wMid = w1.clone().add(w2).multiplyScalar(0.5);
+
+        const delta = w2.clone().sub(w1);
+        const distWorld = delta.length();
+        if (distWorld < 1e-4) return;
+        const axis = delta.clone().normalize();
+
+        const D = distWorld / WORLD_PER_SOURCE_UNIT;
+        const s1 = -D / 2;
+        const s2 = +D / 2;
+
+        const isSameSign = (q1 > 0 && q2 > 0) || (q1 < 0 && q2 < 0);
+        const isPos = q1 > 0 && q2 > 0;
+        const defaultPalette = isPos ? posPalette : negPalette;
+
+        // Quaternion to orient local Y axis along the charge-connecting axis in Three.js world
+        const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
+
+        // Function to solve R >= 0 at axis position s for potential level V
+        const solveR = (s, targetV, targetSign) => {
+          let low = 0;
+          let high = 5.0;
+          let found = false;
+          const phi0 = (q1 / Math.max(0.005, Math.abs(s - s1))) + (q2 / Math.max(0.005, Math.abs(s - s2)));
+          if ((targetSign > 0 && phi0 >= targetV) || (targetSign < 0 && phi0 <= targetV)) {
+            found = true;
+            for (let iter = 0; iter < 14; iter += 1) {
+              const mid = (low + high) * 0.5;
+              const r1 = Math.sqrt((s - s1) ** 2 + mid ** 2);
+              const r2 = Math.sqrt((s - s2) ** 2 + mid ** 2);
+              const phi = (q1 / r1) + (q2 / r2);
+              if (targetSign > 0) {
+                if (phi > targetV) low = mid;
+                else high = mid;
+              } else {
+                if (phi < targetV) low = mid;
+                else high = mid;
+              }
+            }
+          }
+          return found ? (low + high) * 0.5 : 0;
+        };
+
+        const addLatheShell = (sMin, sMax, steps, targetV, targetSign, palette, matIdx) => {
+          const points = [];
+          for (let i = 0; i <= steps; i += 1) {
+            const s = sMin + (sMax - sMin) * (i / steps);
+            const rVal = solveR(s, targetV, targetSign);
+            points.push(new THREE.Vector2(Math.max(0, rVal) * WORLD_PER_SOURCE_UNIT, s * WORLD_PER_SOURCE_UNIT));
+          }
+          if (points.length < 3) return;
+
+          const geo = new THREE.LatheGeometry(points, 24);
+          const cfg = palette[matIdx % palette.length];
+
+          // 1. MeshPhysicalMaterial (identical to single charge)
+          const mat = new THREE.MeshPhysicalMaterial(cfg.mesh);
+          const shellMesh = new THREE.Mesh(geo, mat);
+          shellMesh.renderOrder = 4 + matIdx;
+          shellMesh.userData.concentricEquipot = true;
+          disablePick(shellMesh);
+
+          // 2. WireframeGeometry (identical to single charge)
+          const wireGeo = new THREE.WireframeGeometry(geo);
+          const wireMat = new THREE.LineBasicMaterial(cfg.wire);
+          const wireMesh = new THREE.LineSegments(wireGeo, wireMat);
+          wireMesh.renderOrder = 5 + matIdx;
+          disablePick(wireMesh);
+
+          const group = new THREE.Group();
+          group.position.copy(wMid);
+          group.quaternion.copy(quat);
+          group.add(shellMesh, wireMesh);
+          group.userData = {
+            concentricEquipot: true,
+            spinTarget: wireMesh,
+            speed: (matIdx % 2 === 0 ? 1 : -1) * 0.08,
+          };
+          equipotGroup.add(group);
+        };
+
+        if (isSameSign) {
+          const targetSign = q1 > 0 ? 1 : -1;
+          const uMidVal = Math.abs(q1 / (D / 2) + q2 / (D / 2));
+          // 4 physical levels
+          const levelsVal = [1.70 * uMidVal, 1.03 * uMidVal, 0.72 * uMidVal, 0.42 * uMidVal];
+
+          levelsVal.forEach((V, idx) => {
+            const signedV = V * targetSign;
+            if (V > uMidVal) {
+              // Separate shells around c1 and c2
+              const rApprox1 = Math.abs(q1) / V;
+              const rApprox2 = Math.abs(q2) / V;
+              addLatheShell(s1 - rApprox1 * 1.15, s1 + rApprox1 * 1.15, 24, signedV, targetSign, defaultPalette, idx);
+              addLatheShell(s2 - rApprox2 * 1.15, s2 + rApprox2 * 1.15, 24, signedV, targetSign, defaultPalette, idx);
+            } else {
+              // Merged peanut / dumbbell shell
+              const sFar = (Math.abs(q1) + Math.abs(q2)) / V;
+              const sMin = Math.min(s1 - 0.2, -sFar * 0.7 - D * 0.3);
+              const sMax = Math.max(s2 + 0.2, sFar * 0.7 + D * 0.3);
+              addLatheShell(sMin, sMax, 36, signedV, targetSign, defaultPalette, idx);
+            }
+          });
+        } else {
+          // Opposite sign (Dipole)
+          const qPosVal = q1 > 0 ? q1 : q2;
+          const sPos = q1 > 0 ? s1 : s2;
+          const qNegVal = q1 < 0 ? q1 : q2;
+          const sNeg = q1 < 0 ? s1 : s2;
+
+          const uRef = Math.abs(qPosVal) / (D / 2);
+          const posLevels = [2.20 * uRef, 1.25 * uRef, 0.65 * uRef, 0.30 * uRef];
+          const negLevels = [-2.20 * uRef, -1.25 * uRef, -0.65 * uRef, -0.30 * uRef];
+
+          posLevels.forEach((V, idx) => {
+            const rApprox = Math.abs(qPosVal) / V;
+            const sMin = sPos - rApprox * 1.25;
+            const sMax = Math.min(0 - 0.02, sPos + rApprox * 1.25);
+            addLatheShell(sMin, sMax, 28, V, 1, posPalette, idx);
+          });
+
+          negLevels.forEach((V, idx) => {
+            const rApprox = Math.abs(qNegVal) / Math.abs(V);
+            const sMin = Math.max(0 + 0.02, sNeg - rApprox * 1.25);
+            const sMax = sNeg + rApprox * 1.25;
+            addLatheShell(sMin, sMax, 28, V, -1, negPalette, idx);
+          });
+
+          // Exact zero potential plane disk between them
+          const planeR = Math.max(2.4, D * 0.8) * WORLD_PER_SOURCE_UNIT;
+          const planeGeo = new THREE.CircleGeometry(planeR, 36);
+          const planeMat = new THREE.MeshBasicMaterial({
+            color: 0x38bdf8,
+            transparent: true,
+            opacity: 0.12,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
+          const zeroPlaneMesh = new THREE.Mesh(planeGeo, planeMat);
+          zeroPlaneMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
+          zeroPlaneMesh.position.copy(wMid);
+          zeroPlaneMesh.renderOrder = 3;
+          disablePick(zeroPlaneMesh);
+
+          const ringGeo = new THREE.RingGeometry(planeR - 0.003, planeR, 48);
+          const ringMat = new THREE.MeshBasicMaterial({
+            color: 0x67e8f9,
+            transparent: true,
+            opacity: 0.45,
+            side: THREE.DoubleSide,
+            depthWrite: false,
+          });
+          const ringMesh = new THREE.Mesh(ringGeo, ringMat);
+          ringMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), axis);
+          ringMesh.position.copy(wMid);
+          ringMesh.renderOrder = 4;
+          disablePick(ringMesh);
+
+          equipotGroup.add(zeroPlaneMesh, ringMesh);
+        }
+
+        return;
+      }
+
+      // Multi-charge fallback (N >= 3)
       let minX = Infinity;
       let maxX = -Infinity;
       let minY = Infinity;
@@ -1192,18 +1365,16 @@ export function createElectricFieldEquipment() {
       const spanZ = (maxZ - minZ) / 2;
       const maxSpan = Math.max(spanX, spanY, spanZ);
 
-      // Tight bounding box tailored to the charges so MarchingCubes grid resolution is dense
       const margin = Math.max(2.0, maxSpan * 0.75 + 1.4);
       const hx = Math.max(2.0, spanX + margin);
       const hy = Math.max(2.0, spanY + margin);
       const hz = Math.max(2.0, spanZ + margin);
 
-      const N = 36;
+      const N = 32;
       const N2 = N * N;
       const posField = new Float32Array(N * N * N);
       const negField = new Float32Array(N * N * N);
 
-      // True physical potential sampling: φ(p) = Σ (q_i / r_i)
       for (let iz = 0; iz < N; iz += 1) {
         const fz = (iz - N / 2) / (N / 2);
         const py = cy + fz * hy;
@@ -1245,7 +1416,7 @@ export function createElectricFieldEquipment() {
         const cfg = palette[matIdx % palette.length];
         const mat = new THREE.MeshPhysicalMaterial(cfg.mesh);
 
-        const mc = new MarchingCubes(N, mat, false, false, 50000);
+        const mc = new MarchingCubes(N, mat, false, false, 40000);
         mc.reset();
         mc.field.set(fieldArray);
         mc.isolation = isolationVal;
@@ -1254,7 +1425,6 @@ export function createElectricFieldEquipment() {
         if (mc.count > 0) {
           disablePick(mc);
 
-          // Map physics (x, y, z) -> Three.js (x, z, y) * WORLD_PER_SOURCE_UNIT
           mc.position.set(cx, cz, cy).multiplyScalar(WORLD_PER_SOURCE_UNIT);
           mc.scale.set(hx, hz, hy).multiplyScalar(WORLD_PER_SOURCE_UNIT);
 
@@ -1265,104 +1435,40 @@ export function createElectricFieldEquipment() {
         }
       };
 
-      // Calculate midpoint interaction potential for like charges (saddle-point potential)
-      let uMid = 0;
-      for (let c = 0; c < active.length; c += 1) {
-        const ch = active[c];
-        const r = Math.hypot(cx - Number(ch.x || 0), cy - Number(ch.y || 0), cz - Number(ch.z || 0));
-        uMid += Math.abs(Number(ch.q || 0)) / Math.max(0.06, r);
-      }
-
-      const isSameSign = (hasPos && !hasNeg) || (hasNeg && !hasPos);
-      let levels = [];
-      if (isSameSign) {
-        // Physical 4-tier progression for like-charge superposition (mirroring 2D contour loops):
-        // 1. Separate deformed teardrop cores around each charge (1.65 * uMid)
-        // 2. Critical pinched dumbbell bridge connecting them with prominent waist (1.02 * uMid)
-        // 3. Merged peanut-shaped capsule enclosing both (0.72 * uMid)
-        // 4. Large continuous overarching envelope (0.42 * uMid)
-        levels = [1.65 * uMid, 1.02 * uMid, 0.72 * uMid, 0.42 * uMid];
-      } else {
-        // Dipole / opposite-sign: distorted curved shells opening and flaring toward the zero-potential plane
-        const uRef = (totalAbsQ / active.length) / Math.max(0.6, maxSpan * 0.75);
-        levels = [2.00 * uRef, 1.10 * uRef, 0.55 * uRef, 0.25 * uRef];
-
-        // Render the exact zero-potential (φ = 0) perpendicular bisector plane
-        const posCenter = new THREE.Vector3();
-        const negCenter = new THREE.Vector3();
-        let posCount = 0;
-        let negCount = 0;
-        for (let c = 0; c < active.length; c += 1) {
-          const ch = active[c];
-          if (ch.q > 0) {
-            posCenter.add(new THREE.Vector3(ch.x, ch.z, ch.y));
-            posCount += 1;
-          } else {
-            negCenter.add(new THREE.Vector3(ch.x, ch.z, ch.y));
-            negCount += 1;
-          }
-        }
-        if (posCount > 0 && negCount > 0) {
-          posCenter.divideScalar(posCount);
-          negCenter.divideScalar(negCount);
-          const midPoint = posCenter.clone().add(negCenter).multiplyScalar(0.5 * WORLD_PER_SOURCE_UNIT);
-          const normal = posCenter.clone().sub(negCenter).normalize();
-
-          const planeR = Math.max(2.2, maxSpan * 1.3) * WORLD_PER_SOURCE_UNIT;
-          const planeGeo = new THREE.CircleGeometry(planeR, 36);
-          const planeMat = new THREE.MeshBasicMaterial({
-            color: 0x38bdf8,
-            transparent: true,
-            opacity: 0.12,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-          });
-          const zeroPlaneMesh = new THREE.Mesh(planeGeo, planeMat);
-          zeroPlaneMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-          zeroPlaneMesh.position.copy(midPoint);
-          zeroPlaneMesh.renderOrder = 3;
-          disablePick(zeroPlaneMesh);
-
-          const ringGeo = new THREE.RingGeometry(planeR - 0.003, planeR, 48);
-          const ringMat = new THREE.MeshBasicMaterial({
-            color: 0x67e8f9,
-            transparent: true,
-            opacity: 0.50,
-            side: THREE.DoubleSide,
-            depthWrite: false,
-          });
-          const ringMesh = new THREE.Mesh(ringGeo, ringMat);
-          ringMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), normal);
-          ringMesh.position.copy(midPoint);
-          ringMesh.renderOrder = 4;
-          disablePick(ringMesh);
-
-          equipotGroup.add(zeroPlaneMesh, ringMesh);
-        }
-      }
+      const avgQ = totalAbsQ / active.length;
+      const uRef = avgQ / Math.max(0.6, maxSpan * 0.7);
 
       if (hasPos) {
-        levels.forEach((lvl, idx) => addMultiShell(posField, lvl, posPalette, idx));
+        const posLevels = [2.2 * uRef, 1.4 * uRef, 0.85 * uRef, 0.50 * uRef];
+        posLevels.forEach((lvl, idx) => addMultiShell(posField, lvl, posPalette, idx));
       }
 
       if (hasNeg) {
-        levels.forEach((lvl, idx) => addMultiShell(negField, lvl, negPalette, idx));
+        const negLevels = [2.2 * uRef, 1.4 * uRef, 0.85 * uRef, 0.50 * uRef];
+        negLevels.forEach((lvl, idx) => addMultiShell(negField, lvl, negPalette, idx));
       }
       return;
     }
 
     const extent = 4.0;
-    const size = 256;
+    const minX = -extent;
+    const maxX = extent + 2 * extent; // 右侧拓展一块相同跨度的区域 (总宽度 16.0，覆盖右侧工作台)
+    const minY = -extent;
+    const maxY = extent;
+    const width = maxX - minX;
+    const height = maxY - minY;
+    const sizeX = 512;
+    const sizeY = 256;
     const rFloor = 0.22;
-    const values = new Float32Array(size * size);
+    const values = new Float32Array(sizeX * sizeY);
     let minV = Infinity;
     let maxV = -Infinity;
 
-    for (let iy = 0; iy < size; iy += 1) {
-      for (let ix = 0; ix < size; ix += 1) {
+    for (let iy = 0; iy < sizeY; iy += 1) {
+      for (let ix = 0; ix < sizeX; ix += 1) {
         // Cell centers → isotropic sampling on fixed horizontal plane (physics Z = 0).
-        const sx = -extent + (2 * extent * (ix + 0.5)) / size;
-        const sy = extent - (2 * extent * (iy + 0.5)) / size;
+        const sx = minX + (width * (ix + 0.5)) / sizeX;
+        const sy = maxY - (height * (iy + 0.5)) / sizeY;
         let phi = 0;
         for (let c = 0; c < charges.length; c += 1) {
           const ch = charges[c];
@@ -1376,7 +1482,7 @@ export function createElectricFieldEquipment() {
         }
         // Mild compression; keep more mid-range contrast than pure asinh(φ·0.002).
         const v = Math.asinh(phi * 0.008);
-        values[iy * size + ix] = v;
+        values[iy * sizeX + ix] = v;
         if (v < minV) minV = v;
         if (v > maxV) maxV = v;
       }
@@ -1389,7 +1495,7 @@ export function createElectricFieldEquipment() {
     const hasBothSigns = minV < -1e-4 && maxV > 1e-4;
     const span = Math.max(maxV - minV, 1e-8);
     const bandCount = 12;
-    const rgba = new Uint8Array(size * size * 4);
+    const rgba = new Uint8Array(sizeX * sizeY * 4);
     const colA = new THREE.Color();
     const colB = new THREE.Color();
     const col = new THREE.Color();
@@ -1444,7 +1550,7 @@ export function createElectricFieldEquipment() {
       rgba[i * 4 + 3] = Math.round(alpha);
     }
 
-    const texture = new THREE.DataTexture(rgba, size, size, THREE.RGBAFormat);
+    const texture = new THREE.DataTexture(rgba, sizeX, sizeY, THREE.RGBAFormat);
     texture.colorSpace = THREE.SRGBColorSpace;
     texture.magFilter = THREE.LinearFilter;
     texture.minFilter = THREE.LinearFilter;
@@ -1452,7 +1558,7 @@ export function createElectricFieldEquipment() {
     texture.needsUpdate = true;
 
     const plane = new THREE.Mesh(
-      new THREE.PlaneGeometry(2 * extent * WORLD_PER_SOURCE_UNIT, 2 * extent * WORLD_PER_SOURCE_UNIT),
+      new THREE.PlaneGeometry(width * WORLD_PER_SOURCE_UNIT, height * WORLD_PER_SOURCE_UNIT),
       new THREE.MeshBasicMaterial({
         map: texture,
         transparent: true,
@@ -1462,7 +1568,7 @@ export function createElectricFieldEquipment() {
       }),
     );
     plane.rotation.x = -Math.PI / 2;
-    plane.position.set(0, -0.012, 0);
+    plane.position.set(((minX + maxX) * 0.5) * WORLD_PER_SOURCE_UNIT, -0.012, 0);
     plane.renderOrder = 2;
     plane.frustumCulled = false;
     disablePick(plane);

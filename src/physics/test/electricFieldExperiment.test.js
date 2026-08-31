@@ -408,10 +408,58 @@ test('3D equipotential surfaces superpose across multiple charges', () => {
   equip.userData.update(data, 0.016);
   labFrameScheduler.drain(100);
   // Find equipotential group
-  const equipotGroup = equip.children.find((c) => c.isGroup && c.children.some((ch) => ch.isMarchingCubes));
-  assert.ok(equipotGroup, 'Equipotential group with MarchingCubes children should exist');
+  const equipotGroup = equip.children.find((c) => c.isGroup && c.children.some((ch) => ch.userData?.concentricEquipot || ch.isMarchingCubes));
+  assert.ok(equipotGroup, 'Equipotential group with equipotential children should exist');
   // Must generate both positive and negative level shells for dipole
   assert.ok(equipotGroup.children.length >= 2, `Expected at least 2 equipotential shells, got ${equipotGroup.children.length}`);
 });
 
+test('2D equipotential plane covers expanded domain including right side', () => {
+  const equip = createElectricFieldEquipment();
+  const charges = [
+    { id: 1, q: 1.0, x: 0, y: 0, z: 0 },
+  ];
+  const data = {
+    charges,
+    showEquipot: 'flat',
+    showLines: false,
+    showArrows: false,
+    _forceDecorations: true,
+  };
+  equip.userData.update(data, 0.016);
+  labFrameScheduler.drain(100);
+  const equipotGroup = equip.children.find((c) => c.isGroup && c.children.some((ch) => ch.isMesh && ch.geometry?.type === 'PlaneGeometry'));
+  assert.ok(equipotGroup, 'Equipotential group with 2D plane mesh should exist');
+  const plane = equipotGroup.children.find((ch) => ch.isMesh && ch.geometry?.type === 'PlaneGeometry');
+  assert.ok(plane, '2D equipotential plane mesh exists');
+  // width = 16 * 0.13 = 2.08, height = 8 * 0.13 = 1.04, center X = 4 * 0.13 = 0.52
+  assert.ok(Math.abs(plane.geometry.parameters.width - 16 * 0.13) < 1e-4);
+  assert.ok(Math.abs(plane.geometry.parameters.height - 8 * 0.13) < 1e-4);
+  assert.ok(Math.abs(plane.position.x - 4 * 0.13) < 1e-4);
+});test('electric field point charge and probe support 3D raycast direct drag', () => {
+  const { state, handlers } = context();
+  const root = createElectricFieldEquipment();
+  state.equipment = {
+    electro: {
+      getRuntimeRoot: () => root,
+      updateElectricField: () => {},
+    },
+  };
+  // Grab charge 1
+  state.data.selectedChargeId = 1;
+  const chargeMesh = { userData: { role: 'electric_charge', chargeId: 1 } };
+  handlers.beginManipulation(chargeMesh, { time: 0 });
+  assert.equal(state.data.dragging, true);
 
+  // Cast ray at X = 0.26 (sim x = 2.0), Y = 0, Z = 0.39 (sim y = 3.0)
+  const raycaster = new THREE.Raycaster();
+  raycaster.ray.origin.set(0.26, 1.0, 0.39);
+  raycaster.ray.direction.set(0, -1, 0);
+
+  const updated = handlers.updateManipulation(chargeMesh, { raycaster, dragged: true });
+  assert.equal(updated, true);
+  const targetCharge = state.data.charges.find((c) => c.id === 1);
+  assert.ok(targetCharge);
+  close(targetCharge.x, 2.0, 0.05);
+  close(targetCharge.y, 3.0, 0.05);
+});

@@ -3254,9 +3254,31 @@ export function createHandlers(ctx) {
       data.hallHoldAccum = (data.hallHoldAccum || 0) + dt;
       if (!data.hallDragging && data.hallHoldAccum > 0.08) data.hallDragging = true;
       if (!data.hallDragging) return;
+      const kind = data.hallDragKind;
+      if (raycaster && (kind === 'probePos' || kind === 'rightCoilPos')) {
+        const root = resolveElectroApparatusRoot('hall');
+        if (root) {
+          if (typeof root.updateMatrixWorld === 'function') root.updateMatrixWorld(true);
+          if (root.matrixWorld) {
+            _invMat.copy(root.matrixWorld).invert();
+            _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
+          } else {
+            _localRay.copy(raycaster.ray);
+          }
+          const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.081);
+          const hit = new THREE.Vector3();
+          if (_localRay.intersectPlane(plane, hit)) {
+            data.hallDragMoved = true;
+            if (kind === 'probePos') data.probePos = clamp(hit.x * 25, -25, 25);
+            if (kind === 'rightCoilPos') data.rightCoilPos = clamp(hit.x * 25, -0.5, 13);
+            if (state.stepIndex <= 2 && data.Im > 0 && data.Is > 0) setStep('scan');
+            syncHall(data, false);
+            return;
+          }
+        }
+      }
       const mouseX = Number(equipment.electro?.mouseDrag?.movementX || 0);
       const deltaPx = mouseX - Number(data.hallDragStartMouseX || 0);
-      const kind = data.hallDragKind;
       const start = Number(data.hallDragStartValue || 0);
       if (Math.abs(deltaPx) > 2) data.hallDragMoved = true;
       if (kind === 'probePos') data.probePos = clamp(start + deltaPx * 0.05, -25, 25);
@@ -3579,7 +3601,7 @@ export function createHandlers(ctx) {
     // Camera-drag knobs / probe / coils: apply mouse totals every frame.
     // (Previously returned true without calling holdInteract, so grabs did nothing.)
     if (state.data.hallDragArmed) {
-      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget);
+      holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget, context.raycaster || null);
       return true;
     }
     return false;

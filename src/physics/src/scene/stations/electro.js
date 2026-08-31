@@ -1352,12 +1352,13 @@ function createFullStationEquipment(ctx) {
         if (sign === fieldLastSign && Number.isFinite(fieldLastB) && Math.abs(b - fieldLastB) < 1e-5) {
           return;
         }
+        const signChanged = sign !== fieldLastSign;
         fieldLastB = b;
         fieldLastSign = sign;
 
         const frameOp = absB < 0.02 ? 0.14 : 0.24;
         if (fieldFrame?.material) {
-          fieldFrame.material.color.setHex(color);
+          if (signChanged) fieldFrame.material.color.setHex(color);
           fieldFrame.material.opacity = frameOp;
         }
 
@@ -1368,7 +1369,7 @@ function createFullStationEquipment(ctx) {
 
         // Linear spacing vs |B|: no tier / no floor(count) — lattice breathes continuously.
         const spacing = THREE.MathUtils.lerp(FIELD_SPACING_SPARSE, FIELD_SPACING_DENSE, strength);
-        fieldDir.set(0, sign, 0);
+        if (signChanged) fieldDir.set(0, sign, 0);
         const baseLineOp = THREE.MathUtils.lerp(0.5, 0.86, strength);
         const baseConeOp = THREE.MathUtils.lerp(0.55, 0.9, strength);
 
@@ -1387,17 +1388,18 @@ function createFullStationEquipment(ctx) {
           // Origin at the trailing end: for ↓B the root sits higher so the tip stays above the table.
           const originY = FIELD_MID_Y - sign * (FIELD_LEN * 0.5);
           arrow.position.set(OFFSET_X + x * S, originY, z * S);
-          arrow.setDirection?.(fieldDir);
-          // Length is created fixed — never call setLength.
-          arrow.setColor?.(color);
+          if (signChanged) {
+            arrow.setDirection?.(fieldDir);
+            arrow.setColor?.(color);
+          }
           const lineOp = baseLineOp * edge;
           const coneOp = baseConeOp * edge;
           if (arrow.line?.material) {
-            arrow.line.material.color?.setHex?.(color);
+            if (signChanged) arrow.line.material.color?.setHex?.(color);
             arrow.line.material.opacity = lineOp;
           }
           if (arrow.cone?.material) {
-            arrow.cone.material.color?.setHex?.(color);
+            if (signChanged) arrow.cone.material.color?.setHex?.(color);
             arrow.cone.material.opacity = coneOp;
           }
         }
@@ -1588,10 +1590,15 @@ function createFullStationEquipment(ctx) {
 
         let lastFormula = '';
         let lastColor = '';
-        const update = (formula, textColor = '#38bdf8') => {
-          if (formula === lastFormula && textColor === lastColor) return;
+        let lastUpdateAt = 0;
+        let pendingFormula = '';
+        let pendingColor = '';
+
+        const render = (formula, textColor) => {
           lastFormula = formula;
           lastColor = textColor;
+          pendingFormula = '';
+          pendingColor = '';
           ctx.clearRect(0, 0, canvas.width, canvas.height);
 
           drawMathFormula(ctx, formula, 256, 64, {
@@ -1604,7 +1611,23 @@ function createFullStationEquipment(ctx) {
           texture.needsUpdate = true;
         };
 
-        return { sprite, update };
+        const update = (formula, textColor = '#38bdf8', force = false) => {
+          if (formula === lastFormula && textColor === lastColor) return;
+          const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+          if (!force && (now - lastUpdateAt < 40)) {
+            pendingFormula = formula;
+            pendingColor = textColor;
+            return;
+          }
+          lastUpdateAt = now;
+          render(formula, textColor);
+        };
+
+        const flush = () => {
+          if (pendingFormula) render(pendingFormula, pendingColor);
+        };
+
+        return { sprite, update, flush };
       }
 
       const rodXLabel = makeFaradayLabelSprite();
