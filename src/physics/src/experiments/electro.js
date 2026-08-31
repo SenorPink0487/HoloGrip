@@ -342,6 +342,9 @@ export const FARADAY_ROD_LENGTH = 4;
 export const FARADAY_X_END = 0.25;
 export const FARADAY_X_MIN = 1.2;
 export const FARADAY_X_MAX = 8;
+export const FARADAY_SCALE = 0.12;
+export const FARADAY_OFFSET_X = -0.48;
+export const FARADAY_Y = 0.08;
 
 export function faradayArea(x, rodLength = FARADAY_ROD_LENGTH, xEnd = FARADAY_X_END) {
   return Math.max(0, Number(x || 0) - xEnd) * rodLength;
@@ -1120,6 +1123,16 @@ export function createHandlers(ctx) {
   const _invMat = new THREE.Matrix4();
   const _localRay = new THREE.Ray();
 
+  function resolveElectroApparatusRoot(mode) {
+    if (!equipment.electro) return null;
+    return equipment.electro.getRuntimeRoot?.(mode)
+      || equipment.electro.userData?.[`${mode}Group`]
+      || equipment.electro.userData?.faradayGroup
+      || equipment.electro.getRoot?.()
+      || equipment.electro.root
+      || (equipment.electro.isObject3D ? equipment.electro : null);
+  }
+
   /**
    * Directly map 3D crosshair/pointer ray onto the charge target plane.
    * Ensures 1:1 crosshair tracking ("指哪打哪",跟手).
@@ -1136,10 +1149,15 @@ export function createHandlers(ctx) {
     const s = data.dragStart;
     const WORLD_SCALE = 0.13;
 
-    const root = equipment.electro;
-    if (root && root.matrixWorld) {
-      _invMat.copy(root.matrixWorld).invert();
-      _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
+    const root = resolveElectroApparatusRoot('electric-field');
+    if (root) {
+      if (typeof root.updateMatrixWorld === 'function') root.updateMatrixWorld(true);
+      if (root.matrixWorld) {
+        _invMat.copy(root.matrixWorld).invert();
+        _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
+      } else {
+        _localRay.copy(raycaster.ray);
+      }
     } else {
       _localRay.copy(raycaster.ray);
     }
@@ -1203,10 +1221,15 @@ export function createHandlers(ctx) {
     const charge = selectedGaussCharge(data);
     if (!charge || !data?.dragArmed || !raycaster?.ray) return false;
     data.dragging = true;
-    const root = equipment.electro;
-    if (root && root.matrixWorld) {
-      _invMat.copy(root.matrixWorld).invert();
-      _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
+    const root = resolveElectroApparatusRoot('gauss');
+    if (root) {
+      if (typeof root.updateMatrixWorld === 'function') root.updateMatrixWorld(true);
+      if (root.matrixWorld) {
+        _invMat.copy(root.matrixWorld).invert();
+        _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
+      } else {
+        _localRay.copy(raycaster.ray);
+      }
     } else {
       _localRay.copy(raycaster.ray);
     }
@@ -1225,10 +1248,15 @@ export function createHandlers(ctx) {
 
   function applyInducedProbeDragRaycast(data, raycaster) {
     if (!data?.dragStart || !data.probe || !raycaster?.ray) return false;
-    const root = equipment.electro;
-    if (root && root.matrixWorld) {
-      _invMat.copy(root.matrixWorld).invert();
-      _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
+    const root = resolveElectroApparatusRoot('induced-e');
+    if (root) {
+      if (typeof root.updateMatrixWorld === 'function') root.updateMatrixWorld(true);
+      if (root.matrixWorld) {
+        _invMat.copy(root.matrixWorld).invert();
+        _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
+      } else {
+        _localRay.copy(raycaster.ray);
+      }
     } else {
       _localRay.copy(raycaster.ray);
     }
@@ -1248,6 +1276,43 @@ export function createHandlers(ctx) {
       }
       if (state.stepIndex < 1 && (Math.abs(data.probe.x) > 0.1 || Math.abs(data.probe.z) > 0.1)) setStep('probe');
       syncInducedElectric(data, false);
+      return true;
+    }
+    return false;
+  }
+
+  function applyFaradayDragRaycast(data, raycaster, context = {}) {
+    if (!data?.motionStart || !raycaster?.ray) return false;
+    const root = resolveElectroApparatusRoot('faraday');
+    if (root) {
+      if (typeof root.updateMatrixWorld === 'function') root.updateMatrixWorld(true);
+      if (root.matrixWorld) {
+        _invMat.copy(root.matrixWorld).invert();
+        _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
+      } else {
+        _localRay.copy(raycaster.ray);
+      }
+    } else {
+      _localRay.copy(raycaster.ray);
+    }
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(FARADAY_Y * FARADAY_SCALE));
+    const hit = new THREE.Vector3();
+    if (_localRay.intersectPlane(plane, hit)) {
+      data.dragging = true;
+      const hitSimX = (hit.x - FARADAY_OFFSET_X) / FARADAY_SCALE;
+      if (!Number.isFinite(data.dragOffsetSimX)) {
+        data.dragOffsetSimX = clamp((data.x || 4.5) - hitSimX, -0.3, 0.3);
+      }
+      const targetX = hitSimX + (data.dragOffsetSimX || 0);
+      const nextX = clamp(targetX, data.xMin, data.xMax);
+      if (Math.abs(nextX - data.x) > 1e-6) {
+        const visualDt = Math.max(Number(context.dt) || 0, 1 / 60);
+        const dx = nextX - data.x;
+        data.x = nextX;
+        updateFaradayDragCurrent(data, dx, visualDt);
+        data._prevX = nextX;
+        syncFaraday(data, false, visualDt);
+      }
       return true;
     }
     return false;
@@ -1492,6 +1557,7 @@ export function createHandlers(ctx) {
     data.records = data.records.slice(-12);
     data.motionStart = null;
     data.dragging = false;
+    data.dragOffsetSimX = null;
     data._dragDirection = 0;
     data._dragReverseDistance = 0;
     data.measureMode = null;
@@ -2738,6 +2804,9 @@ export function createHandlers(ctx) {
         data._dragDirection = 0;
         data._dragReverseDistance = 0;
         data.currentSense = 'none';
+        data.dragOffsetSimX = null;
+        data.dragMouseX = Number(equipment.electro?.mouseDrag?.movementX || 0);
+        data.dragMouseY = Number(equipment.electro?.mouseDrag?.movementY || 0);
         toast('已抓住铜棒：沿导轨拖动，松开后显示动生电动势');
         syncFaraday(data);
         return true;
@@ -3061,7 +3130,10 @@ export function createHandlers(ctx) {
         return;
       }
       if (holding && data.dragging && data.motionStart) {
-        const totalX = Number(equipment.electro?.mouseDrag?.movementX || 0);
+        if (raycaster && applyFaradayDragRaycast(data, raycaster, { dt })) {
+          return;
+        }
+        const totalX = Number(equipment.electro?.mouseDrag?.movementX || 0) - Number(data.dragMouseX || 0);
         const nextX = clamp(data.motionStart.x0 + totalX * 0.015, data.xMin, data.xMax);
         if (Math.abs(nextX - data.x) > 1e-6) {
           const visualDt = Math.max(Number(dt) || 0, 1 / 60);
@@ -3303,6 +3375,30 @@ export function createHandlers(ctx) {
         syncFaraday(state.data);
         return true;
       }
+      if (target?.userData?.role === 'faraday_rod') {
+        const ok = interact(target, context.time || 0, currentStep());
+        if (context.raycaster) {
+          const root = resolveElectroApparatusRoot('faraday');
+          if (root) {
+            if (typeof root.updateMatrixWorld === 'function') root.updateMatrixWorld(true);
+            if (root.matrixWorld) {
+              _invMat.copy(root.matrixWorld).invert();
+              _localRay.copy(context.raycaster.ray).applyMatrix4(_invMat);
+            } else {
+              _localRay.copy(context.raycaster.ray);
+            }
+          } else {
+            _localRay.copy(context.raycaster.ray);
+          }
+          const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -(FARADAY_Y * FARADAY_SCALE));
+          const hit = new THREE.Vector3();
+          if (_localRay.intersectPlane(plane, hit)) {
+            const hitSimX = (hit.x - FARADAY_OFFSET_X) / FARADAY_SCALE;
+            state.data.dragOffsetSimX = clamp(state.data.x - hitSimX, -0.3, 0.3);
+          }
+        }
+        return ok;
+      }
     }
     if (armTableScrollDrag(target, context.pick || null)) return true;
     // AR / direct ray: resolve table pick from the ray if the caller only
@@ -3388,24 +3484,27 @@ export function createHandlers(ctx) {
         }
         return true;
       }
-      if (data?.dragging && data.motionStart && (
-        Number.isFinite(context.totalX) || Number.isFinite(context.dx)
-      )) {
-        const totalX = Number.isFinite(context.totalX)
-          ? Number(context.totalX) - Number(data.dragMouseX || 0)
-          : Number(context.dx || 0);
-        const nextX = clamp(data.motionStart.x0 + totalX * 0.015, data.xMin, data.xMax);
-        if (Math.abs(nextX - data.x) > 1e-6) {
-          const visualDt = Math.max(Number(context.dt) || 0, 1 / 60);
-          const dx = nextX - data.x;
-          data.x = nextX;
-          updateFaradayDragCurrent(data, dx, visualDt);
-          data._prevX = nextX;
-          // Hand-tracking samples are slower than rAF. Sync the rod and current
-          // arrows on each sample instead of waiting for a later fixed tick.
-          syncFaraday(data, false, visualDt);
+      if (data?.dragging && data.motionStart) {
+        if (context.raycaster && applyFaradayDragRaycast(data, context.raycaster, context)) {
+          return true;
         }
-        return true;
+        if (Number.isFinite(context.totalX) || Number.isFinite(context.dx)) {
+          const totalX = Number.isFinite(context.totalX)
+            ? Number(context.totalX) - Number(data.dragMouseX || 0)
+            : Number(context.dx || 0);
+          const nextX = clamp(data.motionStart.x0 + totalX * 0.015, data.xMin, data.xMax);
+          if (Math.abs(nextX - data.x) > 1e-6) {
+            const visualDt = Math.max(Number(context.dt) || 0, 1 / 60);
+            const dx = nextX - data.x;
+            data.x = nextX;
+            updateFaradayDragCurrent(data, dx, visualDt);
+            data._prevX = nextX;
+            // Hand-tracking samples are slower than rAF. Sync the rod and current
+            // arrows on each sample instead of waiting for a later fixed tick.
+            syncFaraday(data, false, visualDt);
+          }
+          return true;
+        }
       }
       holdInteract(true, context.time || 0, context.dt || 0, context.hoverTarget, context.raycaster || null);
       return !!data?.dragging;

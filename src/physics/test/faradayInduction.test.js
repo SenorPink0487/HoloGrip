@@ -11,6 +11,7 @@ import {
 import { faradayBFromSliderPick } from '../src/holoScreen.js';
 import { getDeskSliderConfig } from '../src/deskSliderCatalog.js';
 import { STATION_EXPERIMENTS } from '../src/experiments/registry.js';
+import * as THREE from 'three';
 
 function close(actual, expected, tolerance = 1e-6) {
   assert.ok(
@@ -245,3 +246,46 @@ test('manual parameter modification reverts played state to 自动演示', () =>
   playBtn = actionGrp.buttons.find((it) => it.action === 'faraday-play');
   assert.equal(playBtn.label, '自动演示');
 });
+
+test('Faraday conductor rod 3D raycaster drag follows 3D ray directly with 1:1 tracking', () => {
+  const { state, handlers } = faradayContext();
+  handlers.onUiAction('faraday-set', { key: 'B', value: -1 });
+  const rod = { userData: { role: 'faraday_rod' } };
+
+  // Ray pointing at x=4.5 (local X = -0.48 + 4.5 * 0.12 = 0.06)
+  const initialRay = {
+    ray: {
+      origin: new THREE.Vector3(0.06, 5, 0),
+      direction: new THREE.Vector3(0, -1, 0),
+    },
+  };
+  assert.equal(handlers.beginManipulation(rod, { raycaster: initialRay }), true);
+  assert.equal(state.data.dragging, true);
+
+  // Drag ray to target x=6.0 (local X = -0.48 + 6.0 * 0.12 = 0.24)
+  const moveRay = {
+    ray: {
+      origin: new THREE.Vector3(0.24, 5, 0),
+      direction: new THREE.Vector3(0, -1, 0),
+    },
+  };
+  assert.equal(handlers.updateManipulation(rod, { raycaster: moveRay, dt: 1 / 60 }), true);
+  close(state.data.x, 6.0, 1e-4);
+  assert.notEqual(state.data.currentSense, 'none');
+  assert.ok(Math.abs(state.data.liveEmf) > 1e-6);
+
+  // Drag beyond xMax (local X = 2.0 -> clamped to 8.0)
+  const outRay = {
+    ray: {
+      origin: new THREE.Vector3(2.0, 5, 0),
+      direction: new THREE.Vector3(0, -1, 0),
+    },
+  };
+  assert.equal(handlers.updateManipulation(rod, { raycaster: outRay, dt: 1 / 60 }), true);
+  close(state.data.x, 8.0, 1e-4);
+
+  handlers.endManipulation(rod);
+  assert.equal(state.data.dragging, false);
+  assert.ok(state.data.lastMotion);
+});
+

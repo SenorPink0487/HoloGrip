@@ -650,7 +650,7 @@ export function createExperimentManager({
     return activeHandlers()?.onUiAction?.(action, payload) || false;
   }
 
-  function holdInteract(holding, t, dt, target) {
+  function holdInteract(holding, t, dt, target, raycaster = null) {
     if (!state.running) return;
     const s = state.data._uiSlider;
     if (s) {
@@ -664,7 +664,7 @@ export function createExperimentManager({
       clearUiSlider();
       return;
     }
-    activeHandlers()?.holdInteract(holding, t, dt, target);
+    activeHandlers()?.holdInteract(holding, t, dt, target, raycaster);
   }
 
   function onFocus(target) {

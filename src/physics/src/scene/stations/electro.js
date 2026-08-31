@@ -112,7 +112,9 @@ export function createStationEquipment(ctx) {
     setHallPartState: (...args) => call('setHallPartState', ...args),
     clearHallIdentifyVisuals: (...args) => call('clearHallIdentifyVisuals', ...args),
     getCamera: () => ctx.camera,
-    getRuntimeRoot: (mode) => full?.equipment?.getRuntimeRoot?.(mode) || null,
+    getRuntimeRoot: (mode) => full?.equipment?.getRuntimeRoot?.(mode) || full?.root || root,
+    getRoot: () => full?.root || root,
+    root,
     get activeMode() { return full?.equipment?.activeMode || null; },
     mouseDrag: { holdLMB: false, movementX: 0, movementY: 0, shiftKey: false },
   };
@@ -2054,6 +2056,8 @@ function createFullStationEquipment(ctx) {
     setHallPartState: (part, mode) => hallBench.userData.setHallPartState?.(part, mode),
     clearHallIdentifyVisuals: () => hallBench.userData.clearHallIdentifyVisuals?.(),
     getCamera: () => camera,
+    getRoot: () => root,
+    root,
     get activeMode() { return hallBench.userData.getActiveMode?.() || null; },
     mouseDrag: { holdLMB: false, movementX: 0, movementY: 0, shiftKey: false },
   };

@@ -938,13 +938,13 @@ export function createElectricFieldEquipment() {
 
       const isSingle = active.length === 1;
 
-      // High-performance clean Gauss-surface styling (Alpha transparency without heavy WebGLTransmissionPass)
+      // Positive charge / positive potential equipotential palette (Rose / Warm Glass)
       const posPalette = [
         {
           mesh: {
-            color: 0x38bdf8,
-            emissive: 0x0284c7,
-            emissiveIntensity: 0.30,
+            color: 0xf43f5e,
+            emissive: 0xbe123c,
+            emissiveIntensity: 0.28,
             transparent: true,
             opacity: 0.24,
             roughness: 0.15,
@@ -953,18 +953,18 @@ export function createElectricFieldEquipment() {
             depthWrite: false,
           },
           wire: {
-            color: 0x67e8f9,
+            color: 0xfb7185,
             transparent: true,
             opacity: 0.75,
             depthWrite: false,
           },
-          labelColor: '#38bdf8',
+          labelColor: '#fb7185',
         },
         {
           mesh: {
-            color: 0x38bdf8,
-            emissive: 0x0284c7,
-            emissiveIntensity: 0.25,
+            color: 0xf43f5e,
+            emissive: 0xbe123c,
+            emissiveIntensity: 0.24,
             transparent: true,
             opacity: 0.18,
             roughness: 0.15,
@@ -973,17 +973,17 @@ export function createElectricFieldEquipment() {
             depthWrite: false,
           },
           wire: {
-            color: 0x38bdf8,
+            color: 0xfb7185,
             transparent: true,
             opacity: 0.60,
             depthWrite: false,
           },
-          labelColor: '#38bdf8',
+          labelColor: '#fb7185',
         },
         {
           mesh: {
-            color: 0x38bdf8,
-            emissive: 0x0284c7,
+            color: 0xf43f5e,
+            emissive: 0xbe123c,
             emissiveIntensity: 0.20,
             transparent: true,
             opacity: 0.13,
@@ -993,18 +993,18 @@ export function createElectricFieldEquipment() {
             depthWrite: false,
           },
           wire: {
-            color: 0x38bdf8,
+            color: 0xfb7185,
             transparent: true,
             opacity: 0.45,
             depthWrite: false,
           },
-          labelColor: '#38bdf8',
+          labelColor: '#fb7185',
         },
         {
           mesh: {
-            color: 0x38bdf8,
-            emissive: 0x0284c7,
-            emissiveIntensity: 0.15,
+            color: 0xf43f5e,
+            emissive: 0xbe123c,
+            emissiveIntensity: 0.16,
             transparent: true,
             opacity: 0.09,
             roughness: 0.10,
@@ -1013,22 +1013,22 @@ export function createElectricFieldEquipment() {
             depthWrite: false,
           },
           wire: {
-            color: 0x38bdf8,
+            color: 0xfb7185,
             transparent: true,
             opacity: 0.32,
             depthWrite: false,
           },
-          labelColor: '#38bdf8',
+          labelColor: '#fb7185',
         },
       ];
 
-      // High-performance clean negative Gauss-surface styling
+      // Negative charge / negative potential equipotential palette (Sky Blue / Cool Glass)
       const negPalette = [
         {
           mesh: {
-            color: 0xa855f7,
-            emissive: 0x7e22ce,
-            emissiveIntensity: 0.30,
+            color: 0x0284c7,
+            emissive: 0x0369a1,
+            emissiveIntensity: 0.28,
             transparent: true,
             opacity: 0.24,
             roughness: 0.15,
@@ -1037,18 +1037,18 @@ export function createElectricFieldEquipment() {
             depthWrite: false,
           },
           wire: {
-            color: 0xc084fc,
+            color: 0x38bdf8,
             transparent: true,
             opacity: 0.75,
             depthWrite: false,
           },
-          labelColor: '#c084fc',
+          labelColor: '#38bdf8',
         },
         {
           mesh: {
-            color: 0xa855f7,
-            emissive: 0x7e22ce,
-            emissiveIntensity: 0.25,
+            color: 0x0284c7,
+            emissive: 0x0369a1,
+            emissiveIntensity: 0.24,
             transparent: true,
             opacity: 0.18,
             roughness: 0.15,
@@ -1057,17 +1057,17 @@ export function createElectricFieldEquipment() {
             depthWrite: false,
           },
           wire: {
-            color: 0xa855f7,
+            color: 0x38bdf8,
             transparent: true,
             opacity: 0.60,
             depthWrite: false,
           },
-          labelColor: '#c084fc',
+          labelColor: '#38bdf8',
         },
         {
           mesh: {
-            color: 0xa855f7,
-            emissive: 0x7e22ce,
+            color: 0x0284c7,
+            emissive: 0x0369a1,
             emissiveIntensity: 0.20,
             transparent: true,
             opacity: 0.13,
@@ -1077,18 +1077,18 @@ export function createElectricFieldEquipment() {
             depthWrite: false,
           },
           wire: {
-            color: 0xa855f7,
+            color: 0x38bdf8,
             transparent: true,
             opacity: 0.45,
             depthWrite: false,
           },
-          labelColor: '#c084fc',
+          labelColor: '#38bdf8',
         },
         {
           mesh: {
-            color: 0xa855f7,
-            emissive: 0x7e22ce,
-            emissiveIntensity: 0.15,
+            color: 0x0284c7,
+            emissive: 0x0369a1,
+            emissiveIntensity: 0.16,
             transparent: true,
             opacity: 0.09,
             roughness: 0.10,
@@ -1097,12 +1097,12 @@ export function createElectricFieldEquipment() {
             depthWrite: false,
           },
           wire: {
-            color: 0xa855f7,
+            color: 0x38bdf8,
             transparent: true,
             opacity: 0.32,
             depthWrite: false,
           },
-          labelColor: '#c084fc',
+          labelColor: '#38bdf8',
         },
       ];
 
@@ -1141,16 +1141,9 @@ export function createElectricFieldEquipment() {
           wireMesh.renderOrder = 5 + idx;
           disablePick(wireMesh);
 
-          // 3. Floating physical potential label badge (φ = kQ/r)
-          const phiVal = (COULOMB_SCALE * q) / rSrc;
-          const labelText = `φ = ${formatPotentialVoltage(phiVal)}`;
-          const labelSprite = createEquipotLabelSprite(labelText, cfg.labelColor);
-          labelSprite.position.set(0, rWorld + 0.016, 0);
-          disablePick(labelSprite);
-
           const shellGroup = new THREE.Group();
           shellGroup.position.set(cx, cy, cz);
-          shellGroup.add(shellMesh, wireMesh, labelSprite);
+          shellGroup.add(shellMesh, wireMesh);
           shellGroup.userData = {
             concentricEquipot: true,
             spinTarget: wireMesh,
@@ -1205,7 +1198,7 @@ export function createElectricFieldEquipment() {
       const hy = Math.max(2.0, spanY + margin);
       const hz = Math.max(2.0, spanZ + margin);
 
-      const N = 48;
+      const N = 36;
       const N2 = N * N;
       const posField = new Float32Array(N * N * N);
       const negField = new Float32Array(N * N * N);
@@ -1252,7 +1245,7 @@ export function createElectricFieldEquipment() {
         const cfg = palette[matIdx % palette.length];
         const mat = new THREE.MeshPhysicalMaterial(cfg.mesh);
 
-        const mc = new MarchingCubes(N, mat, false, false, 80000);
+        const mc = new MarchingCubes(N, mat, false, false, 50000);
         mc.reset();
         mc.field.set(fieldArray);
         mc.isolation = isolationVal;
@@ -1283,16 +1276,16 @@ export function createElectricFieldEquipment() {
       const isSameSign = (hasPos && !hasNeg) || (hasNeg && !hasPos);
       let levels = [];
       if (isSameSign) {
-        // Physical 4-tier progression for like-charge superposition:
-        // 1. Separate deformed teardrop cores around each charge (1.75 * uMid)
-        // 2. Critical pinched dumbbell bridge connecting them with prominent waist (1.08 * uMid)
-        // 3. Merged peanut-shaped capsule (0.78 * uMid)
-        // 4. Large continuous overarching envelope (0.48 * uMid)
-        levels = [1.75 * uMid, 1.08 * uMid, 0.78 * uMid, 0.48 * uMid];
+        // Physical 4-tier progression for like-charge superposition (mirroring 2D contour loops):
+        // 1. Separate deformed teardrop cores around each charge (1.65 * uMid)
+        // 2. Critical pinched dumbbell bridge connecting them with prominent waist (1.02 * uMid)
+        // 3. Merged peanut-shaped capsule enclosing both (0.72 * uMid)
+        // 4. Large continuous overarching envelope (0.42 * uMid)
+        levels = [1.65 * uMid, 1.02 * uMid, 0.72 * uMid, 0.42 * uMid];
       } else {
-        // Dipole / opposite-sign: distorted curved shells opening toward the zero-potential plane
-        const uRef = (totalAbsQ / active.length) / Math.max(0.6, maxSpan * 0.65);
-        levels = [2.2 * uRef, 1.35 * uRef, 0.80 * uRef, 0.45 * uRef];
+        // Dipole / opposite-sign: distorted curved shells opening and flaring toward the zero-potential plane
+        const uRef = (totalAbsQ / active.length) / Math.max(0.6, maxSpan * 0.75);
+        levels = [2.00 * uRef, 1.10 * uRef, 0.55 * uRef, 0.25 * uRef];
 
         // Render the exact zero-potential (φ = 0) perpendicular bisector plane
         const posCenter = new THREE.Vector3();
@@ -1344,11 +1337,7 @@ export function createElectricFieldEquipment() {
           ringMesh.renderOrder = 4;
           disablePick(ringMesh);
 
-          const zeroLabel = createEquipotLabelSprite('φ = 0 V', '#67e8f9');
-          zeroLabel.position.copy(midPoint).add(new THREE.Vector3(0, planeR + 0.016, 0));
-          disablePick(zeroLabel);
-
-          equipotGroup.add(zeroPlaneMesh, ringMesh, zeroLabel);
+          equipotGroup.add(zeroPlaneMesh, ringMesh);
         }
       }
 
@@ -1357,7 +1346,7 @@ export function createElectricFieldEquipment() {
       }
 
       if (hasNeg) {
-        levels.forEach((lvl, idx) => addMultiShell(negField, lvl, posPalette, idx));
+        levels.forEach((lvl, idx) => addMultiShell(negField, lvl, negPalette, idx));
       }
       return;
     }

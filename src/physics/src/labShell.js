@@ -6857,7 +6857,13 @@ function animate() {
       focusedTarget,
       mouseMode ? raycaster : (handRay || handInteraction?.raycaster || raycaster),
     );
-    expManager.holdInteract(holdE || holdLMB || handHolding, t, dt, focusedTarget);
+    expManager.holdInteract(
+      holdE || holdLMB || handHolding,
+      t,
+      dt,
+      focusedTarget,
+      mouseMode ? raycaster : (handRay || handInteraction?.raycaster || raycaster),
+    );
     // Heavy integrate runs in frameCoordinator → simDriver.fixedUpdate.
     // update() only does light sync when simOwnedByDriver is set.
     expManager.update(t, dt, { simulate: false });
