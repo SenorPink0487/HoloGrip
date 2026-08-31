@@ -137,7 +137,7 @@ export function createInducedElectricFieldEquipment() {
   root.name = 'induced-electric-field-apparatus';
   root.visible = false;
   // Shift apparatus to the left (-0.26m) so the enlarged measurement disk does not overlap the right-side control panel.
-  root.position.set(-0.26, 0.05, 0.02);
+  root.position.set(-0.26, 0.0, 0.02);
 
   const S = WORLD_PER_SOURCE;
   const fieldGroup = new THREE.Group();
@@ -163,7 +163,7 @@ export function createInducedElectricFieldEquipment() {
     }),
   );
   floor.rotation.x = -Math.PI / 2;
-  floor.position.y = -0.002;
+  floor.position.y = 0.001;
   floor.receiveShadow = true;
   fieldGroup.add(floor);
 

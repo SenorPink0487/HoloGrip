@@ -18,11 +18,11 @@ export const SOURCE_MECHANICS_EXPERIMENTS = Object.freeze({
 
 const LAYOUTS = Object.freeze({
   // z≈-3.0 leaves the sitting-edge strip (z≈-2.24) free for desk sliders.
-  'free-fall': { position: [-4.2, 0.93, -3.0], scale: 0.25 },
-  'inclined-plane': { position: [-5.45, 0.93, -3.0], scale: 0.34 },
-  pendulum: { position: [-4.2, 0.93, -3.0], scale: 0.68 },
-  collision: { position: [-4.2, 0.93, -3.0], scale: 0.26 },
-  projectile: { position: [-5.45, 0.93, -3.0], scale: 0.28 },
+  'free-fall': { position: [-4.2, 0.905, -3.0], scale: 0.25 },
+  'inclined-plane': { position: [-5.45, 0.905, -3.0], scale: 0.34 },
+  pendulum: { position: [-4.2, 0.905, -3.0], scale: 0.68 },
+  collision: { position: [-4.2, 0.905, -3.0], scale: 0.26 },
+  projectile: { position: [-5.45, 0.905, -3.0], scale: 0.28 },
   viscosity: { position: [-4.2, 0.055, -3.0], scale: 0.94 },
 });
 

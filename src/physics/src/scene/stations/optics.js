@@ -681,7 +681,7 @@ function createFullStationEquipment(ctx) {
   root.name = 'optics-station';
   // Push apparatus toward the back edge (−Z) so the sitting-edge strip is free
   // for the desk param panel (multi-row cards ≈0.5–0.7 m deep).
-  const OPTICS_TABLE = { x: 4.2, y: 0.93, z: -3.02 };
+  const OPTICS_TABLE = { x: 4.2, y: 0.905, z: -3.02 };
   const optics = makeOpticsBench();
   optics.position.set(OPTICS_TABLE.x, OPTICS_TABLE.y, OPTICS_TABLE.z);
   optics.rotation.y = 0;

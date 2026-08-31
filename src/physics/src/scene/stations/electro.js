@@ -1195,7 +1195,7 @@ function createFullStationEquipment(ctx) {
       const root = new THREE.Group();
       root.name = 'faraday-induction-apparatus';
       root.visible = false;
-      root.position.set(0, 0.06, 0.02);
+      root.position.set(0, 0.0, 0.02);
       const S = 0.12;
       const OFFSET_X = -0.48;
       const ROD_LEN = 4;
@@ -1232,7 +1232,7 @@ function createFullStationEquipment(ctx) {
       const areaMat = new THREE.MeshBasicMaterial({ color: 0xfb923c, transparent: true, opacity: 0.2, side: THREE.DoubleSide, depthWrite: false });
       const areaMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, ROD_LEN), areaMat);
       areaMesh.rotation.x = -Math.PI / 2;
-      areaMesh.position.y = Y * S + 0.004;
+      areaMesh.position.y = 0.001;
       areaMesh.raycast = () => {};
       circuitGroup.add(areaMesh);
 
@@ -2027,7 +2027,7 @@ function createFullStationEquipment(ctx) {
   // Slightly toward table center / back of sitting edge so multi-row desk
   // sliders on z≈3.13 don't sit under the Faraday / Hall apparatus.
   const hallBench = makeHallSetup();
-  hallBench.position.set(-4.15, 0.93, 2.42);
+  hallBench.position.set(-4.15, 0.905, 2.42);
   root.add(hallBench);
 
   const equipment = {

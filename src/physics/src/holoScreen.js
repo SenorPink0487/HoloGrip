@@ -4462,9 +4462,36 @@ export function drawHoloScreen(ctx, W, H, opts) {
   // High-Tech Holographic Cyber Glass Body
   ctx.save();
   if (isSelector) {
-    ctx.fillStyle = active ? 'rgba(10, 18, 36, 0.55)' : 'rgba(8, 16, 32, 0.48)';
-    roundRect(ctx, 12, 12, W - 24, H - 24, 18);
+    // Spatial frosted glass backdrop
+    const selBg = ctx.createLinearGradient(0, 0, 0, H);
+    selBg.addColorStop(0, 'rgba(10, 18, 36, 0.76)');
+    selBg.addColorStop(0.55, 'rgba(8, 14, 28, 0.82)');
+    selBg.addColorStop(1, 'rgba(5, 10, 22, 0.88)');
+    ctx.fillStyle = selBg;
+    roundRect(ctx, 12, 12, W - 24, H - 24, 20);
     ctx.fill();
+
+    // Top-edge subtle glass reflection
+    const sheen = ctx.createLinearGradient(0, 12, 0, 90);
+    sheen.addColorStop(0, 'rgba(255, 255, 255, 0.09)');
+    sheen.addColorStop(0.6, 'rgba(255, 255, 255, 0.02)');
+    sheen.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    ctx.fillStyle = sheen;
+    roundRect(ctx, 12, 12, W - 24, 80, 20);
+    ctx.fill();
+
+    // Dual-rim subtle border
+    ctx.strokeStyle = active
+      ? (accentHex ? `${accentHex}66` : 'rgba(56, 189, 248, 0.45)')
+      : 'rgba(255, 255, 255, 0.12)';
+    ctx.lineWidth = 1.2;
+    if (active) {
+      ctx.shadowColor = accentHex || '#38bdf8';
+      ctx.shadowBlur = 8;
+    }
+    roundRect(ctx, 12, 12, W - 24, H - 24, 20);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
   } else if (isDisplay && theme === 'light') {
     // Pure flat semi-transparent alabaster/light glass
     ctx.fillStyle = active ? 'rgba(255, 255, 255, 0.48)' : 'rgba(255, 255, 255, 0.38)';
@@ -4496,7 +4523,7 @@ export function drawHoloScreen(ctx, W, H, opts) {
     ctx.fill();
   }
 
-  // Bottom Projector Uplight Glow
+  // Bottom Projector Uplight Glow (only for non-selector dark panels)
   if (theme !== 'light' && !isDisplay && !isSelector) {
     if (typeof ctx.createRadialGradient === 'function') {
       const bottomGlow = ctx.createRadialGradient(W / 2, H - 10, 20, W / 2, H - 10, W * 0.65);
@@ -4516,18 +4543,8 @@ export function drawHoloScreen(ctx, W, H, opts) {
     }
   }
 
-  // Outer Cyber Frame (Single clean rounded stroke)
-  ctx.save();
-  if (isSelector) {
-    ctx.strokeStyle = accentHex || '#38bdf8';
-    ctx.lineWidth = 1.8;
-    if (active && theme !== 'light') {
-      ctx.shadowColor = accentHex;
-      ctx.shadowBlur = 10;
-    }
-    roundRect(ctx, 12, 12, W - 24, H - 24, 18);
-    ctx.stroke();
-  } else {
+  // Outer Display Cyber Frame
+  if (!isSelector) {
     ctx.strokeStyle = theme === 'light' ? (accentHex ? `${accentHex}66` : 'rgba(14, 165, 233, 0.45)') : accentHex;
     ctx.lineWidth = 1.6;
     ctx.globalAlpha = active ? 0.95 : 0.65;
@@ -4544,9 +4561,11 @@ export function drawHoloScreen(ctx, W, H, opts) {
 
   // Content display with a running experiment: no station header bar — experiment UI owns the title.
   const compactChrome = isDisplay && active && !!(hud?.running && hud?.experiment);
-  const headerH = compactChrome ? 0 : (isDisplay ? 96 : (isSelector ? 68 : 64));
+  // Tabletop selector hides separate top header bar when idle (single clean hero card layout).
+  const hideSelectorHeader = isSelector && !active;
+  const headerH = compactChrome ? 0 : (isDisplay ? 96 : (isSelector ? 64 : 64));
 
-  if (!compactChrome) {
+  if (!compactChrome && !hideSelectorHeader) {
     if (isDisplay && active) {
       ctx.font = `bold ${isDisplay ? 22 : 12}px "Microsoft YaHei", sans-serif`;
       ctx.fillStyle = theme === 'light' ? '#0369a1' : 'rgba(56, 189, 248, 0.65)';
@@ -4567,21 +4586,21 @@ export function drawHoloScreen(ctx, W, H, opts) {
       hBg.addColorStop(1, 'rgba(8, 20, 42, 0.88)');
       ctx.fillStyle = hBg;
     } else if (isSelector) {
-      ctx.fillStyle = 'rgba(15, 26, 48, 0.40)';
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.04)';
     } else {
       const hBg = ctx.createLinearGradient(innerX, innerY, innerX, innerY + headerH);
       hBg.addColorStop(0, 'rgba(255, 255, 255, 0.08)');
       hBg.addColorStop(1, 'rgba(255, 255, 255, 0.02)');
       ctx.fillStyle = hBg;
     }
-    roundRect(ctx, innerX, innerY, innerW, headerH, 12);
+    roundRect(ctx, innerX, innerY, innerW, headerH, 14);
     ctx.fill();
 
     ctx.strokeStyle = isSelector
-      ? (accentHex ? `${accentHex}44` : 'rgba(255, 255, 255, 0.16)')
+      ? 'rgba(255, 255, 255, 0.08)'
       : (isDisplay ? (theme === 'light' ? 'rgba(14, 165, 233, 0.35)' : 'rgba(56, 189, 248, 0.35)') : 'transparent');
     ctx.lineWidth = 1;
-    roundRect(ctx, innerX, innerY, innerW, headerH, 12);
+    roundRect(ctx, innerX, innerY, innerW, headerH, 14);
     ctx.stroke();
 
     // Header Tag / Badge (for large front display only)
@@ -4616,10 +4635,10 @@ export function drawHoloScreen(ctx, W, H, opts) {
 
     // Header Title
     ctx.save();
-    ctx.fillStyle = P.title;
-    ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     if (isDisplay && theme !== 'light') {
+      ctx.fillStyle = P.title;
+      ctx.textAlign = 'center';
       ctx.shadowColor = accentHex;
       ctx.shadowBlur = 10;
       ctx.font = `bold 52px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif`;
@@ -4628,12 +4647,30 @@ export function drawHoloScreen(ctx, W, H, opts) {
         : fullTitle;
       ctx.fillText(headerTitle, W / 2, innerY + headerH / 2);
     } else if (isSelector) {
+      // Station pulse indicator dot
+      ctx.fillStyle = accentHex || '#38bdf8';
       ctx.shadowColor = accentHex || '#38bdf8';
-      ctx.shadowBlur = 10;
-      ctx.font = `bold 30px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif`;
-      ctx.fillText(fullTitle, W / 2, innerY + headerH / 2);
+      ctx.shadowBlur = 6;
+      ctx.beginPath();
+      ctx.arc(innerX + 24, innerY + headerH / 2, 4, 0, Math.PI * 2);
+      ctx.fill();
       ctx.shadowBlur = 0;
+
+      // Station title
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '600 22px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillText(fullTitle, innerX + 38, innerY + headerH / 2);
+
+      // Station experiment count pill / hint
+      const expCount = hud?.station?.experiments?.length || 0;
+      const titleW = (typeof ctx.measureText === 'function') ? (ctx.measureText(fullTitle)?.width || 120) : 120;
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.75)';
+      ctx.font = '500 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif';
+      ctx.fillText(expCount > 0 ? `· ${expCount} 个实验项目` : '· 控制终端', innerX + 46 + titleW, innerY + headerH / 2);
     } else {
+      ctx.fillStyle = P.title;
+      ctx.textAlign = 'center';
       ctx.font = `bold 28px "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif`;
       ctx.fillText(fullTitle, W / 2, innerY + headerH / 2);
     }
@@ -4643,8 +4680,8 @@ export function drawHoloScreen(ctx, W, H, opts) {
   // window chrome: maximize + close (active only; floating when compact)
   if (active) {
     const isSel = isSelector;
-    const cw = isSel ? 38 : (compactChrome ? 44 : (isDisplay ? 68 : 48));
-    const ch = isSel ? 38 : (compactChrome ? 40 : (isDisplay ? 60 : 40));
+    const cw = isSel ? 36 : (compactChrome ? 44 : (isDisplay ? 68 : 48));
+    const ch = isSel ? 36 : (compactChrome ? 40 : (isDisplay ? 60 : 40));
     const cy = isSel ? (innerY + (headerH - ch) / 2) : (compactChrome ? (innerY + 4) : (innerY + (isDisplay ? 18 : 12)));
     const gap = compactChrome ? 8 : 10;
     const closeX = innerX + innerW - cw - (isSel ? 12 : (compactChrome ? 6 : 12));
@@ -4688,27 +4725,27 @@ export function drawHoloScreen(ctx, W, H, opts) {
     const isHoverClose = _uiHoverAction === 'close' || _uiHoverId === 'close';
     ctx.save();
     ctx.fillStyle = isHoverClose
-      ? 'rgba(239, 68, 68, 0.30)'
-      : (isSel ? 'rgba(255, 255, 255, 0.09)' : P.closeFill);
-    roundRect(ctx, closeX, cy, cw, ch, 8);
+      ? 'rgba(239, 68, 68, 0.28)'
+      : (isSel ? 'rgba(255, 255, 255, 0.06)' : P.closeFill);
+    roundRect(ctx, closeX, cy, cw, ch, isSel ? 10 : 8);
     ctx.fill();
     ctx.strokeStyle = isHoverClose
       ? '#ef4444'
-      : (isSel ? 'rgba(255, 255, 255, 0.18)' : P.closeStroke);
-    ctx.lineWidth = isHoverClose ? 1.8 : 1.0;
+      : (isSel ? 'rgba(255, 255, 255, 0.12)' : P.closeStroke);
+    ctx.lineWidth = isHoverClose ? 1.5 : 1.0;
     if (isHoverClose) {
       ctx.shadowColor = '#ef4444';
-      ctx.shadowBlur = 10;
+      ctx.shadowBlur = 8;
     }
-    roundRect(ctx, closeX, cy, cw, ch, 8);
+    roundRect(ctx, closeX, cy, cw, ch, isSel ? 10 : 8);
     ctx.stroke();
     ctx.fillStyle = isHoverClose
       ? '#ef4444'
       : (isSel ? '#f1f5f9' : P.closeText);
-    ctx.font = `bold ${isSel ? 22 : (compactChrome ? 28 : (isDisplay ? 48 : 32))}px sans-serif`;
+    ctx.font = `500 ${isSel ? 20 : (compactChrome ? 28 : (isDisplay ? 48 : 32))}px sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText('×', closeX + cw / 2, cy + ch / 2);
+    ctx.fillText('×', closeX + cw / 2, cy + ch / 2 - 1);
     ctx.restore();
     hits.push({
       id: 'close',
@@ -4725,7 +4762,7 @@ export function drawHoloScreen(ctx, W, H, opts) {
   if (isDisplay) {
     ctx.fillStyle = theme === 'light' ? 'rgba(14, 165, 233, 0.012)' : 'rgba(56, 189, 248, 0.015)';
     for (let y = 20; y < H - 20; y += 4) ctx.fillRect(20, y, W - 40, 1);
-  } else {
+  } else if (!isSelector) {
     ctx.fillStyle = P.scanline;
     for (let y = 20; y < H - 20; y += 4) ctx.fillRect(20, y, W - 40, 1);
   }
@@ -4736,42 +4773,99 @@ export function drawHoloScreen(ctx, W, H, opts) {
     if (isDisplay) return { hits };
 
     const isHoverAct = _uiHoverAction === 'activate' || _uiHoverId === 'activate';
-    ctx.fillStyle = P.title;
-    ctx.font = `bold ${F.idleTitle}px "Microsoft YaHei", sans-serif`;
+
+    // ── 1. Top Status Pill ──
+    const pillText = '物理实验室 · 控制终端就绪';
+    ctx.save();
+    ctx.font = '500 12px -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif';
+    const pillTextW = (typeof ctx.measureText === 'function') ? (ctx.measureText(pillText)?.width || 150) : 150;
+    const pillW = pillTextW + 28;
+    const pillH = 26;
+    const pillX = (W - pillW) / 2;
+    const pillY = 96;
+
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+    roundRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
+    ctx.lineWidth = 1;
+    roundRect(ctx, pillX, pillY, pillW, pillH, pillH / 2);
+    ctx.stroke();
+
+    ctx.fillStyle = 'rgba(226, 232, 240, 0.85)';
     ctx.textAlign = 'center';
-    ctx.shadowColor = accentHex;
-    ctx.shadowBlur = 16;
-    ctx.fillText(fullTitle, W / 2, H * 0.35);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(pillText, W / 2, pillY + pillH / 2);
+    ctx.restore();
+
+    // ── 2. Station Main Hero Title ──
+    ctx.save();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${Math.round(44 * (isSelector ? 1.0 : scaleF))}px "PingFang SC", "Microsoft YaHei", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.shadowColor = accentHex || '#38bdf8';
+    ctx.shadowBlur = 12;
+    const titleY = 175;
+    ctx.fillText(fullTitle, W / 2, titleY);
     ctx.shadowBlur = 0;
 
-    ctx.fillStyle = accentHex;
-    ctx.font = `${F.idleSub}px "Segoe UI", monospace`;
-    ctx.fillText('HOLOGRAPHIC WORKSTATION', W / 2, H * 0.45);
+    // ── 3. Tech Subtitle ──
+    const enLabel = (enTitle ? `${enTitle} WORKSTATION` : 'HOLOGRAPHIC WORKSTATION').split('').join(' ');
+    ctx.fillStyle = accentHex || '#38bdf8';
+    ctx.font = '600 12px "Segoe UI", -apple-system, monospace';
+    ctx.globalAlpha = 0.85;
+    ctx.fillText(enLabel, W / 2, titleY + 38);
+    ctx.globalAlpha = 1.0;
+    ctx.restore();
 
-    const ctaW = W * 0.84;
-    const ctaH = 80;
+    // ── 4. Minimalist Glass Capsule Action Button ──
+    const ctaW = Math.min(420, W * 0.65);
+    const ctaH = 58;
     const ctaX = (W - ctaW) / 2;
-    const ctaY = H * 0.52;
+    const ctaY = 280;
 
-    ctx.fillStyle = isHoverAct ? (accentHex ? `${accentHex}35` : 'rgba(34, 211, 238, 0.28)') : 'rgba(34, 211, 238, 0.15)';
-    ctx.strokeStyle = accentHex;
-    ctx.lineWidth = isHoverAct ? 2.4 : 1.8;
+    ctx.save();
+    const ctaGrad = ctx.createLinearGradient(ctaX, ctaY, ctaX, ctaY + ctaH);
     if (isHoverAct) {
-      ctx.shadowColor = accentHex;
-      ctx.shadowBlur = 14;
+      ctaGrad.addColorStop(0, accentHex ? `${accentHex}44` : 'rgba(56, 189, 248, 0.35)');
+      ctaGrad.addColorStop(1, accentHex ? `${accentHex}20` : 'rgba(56, 189, 248, 0.16)');
+    } else {
+      ctaGrad.addColorStop(0, 'rgba(255, 255, 255, 0.08)');
+      ctaGrad.addColorStop(1, accentHex ? `${accentHex}18` : 'rgba(56, 189, 248, 0.12)');
     }
-    roundRect(ctx, ctaX, ctaY, ctaW, ctaH, 12);
+    ctx.fillStyle = ctaGrad;
+    roundRect(ctx, ctaX, ctaY, ctaW, ctaH, ctaH / 2);
     ctx.fill();
+
+    ctx.strokeStyle = isHoverAct
+      ? (accentHex || '#38bdf8')
+      : (accentHex ? `${accentHex}55` : 'rgba(255, 255, 255, 0.18)');
+    ctx.lineWidth = isHoverAct ? 1.6 : 1.1;
+    if (isHoverAct) {
+      ctx.shadowColor = accentHex || '#38bdf8';
+      ctx.shadowBlur = 12;
+    }
+    roundRect(ctx, ctaX, ctaY, ctaW, ctaH, ctaH / 2);
     ctx.stroke();
     ctx.shadowBlur = 0;
 
-    ctx.fillStyle = isHoverAct ? '#ffffff' : P.text;
-    ctx.font = `bold ${F.idleCta}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText('瞄准桌面终端 · 点击激活', W / 2, ctaY + ctaH * 0.58);
+    // Button label (clean and centered)
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '600 18px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('瞄准桌面终端 · 点击激活', W / 2, ctaY + ctaH / 2);
+    ctx.restore();
 
-    ctx.fillStyle = P.soft;
-    ctx.font = `${F.idleHint}px "Microsoft YaHei", sans-serif`;
-    ctx.fillText('选实验后，内容投射到前方悬浮大屏', W / 2, H * 0.80);
+    // ── 5. Bottom Subtle Footnote ──
+    ctx.save();
+    ctx.fillStyle = 'rgba(148, 163, 184, 0.65)';
+    ctx.font = '13px "PingFang SC", "Microsoft YaHei", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('✦ 选择实验后，内容将无缝投射到前方悬浮大屏', W / 2, 420);
+    ctx.restore();
 
     hits.push({
       id: 'activate',
@@ -4820,97 +4914,110 @@ export function drawHoloScreen(ctx, W, H, opts) {
       const selected = running && experiment?.id === ex.id;
       const isPressed = _uiPressedId === `exp-${ex.id}` || _uiPressedAction === `start-${ex.id}` || (pressedPick?.expId === ex.id);
 
-      // Tactile physical displacement on press (down 3px, inset 2px)
-      const cardX = isPressed ? x + 3 : x;
-      const cardY = isPressed ? y + 3 : y;
-      const cardW = isPressed ? w - 6 : w;
-      const cardActualH = isPressed ? cardH - 3 : cardH;
+      // Tactile physical displacement on press (down 2px, inset 1px)
+      const cardX = isPressed ? x + 2 : x;
+      const cardY = isPressed ? y + 2 : y;
+      const cardW = isPressed ? w - 4 : w;
+      const cardActualH = isPressed ? cardH - 2 : cardH;
 
       ctx.save();
-      // Steady translucent glass body - no cursor hover flash
+      // Steady translucent dark frosted glass body
       if (selected) {
-        ctx.fillStyle = accentHex ? `${accentHex}33` : 'rgba(56, 189, 248, 0.28)';
+        ctx.fillStyle = accentHex ? `${accentHex}24` : 'rgba(56, 189, 248, 0.20)';
       } else if (isPressed) {
-        ctx.fillStyle = accentHex ? `${accentHex}26` : 'rgba(56, 189, 248, 0.20)';
+        ctx.fillStyle = accentHex ? `${accentHex}1a` : 'rgba(56, 189, 248, 0.15)';
       } else {
-        ctx.fillStyle = 'rgba(12, 22, 42, 0.60)';
+        ctx.fillStyle = 'rgba(14, 22, 40, 0.58)';
       }
-      roundRect(ctx, cardX, cardY, cardW, cardActualH, 12);
+      roundRect(ctx, cardX, cardY, cardW, cardActualH, 14);
       ctx.fill();
 
       // Border
-      ctx.lineWidth = (selected || isPressed) ? 1.4 : 1.0;
+      ctx.lineWidth = (selected || isPressed) ? 1.3 : 1.0;
       if (selected || isPressed) {
         ctx.strokeStyle = accentHex || '#38bdf8';
+        if (selected) {
+          ctx.shadowColor = accentHex || '#38bdf8';
+          ctx.shadowBlur = 6;
+        }
       } else {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.08)';
       }
-      roundRect(ctx, cardX, cardY, cardW, cardActualH, 12);
+      roundRect(ctx, cardX, cardY, cardW, cardActualH, 14);
       ctx.stroke();
+      ctx.shadowBlur = 0;
 
       // Active state left indicator pill
       if (selected) {
         ctx.fillStyle = accentHex || '#38bdf8';
-        roundRect(ctx, cardX + 5, cardY + (cardActualH - 34) / 2, 4, 34, 2);
+        roundRect(ctx, cardX + 6, cardY + (cardActualH - 32) / 2, 3.5, 32, 2);
         ctx.fill();
       }
 
-      // Left Number Badge
-      const numW = 50;
-      const numH = 38;
+      // Left Number Badge (Refined Capsule)
+      const numW = 42;
+      const numH = 32;
       const numX = cardX + 16;
       const numY = cardY + (cardActualH - numH) / 2;
       ctx.fillStyle = (selected || isPressed)
-        ? (accentHex ? `${accentHex}44` : 'rgba(56, 189, 248, 0.40)')
-        : 'rgba(255, 255, 255, 0.08)';
+        ? (accentHex ? `${accentHex}33` : 'rgba(56, 189, 248, 0.28)')
+        : 'rgba(255, 255, 255, 0.05)';
       roundRect(ctx, numX, numY, numW, numH, 8);
       ctx.fill();
       ctx.strokeStyle = (selected || isPressed)
         ? (accentHex || '#38bdf8')
-        : 'rgba(255, 255, 255, 0.15)';
+        : 'rgba(255, 255, 255, 0.09)';
       ctx.lineWidth = 1.0;
       roundRect(ctx, numX, numY, numW, numH, 8);
       ctx.stroke();
 
       ctx.fillStyle = (selected || isPressed) ? '#ffffff' : (accentHex || '#38bdf8');
-      ctx.font = '600 18px -apple-system, BlinkMacSystemFont, "SF Pro Display", monospace';
+      ctx.font = '600 15px -apple-system, BlinkMacSystemFont, "SF Pro Display", monospace';
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.fillText(String(i + 1).padStart(2, '0'), numX + numW / 2, numY + numH / 2);
 
       // Card Title
       ctx.fillStyle = (selected || isPressed) ? '#ffffff' : '#f8fafc';
-      ctx.font = '600 24px -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif';
+      ctx.font = '600 22px -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Microsoft YaHei", sans-serif';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(ex.name, cardX + 84, cardY + cardActualH / 2);
+      ctx.fillText(ex.name, cardX + 72, cardY + cardActualH / 2);
 
       // Right status / action indicator
       if (selected) {
-        const tagW = 84;
-        const tagH = 28;
+        const tagW = 78;
+        const tagH = 26;
         const tagX = cardX + cardW - tagW - 16;
         const tagY = cardY + (cardActualH - tagH) / 2;
-        ctx.fillStyle = accentHex ? `${accentHex}33` : 'rgba(56, 189, 248, 0.25)';
+        ctx.fillStyle = 'rgba(34, 197, 94, 0.15)';
         roundRect(ctx, tagX, tagY, tagW, tagH, 6);
         ctx.fill();
-        ctx.strokeStyle = accentHex || '#38bdf8';
+        ctx.strokeStyle = 'rgba(34, 197, 94, 0.40)';
         ctx.lineWidth = 1.0;
         roundRect(ctx, tagX, tagY, tagW, tagH, 6);
         ctx.stroke();
 
-        ctx.fillStyle = '#f0fdf4';
-        ctx.font = '600 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif';
+        ctx.fillStyle = '#4ade80';
+        ctx.font = '600 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('进行中', tagX + tagW / 2, tagY + tagH / 2);
+        ctx.fillText('● 进行中', tagX + tagW / 2, tagY + tagH / 2);
       } else {
-        ctx.fillStyle = isPressed ? (accentHex || '#38bdf8') : 'rgba(226, 232, 240, 0.65)';
-        ctx.font = '600 24px -apple-system, BlinkMacSystemFont, sans-serif';
+        const arrowCircleR = 14;
+        const arrowX = cardX + cardW - 28;
+        const arrowY = cardY + cardActualH / 2;
+
+        ctx.fillStyle = isPressed ? (accentHex ? `${accentHex}33` : 'rgba(56, 189, 248, 0.25)') : 'rgba(255, 255, 255, 0.05)';
+        ctx.beginPath();
+        ctx.arc(arrowX, arrowY, arrowCircleR, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.fillStyle = isPressed ? (accentHex || '#38bdf8') : 'rgba(226, 232, 240, 0.70)';
+        ctx.font = '500 16px -apple-system, BlinkMacSystemFont, sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        const arrowX = isPressed ? (cardX + cardW - 18) : (cardX + cardW - 24);
-        ctx.fillText('›', arrowX, cardY + cardActualH / 2);
+        ctx.fillText('›', arrowX, arrowY - 1);
       }
       ctx.restore();
 

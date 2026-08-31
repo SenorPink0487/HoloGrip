@@ -1,11 +1,14 @@
 /**
- * Interactive classroom formula board — clean sub-page hierarchical design.
- * Level 1: 实验室大厅 / 5大实验台总览 (Home Hub View)
- * Level 2: 实验台子页面 / 实验项目精选列表 (Clean Directory Cards — 无密集公式文本堆叠)
- * Level 3: 单实验深度解析看板 (Deep Dive — 完整展开公式、理论机理、SI量纲与3D实测)
- *
- * Drawn on 1920x900 canvas texture; UV hit-test like a touch screen.
- * 严格遵循人教版/大学物理标准，字体规范使用 FONT_STACKS 与 buildUiFont。
+ * 物理实验室前置大屏 — 简约大气极简设计
+ * 
+ * 设计规范：
+ * 1. 纯粹四大物理板块：力学、电磁学、光学、热力学（移除化学与所有杂乱图标/emoji）
+ * 2. 国际化极简科技排版：大号编号、强劲主标题、双语标注、物理导语、核心公式印记卡片与实验清单
+ * 3. 交互机制：点击卡片可“激活”该板块（高亮光晕、状态胶囊、主题色彩渐变），点击已激活卡片或按钮直接进入实验台
+ * 4. 层次架构：
+ *    - Level 1: 四大物理板块大屏主页 (Home / Activate Hub View)
+ *    - Level 2: 板块实验精选目录 (Station Subpage View)
+ *    - Level 3: 单实验深度解析看板 (Experiment Detail View)
  */
 
 import {
@@ -55,93 +58,83 @@ function wrapText(ctx, text, maxWidth) {
   return lines;
 }
 
-/** 5 大实验台与 25 项项目实装实验知识库 */
+/** 物理 4 大核心板块与 22 项实装物理实验知识库 */
 export const FORMULA_CATALOG = {
   stations: [
     {
       id: 'mechanics',
-      name: '力学实验台',
-      en: 'MECHANICS STATION',
-      color: '#0ea5e9',
-      badge: '6 个实验项目',
-      iconText: '🚀',
-      desc: '自由落体 · 斜面动力学 · 单摆简谐 · 碰撞动量 · 抛体运动 · 液体粘度',
+      num: '01',
+      name: '力学',
+      en: 'MECHANICS',
+      color: '#0284c7',
+      badge: '6 项实验',
+      lead: '研究物体的机械运动、受力机制与时空能量动量守恒规律。',
+      formulaText: 'F = m·a  ·  p = m·v  ·  E_k = ½mv²',
       expList: [
         '自由落体实验',
-        '斜面运动实验',
-        '单摆实验',
-        '碰撞与动能实验',
-        '抛体运动实验',
-        '落球法测粘滞系数',
+        '斜面动力学',
+        '单摆简谐运动',
+        '碰撞与动能',
+        '抛体分运动',
+        '落球法测粘度',
       ],
     },
     {
       id: 'electro',
-      name: '电磁学实验台',
-      en: 'ELECTRO STATION',
+      num: '02',
+      name: '电磁学',
+      en: 'ELECTROMAGNETISM',
       color: '#ec4899',
-      badge: '6 个实验项目',
-      iconText: '⚡',
-      desc: '法拉第感应 · 感生电场 · 静电场探索 · 高斯定理 · 霍尔效应 · 螺线管测磁',
+      badge: '6 项实验',
+      lead: '探究电荷相互作用、磁通演化、电磁感应及微观载流子偏转机理。',
+      formulaText: 'ℰ = -dΦ/dt  ·  ∇·E = ρ/ε₀  ·  U_H = K·I·B',
       expList: [
-        '法拉第电磁感应',
-        '感生电场实验',
-        '静电场探索实验',
-        '静电场高斯定理',
-        '霍尔效应原理',
-        '霍尔效应测磁',
+        '法拉第感应',
+        '涡旋感生电场',
+        '静电场探索',
+        '高斯通量定理',
+        '霍尔微观机理',
+        '螺线管测磁',
       ],
     },
     {
       id: 'optics',
-      name: '光学实验台',
-      en: 'OPTICS STATION',
-      color: '#f59e0b',
-      badge: '5 个实验项目',
-      iconText: '🌈',
-      desc: '光的反射 · 折射全反射 · 棱镜色散 · 透镜光路 · 单多缝衍射干涉',
+      num: '03',
+      name: '光学',
+      en: 'OPTICS',
+      color: '#d97706',
+      badge: '5 项实验',
+      lead: '研究光的传播路径、折射色散规律、波动干涉衍射与光谱特征。',
+      formulaText: 'n₁sin i = n₂sin r  ·  Δx = λL/d  ·  1/u+1/v=1/f',
       expList: [
-        '光的反射实验',
-        '光的折射实验',
-        '光的色散实验',
-        '透镜光路实验',
-        '单缝衍射 · 多缝干涉',
+        '光的反射定律',
+        '光的折射全反射',
+        '三棱镜分光色散',
+        '透镜光路成像',
+        '单缝多缝干涉衍射',
       ],
     },
     {
       id: 'thermo',
-      name: '热力学实验台',
-      en: 'THERMO STATION',
-      color: '#fb923c',
-      badge: '5 个实验项目',
-      iconText: '🔥',
-      desc: '混合量热 · 固体热膨胀 · 稳态热传导 · 理想气体定律 · 自然对流换热',
+      num: '04',
+      name: '热力学',
+      en: 'THERMODYNAMICS',
+      color: '#ea580c',
+      badge: '5 项实验',
+      lead: '阐明热功转化机制、宏观状态方程演化及热量传递与分子统计规律。',
+      formulaText: 'p·V = n·R·T  ·  dQ = dU + dW  ·  Q = c·m·ΔT',
       expList: [
-        '混合量热实验',
-        '固体热膨胀实验',
-        '稳态热传导实验',
+        '混合量热平衡',
+        '固体热膨胀',
+        '稳态热传导',
         '理想气体定律',
-        '自然对流实验',
-      ],
-    },
-    {
-      id: 'chem',
-      name: '化学微观台',
-      en: 'CHEMISTRY STATION',
-      color: '#8b5cf6',
-      badge: '3 个实验项目',
-      iconText: '🧪',
-      desc: '试剂混合浓度 · 周期律与分子空间立体构型 · 质量守恒与化学计量',
-      expList: [
-        '试剂混合与溶液配制',
-        '周期律与分子 3D 构型',
-        '质量守恒与化学计量',
+        '自然对流换热',
       ],
     },
   ],
   get categories() {
     return [
-      { id: 'all', name: '全部实验', en: 'ALL LABS', color: '#0284c7', count: 25 },
+      { id: 'all', name: '全部实验', en: 'ALL LABS', color: '#0284c7', count: 22 },
       ...this.stations.map((s) => ({
         id: s.id,
         name: s.name,
@@ -152,7 +145,7 @@ export const FORMULA_CATALOG = {
     ];
   },
   items: [
-    // ════════════ 1. 力学实验台 ════════════
+    // ════════════ 1. 力学板块 ════════════
     {
       id: 'free_fall',
       cat: 'mechanics',
@@ -238,7 +231,7 @@ export const FORMULA_CATALOG = {
       labLink: '力学实验台 · 粘滞系数：选择甘油/机油并释放钢球，通过双光电门测定终端速度。',
     },
 
-    // ════════════ 2. 电磁学实验台 ════════════
+    // ════════════ 2. 电磁学板块 ════════════
     {
       id: 'faraday_induction',
       cat: 'electro',
@@ -324,7 +317,7 @@ export const FORMULA_CATALOG = {
       labLink: '电磁学实验台 · 霍尔测磁：沿轴线移动探头，扫描线圈与螺线管的 B–X 空间曲线。',
     },
 
-    // ════════════ 3. 光学实验台 ════════════
+    // ════════════ 3. 光学板块 ════════════
     {
       id: 'optics_reflection',
       cat: 'optics',
@@ -396,7 +389,7 @@ export const FORMULA_CATALOG = {
       labLink: '光学实验台 · 衍射干涉：调节波长、缝宽与缝间距，在观察屏与强度曲线对照规律。',
     },
 
-    // ════════════ 4. 热力学实验台 ════════════
+    // ════════════ 4. 热力学板块 ════════════
     {
       id: 'thermo_calorimetry',
       cat: 'thermo',
@@ -467,151 +460,158 @@ export const FORMULA_CATALOG = {
       symbols: 'h — 换热系数 (W/(m²·K))　A — 换热面积 (m²)　ΔT — 壁面温差 (°C)　Ra — 瑞利数',
       labLink: '热力学实验台 · 自然对流：调节热底板温度，观察封闭腔体内热羽流演化与回流。',
     },
-    {
-      id: 'chem_molar',
-      cat: 'chem',
-      expId: 'reagent-mix',
-      expName: '试剂混合与结构实验',
-      code: 'CHEM-01',
-      goal: '学习物质的量计量方法，完成不同浓度标准溶液的定量配制与混合',
-      tags: ['物质的量 n', '物质的量浓度 c', '溶液稀释定理'],
-      title: '物质的量与溶液浓度配制',
-      formula: 'n=\\frac{m}{M}=\\frac{N}{N_{A}}；c=\\frac{n}{V}；c_{1}V_{1}=c_{2}V_{2}',
-      concept: '物质的量 n 连接微观与宏观。溶液稀释前后溶质物质的量守恒，用于精准配制标准溶液。',
-      symbols: 'n — 物质的量 (mol)　M — 摩尔质量 (g/mol)　c — 物质的量浓度 (mol/L)　V — 溶液体积',
-      labLink: '化学实验台 · 试剂混合：在烧杯中添加无机试剂与溶剂，倾倒混合并查看成分浓度。',
-    },
-    {
-      id: 'chem_structure',
-      cat: 'chem',
-      expId: 'reagent-mix',
-      expName: '试剂混合与结构实验',
-      code: 'CHEM-02',
-      goal: '点选元素周期表试剂，在实验台生成并观察分子空间 3D 球棍立体构型',
-      tags: ['元素周期律', '分子 3D 空间构型', 'SDF 势场模型'],
-      title: '元素周期律与分子空间立体构型',
-      formula: '\\Delta E = h\\nu；\\phi(\\vec{r})=\\text{SDF}(\\vec{r})',
-      concept: '元素性质随原子序数递增呈周期性变化。分子空间构型由原子共价键与价层电子对互斥决定。',
-      symbols: 'Z — 原子序数　h — 普朗克常量　ν — 跃迁频率　SDF — 空间带符号距离场',
-      labLink: '化学实验台 · 分子结构：点选元素周期表试剂，在实验台全息展示分子的 3D 球棍立体构型。',
-    },
-    {
-      id: 'chem_reaction',
-      cat: 'chem',
-      expId: 'reagent-mix',
-      expName: '试剂混合与结构实验',
-      code: 'CHEM-03',
-      goal: '混合反应试剂验证质量守恒定律及反应物产物化学计量数配比',
-      tags: ['质量守恒定律', '化学计量数配平', '沉淀反应平衡'],
-      title: '质量守恒定律与化学计量反应',
-      formula: '\\sum m_{\\text{反应物}}=\\sum m_{\\text{生成物}}；\\frac{\\Delta n_{A}}{\\nu_{A}}=\\frac{\\Delta n_{B}}{\\nu_{B}}',
-      concept: '化学反应前后原子的种类、数目与质量守恒。反应物消耗量与生成物按化学计量比转化。',
-      symbols: 'm — 质量 (g)　ν_A, ν_B — 化学计量数　Δn — 反应消耗/生成的物质的量 (mol)',
-      labLink: '化学实验台 · 反应实验：混合酸碱或沉淀反应试剂，观察颜色变化与沉淀生成产物平衡。',
-    },
   ],
 };
 
-function drawHomeView(ctx, W, H, hits) {
+// ═════════════════════════════════════════════════════════
+// 页面 1：四大物理板块大屏主页 (Home / Hub View) — 2×2 宽屏工作台布局、巨型靶区、极速直达
+// ═════════════════════════════════════════════════════════
+function drawHomeView(ctx, W, H, stateOrHits, maybeHits) {
+  const hits = Array.isArray(stateOrHits) ? stateOrHits : (maybeHits || []);
+  const state = Array.isArray(stateOrHits) ? {} : (stateOrHits || {});
+  const activeStationId = state.activeStationId || 'mechanics';
+
   const stations = FORMULA_CATALOG.stations;
-  const headerH = 100;
-  const padX = 40;
-  const cardTop = 128;
-  const gapX = 20;
-  const cardW = (W - padX * 2 - gapX * (stations.length - 1)) / stations.length;
-  const cardH = H - cardTop - 36;
+  const padX = 44;
+  const padY = 36;
+  const gapX = 32;
+  const gapY = 28;
+  const cols = 2;
+  const rows = 2;
+  const cardW = (W - padX * 2 - gapX * (cols - 1)) / cols;
+  const cardH = (H - padY * 2 - gapY * (rows - 1)) / rows;
 
-  ctx.fillStyle = 'rgba(14, 165, 233, 0.14)';
-  ctx.fillRect(0, 0, W, headerH);
-  ctx.strokeStyle = 'rgba(14, 165, 233, 0.35)';
-  ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(0, headerH); ctx.lineTo(W, headerH); ctx.stroke();
-  ctx.fillStyle = '#10b981';
-  ctx.beginPath(); ctx.arc(44, headerH / 2, 8, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = '#0369a1';
-  ctx.font = buildUiFont(36, 'bold');
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('PHYSICS LABORATORY  ·  物理实验知识大厅', 64, headerH / 2);
+  // 领域核心标签映射（大字展示，无多余小字）
+  const domainTags = {
+    mechanics: '运动与力 · 动量能量 · 守恒定律',
+    electro: '电磁感应 · 静电高斯 · 洛伦兹力',
+    optics: '几何成像 · 色散折射 · 波动干涉',
+    thermo: '状态方程 · 混合量热 · 热量传递',
+  };
 
+  // ════════════ 2 × 2 宽屏大卡片渲染 ════════════
   stations.forEach((st, i) => {
-    const x = padX + i * (cardW + gapX);
-    const y = cardTop;
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = padX + col * (cardW + gapX);
+    const y = padY + row * (cardH + gapY);
+    const isActive = st.id === activeStationId;
 
-    // 卡片背景
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.strokeStyle = hexToRgba(st.color, 0.45);
-    ctx.lineWidth = 2.5;
-    roundRect(ctx, x, y, cardW, cardH, 22);
-    ctx.fill();
-    ctx.stroke();
+    // 激活状态外发光光晕
+    if (isActive) {
+      ctx.fillStyle = hexToRgba(st.color, 0.16);
+      roundRect(ctx, x - 8, y - 8, cardW + 16, cardH + 16, 28);
+      ctx.fill();
+    }
 
-    // 顶部主题色带
+    // 卡片主背景与顶部装饰条（通过 clip 完美贴合卡片顶部圆角）
+    const cardGrad = ctx.createLinearGradient(x, y, x + cardW, y + cardH);
+    cardGrad.addColorStop(0, '#ffffff');
+    cardGrad.addColorStop(0.65, '#ffffff');
+    cardGrad.addColorStop(1, hexToRgba(st.color, 0.1));
+
+    ctx.save();
+    roundRect(ctx, x, y, cardW, cardH, 24);
+    ctx.clip?.();
+
+    ctx.fillStyle = cardGrad;
+    ctx.fillRect(x, y, cardW, cardH);
+
+    // 顶部主题色高亮条（与圆角无缝贴合）
     ctx.fillStyle = st.color;
-    roundRect(ctx, x + 4, y + 4, cardW - 8, 10, 5);
-    ctx.fill();
+    ctx.fillRect(x, y, cardW, 10);
 
-    // 居中大图标外圈圆盘 (直径 130px)
-    const iconCenterY = y + 160;
-    const iconR = 65;
+    ctx.restore();
+
+    // 绘制外边框
+    ctx.strokeStyle = isActive ? st.color : hexToRgba(st.color, 0.42);
+    ctx.lineWidth = isActive ? 3.5 : 2.5;
+    roundRect(ctx, x, y, cardW, cardH, 24);
+    ctx.stroke();
+
+    // ════════ 左半部分：编号、主标题、英文副标题与核心方向 ════════
+    const leftPad = x + 36;
+
+    // 1. 顶部编号胶囊 + 实验数量徽标
+    const topRowY = y + 28;
+
+    // 编号胶囊
+    const numBadgeW = 58;
+    const numBadgeH = 36;
     ctx.fillStyle = hexToRgba(st.color, 0.12);
-    ctx.strokeStyle = st.color;
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.arc(x + cardW / 2, iconCenterY, iconR, 0, Math.PI * 2);
+    ctx.strokeStyle = hexToRgba(st.color, 0.4);
+    ctx.lineWidth = 1.4;
+    roundRect(ctx, leftPad, topRowY, numBadgeW, numBadgeH, 10);
     ctx.fill();
     ctx.stroke();
 
-    // 实验台大图标
-    ctx.font = buildUiFont(64, 'bold');
+    ctx.fillStyle = st.color;
+    ctx.font = buildUiFont(20, 'bold');
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(st.iconText, x + cardW / 2, iconCenterY);
+    ctx.fillText(st.num, leftPad + numBadgeW / 2, topRowY + numBadgeH / 2);
 
-    // 实验台主标题 (38px 超大号醒目字体)
-    ctx.fillStyle = '#0f172a';
-    ctx.font = buildUiFont(38, 'bold');
-    ctx.fillText(st.name, x + cardW / 2, y + 280);
-
-    // 英文标识 (18px)
-    ctx.fillStyle = '#64748b';
+    // 实验数量徽标
+    const badgeText = `● ${st.badge}`;
     ctx.font = buildUiFont(18, 'bold');
-    ctx.fillText(st.en, x + cardW / 2, y + 330);
-
-    // 实验数量大胶囊徽章 (22px，采用主题色)
-    const badgeW = 190;
-    const badgeH = 50;
-    const badgeY = y + 380;
-    ctx.fillStyle = hexToRgba(st.color, 0.14);
-    ctx.strokeStyle = hexToRgba(st.color, 0.4);
-    ctx.lineWidth = 1.8;
-    roundRect(ctx, x + (cardW - badgeW) / 2, badgeY, badgeW, badgeH, 25);
+    const badgeW = ctx.measureText(badgeText).width + 32;
+    const badgeH = 36;
+    const badgeX = leftPad + numBadgeW + 16;
+    ctx.fillStyle = 'rgba(241, 245, 249, 0.95)';
+    ctx.strokeStyle = 'rgba(203, 213, 225, 0.9)';
+    ctx.lineWidth = 1.4;
+    roundRect(ctx, badgeX, topRowY, badgeW, badgeH, 10);
     ctx.fill();
     ctx.stroke();
 
     ctx.fillStyle = st.color;
-    ctx.font = buildUiFont(22, 'bold');
-    ctx.fillText(st.badge, x + cardW / 2, badgeY + badgeH / 2);
+    ctx.textAlign = 'center';
+    ctx.fillText(badgeText, badgeX + badgeW / 2, topRowY + badgeH / 2);
 
-    // 底部超大高亮进入按钮 (76px 高度，采用实验台主题色纯色填充 + 纯白文字，色彩准确醒目)
-    const btnW = cardW - 44;
-    const btnH = 76;
-    const btnX = x + 22;
-    const btnY = y + cardH - btnH - 32;
+    // 2. 核心大标题
+    const titleY = y + 92;
+    ctx.fillStyle = '#0f172a';
+    ctx.font = buildUiFont(56, 'bold');
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(st.name, leftPad, titleY);
 
+    // 英文副标题
+    const enY = titleY + 68;
     ctx.fillStyle = st.color;
-    ctx.strokeStyle = st.color;
-    ctx.lineWidth = 2;
-    roundRect(ctx, btnX, btnY, btnW, btnH, 18);
-    ctx.fill();
-    ctx.stroke();
+    ctx.font = buildUiFont(20, 'bold');
+    ctx.fillText(st.en, leftPad, enY);
 
+    // 3. 领域核心大标签 (清晰醒目)
+    const tagY = enY + 42;
+    const dTag = domainTags[st.id] || '基础物理仿真实验';
+    ctx.fillStyle = '#475569';
+    ctx.font = buildUiFont(20, '600');
+    ctx.fillText(dTag, leftPad, tagY);
+
+    // ════════ 右半部分：巨型进入按钮与交互区 ════════
+    const btnW = 310;
+    const btnH = 92;
+    const btnX = x + cardW - btnW - 40;
+    const btnY = y + (cardH - btnH) / 2 + 10;
+
+    // 按钮背景发光渐变
+    const btnGrad = ctx.createLinearGradient(btnX, btnY, btnX + btnW, btnY + btnH);
+    btnGrad.addColorStop(0, st.color);
+    btnGrad.addColorStop(1, hexToRgba(st.color, 0.88));
+
+    ctx.fillStyle = btnGrad;
+    roundRect(ctx, btnX, btnY, btnW, btnH, 20);
+    ctx.fill();
+
+    // 按钮文字与箭头
     ctx.fillStyle = '#ffffff';
-    ctx.font = buildUiFont(26, 'bold');
+    ctx.font = buildUiFont(28, 'bold');
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('进入实验台 ➔', btnX + btnW / 2, btnY + btnH / 2);
 
+    // 交互热区：整张大卡片和按钮均为一键直达点击区
     hits.push({
       id: `station-${st.id}`,
       x,
@@ -621,43 +621,66 @@ function drawHomeView(ctx, W, H, hits) {
       action: 'station',
       stationId: st.id,
     });
+
+    hits.push({
+      id: `btn-${st.id}`,
+      x: btnX,
+      y: btnY,
+      w: btnW,
+      h: btnH,
+      action: 'station',
+      stationId: st.id,
+    });
   });
 }
 
 // ═════════════════════════════════════════════════════════
-// 页面 2：实验台子页面 (Station Sub-page View) — 纯净目录卡片、大字号大按钮
+// 页面 2：实验台子页面 (Station Sub-page View) — 右上角大号返回按钮、大序号 01/02、极速直达
 // ═════════════════════════════════════════════════════════
 function drawStationSubpageView(ctx, W, H, stationId, hits) {
   const st = FORMULA_CATALOG.stations.find((s) => s.id === stationId) || FORMULA_CATALOG.stations[0];
   const items = FORMULA_CATALOG.items.filter((it) => it.cat === st.id);
-  const headerH = 92;
-  const padX = 40;
+  const headerH = 88;
+  const padX = 44;
 
   // 顶部导航栏背景
-  ctx.fillStyle = hexToRgba(st.color, 0.12);
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
   ctx.fillRect(0, 0, W, headerH);
-  ctx.strokeStyle = hexToRgba(st.color, 0.35);
+  ctx.strokeStyle = 'rgba(203, 213, 225, 0.8)';
   ctx.lineWidth = 2;
-  ctx.beginPath(); ctx.moveTo(0, headerH); ctx.lineTo(W, headerH); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(0, headerH);
+  ctx.lineTo(W, headerH);
+  ctx.stroke();
 
-  // 返回大厅按钮 (加大，主题色描边与文字)
-  const backW = 210;
-  const backH = 52;
-  const backX = padX;
+  // 左侧当前领域名称标识（醒目大字）
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(32, 'bold');
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`${st.name} · 实验列表`, padX + 8, headerH / 2);
+
+  // 右上角独立大号返回按钮
+  const backW = 260;
+  const backH = 60;
+  const backX = W - padX - backW;
   const backY = (headerH - backH) / 2;
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+  const backGrad = ctx.createLinearGradient(backX, backY, backX, backY + backH);
+  backGrad.addColorStop(0, '#ffffff');
+  backGrad.addColorStop(1, '#f1f5f9');
+  ctx.fillStyle = backGrad;
   ctx.strokeStyle = st.color;
-  ctx.lineWidth = 2.2;
-  roundRect(ctx, backX, backY, backW, backH, 14);
+  ctx.lineWidth = 2.4;
+  roundRect(ctx, backX, backY, backW, backH, 18);
   ctx.fill();
   ctx.stroke();
 
   ctx.fillStyle = st.color;
-  ctx.font = buildUiFont(22, 'bold');
+  ctx.font = buildUiFont(26, 'bold');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('← 返回大厅', backX + backW / 2, backY + backH / 2);
+  ctx.fillText('← 返回', backX + backW / 2, backY + backH / 2);
 
   hits.push({
     id: 'back-home',
@@ -668,61 +691,15 @@ function drawStationSubpageView(ctx, W, H, stationId, hits) {
     action: 'home',
   });
 
-  // 面包屑导航与当前实验台标题 (加大)
-  ctx.fillStyle = '#64748b';
-  ctx.font = buildUiFont(20, 'bold');
-  ctx.textAlign = 'left';
-  ctx.fillText('实验室大厅  /  ', backX + backW + 28, headerH / 2);
-
-  ctx.fillStyle = st.color;
-  ctx.font = buildUiFont(28, 'bold');
-  const breadcrumbText = `${st.name} · ${st.badge}`;
-  ctx.fillText(breadcrumbText, backX + backW + 155, headerH / 2);
-
-  // 右侧快速横向切换实验台 Tab (加大)
-  const quickStations = FORMULA_CATALOG.stations;
-  const qGap = 10;
-  const qW = 115;
-  const qH = 46;
-  const qTotalW = quickStations.length * qW + (quickStations.length - 1) * qGap;
-  let qX = W - padX - qTotalW;
-  const qY = (headerH - qH) / 2;
-
-  quickStations.forEach((otherSt) => {
-    const isCur = otherSt.id === st.id;
-    ctx.fillStyle = isCur ? otherSt.color : 'rgba(255, 255, 255, 0.85)';
-    ctx.strokeStyle = isCur ? otherSt.color : hexToRgba(otherSt.color, 0.4);
-    ctx.lineWidth = 2;
-    roundRect(ctx, qX, qY, qW, qH, 12);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = isCur ? '#ffffff' : otherSt.color;
-    ctx.font = buildUiFont(18, isCur ? 'bold' : '600');
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(otherSt.name.slice(0, 3), qX + qW / 2, qY + qH / 2);
-
-    hits.push({
-      id: `tab-st-${otherSt.id}`,
-      x: qX,
-      y: qY,
-      w: qW,
-      h: qH,
-      action: 'station',
-      stationId: otherSt.id,
-    });
-    qX += qW + qGap;
-  });
-
-  // 实验卡片大尺寸网格（3 列 × 2 行，极简纯净，超大标题与超大按钮）
-  const gridTop = headerH + 28;
+  // 实验卡片网格（3 列 × 2 行，纯净大字排版，大号 01/02 序号，全卡片一键直达）
+  const gridTop = headerH + 20;
+  const bottomPad = 26;
   const cols = 3;
   const rows = 2;
   const gapX = 24;
   const gapY = 24;
   const cardW = (W - padX * 2 - gapX * (cols - 1)) / cols;
-  const cardH = (H - gridTop - 32 - gapY * (rows - 1)) / rows;
+  const cardH = (H - gridTop - bottomPad - gapY * (rows - 1)) / rows;
 
   items.forEach((it, i) => {
     const col = i % cols;
@@ -730,62 +707,73 @@ function drawStationSubpageView(ctx, W, H, stationId, hits) {
     const x = padX + col * (cardW + gapX);
     const y = gridTop + row * (cardH + gapY);
 
-    // 卡片外框
-    ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-    ctx.strokeStyle = hexToRgba(st.color, 0.45);
-    ctx.lineWidth = 2.5;
+    // 卡片主背景与顶部装饰条（通过 clip 完美贴合圆角）
+    const cardGrad = ctx.createLinearGradient(x, y, x, y + cardH);
+    cardGrad.addColorStop(0, '#ffffff');
+    cardGrad.addColorStop(0.65, '#ffffff');
+    cardGrad.addColorStop(1, hexToRgba(st.color, 0.09));
+
+    ctx.save();
     roundRect(ctx, x, y, cardW, cardH, 22);
-    ctx.fill();
+    ctx.clip?.();
+
+    ctx.fillStyle = cardGrad;
+    ctx.fillRect(x, y, cardW, cardH);
+
+    // 顶部主题色带
+    ctx.fillStyle = st.color;
+    ctx.fillRect(x, y, cardW, 8);
+    ctx.restore();
+
+    ctx.strokeStyle = hexToRgba(st.color, 0.42);
+    ctx.lineWidth = 2.4;
+    roundRect(ctx, x, y, cardW, cardH, 22);
     ctx.stroke();
 
-    // 顶部主题小色带
+    // 1. 左上角大号醒目序号 (01, 02, 03...)
+    const numStr = String(i + 1).padStart(2, '0');
     ctx.fillStyle = st.color;
-    roundRect(ctx, x + 4, y + 4, cardW - 8, 8, 4);
-    ctx.fill();
+    ctx.font = buildUiFont(44, 'bold');
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(numStr, x + 26, y + 24);
 
-    // 顶部编号胶囊 (居左，采用主题色)
-    ctx.font = buildUiFont(16, 'bold');
-    const codeText = `${it.code}`;
-    const codeW = ctx.measureText(codeText).width + 24;
-    const codeH = 34;
-    ctx.fillStyle = hexToRgba(st.color, 0.14);
-    ctx.strokeStyle = hexToRgba(st.color, 0.4);
-    ctx.lineWidth = 1.5;
-    roundRect(ctx, x + 24, y + 24, codeW, codeH, 8);
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.fillStyle = st.color;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(codeText, x + 24 + codeW / 2, y + 24 + codeH / 2);
-
-    // 实验主标题 (42px 超大号醒目粗体字，绝对居中)
+    // 2. 实验主标题 (居中大字号)
     ctx.fillStyle = '#0f172a';
-    ctx.font = buildUiFont(40, 'bold');
+    ctx.font = buildUiFont(36, 'bold');
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillText(it.expName, x + cardW / 2, y + 148);
+    ctx.fillText(it.expName, x + cardW / 2, y + 122);
 
-    // 底部超大高亮进入按钮 (72px 高度，采用主题色纯色填充 + 纯白文字)
+    // 3. 核心物理方向标签 (大字标签，无小字)
+    const tagText = it.tags ? it.tags.slice(0, 2).join(' · ') : '';
+    if (tagText) {
+      ctx.fillStyle = '#64748b';
+      ctx.font = buildUiFont(18, '600');
+      ctx.fillText(tagText, x + cardW / 2, y + 178);
+    }
+
+    // 4. 底部全宽进入按钮
     const btnW = cardW - 56;
-    const btnH = 72;
+    const btnH = 74;
     const btnX = x + 28;
-    const btnY = y + cardH - btnH - 28;
+    const btnY = y + cardH - btnH - 22;
 
-    ctx.fillStyle = st.color;
-    ctx.strokeStyle = st.color;
-    ctx.lineWidth = 2;
+    const btnGrad = ctx.createLinearGradient(btnX, btnY, btnX, btnY + btnH);
+    btnGrad.addColorStop(0, st.color);
+    btnGrad.addColorStop(1, hexToRgba(st.color, 0.88));
+
+    ctx.fillStyle = btnGrad;
     roundRect(ctx, btnX, btnY, btnW, btnH, 18);
     ctx.fill();
-    ctx.stroke();
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = buildUiFont(26, 'bold');
+    ctx.font = buildUiFont(24, 'bold');
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText('进入实验 ➔', btnX + btnW / 2, btnY + btnH / 2);
 
+    // 交互热区：整张卡片（含内部按钮）为一键进入实验
     hits.push({
       id: `item-${it.id}`,
       x,
@@ -799,42 +787,50 @@ function drawStationSubpageView(ctx, W, H, stationId, hits) {
 }
 
 // ═════════════════════════════════════════════════════════
-// 页面 3：单实验深度解析页 (Experiment Detail View) — 展开标准公式组、物理机理、SI符号与3D实测
+// 页面 3：单实验深度解析页 (Experiment Detail View) — 顶栏仅保留右上角大号返回按钮、大字号公式与清晰物理量
 // ═════════════════════════════════════════════════════════
 function drawExperimentDetailView(ctx, W, H, state, hits) {
   const selected = FORMULA_CATALOG.items.find((it) => it.id === state.selectedId) || FORMULA_CATALOG.items[0];
   const st = FORMULA_CATALOG.stations.find((s) => s.id === selected.cat) || FORMULA_CATALOG.stations[0];
-  const itemsInSt = FORMULA_CATALOG.items.filter((it) => it.cat === selected.cat);
-  const curIdx = itemsInSt.findIndex((it) => it.id === selected.id);
 
-  const headerH = 92;
-  const padX = 40;
+  const headerH = 88;
+  const padX = 44;
 
-  // 顶部 Header
-  ctx.fillStyle = hexToRgba(st.color, 0.14);
+  // 顶部 Header 背景
+  ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
   ctx.fillRect(0, 0, W, headerH);
-  ctx.strokeStyle = hexToRgba(st.color, 0.4);
+  ctx.strokeStyle = 'rgba(203, 213, 225, 0.8)';
   ctx.lineWidth = 2;
   ctx.beginPath(); ctx.moveTo(0, headerH); ctx.lineTo(W, headerH); ctx.stroke();
 
-  // 返回实验列表按钮 (大字号、主题色)
-  const backW = 210;
-  const backH = 50;
-  const backX = padX;
+  // 左侧当前实验标题与所属领域
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(28, 'bold');
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(`【${selected.code}】${selected.expName} · ${selected.title}`, padX + 8, headerH / 2);
+
+  // 右上角独立大号返回按钮
+  const backW = 260;
+  const backH = 60;
+  const backX = W - padX - backW;
   const backY = (headerH - backH) / 2;
 
-  ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+  const backGrad = ctx.createLinearGradient(backX, backY, backX, backY + backH);
+  backGrad.addColorStop(0, '#ffffff');
+  backGrad.addColorStop(1, '#f1f5f9');
+  ctx.fillStyle = backGrad;
   ctx.strokeStyle = st.color;
-  ctx.lineWidth = 2.2;
-  roundRect(ctx, backX, backY, backW, backH, 14);
+  ctx.lineWidth = 2.4;
+  roundRect(ctx, backX, backY, backW, backH, 18);
   ctx.fill();
   ctx.stroke();
 
   ctx.fillStyle = st.color;
-  ctx.font = buildUiFont(22, 'bold');
+  ctx.font = buildUiFont(26, 'bold');
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('← 返回实验列表', backX + backW / 2, backY + backH / 2);
+  ctx.fillText('← 返回', backX + backW / 2, backY + backH / 2);
 
   hits.push({
     id: 'back-station',
@@ -845,76 +841,7 @@ function drawExperimentDetailView(ctx, W, H, state, hits) {
     action: 'back',
   });
 
-  // 面包屑导航与当前实验标题 (加大加粗)
-  ctx.fillStyle = '#64748b';
-  ctx.font = buildUiFont(20, 'bold');
-  ctx.textAlign = 'left';
-  ctx.fillText('大厅  /  ', backX + backW + 24, headerH / 2);
-
-  ctx.fillStyle = st.color;
-  ctx.fillText(`${st.name}  /  `, backX + backW + 96, headerH / 2);
-
-  ctx.fillStyle = '#0c4a6e';
-  ctx.font = buildUiFont(26, 'bold');
-  ctx.fillText(`${selected.expName} · ${selected.title}`, backX + backW + 240, headerH / 2);
-
-  // 右侧上一实验 / 下一实验切换按钮 (大字号、高对比)
-  const navBtnW = 135;
-  const navBtnH = 46;
-  const nextX = W - padX - navBtnW;
-  const prevX = nextX - navBtnW - 14;
-  const navY = (headerH - navBtnH) / 2;
-
-  const hasPrev = curIdx > 0;
-  ctx.fillStyle = hasPrev ? st.color : 'rgba(203, 213, 225, 0.3)';
-  ctx.strokeStyle = hasPrev ? st.color : 'rgba(148, 163, 184, 0.3)';
-  ctx.lineWidth = 1.8;
-  roundRect(ctx, prevX, navY, navBtnW, navBtnH, 12);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = hasPrev ? '#ffffff' : '#94a3b8';
-  ctx.font = buildUiFont(18, 'bold');
-  ctx.textAlign = 'center';
-  ctx.fillText('◀ 上一实验', prevX + navBtnW / 2, navY + navBtnH / 2);
-
-  if (hasPrev) {
-    hits.push({
-      id: 'nav-prev',
-      x: prevX,
-      y: navY,
-      w: navBtnW,
-      h: navBtnH,
-      action: 'nav',
-      itemId: itemsInSt[curIdx - 1].id,
-    });
-  }
-
-  const hasNext = curIdx < itemsInSt.length - 1;
-  ctx.fillStyle = hasNext ? st.color : 'rgba(203, 213, 225, 0.3)';
-  ctx.strokeStyle = hasNext ? st.color : 'rgba(148, 163, 184, 0.3)';
-  ctx.lineWidth = 1.8;
-  roundRect(ctx, nextX, navY, navBtnW, navBtnH, 12);
-  ctx.fill();
-  ctx.stroke();
-
-  ctx.fillStyle = hasNext ? '#ffffff' : '#94a3b8';
-  ctx.font = buildUiFont(18, 'bold');
-  ctx.fillText('下一实验 ▶', nextX + navBtnW / 2, navY + navBtnH / 2);
-
-  if (hasNext) {
-    hits.push({
-      id: 'nav-next',
-      x: nextX,
-      y: navY,
-      w: navBtnW,
-      h: navBtnH,
-      action: 'nav',
-      itemId: itemsInSt[curIdx + 1].id,
-    });
-  }
-
-  // 左右双主卡片分栏布局 (左侧标准公式与物理量说明，右侧理论与实测指引)
+  // 左右双主卡片分栏布局
   const contentTop = headerH + 20;
   const contentH = H - contentTop - 24;
   const gap = 28;
@@ -922,63 +849,33 @@ function drawExperimentDetailView(ctx, W, H, state, hits) {
   const leftX = padX;
   const rightX = leftX + cardW + gap;
 
-  // ════════════ 左侧主卡片 ════════════
+  // ════════════ 左侧主卡片 (公式 + 物理量) ════════════
+  ctx.save();
+  roundRect(ctx, leftX, contentTop, cardW, contentH, 22);
+  ctx.clip?.();
+
   ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+  ctx.fillRect(leftX, contentTop, cardW, contentH);
+
+  ctx.fillStyle = st.color;
+  ctx.fillRect(leftX, contentTop, cardW, 8);
+  ctx.restore();
+
   ctx.strokeStyle = hexToRgba(st.color, 0.45);
-  ctx.lineWidth = 2.5;
-  roundRect(ctx, leftX, contentTop, cardW, contentH, 20);
-  ctx.fill();
+  ctx.lineWidth = 2.4;
+  roundRect(ctx, leftX, contentTop, cardW, contentH, 22);
   ctx.stroke();
 
-  // 左侧顶部主题色带
-  ctx.fillStyle = st.color;
-  roundRect(ctx, leftX + 4, contentTop + 4, cardW - 8, 8, 4);
-  ctx.fill();
-
-  // 编号胶囊与实验分类
-  ctx.fillStyle = st.color;
-  ctx.font = buildUiFont(22, 'bold');
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  ctx.fillText(`【${selected.code} · ${selected.expName}】`, leftX + 28, contentTop + 24);
-
-  // 主标题 (34px 超大号醒目字体)
-  ctx.fillStyle = '#0f172a';
-  ctx.font = buildUiFont(34, 'bold');
-  ctx.fillText(selected.title, leftX + 28, contentTop + 58);
-
-  // 核心公式展示区大盒 (支持多公式分栏 2D 专业排版)
+  // 1. 核心公式展示区
   const fBoxX = leftX + 24;
-  const fBoxY = contentTop + 106;
+  const fBoxY = contentTop + 24;
   const fBoxW = cardW - 48;
-  const fBoxH = 240;
-
-  ctx.fillStyle = hexToRgba(st.color, 0.06);
-  ctx.strokeStyle = hexToRgba(st.color, 0.35);
-  ctx.lineWidth = 1.8;
-  roundRect(ctx, fBoxX, fBoxY, fBoxW, fBoxH, 16);
-  ctx.fill();
-  ctx.stroke();
-
-  // 调用专业 2D 多公式分栏卡片渲染引擎
-  drawFormulaCardGroup(
-    ctx,
-    selected.formulaCards || selected.formula,
-    fBoxX + 16,
-    fBoxY + 16,
-    fBoxW - 32,
-    fBoxH - 32,
-    { themeColor: st.color },
-  );
-
-  // 📐 物理量与符号说明 (SI 标准) — 饱满大字号双列网格/列表卡片
-  const symBoxY = fBoxY + fBoxH + 20;
-  const symBoxH = contentH - (symBoxY - contentTop) - 24;
+  const fBoxH = 260;
 
   ctx.fillStyle = hexToRgba(st.color, 0.05);
-  ctx.strokeStyle = hexToRgba(st.color, 0.28);
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, fBoxX, symBoxY, fBoxW, symBoxH, 16);
+  ctx.strokeStyle = hexToRgba(st.color, 0.35);
+  ctx.lineWidth = 2;
+  roundRect(ctx, fBoxX, fBoxY, fBoxW, fBoxH, 18);
   ctx.fill();
   ctx.stroke();
 
@@ -986,9 +883,35 @@ function drawExperimentDetailView(ctx, W, H, state, hits) {
   ctx.font = buildUiFont(24, 'bold');
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText('📐 物理量与符号说明 (SI 标准)', fBoxX + 24, symBoxY + 18);
+  ctx.fillText('01 · 核心物理公式与数学模型', fBoxX + 22, fBoxY + 18);
 
-  // 解析符号列表并排版
+  drawFormulaCardGroup(
+    ctx,
+    selected.formulaCards || selected.formula,
+    fBoxX + 16,
+    fBoxY + 54,
+    fBoxW - 32,
+    fBoxH - 68,
+    { themeColor: st.color },
+  );
+
+  // 2. 物理量与符号说明 (SI 标准)
+  const symBoxY = fBoxY + fBoxH + 20;
+  const symBoxH = contentH - (symBoxY - contentTop) - 24;
+
+  ctx.fillStyle = hexToRgba(st.color, 0.04);
+  ctx.strokeStyle = hexToRgba(st.color, 0.3);
+  ctx.lineWidth = 2;
+  roundRect(ctx, fBoxX, symBoxY, fBoxW, symBoxH, 18);
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = st.color;
+  ctx.font = buildUiFont(24, 'bold');
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('02 · 物理量与符号标准 (SI Units)', fBoxX + 22, symBoxY + 18);
+
   const rawTokens = (selected.symbols || '').split('　').map((t) => t.trim()).filter(Boolean);
   const parsedSymbols = rawTokens.map((tok) => {
     const parts = tok.split('—').map((p) => p.trim());
@@ -999,41 +922,38 @@ function drawExperimentDetailView(ctx, W, H, state, hits) {
   });
 
   const symCount = parsedSymbols.length;
-  const useTwoCols = symCount > 3;
-  const cols = useTwoCols ? 2 : 1;
+  const cols = symCount > 2 ? 2 : 1;
   const itemGapX = 18;
-  const itemGapY = 12;
-  const itemW = (fBoxW - 48 - itemGapX * (cols - 1)) / cols;
-  const startItemY = symBoxY + 60;
+  const itemGapY = 14;
+  const itemW = (fBoxW - 44 - itemGapX * (cols - 1)) / cols;
+  const startItemY = symBoxY + 62;
   const rows = Math.ceil(symCount / cols);
-  const availableH = symBoxH - 74;
-  const itemH = Math.min(64, Math.max(50, (availableH - itemGapY * (rows - 1)) / rows));
+  const availableH = symBoxH - 78;
+  const itemH = Math.min(68, Math.max(52, (availableH - itemGapY * (rows - 1)) / rows));
 
   parsedSymbols.forEach((item, sIdx) => {
     const col = sIdx % cols;
     const row = Math.floor(sIdx / cols);
-    const ix = fBoxX + 24 + col * (itemW + itemGapX);
+    const ix = fBoxX + 22 + col * (itemW + itemGapX);
     const iy = startItemY + row * (itemH + itemGapY);
 
     if (iy + itemH <= symBoxY + symBoxH - 8) {
-      // 符号小卡片外框
-      ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
-      ctx.strokeStyle = hexToRgba(st.color, 0.3);
-      ctx.lineWidth = 1.2;
-      roundRect(ctx, ix, iy, itemW, itemH, 10);
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.98)';
+      ctx.strokeStyle = hexToRgba(st.color, 0.35);
+      ctx.lineWidth = 1.6;
+      roundRect(ctx, ix, iy, itemW, itemH, 12);
       ctx.fill();
       ctx.stroke();
 
-      // 左侧物理量符号胶囊徽章 (大字号数学公式渲染)
-      const badgeW = 72;
+      const badgeW = 76;
       const badgeH = itemH - 12;
       const badgeX = ix + 6;
       const badgeY = iy + 6;
 
-      ctx.fillStyle = hexToRgba(st.color, 0.14);
-      ctx.strokeStyle = hexToRgba(st.color, 0.4);
-      ctx.lineWidth = 1.2;
-      roundRect(ctx, badgeX, badgeY, badgeW, badgeH, 7);
+      ctx.fillStyle = hexToRgba(st.color, 0.15);
+      ctx.strokeStyle = hexToRgba(st.color, 0.45);
+      ctx.lineWidth = 1.4;
+      roundRect(ctx, badgeX, badgeY, badgeW, badgeH, 8);
       ctx.fill();
       ctx.stroke();
 
@@ -1045,78 +965,235 @@ function drawExperimentDetailView(ctx, W, H, state, hits) {
         maxWidth: badgeW - 6,
       });
 
-      // 右侧中文说明与 SI 单位
-      ctx.fillStyle = '#1e293b';
-      ctx.font = buildUiFont(21, '600');
+      ctx.fillStyle = '#0f172a';
+      ctx.font = buildUiFont(20, '600');
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
       ctx.fillText(item.desc, ix + badgeW + 16, iy + itemH / 2);
     }
   });
 
-  // ════════════ 右侧主卡片 ════════════
+  // ════════════ 右侧主卡片 (实验机理 + 3D实测) ════════════
+  ctx.save();
+  roundRect(ctx, rightX, contentTop, cardW, contentH, 22);
+  ctx.clip?.();
+
   ctx.fillStyle = 'rgba(255, 255, 255, 0.96)';
+  ctx.fillRect(rightX, contentTop, cardW, contentH);
+
+  ctx.fillStyle = st.color;
+  ctx.fillRect(rightX, contentTop, cardW, 8);
+  ctx.restore();
+
   ctx.strokeStyle = hexToRgba(st.color, 0.45);
-  ctx.lineWidth = 2.5;
-  roundRect(ctx, rightX, contentTop, cardW, contentH, 20);
-  ctx.fill();
+  ctx.lineWidth = 2.4;
+  roundRect(ctx, rightX, contentTop, cardW, contentH, 22);
   ctx.stroke();
 
-  // 右侧顶部主题色带
-  ctx.fillStyle = st.color;
-  roundRect(ctx, rightX + 4, contentTop + 4, cardW - 8, 8, 4);
-  ctx.fill();
-
-  // 右上模块：📘 实验理论与物理机理 (大字号，深色饱满排版)
+  // 右上模块：实验理论与物理机理
   const mechBoxY = contentTop + 24;
   const mechBoxH = 340;
   const mechBoxW = cardW - 48;
   const mechBoxX = rightX + 24;
 
-  ctx.fillStyle = hexToRgba(st.color, 0.05);
-  ctx.strokeStyle = hexToRgba(st.color, 0.28);
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, mechBoxX, mechBoxY, mechBoxW, mechBoxH, 16);
+  ctx.fillStyle = hexToRgba(st.color, 0.04);
+  ctx.strokeStyle = hexToRgba(st.color, 0.3);
+  ctx.lineWidth = 2;
+  roundRect(ctx, mechBoxX, mechBoxY, mechBoxW, mechBoxH, 18);
   ctx.fill();
   ctx.stroke();
 
   ctx.fillStyle = st.color;
-  ctx.font = buildUiFont(26, 'bold');
+  ctx.font = buildUiFont(24, 'bold');
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
-  ctx.fillText('📘 实验理论与物理机理', mechBoxX + 24, mechBoxY + 20);
+  ctx.fillText('03 · 实验理论与物理机理', mechBoxX + 22, mechBoxY + 20);
 
   ctx.fillStyle = '#1e293b';
-  ctx.font = buildUiFont(25, '500');
+  ctx.font = buildUiFont(24, '500');
   const conceptLines = wrapText(ctx, selected.concept, mechBoxW - 48);
   conceptLines.forEach((ln, idx) => {
     ctx.fillText(ln, mechBoxX + 24, mechBoxY + 70 + idx * 42);
   });
 
-  // 右下模块：🔬 3D 实验室实测与操作指引 (大字号)
+  // 右下模块：3D 实验室实测与操作指引
   const labBoxY = mechBoxY + mechBoxH + 20;
   const labBoxH = contentH - (labBoxY - contentTop) - 24;
 
-  ctx.fillStyle = hexToRgba(st.color, 0.05);
-  ctx.strokeStyle = hexToRgba(st.color, 0.28);
-  ctx.lineWidth = 1.5;
-  roundRect(ctx, mechBoxX, labBoxY, mechBoxW, labBoxH, 16);
+  ctx.fillStyle = hexToRgba(st.color, 0.04);
+  ctx.strokeStyle = hexToRgba(st.color, 0.3);
+  ctx.lineWidth = 2;
+  roundRect(ctx, mechBoxX, labBoxY, mechBoxW, labBoxH, 18);
   ctx.fill();
   ctx.stroke();
 
   ctx.fillStyle = st.color;
-  ctx.font = buildUiFont(26, 'bold');
-  ctx.fillText('🔬 3D 实验室实测与操作指引', mechBoxX + 24, labBoxY + 20);
+  ctx.font = buildUiFont(24, 'bold');
+  ctx.fillText('04 · 3D 实验室实测与操作指引', mechBoxX + 22, labBoxY + 20);
 
   ctx.fillStyle = '#1e293b';
-  ctx.font = buildUiFont(25, '500');
+  ctx.font = buildUiFont(24, '500');
   const labLines = wrapText(ctx, selected.labLink, mechBoxW - 48);
   labLines.forEach((ln, idx) => {
     ctx.fillText(ln, mechBoxX + 24, labBoxY + 70 + idx * 42);
   });
 }
 
+// ═════════════════════════════════════════════════════════
+// 页面 0：待机休眠视图 (Standby View) — 纯粹高能科技图腾、发光霓虹星环
+// ═════════════════════════════════════════════════════════
+function drawStandbyView(ctx, W, H) {
+  // 深空高科技暗色渐变背景
+  const darkBg = ctx.createLinearGradient(0, 0, W, H);
+  darkBg.addColorStop(0, '#030712');
+  darkBg.addColorStop(0.5, '#0b1329');
+  darkBg.addColorStop(1, '#0f172a');
+  ctx.fillStyle = darkBg;
+  ctx.fillRect(0, 0, W, H);
+
+  // 科技网格背景
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.04)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x < W; x += 64) {
+    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+  }
+  for (let y = 0; y < H; y += 64) {
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+  }
+
+  // 居中核心坐标
+  const cx = W / 2;
+  const cy = H / 2;
+
+  ctx.save();
+  ctx.globalAlpha = 0.45; // 整体柔和淡化
+
+  // 背景同心雷达测量环 (轻量科技纵深)
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.05)';
+  ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, 360, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.08)';
+  ctx.beginPath(); ctx.arc(cx, cy, 270, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.1)';
+  ctx.beginPath(); ctx.arc(cx, cy, 180, 0, Math.PI * 2); ctx.stroke();
+
+  // 中心柔和径向能量光晕
+  const coreRadial = ctx.createRadialGradient(cx, cy, 10, cx, cy, 360);
+  coreRadial.addColorStop(0, 'rgba(56, 189, 248, 0.18)');
+  coreRadial.addColorStop(0.4, 'rgba(14, 165, 233, 0.06)');
+  coreRadial.addColorStop(0.8, 'rgba(14, 165, 233, 0.01)');
+  coreRadial.addColorStop(1, 'transparent');
+  ctx.fillStyle = coreRadial;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 360, 0, Math.PI * 2);
+  ctx.fill();
+
+  // 辅助发光椭圆绘制函数 (柔和半透明星环)
+  const drawGlowOrbit = (rx, ry, rot, mainColor, glowColor) => {
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.rotate(rot);
+
+    // 1. 外层柔和弱光晕
+    ctx.strokeStyle = hexToRgba(glowColor || mainColor, 0.12);
+    ctx.lineWidth = 10;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 2. 中层优雅星环本体
+    ctx.strokeStyle = hexToRgba(mainColor, 0.7);
+    ctx.lineWidth = 3.6;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 3. 内层高光亮线
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+  };
+
+  // 4 大物理领域代表发光星环
+  // 1. 电离天青蓝星环 (-32°)
+  drawGlowOrbit(280, 105, -Math.PI / 5.5, '#00f0ff', '#38bdf8');
+
+  // 2. 霓虹紫星环 (+32°)
+  drawGlowOrbit(280, 105, Math.PI / 5.5, '#e879f9', '#c084fc');
+
+  // 3. 极光金垂直星环 (90°)
+  drawGlowOrbit(260, 96, Math.PI / 2, '#fbbf24', '#f59e0b');
+
+  // 4. 电光蓝水平能量环 (0°)
+  drawGlowOrbit(270, 100, 0, '#38bdf8', '#0284c7');
+
+  // 轨道上的发光量子节点
+  const nodes = [
+    { x: cx + 245 * Math.cos(Math.PI / 5.5), y: cy - 90 * Math.sin(Math.PI / 5.5), color: '#00f0ff' },
+    { x: cx - 245 * Math.cos(Math.PI / 5.5), y: cy + 90 * Math.sin(Math.PI / 5.5), color: '#e879f9' },
+    { x: cx, y: cy - 260, color: '#fbbf24' },
+    { x: cx + 270, y: cy, color: '#38bdf8' },
+    { x: cx - 270, y: cy, color: '#38bdf8' },
+  ];
+
+  nodes.forEach((n) => {
+    // 节点外发光
+    ctx.fillStyle = hexToRgba(n.color, 0.25);
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, 10, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 节点主体
+    ctx.fillStyle = n.color;
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, 5.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 节点白色核心
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+    ctx.beginPath();
+    ctx.arc(n.x, n.y, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  // 核心柔和原子反应核
+  // 外层能量环
+  ctx.strokeStyle = 'rgba(56, 189, 248, 0.35)';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 70, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.25)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 60, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // 中心发光球体
+  const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, 50);
+  coreGrad.addColorStop(0, 'rgba(255, 255, 255, 0.85)');
+  coreGrad.addColorStop(0.25, 'rgba(125, 211, 252, 0.6)');
+  coreGrad.addColorStop(0.65, 'rgba(2, 132, 199, 0.35)');
+  coreGrad.addColorStop(1, 'transparent');
+  ctx.fillStyle = coreGrad;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 50, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
+}
+
 export function drawFormulaBoard(ctx, W, H, state = {}) {
+  if (state.isStandby) {
+    drawStandbyView(ctx, W, H, state);
+    return { hits: [] };
+  }
+
   const hits = [];
   const stationId = state.stationId
     || (state.category && state.category !== 'all' ? state.category : null);
@@ -1138,7 +1215,7 @@ export function drawFormulaBoard(ctx, W, H, state = {}) {
 
   if (selectedId) drawExperimentDetailView(ctx, W, H, state, hits);
   else if (stationId) drawStationSubpageView(ctx, W, H, stationId, hits);
-  else drawHomeView(ctx, W, H, hits);
+  else drawHomeView(ctx, W, H, state, hits);
   return { hits };
 }
 
@@ -1167,3 +1244,4 @@ export function pickFormulaBoard(u, v, W, H, hits) {
   }
   return null;
 }
+
