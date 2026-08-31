@@ -1106,6 +1106,9 @@ export function createElectricFieldEquipment() {
         },
       ];
 
+      // Unified standard potential levels for single, dual and multi-charge fields
+      const BASE_POTENTIAL_LEVELS = [2.22, 1.18, 0.69, 0.45];
+
       if (isSingle) {
         const c = active[0];
         const q = Number(c.q || 0);
@@ -1118,9 +1121,8 @@ export function createElectricFieldEquipment() {
         const cy = Number(c.z || 0) * WORLD_PER_SOURCE_UNIT;
         const cz = Number(c.y || 0) * WORLD_PER_SOURCE_UNIT;
 
-        // 4 geometrically exact concentric spherical shells with Gauss-surface styling
-        const qScale = Math.sqrt(Math.max(0.2, Math.min(absQ, 5.0)));
-        const radiiSource = [0.65, 1.25, 1.95, 2.80].map((r) => r * qScale);
+        // Geometrically exact concentric spherical shells with unified physical potential scale r = |q| / V
+        const radiiSource = BASE_POTENTIAL_LEVELS.map((V) => Math.max(0.18, absQ / V));
 
         radiiSource.forEach((rSrc, idx) => {
           const rWorld = rSrc * WORLD_PER_SOURCE_UNIT;
@@ -1245,25 +1247,26 @@ export function createElectricFieldEquipment() {
           equipotGroup.add(group);
         };
 
+        const qScale = Math.max(0.2, (Math.abs(q1) + Math.abs(q2)) * 0.5);
+        const levelsVal = BASE_POTENTIAL_LEVELS.map((v) => v * qScale);
+
         if (isSameSign) {
           const targetSign = q1 > 0 ? 1 : -1;
           const uMidVal = Math.abs(q1 / (D / 2) + q2 / (D / 2));
-          // 4 physical levels
-          const levelsVal = [1.70 * uMidVal, 1.03 * uMidVal, 0.72 * uMidVal, 0.42 * uMidVal];
 
           levelsVal.forEach((V, idx) => {
             const signedV = V * targetSign;
-            if (V > uMidVal) {
+            if (V > uMidVal * 1.05) {
               // Separate shells around c1 and c2
               const rApprox1 = Math.abs(q1) / V;
               const rApprox2 = Math.abs(q2) / V;
-              addLatheShell(s1 - rApprox1 * 1.15, s1 + rApprox1 * 1.15, 24, signedV, targetSign, defaultPalette, idx);
-              addLatheShell(s2 - rApprox2 * 1.15, s2 + rApprox2 * 1.15, 24, signedV, targetSign, defaultPalette, idx);
+              addLatheShell(s1 - rApprox1 * 1.25, s1 + rApprox1 * 1.25, 24, signedV, targetSign, defaultPalette, idx);
+              addLatheShell(s2 - rApprox2 * 1.25, s2 + rApprox2 * 1.25, 24, signedV, targetSign, defaultPalette, idx);
             } else {
               // Merged peanut / dumbbell shell
               const sFar = (Math.abs(q1) + Math.abs(q2)) / V;
-              const sMin = Math.min(s1 - 0.2, -sFar * 0.7 - D * 0.3);
-              const sMax = Math.max(s2 + 0.2, sFar * 0.7 + D * 0.3);
+              const sMin = Math.min(s1 - 0.2, -sFar * 0.75 - D * 0.3);
+              const sMax = Math.max(s2 + 0.2, sFar * 0.75 + D * 0.3);
               addLatheShell(sMin, sMax, 36, signedV, targetSign, defaultPalette, idx);
             }
           });
@@ -1274,21 +1277,22 @@ export function createElectricFieldEquipment() {
           const qNegVal = q1 < 0 ? q1 : q2;
           const sNeg = q1 < 0 ? s1 : s2;
 
-          const uRef = Math.abs(qPosVal) / (D / 2);
-          const posLevels = [2.20 * uRef, 1.25 * uRef, 0.65 * uRef, 0.30 * uRef];
-          const negLevels = [-2.20 * uRef, -1.25 * uRef, -0.65 * uRef, -0.30 * uRef];
+          const posLevels = levelsVal;
+          const negLevels = levelsVal.map((v) => -v);
 
           posLevels.forEach((V, idx) => {
             const rApprox = Math.abs(qPosVal) / V;
-            const sMin = sPos - rApprox * 1.25;
-            const sMax = Math.min(0 - 0.02, sPos + rApprox * 1.25);
+            const rBack = rApprox * 1.35;
+            const sMin = sPos < sNeg ? sPos - rBack : Math.max(0 + 0.02, sPos - rBack);
+            const sMax = sPos < sNeg ? Math.min(0 - 0.02, sPos + rBack) : sPos + rBack;
             addLatheShell(sMin, sMax, 28, V, 1, posPalette, idx);
           });
 
           negLevels.forEach((V, idx) => {
             const rApprox = Math.abs(qNegVal) / Math.abs(V);
-            const sMin = Math.max(0 + 0.02, sNeg - rApprox * 1.25);
-            const sMax = sNeg + rApprox * 1.25;
+            const rBack = rApprox * 1.35;
+            const sMin = sNeg < sPos ? sNeg - rBack : Math.max(0 + 0.02, sNeg - rBack);
+            const sMax = sNeg < sPos ? Math.min(0 - 0.02, sNeg + rBack) : sNeg + rBack;
             addLatheShell(sMin, sMax, 28, V, -1, negPalette, idx);
           });
 
@@ -1436,16 +1440,14 @@ export function createElectricFieldEquipment() {
       };
 
       const avgQ = totalAbsQ / active.length;
-      const uRef = avgQ / Math.max(0.6, maxSpan * 0.7);
+      const multiLevels = BASE_POTENTIAL_LEVELS.map((v) => v * avgQ);
 
       if (hasPos) {
-        const posLevels = [2.2 * uRef, 1.4 * uRef, 0.85 * uRef, 0.50 * uRef];
-        posLevels.forEach((lvl, idx) => addMultiShell(posField, lvl, posPalette, idx));
+        multiLevels.forEach((lvl, idx) => addMultiShell(posField, lvl, posPalette, idx));
       }
 
       if (hasNeg) {
-        const negLevels = [2.2 * uRef, 1.4 * uRef, 0.85 * uRef, 0.50 * uRef];
-        negLevels.forEach((lvl, idx) => addMultiShell(negField, lvl, negPalette, idx));
+        multiLevels.forEach((lvl, idx) => addMultiShell(negField, lvl, negPalette, idx));
       }
       return;
     }

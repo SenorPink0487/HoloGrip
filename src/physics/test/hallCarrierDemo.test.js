@@ -171,6 +171,57 @@ test('carrier concentration n dynamically scales rendered particle density drawR
   assert.ok(countHigh / countLow >= 3.5, `density change ratio (${countHigh / countLow}) should be distinct (>3.5x)`);
 });
 
+test('Hall demo control panel parameters (I, B, n, d) physically alter arrow counts and charge quantities', () => {
+  const root = createHallDemoEquipment({ tabletop: true });
+
+  // 1. Current I controls surface charges
+  root.userData.update({ I: 0, B: 1, n: 1, d: 0.5, nType: true }, 0.016);
+  const zeroI = root.userData.getVisualStats();
+  assert.equal(zeroI.posCharges, 0, 'I=0 must hide surface charges');
+
+  root.userData.update({ I: 0.5, B: 1, n: 1, d: 0.5, nType: true }, 0.016);
+  const lowI = root.userData.getVisualStats();
+
+  root.userData.update({ I: 2.0, B: 1, n: 1, d: 0.5, nType: true }, 0.016);
+  const highI = root.userData.getVisualStats();
+
+  assert.ok(lowI.posCharges < highI.posCharges, 'Higher I must accumulate more surface charges');
+
+  // 2. Magnetic field B controls B arrows and surface charges
+  root.userData.update({ I: 1, B: 0, n: 1, d: 0.5, nType: true }, 0.016);
+  const zeroB = root.userData.getVisualStats();
+  assert.equal(zeroB.bArrows, 0, 'B=0 must hide B arrows');
+  assert.equal(zeroB.posCharges, 0, 'B=0 must hide surface charges');
+
+  root.userData.update({ I: 1, B: 0.5, n: 1, d: 0.5, nType: true }, 0.016);
+  const lowB = root.userData.getVisualStats();
+
+  root.userData.update({ I: 1, B: 2.0, n: 1, d: 0.5, nType: true }, 0.016);
+  const highB = root.userData.getVisualStats();
+
+  assert.ok(lowB.bArrows < highB.bArrows, 'Higher B must display more B arrows');
+  assert.ok(lowB.posCharges < highB.posCharges, 'Higher B must accumulate more surface charges');
+
+  // 3. Carrier concentration n: higher n decreases Hall voltage U_H (inversely proportional)
+  root.userData.update({ I: 1, B: 1, n: 0.4, d: 0.5, nType: true }, 0.016);
+  const lowN = root.userData.getVisualStats();
+
+  root.userData.update({ I: 1, B: 1, n: 2.5, d: 0.5, nType: true }, 0.016);
+  const highN = root.userData.getVisualStats();
+
+  assert.ok(lowN.posCharges > highN.posCharges, 'Higher n must decrease surface charges due to smaller U_H');
+  assert.ok(lowN.drawCount < highN.drawCount, 'Higher n must increase internal carrier particle count');
+
+  // 4. Sample thickness d: thicker sample decreases Hall voltage U_H (inversely proportional)
+  root.userData.update({ I: 1, B: 1, n: 1, d: 0.15, nType: true }, 0.016);
+  const lowD = root.userData.getVisualStats();
+
+  root.userData.update({ I: 1, B: 1, n: 1, d: 1.2, nType: true }, 0.016);
+  const highD = root.userData.getVisualStats();
+
+  assert.ok(lowD.posCharges > highD.posCharges, 'Thicker d must decrease surface charges due to smaller U_H');
+});
+
 test('hologram canvas sizes match dense layout table', () => {
   const hallDemo = getHoloScreenLayoutSize({
     active: true,
