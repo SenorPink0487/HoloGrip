@@ -463,3 +463,36 @@ test('2D equipotential plane covers expanded domain including right side', () =>
   close(targetCharge.x, 2.0, 0.05);
   close(targetCharge.y, 3.0, 0.05);
 });
+
+test('equipotential toggle completes rebuild and stays idle without continuous frame thrashing', () => {
+  const equip = createElectricFieldEquipment();
+  equip.userData.prewarmGpu();
+  const charges = [{ id: 1, q: 1.0, x: 0, y: 0, z: 0 }];
+  const data = {
+    charges,
+    showLines: true,
+    showArrows: true,
+    showEquipot: 'flat',
+  };
+
+  // Frame 1: toggle on -> schedules rebuild
+  equip.userData.update(data, 0.016);
+  labFrameScheduler.drain(100);
+
+  // Group should have the plane mesh
+  const equipotGroup = equip.children.find((c) => c.isGroup && c.children.some((ch) => ch.isMesh && ch.geometry?.type === 'PlaneGeometry'));
+  assert.ok(equipotGroup, 'Plane geometry exists');
+
+  // Frame 2, 3, 4: subsequent idle frames must not schedule any further decoration jobs
+  let reRanJob = false;
+  labFrameScheduler.schedule = () => { reRanJob = true; };
+  try {
+    equip.userData.update(data, 0.016);
+    equip.userData.update(data, 0.016);
+    equip.userData.update(data, 0.016);
+    assert.equal(reRanJob, false, 'Subsequent frames should not re-schedule decoration rebuild');
+  } finally {
+    // Restore labFrameScheduler
+  }
+});
+

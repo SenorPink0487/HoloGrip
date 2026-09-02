@@ -1184,41 +1184,73 @@ export function createElectricFieldEquipment() {
         // Quaternion to orient local Y axis along the charge-connecting axis in Three.js world
         const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), axis);
 
-        // Function to solve R >= 0 at axis position s for potential level V
-        const solveR = (s, targetV, targetSign) => {
-          let low = 0;
-          let high = 5.0;
-          let found = false;
-          const phi0 = (q1 / Math.max(0.005, Math.abs(s - s1))) + (q2 / Math.max(0.005, Math.abs(s - s2)));
-          if ((targetSign > 0 && phi0 >= targetV) || (targetSign < 0 && phi0 <= targetV)) {
-            found = true;
-            for (let iter = 0; iter < 14; iter += 1) {
-              const mid = (low + high) * 0.5;
-              const r1 = Math.sqrt((s - s1) ** 2 + mid ** 2);
-              const r2 = Math.sqrt((s - s2) ** 2 + mid ** 2);
-              const phi = (q1 / r1) + (q2 / r2);
-              if (targetSign > 0) {
-                if (phi > targetV) low = mid;
-                else high = mid;
-              } else {
-                if (phi < targetV) low = mid;
-                else high = mid;
-              }
+        // Function to compute potential along the connecting axis (r = 0)
+        const axisPhi = (s) => (
+          (q1 / Math.max(1e-5, Math.abs(s - s1))) + (q2 / Math.max(1e-5, Math.abs(s - s2)))
+        );
+
+        // Bisection to find exact axis root where axisPhi(s) == targetV
+        const findAxisRoot = (a, b, targetV) => {
+          let fA = axisPhi(a) - targetV;
+          let fB = axisPhi(b) - targetV;
+          if (fA * fB > 0) {
+            return Math.abs(fA) < Math.abs(fB) ? a : b;
+          }
+          let low = a;
+          let high = b;
+          for (let iter = 0; iter < 24; iter += 1) {
+            const mid = (low + high) * 0.5;
+            const fMid = axisPhi(mid) - targetV;
+            if (fA * fMid <= 0) {
+              high = mid;
+              fB = fMid;
+            } else {
+              low = mid;
+              fA = fMid;
             }
           }
-          return found ? (low + high) * 0.5 : 0;
+          return (low + high) * 0.5;
+        };
+
+        // Function to solve R >= 0 at axis position s for potential level V
+        const solveR = (s, targetV, targetSign) => {
+          const phi0 = axisPhi(s);
+          if ((targetSign > 0 && phi0 <= targetV) || (targetSign < 0 && phi0 >= targetV)) {
+            return 0;
+          }
+          let low = 0;
+          let high = 8.0;
+          for (let iter = 0; iter < 18; iter += 1) {
+            const mid = (low + high) * 0.5;
+            const mid2 = mid * mid;
+            const r1 = Math.sqrt((s - s1) ** 2 + mid2);
+            const r2 = Math.sqrt((s - s2) ** 2 + mid2);
+            const phi = (q1 / r1) + (q2 / r2);
+            if (targetSign > 0) {
+              if (phi > targetV) low = mid;
+              else high = mid;
+            } else {
+              if (phi < targetV) low = mid;
+              else high = mid;
+            }
+          }
+          return (low + high) * 0.5;
         };
 
         const addLatheShell = (sMin, sMax, steps, targetV, targetSign, palette, matIdx) => {
+          if (!Number.isFinite(sMin) || !Number.isFinite(sMax) || Math.abs(sMax - sMin) < 1e-4) return;
           const points = [];
+          // Cosine / Chebyshev distribution clusters samples near poles where dr/ds -> inf,
+          // ensuring the shell closes with a perfectly rounded curvature (no sharp cones).
           for (let i = 0; i <= steps; i += 1) {
-            const s = sMin + (sMax - sMin) * (i / steps);
-            const rVal = solveR(s, targetV, targetSign);
+            const theta = (Math.PI * i) / steps;
+            const s = (sMin + sMax) * 0.5 - (sMax - sMin) * 0.5 * Math.cos(theta);
+            const rVal = (i === 0 || i === steps) ? 0 : solveR(s, targetV, targetSign);
             points.push(new THREE.Vector2(Math.max(0, rVal) * WORLD_PER_SOURCE_UNIT, s * WORLD_PER_SOURCE_UNIT));
           }
           if (points.length < 3) return;
 
-          const geo = new THREE.LatheGeometry(points, 24);
+          const geo = new THREE.LatheGeometry(points, 32);
           const cfg = palette[matIdx % palette.length];
 
           // 1. MeshPhysicalMaterial (identical to single charge)
@@ -1252,22 +1284,25 @@ export function createElectricFieldEquipment() {
 
         if (isSameSign) {
           const targetSign = q1 > 0 ? 1 : -1;
-          const uMidVal = Math.abs(q1 / (D / 2) + q2 / (D / 2));
+          const uMidVal = Math.abs(axisPhi(0));
 
           levelsVal.forEach((V, idx) => {
             const signedV = V * targetSign;
-            if (V > uMidVal * 1.05) {
-              // Separate shells around c1 and c2
-              const rApprox1 = Math.abs(q1) / V;
-              const rApprox2 = Math.abs(q2) / V;
-              addLatheShell(s1 - rApprox1 * 1.25, s1 + rApprox1 * 1.25, 24, signedV, targetSign, defaultPalette, idx);
-              addLatheShell(s2 - rApprox2 * 1.25, s2 + rApprox2 * 1.25, 24, signedV, targetSign, defaultPalette, idx);
+            if (V > uMidVal * 1.02) {
+              // Separate shells around c1 and c2 with exact axial boundaries
+              const sBack1 = findAxisRoot(s1 - 1e-4, s1 - (Math.abs(q1) / V) * 6.0, signedV);
+              const sFront1 = findAxisRoot(s1 + 1e-4, 0, signedV);
+              addLatheShell(Math.min(sBack1, sFront1), Math.max(sBack1, sFront1), 28, signedV, targetSign, defaultPalette, idx);
+
+              const sFront2 = findAxisRoot(0, s2 - 1e-4, signedV);
+              const sBack2 = findAxisRoot(s2 + 1e-4, s2 + (Math.abs(q2) / V) * 6.0, signedV);
+              addLatheShell(Math.min(sFront2, sBack2), Math.max(sFront2, sBack2), 28, signedV, targetSign, defaultPalette, idx);
             } else {
-              // Merged peanut / dumbbell shell
-              const sFar = (Math.abs(q1) + Math.abs(q2)) / V;
-              const sMin = Math.min(s1 - 0.2, -sFar * 0.75 - D * 0.3);
-              const sMax = Math.max(s2 + 0.2, sFar * 0.75 + D * 0.3);
-              addLatheShell(sMin, sMax, 36, signedV, targetSign, defaultPalette, idx);
+              // Merged peanut / dumbbell shell enclosing both charges
+              const totalQ = Math.abs(q1) + Math.abs(q2);
+              const sMin = findAxisRoot(s1 - 1e-4, s1 - (totalQ / V) * 6.0, signedV);
+              const sMax = findAxisRoot(s2 + 1e-4, s2 + (totalQ / V) * 6.0, signedV);
+              addLatheShell(Math.min(sMin, sMax), Math.max(sMin, sMax), 36, signedV, targetSign, defaultPalette, idx);
             }
           });
         } else {
@@ -1277,23 +1312,22 @@ export function createElectricFieldEquipment() {
           const qNegVal = q1 < 0 ? q1 : q2;
           const sNeg = q1 < 0 ? s1 : s2;
 
+          const sDirPos = sPos < sNeg ? 1 : -1;
+          const sDirNeg = sNeg < sPos ? 1 : -1;
+
           const posLevels = levelsVal;
           const negLevels = levelsVal.map((v) => -v);
 
           posLevels.forEach((V, idx) => {
-            const rApprox = Math.abs(qPosVal) / V;
-            const rBack = rApprox * 1.35;
-            const sMin = sPos < sNeg ? sPos - rBack : Math.max(0 + 0.02, sPos - rBack);
-            const sMax = sPos < sNeg ? Math.min(0 - 0.02, sPos + rBack) : sPos + rBack;
-            addLatheShell(sMin, sMax, 28, V, 1, posPalette, idx);
+            const sBack = findAxisRoot(sPos - sDirPos * 1e-4, sPos - sDirPos * (qPosVal / V) * 6.0, V);
+            const sFront = findAxisRoot(sPos + sDirPos * 1e-4, sPos + sDirPos * (D * 0.499), V);
+            addLatheShell(Math.min(sBack, sFront), Math.max(sBack, sFront), 28, V, 1, posPalette, idx);
           });
 
           negLevels.forEach((V, idx) => {
-            const rApprox = Math.abs(qNegVal) / Math.abs(V);
-            const rBack = rApprox * 1.35;
-            const sMin = sNeg < sPos ? sNeg - rBack : Math.max(0 + 0.02, sNeg - rBack);
-            const sMax = sNeg < sPos ? Math.min(0 - 0.02, sNeg + rBack) : sNeg + rBack;
-            addLatheShell(sMin, sMax, 28, V, -1, negPalette, idx);
+            const sBack = findAxisRoot(sNeg - sDirNeg * 1e-4, sNeg - sDirNeg * (Math.abs(qNegVal) / Math.abs(V)) * 6.0, V);
+            const sFront = findAxisRoot(sNeg + sDirNeg * 1e-4, sNeg + sDirNeg * (D * 0.499), V);
+            addLatheShell(Math.min(sBack, sFront), Math.max(sBack, sFront), 28, V, -1, negPalette, idx);
           });
 
           // Exact zero potential plane disk between them
@@ -1466,25 +1500,37 @@ export function createElectricFieldEquipment() {
     let minV = Infinity;
     let maxV = -Infinity;
 
+    const activeCharges = [];
+    for (let c = 0; c < charges.length; c += 1) {
+      const ch = charges[c];
+      const q = Number(ch?.q || 0);
+      if (Math.abs(q) >= 1e-6) {
+        activeCharges.push({
+          x: Number(ch.x || 0),
+          y: Number(ch.y || 0),
+          scaledQ: COULOMB_SCALE * q,
+          z2: Number(ch.z || 0) ** 2,
+        });
+      }
+    }
+
     for (let iy = 0; iy < sizeY; iy += 1) {
+      const sy = maxY - (height * (iy + 0.5)) / sizeY;
+      const rowOffset = iy * sizeX;
       for (let ix = 0; ix < sizeX; ix += 1) {
         // Cell centers → isotropic sampling on fixed horizontal plane (physics Z = 0).
         const sx = minX + (width * (ix + 0.5)) / sizeX;
-        const sy = maxY - (height * (iy + 0.5)) / sizeY;
         let phi = 0;
-        for (let c = 0; c < charges.length; c += 1) {
-          const ch = charges[c];
-          const q = Number(ch?.q || 0);
-          if (Math.abs(q) < 1e-6) continue;
-          const r = Math.max(
-            rFloor,
-            Math.hypot(sx - Number(ch.x || 0), sy - Number(ch.y || 0), 0 - Number(ch.z || 0)),
-          );
-          phi += (COULOMB_SCALE * q) / r;
+        for (let c = 0; c < activeCharges.length; c += 1) {
+          const ch = activeCharges[c];
+          const dx = sx - ch.x;
+          const dy = sy - ch.y;
+          const r = Math.max(rFloor, Math.sqrt(dx * dx + dy * dy + ch.z2));
+          phi += ch.scaledQ / r;
         }
         // Mild compression; keep more mid-range contrast than pure asinh(φ·0.002).
         const v = Math.asinh(phi * 0.008);
-        values[iy * sizeX + ix] = v;
+        values[rowOffset + ix] = v;
         if (v < minV) minV = v;
         if (v > maxV) maxV = v;
       }
@@ -1498,17 +1544,14 @@ export function createElectricFieldEquipment() {
     const span = Math.max(maxV - minV, 1e-8);
     const bandCount = 12;
     const rgba = new Uint8Array(sizeX * sizeY * 4);
-    const colA = new THREE.Color();
-    const colB = new THREE.Color();
-    const col = new THREE.Color();
 
-    /** Vivid equipotential band color for palette u ∈ [0, 1]. */
-    function bandColor(u, out) {
-      const uu = THREE.MathUtils.clamp(u, 0, 1);
-      // Hue ~252° indigo → cyan → green → yellow → orange → red
-      const h = (1 - uu) * 0.70;
-      out.setHSL(h, 0.94, 0.50);
-      return out;
+    const bandColors = [];
+    for (let b = 0; b < bandCount; b += 1) {
+      const u = b / (bandCount - 1);
+      const h = (1 - u) * 0.70;
+      const c = new THREE.Color();
+      c.setHSL(h, 0.94, 0.50);
+      bandColors.push(c);
     }
 
     /** Map compressed φ → palette coordinate u ∈ [0, 1]. */
@@ -1536,20 +1579,23 @@ export function createElectricFieldEquipment() {
       const b0 = Math.floor(bandF);
       const b1 = Math.min(bandCount - 1, b0 + 1);
       const edge = THREE.MathUtils.smoothstep(bandF - b0, 0.12, 0.88);
-      bandColor(b0 / (bandCount - 1), colA);
-      bandColor(b1 / (bandCount - 1), colB);
-      col.copy(colA).lerp(colB, edge);
+      const c0 = bandColors[b0];
+      const c1 = bandColors[b1];
 
       // Darken band boundaries slightly so equipotential rings read clearly.
       const boundary = Math.exp(-((bandF - Math.round(bandF)) ** 2) / (2 * 0.06 ** 2));
-      col.multiplyScalar(1 - 0.20 * boundary);
+      const mult = 1 - 0.20 * boundary;
+      const rVal = (c0.r + (c1.r - c0.r) * edge) * mult;
+      const gVal = (c0.g + (c1.g - c0.g) * edge) * mult;
+      const bVal = (c0.b + (c1.b - c0.b) * edge) * mult;
 
       // Outer rings stay clearly tinted (not a pale yellow wash).
       const alpha = THREE.MathUtils.clamp(110 + 100 * u + 35 * boundary, 100, 235);
-      rgba[i * 4] = Math.round(THREE.MathUtils.clamp(col.r, 0, 1) * 255);
-      rgba[i * 4 + 1] = Math.round(THREE.MathUtils.clamp(col.g, 0, 1) * 255);
-      rgba[i * 4 + 2] = Math.round(THREE.MathUtils.clamp(col.b, 0, 1) * 255);
-      rgba[i * 4 + 3] = Math.round(alpha);
+      const pIdx = i * 4;
+      rgba[pIdx] = Math.round(THREE.MathUtils.clamp(rVal, 0, 1) * 255);
+      rgba[pIdx + 1] = Math.round(THREE.MathUtils.clamp(gVal, 0, 1) * 255);
+      rgba[pIdx + 2] = Math.round(THREE.MathUtils.clamp(bVal, 0, 1) * 255);
+      rgba[pIdx + 3] = Math.round(alpha);
     }
 
     const texture = new THREE.DataTexture(rgba, sizeX, sizeY, THREE.RGBAFormat);
@@ -1631,15 +1677,16 @@ export function createElectricFieldEquipment() {
         && (!data._simFieldLinesSignature || !data._simFieldSig || data._simFieldLinesSignature === data._simFieldSig)
         ? unpackHostFieldLines(data._simFieldLines, charges)
         : null;
-      const lines = hostLines || (data._forceDecorations ? traceFieldLines(charges) : null);
-      if (lines) {
+      const lines = hostLines || traceFieldLines(charges);
+      if (lines && lines.length) {
         if (needLines) rebuildLines(charges, lines);
         else clearGroup(lineGroup);
 
         if (needArrows) rebuildArrows(charges, lines);
         else arrowBatch.setCount(0);
       } else {
-        pendingDecoration = true;
+        if (!needLines) clearGroup(lineGroup);
+        if (!needArrows) arrowBatch.setCount(0);
       }
     } else {
       clearGroup(lineGroup);
@@ -1648,7 +1695,7 @@ export function createElectricFieldEquipment() {
 
     if (Boolean(data.showEquipot)) rebuildEquipotential(charges, data);
     else clearGroup(equipotGroup);
-    if (!needLines && !needArrows) pendingDecoration = false;
+    pendingDecoration = false;
   }
 
   /**

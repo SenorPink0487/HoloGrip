@@ -80,7 +80,7 @@ function electricSpecs(d) {
         { label: '圆柱体', action: 'electric-gauss-shape', payload: { shape: 'cylinder' }, shape: 'cylinder', active: currentShape === 'cylinder' },
         { label: '不规则', action: 'electric-gauss-shape', payload: { shape: 'irregular' }, shape: 'irregular', active: currentShape === 'irregular' },
       ], { key: 'gaussShape' }),
-      range('radius', '高斯面 R', 1.2, 4.2, { unit: 'cm', setAction: 'electric-set' }),
+      range('radius', '高斯面缩放', 1.2, 4.2, { setAction: 'electric-set' }),
     );
   }
   if (selected) {

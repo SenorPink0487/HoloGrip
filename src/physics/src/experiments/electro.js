@@ -3904,7 +3904,6 @@ export function exportHallDataReport(data) {
   if (!data?.records || data.records.length === 0) return false;
   const records = data.records;
   const lastRec = records[records.length - 1] || records[0];
-  const nowStr = new Date().toLocaleString('zh-CN', { hour12: false });
   const kVal = records[0]?.hallK || 220;
 
   function getTheoreticalB(r, xPosCm) {
@@ -3939,21 +3938,105 @@ export function exportHallDataReport(data) {
   const recordedX = records.map((r) => Number(r.pos || 0));
   const xMin = Math.min(-15, ...recordedX);
   const xMax = Math.max(15, ...recordedX);
-
-  const theoryPoints = [];
   const samples = 160;
-  for (let i = 0; i <= samples; i += 1) {
-    const x = xMin + ((xMax - xMin) * i) / samples;
-    theoryPoints.push({ x, b: getTheoreticalB(lastRec, x) });
+
+  const isHelmholtz = lastRec.target === 'helmholtz';
+  const modeLabels = {
+    fixed: '固定线圈 L1',
+    moving: '移动线圈 L2',
+    both: '双线圈',
+  };
+  const modeColors = {
+    fixed: '#d97706',
+    moving: '#059669',
+    both: '#0284c7',
+  };
+
+  const activeCoilMode = lastRec.coilMode || data.wiring?.coilMode || 'both';
+  const targetLabel = isHelmholtz
+    ? (activeCoilMode === 'fixed'
+      ? '亥姆霍兹线圈 (固定线圈 L1)'
+      : activeCoilMode === 'moving'
+        ? '亥姆霍兹线圈 (移动线圈 L2)'
+        : '亥姆霍兹线圈 (双线圈)')
+    : '长螺线管';
+
+  const conditionText = lastRec.target === 'solenoid'
+    ? `长 L=${Number(lastRec.solenoidLength || 30)}cm 匝数 N=${Number(lastRec.turns || 1000)}`
+    : (() => {
+      const sep = Number(lastRec.rightCoilPos ?? 2.5) + 2.5;
+      const isHelm = Math.abs(sep - 5.0) < 0.1;
+      if (activeCoilMode === 'fixed') {
+        return '单线圈通电 (固定线圈 L1 中心 X=-2.5cm)';
+      }
+      if (activeCoilMode === 'moving') {
+        return `单线圈通电 (移动线圈 L2 中心 X=${Number(lastRec.rightCoilPos ?? 2.5).toFixed(1)}cm)`;
+      }
+      return `双线圈间距 d=${sep.toFixed(1)}cm${isHelm ? ' = R (亥姆霍兹状态)' : ''}`;
+    })();
+
+  const curvesToDraw = [];
+  if (isHelmholtz) {
+    const hasFixed = records.some((r) => r.coilMode === 'fixed');
+    const hasMoving = records.some((r) => r.coilMode === 'moving');
+    const hasBoth = records.some((r) => r.coilMode === 'both' || !r.coilMode);
+    const sep = Number(lastRec.rightCoilPos ?? 2.5) + 2.5;
+    const isHelm = Math.abs(sep - 5.0) < 0.1;
+
+    if (hasFixed) {
+      curvesToDraw.push({
+        key: 'fixed',
+        label: (hasMoving || hasBoth) ? '理论线 B₁ (固定线圈 L1 中心 X=-2.5cm)' : `理论线 (${conditionText})`,
+        color: '#d97706',
+        points: Array.from({ length: samples + 1 }, (_, i) => {
+          const x = xMin + ((xMax - xMin) * i) / samples;
+          return { x, b: getTheoreticalB({ ...lastRec, coilMode: 'fixed' }, x) };
+        }),
+      });
+    }
+    if (hasMoving) {
+      curvesToDraw.push({
+        key: 'moving',
+        label: (hasFixed || hasBoth) ? `理论线 B₂ (移动线圈 L2 中心 X=${Number(lastRec.rightCoilPos ?? 2.5).toFixed(1)}cm)` : `理论线 (${conditionText})`,
+        color: '#059669',
+        points: Array.from({ length: samples + 1 }, (_, i) => {
+          const x = xMin + ((xMax - xMin) * i) / samples;
+          return { x, b: getTheoreticalB({ ...lastRec, coilMode: 'moving' }, x) };
+        }),
+      });
+    }
+    if (hasBoth || (!hasFixed && !hasMoving)) {
+      curvesToDraw.push({
+        key: 'both',
+        label: (hasFixed || hasMoving) ? `理论线 B总 (双线圈间距 d=${sep.toFixed(1)}cm${isHelm ? ' = R (亥姆霍兹状态)' : ''})` : `理论线 (${conditionText})`,
+        color: '#0284c7',
+        points: Array.from({ length: samples + 1 }, (_, i) => {
+          const x = xMin + ((xMax - xMin) * i) / samples;
+          return { x, b: getTheoreticalB({ ...lastRec, coilMode: 'both' }, x) };
+        }),
+      });
+    }
+  } else {
+    curvesToDraw.push({
+      key: 'solenoid',
+      label: `理论线 (${conditionText})`,
+      color: '#0284c7',
+      points: Array.from({ length: samples + 1 }, (_, i) => {
+        const x = xMin + ((xMax - xMin) * i) / samples;
+        return { x, b: getTheoreticalB(lastRec, x) };
+      }),
+    });
   }
 
   const measuredPoints = records.map((r) => ({
     x: Number(r.pos || 0),
     b: Number(r.b || 0),
     vh: Number(r.vh || 0),
+    coilMode: r.coilMode || 'both',
   }));
 
-  const allB = theoryPoints.map((p) => p.b).concat(measuredPoints.map((p) => p.b), [0]);
+  const allCurvePoints = curvesToDraw.flatMap((c) => c.points.map((p) => p.b));
+  const allB = allCurvePoints.concat(measuredPoints.map((p) => p.b), [0]);
   const rawMin = Math.min(...allB);
   const rawMax = Math.max(...allB);
   let yMin;
@@ -3992,42 +4075,40 @@ export function exportHallDataReport(data) {
 <text x="${margin.left - 10}" y="${gy + 4}" font-size="12" fill="#64748b" text-anchor="end">${bVal}</text>`;
   }
 
-  const theoryPolyline = theoryPoints.map((p) => `${mapX(p.x).toFixed(1)},${mapY(p.b).toFixed(1)}`).join(' ');
+  const polylinesHtml = curvesToDraw.map((c) => {
+    const pts = c.points.map((p) => `${mapX(p.x).toFixed(1)},${mapY(p.b).toFixed(1)}`).join(' ');
+    return `<polyline points="${pts}" fill="none" stroke="${c.color}" stroke-width="2.5" stroke-linejoin="round" />`;
+  }).join('\n        ');
 
   const dotsHtml = measuredPoints.map((p, i) => {
     const cx = mapX(p.x).toFixed(1);
     const cy = mapY(p.b).toFixed(1);
-    return `<circle cx="${cx}" cy="${cy}" r="6" fill="#be185d" stroke="#ffffff" stroke-width="2">
-      <title>点 #${i + 1}: X = ${p.x.toFixed(1)} cm, B = ${p.b.toFixed(3)} mT, Vh = ${p.vh.toFixed(2)} mV</title>
+    const dotColor = isHelmholtz ? (modeColors[p.coilMode] || '#0284c7') : '#0284c7';
+    const modeName = isHelmholtz ? (modeLabels[p.coilMode] || '双线圈') : '螺线管';
+    return `<circle cx="${cx}" cy="${cy}" r="6" fill="${dotColor}" stroke="#ffffff" stroke-width="2">
+      <title>点 #${i + 1}: [${modeName}] X = ${p.x.toFixed(1)} cm, B = ${p.b.toFixed(3)} mT, Vh = ${p.vh.toFixed(2)} mV</title>
     </circle>`;
-  }).join('\n');
+  }).join('\n        ');
 
-  const activeCoilMode = lastRec.coilMode || data.wiring?.coilMode || 'both';
-  const targetLabel = lastRec.target === 'helmholtz'
-    ? (activeCoilMode === 'fixed'
-      ? '亥姆霍兹线圈 (固定线圈 L1)'
-      : activeCoilMode === 'moving'
-        ? '亥姆霍兹线圈 (移动线圈 L2)'
-        : '亥姆霍兹线圈 (双线圈)')
-    : '长螺线管';
+  const legendItemsHtml = curvesToDraw.map((c) => (
+    `<div class="legend-item"><span class="legend-line" style="background: ${c.color};"></span> ${c.label}</div>`
+  )).concat([
+    `<div class="legend-item"><span class="legend-dot" style="background: #0284c7; box-shadow: 0 0 0 1px #0284c7;"></span> 实测点 (${records.length} 组)</div>`
+  ]).join('\n        ');
 
-  const conditionText = lastRec.target === 'solenoid'
-    ? `长 L=${Number(lastRec.solenoidLength || 30)}cm 匝数 N=${Number(lastRec.turns || 1000)}`
-    : (() => {
-      const sep = Number(lastRec.rightCoilPos ?? 2.5) + 2.5;
-      const isHelm = Math.abs(sep - 5.0) < 0.1;
-      if (activeCoilMode === 'fixed') {
-        return '单线圈通电 (固定线圈 L1 中心 X=-2.5cm)';
-      }
-      if (activeCoilMode === 'moving') {
-        return `单线圈通电 (移动线圈 L2 中心 X=${Number(lastRec.rightCoilPos ?? 2.5).toFixed(1)}cm)`;
-      }
-      return `双线圈间距 d=${sep.toFixed(1)}cm${isHelm ? ' = R (亥姆霍兹状态)' : ''}`;
-    })();
+  const tableHeaderHtml = `
+        <tr>
+          <th>序号</th>
+          ${isHelmholtz ? '<th>通电状态</th>' : ''}
+          <th>探头位置 X (cm)</th>
+          <th>霍尔电压 V<sub>H</sub> (mV)</th>
+          <th>磁感应强度 B (mT)</th>
+        </tr>`;
 
   const rowsHtml = records.map((r, i) => `
     <tr>
       <td>${i + 1}</td>
+      ${isHelmholtz ? `<td><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:600;background:${r.coilMode === 'fixed' ? '#fef3c7;color:#b45309;' : r.coilMode === 'moving' ? '#d1fae5;color:#047857;' : '#e0f2fe;color:#0369a1;'}">${modeLabels[r.coilMode || 'both']}</span></td>` : ''}
       <td>${Number(r.pos).toFixed(1)}</td>
       <td>${Number(r.vh).toFixed(2)}</td>
       <td>${Number(r.b).toFixed(3)}</td>
@@ -4108,12 +4189,13 @@ export function exportHallDataReport(data) {
       gap: 16px;
       font-size: 13px;
       color: #475569;
+      flex-wrap: wrap;
     }
     .legend-item { display: flex; align-items: center; gap: 6px; }
     .legend-line { width: 18px; height: 3px; background: #0284c7; border-radius: 2px; }
     .legend-dot {
-      width: 10px; height: 10px; background: #be185d; border-radius: 50%;
-      border: 2px solid #ffffff; box-shadow: 0 0 0 1px #be185d;
+      width: 10px; height: 10px; background: #0284c7; border-radius: 50%;
+      border: 2px solid #ffffff; box-shadow: 0 0 0 1px #0284c7;
     }
     .chart-box {
       display: flex;
@@ -4173,12 +4255,7 @@ export function exportHallDataReport(data) {
     </div>
     <table>
       <thead>
-        <tr>
-          <th>序号</th>
-          <th>探头位置 X (cm)</th>
-          <th>霍尔电压 V<sub>H</sub> (mV)</th>
-          <th>磁感应强度 B (mT)</th>
-        </tr>
+        ${tableHeaderHtml}
       </thead>
       <tbody>
         ${rowsHtml}
@@ -4188,8 +4265,7 @@ export function exportHallDataReport(data) {
     <div class="section-header">
       <div class="section-title">B–X 磁场分布曲线</div>
       <div class="chart-legend">
-        <div class="legend-item"><span class="legend-line"></span> 理论线 (${conditionText})</div>
-        <div class="legend-item"><span class="legend-dot"></span> 实测点 (${records.length} 组)</div>
+        ${legendItemsHtml}
       </div>
     </div>
 
@@ -4202,8 +4278,8 @@ export function exportHallDataReport(data) {
         <text x="${margin.left + plotW / 2}" y="${svgH - 12}" font-size="13" font-weight="600" fill="#334155" text-anchor="middle">X / cm</text>
         <text x="20" y="${margin.top + plotH / 2}" font-size="13" font-weight="600" fill="#334155" text-anchor="middle" transform="rotate(-90 20 ${margin.top + plotH / 2})">B / mT</text>
 
-        <!-- Theoretical Curve -->
-        <polyline points="${theoryPolyline}" fill="none" stroke="#0284c7" stroke-width="2.5" stroke-linejoin="round" />
+        <!-- Theoretical Curves -->
+        ${polylinesHtml}
 
         <!-- Measured Points -->
         ${dotsHtml}

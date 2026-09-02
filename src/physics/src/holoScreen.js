@@ -86,6 +86,10 @@ function stripHtml(html) {
 
 const HALL_MU0 = 4 * Math.PI * 1e-7;
 const HALL_K = 220; // calibrated representative value, mV·mA⁻¹·T⁻¹
+const HALL_COIL_RADIUS_M = 0.05;
+const HALL_COIL_TURNS = 210;
+const HALL_SOLENOID_LENGTH_M = 0.30;
+const HALL_SOLENOID_RADIUS_M = 0.014;
 
 /** Magnetic flux density in mT from standard on-axis field equations. */
 function hallTheoreticalB(data, pos) {
@@ -93,16 +97,16 @@ function hallTheoreticalB(data, pos) {
   const Im = Number(data.Im || 0);
   let bTesla = 0;
   if (data.target === 'solenoid') {
-    const length = 0.26;
+    const length = Number(data.solenoidLength || 30) / 100 || HALL_SOLENOID_LENGTH_M;
     const halfL = length / 2;
-    const radius = 0.014;
-    const n = Number(data.turns || 100) / length;
+    const radius = Number(data.solenoidRadius || 1.4) / 100 || HALL_SOLENOID_RADIUS_M;
+    const n = Number(data.turns || 1000) / length;
     const endCos = (z) => z / Math.sqrt(z * z + radius * radius);
     bTesla = HALL_MU0 * n * Im * 0.5
       * (endCos(x + halfL) - endCos(x - halfL));
   } else {
-    const radius = 0.05;
-    const turns = 210;
+    const radius = Number(data.coilRadius || 5.0) / 100 || HALL_COIL_RADIUS_M;
+    const turns = Number(data.coilTurns || 210) || HALL_COIL_TURNS;
     const fixedX = -0.025;
     const movingX = Number(data.rightCoilPos ?? 2.5) / 100;
     const fieldAt = (centreX) => (
@@ -975,8 +979,8 @@ function drawGaussExperiment(ctx, _W, _H, cfg) {
       color: P.title,
     },
     {
-      label: '高斯面半径 R',
-      value: `${fmt(d.radius * 10, 1)} cm`,
+      label: '高斯面缩放',
+      value: `${fmt(d.radius * 10, 1)}`,
       color: P.title,
     },
     {
@@ -1050,11 +1054,11 @@ function drawGaussExperiment(ctx, _W, _H, cfg) {
   ctx.textBaseline = 'top';
   ctx.fillText('高斯面与可视层', innerX + padIn, bodyY + Math.round(12 * scale));
 
-  // 半径与操作提示 Badge
+  // 缩放与操作提示 Badge
   ctx.fillStyle = P.muted;
   ctx.font = `${Math.round(13 * scale)}px "Microsoft YaHei", sans-serif`;
   ctx.fillText(
-    `高斯面 R = ${fmt(d.radius * 10, 1)}cm`,
+    `高斯面缩放 = ${fmt(d.radius * 10, 1)}`,
     innerX + padIn,
     bodyY + Math.round(36 * scale),
   );
@@ -1784,22 +1788,70 @@ function drawHallExperiment(ctx, W, _H, cfg) {
 
   if (d.showCurve) {
     const same = (a, b, eps = 1e-6) => Math.abs(Number(a) - Number(b)) <= eps;
-    const currentCoilMode = d.wiring?.coilMode || d.coilMode || 'both';
+    const isHelmholtz = target === 'helmholtz';
     const shown = records.filter((r) => r.target === target
-      && (target !== 'helmholtz' || (r.coilMode || 'both') === currentCoilMode)
+      && (isHelmholtz || same(r.turns ?? d.turns, d.turns))
+      && (target !== 'helmholtz' || same(r.rightCoilPos ?? d.rightCoilPos, d.rightCoilPos))
       && same(r.Im ?? d.Im, d.Im)
-      && Number(r.direction ?? d.direction) === Number(d.direction)
-      && (target === 'solenoid'
-        ? same(r.turns ?? d.turns, d.turns)
-        : same(r.rightCoilPos ?? d.rightCoilPos, d.rightCoilPos)));
+      && Number(r.direction ?? d.direction) === Number(d.direction));
     const xMin = -15;
     const xMax = 15;
-    const theory = Array.from({ length: 161 }, (_, i) => {
-      const x = xMin + ((xMax - xMin) * i) / 160;
-      return { x, b: hallTheoreticalB(d, x) };
-    });
-    const measured = shown.map((r) => ({ x: Number(r.pos || 0), b: hallRecordedB(r) }));
-    const allB = theory.map((p) => p.b).concat(measured.map((p) => p.b), [0]);
+
+    const measured = shown.map((r) => ({
+      x: Number(r.pos || 0),
+      b: hallRecordedB(r),
+      coilMode: r.coilMode || 'both',
+    }));
+
+    const curvesToDraw = [];
+    if (isHelmholtz) {
+      if (measured.some((p) => p.coilMode === 'fixed')) {
+        curvesToDraw.push({
+          key: 'fixed',
+          label: 'B₁',
+          color: isLight ? '#d97706' : '#fbbf24',
+          data: Array.from({ length: 161 }, (_, i) => {
+            const x = xMin + ((xMax - xMin) * i) / 160;
+            return { x, b: hallTheoreticalB({ ...d, coilMode: 'fixed' }, x) };
+          }),
+        });
+      }
+      if (measured.some((p) => p.coilMode === 'moving')) {
+        curvesToDraw.push({
+          key: 'moving',
+          label: 'B₂',
+          color: isLight ? '#059669' : '#34d399',
+          data: Array.from({ length: 161 }, (_, i) => {
+            const x = xMin + ((xMax - xMin) * i) / 160;
+            return { x, b: hallTheoreticalB({ ...d, coilMode: 'moving' }, x) };
+          }),
+        });
+      }
+      if (measured.some((p) => p.coilMode === 'both')) {
+        curvesToDraw.push({
+          key: 'both',
+          label: 'B总',
+          color: isLight ? '#0284c7' : '#38bdf8',
+          data: Array.from({ length: 161 }, (_, i) => {
+            const x = xMin + ((xMax - xMin) * i) / 160;
+            return { x, b: hallTheoreticalB({ ...d, coilMode: 'both' }, x) };
+          }),
+        });
+      }
+    } else if (measured.length > 0) {
+      curvesToDraw.push({
+        key: 'solenoid',
+        label: '拟合曲线',
+        color: isLight ? '#0284c7' : '#38bdf8',
+        data: Array.from({ length: 161 }, (_, i) => {
+          const x = xMin + ((xMax - xMin) * i) / 160;
+          return { x, b: hallTheoreticalB(d, x) };
+        }),
+      });
+    }
+
+    const allCurveValues = curvesToDraw.flatMap((c) => c.data.map((p) => p.b));
+    const allB = allCurveValues.concat(measured.map((p) => p.b), [0]);
     const rawMin = Math.min(...allB);
     const rawMax = Math.max(...allB);
     let yMin;
@@ -1856,28 +1908,30 @@ function drawHallExperiment(ctx, W, _H, cfg) {
     });
 
     if (d.showFit) {
-      ctx.save();
-      ctx.beginPath();
-      let first = true;
-      theory.forEach((p) => {
-        if (p.x < xMin || p.x > xMax) return;
-        const cx = px(p.x);
-        const cy = py(p.b);
-        if (first) {
-          ctx.moveTo(cx, cy);
-          first = false;
-        } else {
-          ctx.lineTo(cx, cy);
+      curvesToDraw.forEach((c) => {
+        ctx.save();
+        ctx.beginPath();
+        let first = true;
+        c.data.forEach((p) => {
+          if (p.x < xMin || p.x > xMax) return;
+          const cx = px(p.x);
+          const cy = py(p.b);
+          if (first) {
+            ctx.moveTo(cx, cy);
+            first = false;
+          } else {
+            ctx.lineTo(cx, cy);
+          }
+        });
+        ctx.strokeStyle = c.color;
+        ctx.lineWidth = Math.max(1.8, Math.round(2.2 * scale));
+        if (!isLight) {
+          ctx.shadowColor = 'rgba(56, 189, 248, 0.45)';
+          ctx.shadowBlur = 4;
         }
+        ctx.stroke();
+        ctx.restore();
       });
-      ctx.strokeStyle = isLight ? '#0284c7' : '#38bdf8';
-      ctx.lineWidth = Math.max(1.8, Math.round(2.2 * scale));
-      if (!isLight) {
-        ctx.shadowColor = 'rgba(56, 189, 248, 0.45)';
-        ctx.shadowBlur = 4;
-      }
-      ctx.stroke();
-      ctx.restore();
     }
 
     measured.forEach((p) => {
@@ -1885,8 +1939,13 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       const cx = px(p.x);
       const cy = py(p.b);
       const r = Math.round(3.5 * scale);
-      ctx.strokeStyle = isLight ? '#0284c7' : '#38bdf8';
-      ctx.lineWidth = Math.max(1.2, Math.round(1.5 * scale));
+      let pointColor = isLight ? '#0284c7' : '#38bdf8';
+      if (isHelmholtz) {
+        if (p.coilMode === 'fixed') pointColor = isLight ? '#d97706' : '#fbbf24';
+        else if (p.coilMode === 'moving') pointColor = isLight ? '#059669' : '#34d399';
+      }
+      ctx.strokeStyle = pointColor;
+      ctx.lineWidth = Math.max(1.3, Math.round(1.6 * scale));
       ctx.beginPath();
       ctx.moveTo(cx - r, cy);
       ctx.lineTo(cx + r, cy);
@@ -1895,12 +1954,30 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       ctx.stroke();
     });
 
-    fillSoftText(isLight ? '#0284c7' : '#38bdf8', () => {
-      ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
+    fillSoftText(isLight ? '#0f172a' : '#cbd5e1', () => {
+      ctx.font = `bold ${Math.round(10 * scale)}px "Microsoft YaHei", sans-serif`;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'top';
-      const fitLabel = d.showFit ? '— 拟合曲线   ' : '';
-      ctx.fillText(`${fitLabel}+ 实测 ${shown.length} 组`, plotR, chartY + Math.round(4 * scale));
+
+      if (d.showFit && curvesToDraw.length > 0) {
+        let curX = plotR;
+        const totalCountText = `+ 实测 ${shown.length} 组`;
+        ctx.fillStyle = isLight ? '#475569' : '#94a3b8';
+        ctx.fillText(totalCountText, curX, chartY + Math.round(4 * scale));
+        curX -= ctx.measureText(totalCountText).width + Math.round(10 * scale);
+
+        for (let idx = curvesToDraw.length - 1; idx >= 0; idx -= 1) {
+          const item = curvesToDraw[idx];
+          const text = `— ${item.label}`;
+          ctx.fillStyle = item.color;
+          ctx.fillText(text, curX, chartY + Math.round(4 * scale));
+          curX -= ctx.measureText(text).width + Math.round(8 * scale);
+        }
+      } else {
+        const fitLabel = (d.showFit && curvesToDraw.length > 0) ? '— 拟合曲线   ' : '';
+        ctx.fillStyle = isLight ? '#0284c7' : '#38bdf8';
+        ctx.fillText(`${fitLabel}+ 实测 ${shown.length} 组`, plotR, chartY + Math.round(4 * scale));
+      }
     });
   } else {
     // Non-overlapping, compact column headers with clear gaps

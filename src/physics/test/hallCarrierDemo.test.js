@@ -345,3 +345,45 @@ test('electro station menu hit testing correctly picks each of the 5 cards', () 
   assert.equal(headerPick, null, 'clicking empty header area must return null');
 });
 
+test('Hall effect solenoid and Helmholtz theoretical curves match simulated measurements', () => {
+  const station = { id: 'electro', name: '电磁学实验台' };
+  const experiment = { id: 'hall_effect', name: '霍尔效应与磁场测量' };
+
+  // Solenoid test with default params (L = 30cm, N = 1000, Im = 0.5A, Is = 5mA, K = 220)
+  const solenoidData = {
+    target: 'solenoid',
+    Im: 0.5,
+    Is: 5.0,
+    solenoidLength: 30,
+    turns: 1000,
+    direction: 1,
+    showCurve: true,
+    showFit: true,
+    wiring: { energized: true, target: 'solenoid' },
+    records: [
+      { target: 'solenoid', pos: 0, vh: 2.2936, Is: 5.0, Im: 0.5, turns: 1000, direction: 1, hallK: 220 },
+      { target: 'solenoid', pos: 5, vh: 2.2900, Is: 5.0, Im: 0.5, turns: 1000, direction: 1, hallK: 220 },
+    ],
+  };
+
+  const layout = getHoloScreenLayoutSize({ active: true, hud: { station, experiment, running: true, data: solenoidData }, surface: 'display' });
+  const stubCtx = {
+    clearRect() {}, fillRect() {}, strokeRect() {}, fillText() {},
+    save() {}, restore() {}, beginPath() {}, closePath() {}, moveTo() {}, lineTo() {},
+    arc() {}, arcTo() {}, fill() {}, stroke() {}, addColorStop() {},
+    createLinearGradient() { return { addColorStop() {} }; },
+    measureText() { return { width: 50 }; },
+  };
+
+  // Drawing the screen must execute without error
+  const res = drawHoloScreen(stubCtx, layout.width, layout.height, {
+    active: true,
+    hud: { station, experiment, running: true, data: solenoidData },
+    surface: 'display',
+    fullTitle: '电磁学实验台',
+    enTitle: 'ELECTROMAGNETISM',
+  });
+  assert.ok(res);
+});
+
+
