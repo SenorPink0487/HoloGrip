@@ -102,7 +102,7 @@ function hallSpecs(d) {
     range('probePos', '探头 X', -25, 25, { unit: 'cm', digits: 1, setAction: 'hall-set' }),
     target === 'helmholtz'
       ? range('rightCoilPos', '右线圈位置', -0.5, 13, { unit: 'cm', digits: 1, setAction: 'hall-set' })
-      : range('turns', '螺线管匝数 N', 10, 300, { unit: '匝', digits: 0, setAction: 'hall-set' }),
+      : range('turns', '螺线管匝数 N', 10, 2000, { unit: '匝', digits: 0, setAction: 'hall-set' }),
     // Primary capture control lives on the bench panel next to the apparatus.
     actionBtn('记录当前读数', 'hall-record'),
   ];

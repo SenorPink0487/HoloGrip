@@ -120,3 +120,52 @@ test('experiment manager fixedUpdate re-homes handler.update when owned by drive
   assert.equal(integrateCalls, 1);
   assert.ok(manager.state._dt > 0);
 });
+
+test('continuous Faraday slider drag skips duplicate absolute values', async () => {
+  const calls = [];
+  const manager = createExperimentManager({
+    equipment: {},
+    catalog: {
+      electro: {
+        id: 'electro',
+        title: '电磁学',
+        experiments: [{ id: 'faraday_induction', name: '法拉第电磁感应', steps: [] }],
+      },
+    },
+  });
+  manager.registerStationModule('electro', {
+    createHandlers: ({ state }) => ({
+      initData: () => ({ value: 0 }),
+      beginManipulation: () => true,
+      onUiAction(action, payload) {
+        if (action !== 'faraday-b-set') return false;
+        state.data.value = payload.value;
+        calls.push(payload.value);
+        return true;
+      },
+      cleanup() {},
+    }),
+  });
+  manager.state.stationId = 'electro';
+  manager.state.expId = 'faraday_induction';
+  manager.state.running = true;
+  manager.state.data = { value: 0 };
+
+  const firstPick = {
+    action: 'faraday-b-slider',
+    value: 1.25,
+    min: -3,
+    max: 3,
+    key: 'B',
+  };
+  const host = { userData: {} };
+  assert.equal(manager.beginManipulation(host, { pick: firstPick }), true);
+  assert.equal(manager.updateManipulation(host, { totalX: 0 }), true);
+  assert.equal(manager.updateManipulation(host, { totalX: 0 }), true);
+  assert.deepEqual(calls, []);
+
+  assert.equal(manager.updateManipulation(host, { totalX: 25 }), true);
+  assert.equal(calls.length, 1);
+  assert.equal(manager.updateManipulation(host, { totalX: 25 }), true);
+  assert.equal(calls.length, 1);
+});

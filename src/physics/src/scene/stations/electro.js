@@ -14,6 +14,7 @@ import {
   gaussNormalFluxDensity,
 } from '../../experiments/electro.js';
 import { drawMathFormula } from '../../physicsFormula.js';
+import { createPrimitives } from '../shared/primitives.js';
 import { createEquipmentRuntime, getLeafPickSet, estimateObjectBytes } from '../../runtime/experimentRuntime.js';
 
 /**
@@ -136,7 +137,8 @@ function abortError() {
 
 /** Build and expose all electromagnetism-station apparatus. */
 function createFullStationEquipment(ctx) {
-  const { THREE, scene, camera, renderer, materials: mat, primitives } = ctx;
+  const { THREE, scene, camera, renderer, materials: mat } = ctx;
+  const primitives = ctx.primitives || createPrimitives();
   const { rbox, box, cyl } = primitives;
   const animators = [];
 
@@ -264,6 +266,7 @@ function createFullStationEquipment(ctx) {
 
     // Soft studio env so copper metalness has something to reflect (no scene env map)
     function makeSolenoidEnvMap() {
+      if (typeof document === 'undefined') return null;
       const c = document.createElement('canvas');
       c.width = 512;
       c.height = 256;
@@ -466,7 +469,7 @@ function createFullStationEquipment(ctx) {
 
     let lastHallTurns = -1;
     function setHallSolenoidTurns(turns) {
-      const count = Math.round(THREE.MathUtils.clamp(Number(turns || 100), 10, 300));
+      const count = Math.round(THREE.MathUtils.clamp(Number(turns || 1000), 10, 2000));
       if (count === lastHallTurns) return;
       lastHallTurns = count;
       // Full N in both shader and corrugated geometry
@@ -475,7 +478,7 @@ function createFullStationEquipment(ctx) {
       solWindBody.geometry = makeSolenoidWindGeometry(count);
       prev.dispose();
     }
-    setHallSolenoidTurns(100);
+    setHallSolenoidTurns(1000);
 
     const solenoidSupportMat = new THREE.MeshStandardMaterial({
       color: 0x20282b,
@@ -983,8 +986,8 @@ function createFullStationEquipment(ctx) {
 
     const hallFieldMaterials = new Set();
     const hallFieldFlow = { direction: 1, speed: 0 };
-    let hallFieldViewportWidth = window.innerWidth;
-    let hallFieldViewportHeight = window.innerHeight;
+    let hallFieldViewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
+    let hallFieldViewportHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
     let helmholtzFieldSignature = '';
     let solenoidFieldBuilt = false;
     let hallFieldPrewarmStarted = false;
@@ -1264,15 +1267,15 @@ function createFullStationEquipment(ctx) {
       // Whole shaft+head stays ABOVE the rail/area plane so downward (B<0) tips are not buried in the table.
       const FIELD_LEN = 0.95 * S;
       const FIELD_HEAD_LEN = 0.28 * S;
-      const FIELD_HEAD_W = 0.16 * S;
+      const FIELD_HEAD_W = 0.18 * S;
       // Vertical center of each arrow (local y). Origin shifts with sign so the body is centered here.
-      const FIELD_MID_Y = Y * S + 0.018 + FIELD_LEN * 0.5;
-      const FIELD_SPACING_SPARSE = 3.15;
-      const FIELD_SPACING_DENSE = 1.12;
-      const FIELD_X0 = fieldBounds.x0 + 0.8;
-      const FIELD_X1 = fieldBounds.x1 - 0.15;
-      const FIELD_Z0 = fieldBounds.z0 + 0.5;
-      const FIELD_Z1 = fieldBounds.z1 - 0.15;
+      const FIELD_MID_Y = Y * S + 0.008 + FIELD_LEN * 0.5;
+      const FIELD_SPACING_SPARSE = 1.8;
+      const FIELD_SPACING_DENSE = 0.85;
+      const FIELD_X0 = 0.6;
+      const FIELD_X1 = 7.8;
+      const FIELD_Z0 = -1.65;
+      const FIELD_Z1 = 1.65;
       const FIELD_CX = (FIELD_X0 + FIELD_X1) * 0.5;
       const FIELD_CZ = (FIELD_Z0 + FIELD_Z1) * 0.5;
       // Lattice sized so densest spacing exactly fills the draw box.
@@ -1280,7 +1283,7 @@ function createFullStationEquipment(ctx) {
       const FIELD_NZ = Math.max(2, Math.round((FIELD_Z1 - FIELD_Z0) / FIELD_SPACING_DENSE) + 1);
       const FIELD_HALF_IX = (FIELD_NX - 1) * 0.5;
       const FIELD_HALF_IZ = (FIELD_NZ - 1) * 0.5;
-      const FIELD_EDGE_FADE = 0.55;
+      const FIELD_EDGE_FADE = 0.45;
       const FIELD_POOL = FIELD_NX * FIELD_NZ;
       let fieldShowKey = '';
       let fieldLastB = NaN;
@@ -1289,23 +1292,23 @@ function createFullStationEquipment(ctx) {
       const fieldDir = new THREE.Vector3(0, 1, 0);
       function clearFieldMeshes() {
         while (fieldGroup.children.length) {
-          const child = fieldGroup.children.pop();
-          child.traverse?.((node) => { node.geometry?.dispose?.(); node.material?.dispose?.(); });
+          fieldGroup.remove(fieldGroup.children[0]);
         }
         fieldArrows.length = 0;
         fieldShowKey = '';
         fieldLastB = NaN;
         fieldLastSign = 0;
       }
-      function ensureFieldAssets(color) {
+      function ensureFieldAssets(color, sign = 1) {
         if (fieldArrows.length >= FIELD_POOL) return;
+        fieldDir.set(0, sign, 0);
         // Fixed (ix,iz) pool — densest fill; layout only moves roots / fades edges.
         for (let ix = 0; ix < FIELD_NX; ix += 1) {
           for (let iz = 0; iz < FIELD_NZ; iz += 1) {
             if (fieldArrows.length >= FIELD_POOL) break;
             const arrow = new THREE.ArrowHelper(
               fieldDir,
-              new THREE.Vector3(0, FIELD_MID_Y - FIELD_LEN * 0.5, 0),
+              new THREE.Vector3(0, FIELD_MID_Y - sign * (FIELD_LEN * 0.5), 0),
               FIELD_LEN,
               color,
               FIELD_HEAD_LEN,
@@ -1313,21 +1316,22 @@ function createFullStationEquipment(ctx) {
             );
             arrow.userData.ix = ix;
             arrow.userData.iz = iz;
+            arrow.userData.lastSign = sign;
             arrow.raycast = () => {};
             arrow.line.raycast = () => {};
             arrow.cone.raycast = () => {};
             arrow.line.material.transparent = true;
-            arrow.line.material.opacity = 0.7;
+            arrow.line.material.opacity = 0.85;
             arrow.line.material.depthWrite = false;
-            arrow.line.material.depthTest = true;
+            arrow.line.material.depthTest = false;
             arrow.cone.material.transparent = true;
-            arrow.cone.material.opacity = 0.88;
+            arrow.cone.material.opacity = 0.95;
             arrow.cone.material.depthWrite = false;
-            arrow.cone.material.depthTest = true;
+            arrow.cone.material.depthTest = false;
             // Avoid z-fight with the area plane when looking from above.
-            arrow.renderOrder = 2;
-            arrow.line.renderOrder = 2;
-            arrow.cone.renderOrder = 3;
+            arrow.renderOrder = 10;
+            arrow.line.renderOrder = 10;
+            arrow.cone.renderOrder = 11;
             arrow.visible = false;
             fieldGroup.add(arrow);
             fieldArrows.push(arrow);
@@ -1346,7 +1350,7 @@ function createFullStationEquipment(ctx) {
         const b = Number(B || 0);
         const absB = Math.abs(b);
         const strength = THREE.MathUtils.clamp(absB / 3, 0, 1);
-        const color = b >= 0 ? 0x38bdf8 : 0xea580c;
+        const color = b >= 0 ? 0x38bdf8 : 0xf97316;
         const sign = b >= 0 ? 1 : -1;
         // Skip only true no-ops; every distinct B moves spacing continuously.
         if (sign === fieldLastSign && Number.isFinite(fieldLastB) && Math.abs(b - fieldLastB) < 1e-5) {
@@ -1356,12 +1360,6 @@ function createFullStationEquipment(ctx) {
         fieldLastB = b;
         fieldLastSign = sign;
 
-        const frameOp = absB < 0.02 ? 0.14 : 0.24;
-        if (fieldFrame?.material) {
-          if (signChanged) fieldFrame.material.color.setHex(color);
-          fieldFrame.material.opacity = frameOp;
-        }
-
         if (absB < 0.02) {
           for (let i = 0; i < fieldArrows.length; i += 1) fieldArrows[i].visible = false;
           return;
@@ -1370,8 +1368,8 @@ function createFullStationEquipment(ctx) {
         // Linear spacing vs |B|: no tier / no floor(count) — lattice breathes continuously.
         const spacing = THREE.MathUtils.lerp(FIELD_SPACING_SPARSE, FIELD_SPACING_DENSE, strength);
         if (signChanged) fieldDir.set(0, sign, 0);
-        const baseLineOp = THREE.MathUtils.lerp(0.5, 0.86, strength);
-        const baseConeOp = THREE.MathUtils.lerp(0.55, 0.9, strength);
+        const baseLineOp = THREE.MathUtils.lerp(0.65, 0.9, strength);
+        const baseConeOp = THREE.MathUtils.lerp(0.75, 1.0, strength);
 
         for (let i = 0; i < fieldArrows.length; i += 1) {
           const arrow = fieldArrows[i];
@@ -1388,7 +1386,8 @@ function createFullStationEquipment(ctx) {
           // Origin at the trailing end: for ↓B the root sits higher so the tip stays above the table.
           const originY = FIELD_MID_Y - sign * (FIELD_LEN * 0.5);
           arrow.position.set(OFFSET_X + x * S, originY, z * S);
-          if (signChanged) {
+          if (signChanged || arrow.userData.lastSign !== sign) {
+            arrow.userData.lastSign = sign;
             arrow.setDirection?.(fieldDir);
             arrow.setColor?.(color);
           }
@@ -1415,7 +1414,8 @@ function createFullStationEquipment(ctx) {
           fieldLastB = NaN;
           fieldLastSign = 0;
         }
-        ensureFieldAssets(Number(B || 0) >= 0 ? 0x38bdf8 : 0xea580c);
+        const b = Number(B || 0);
+        ensureFieldAssets(b >= 0 ? 0x38bdf8 : 0xf97316, b >= 0 ? 1 : -1);
         applyFieldLayout(B);
       }
 
@@ -1511,67 +1511,66 @@ function createFullStationEquipment(ctx) {
         pathMat.opacity = 0.72;
       }
       function clearFlow() {
-        for (let i = flowArrows.length - 1; i >= 0; i -= 1) {
-          const arrow = flowArrows[i];
-          currentGroup.remove(arrow);
-          arrow.line?.geometry?.dispose?.();
-          arrow.line?.material?.dispose?.();
-          arrow.cone?.geometry?.dispose?.();
-          arrow.cone?.material?.dispose?.();
+        for (let i = 0; i < flowArrows.length; i += 1) {
+          flowArrows[i].visible = false;
         }
-        flowArrows.length = 0;
-        progress.length = 0;
         flowSense = 'none';
         pathLine.visible = false;
         pathMat.opacity = 0;
       }
       function buildFlow(sense, rodX) {
-        if (sense === flowSense && flowArrows.length) return;
-        clearFlow();
-        if (sense === 'none') return;
+        if (sense === 'none') {
+          if (flowSense !== 'none') clearFlow();
+          return;
+        }
+        const senseChanged = sense !== flowSense;
         flowSense = sense;
         flowRodX = rodX;
         const color = sense === 'ccw' ? 0xa78bfa : 0xf472b6;
-        const dirSign = sense === 'ccw' ? 1 : -1;
-        for (let i = 0; i < FLOW_COUNT; i += 1) {
-          const arrow = new THREE.ArrowHelper(
-            new THREE.Vector3(1, 0, 0),
-            new THREE.Vector3(0, 0, 0),
-            FLOW_ARROW_LEN,
-            color,
-            FLOW_HEAD_LEN,
-            FLOW_HEAD_W,
-          );
-          arrow.raycast = () => {};
-          if (arrow.line?.material) {
-            arrow.line.raycast = () => {};
-            arrow.line.material.transparent = true;
-            arrow.line.material.depthWrite = false;
-            arrow.line.material.opacity = 0.9;
-          }
-          if (arrow.cone?.material) {
-            arrow.cone.raycast = () => {};
-            arrow.cone.material.transparent = true;
-            arrow.cone.material.depthWrite = false;
-            arrow.cone.material.opacity = 1;
-          }
-          arrow.renderOrder = 6;
-          if (arrow.line) arrow.line.renderOrder = 6;
-          if (arrow.cone) arrow.cone.renderOrder = 7;
-          const u = i / FLOW_COUNT;
-          loopSample(u, rodX, _loopPos, _loopDir);
-          if (dirSign < 0) _loopDir.negate();
-          // ArrowHelper origin is the tail; shift so the body sits on the path.
-          arrow.position.copy(_loopPos).addScaledVector(_loopDir, -FLOW_ARROW_LEN * 0.35);
-          if (_loopDir.lengthSq() > 1e-12) arrow.setDirection(_loopDir);
-          currentGroup.add(arrow);
-          flowArrows.push(arrow);
-          progress.push(u);
+        for (let i = 0; i < flowArrows.length; i += 1) {
+          const arrow = flowArrows[i];
+          arrow.visible = true;
+          if (senseChanged) arrow.setColor(color);
         }
         updatePathLine(rodX, color, true);
       }
 
+      // Pre-create pooled flow arrows once during initialization
+      for (let i = 0; i < FLOW_COUNT; i += 1) {
+        const arrow = new THREE.ArrowHelper(
+          new THREE.Vector3(1, 0, 0),
+          new THREE.Vector3(0, 0, 0),
+          FLOW_ARROW_LEN,
+          0xf472b6,
+          FLOW_HEAD_LEN,
+          FLOW_HEAD_W,
+        );
+        arrow.raycast = () => {};
+        if (arrow.line?.material) {
+          arrow.line.raycast = () => {};
+          arrow.line.material.transparent = true;
+          arrow.line.material.depthWrite = false;
+          arrow.line.material.opacity = 0.9;
+        }
+        if (arrow.cone?.material) {
+          arrow.cone.raycast = () => {};
+          arrow.cone.material.transparent = true;
+          arrow.cone.material.depthWrite = false;
+          arrow.cone.material.opacity = 1;
+        }
+        arrow.renderOrder = 6;
+        if (arrow.line) arrow.line.renderOrder = 6;
+        if (arrow.cone) arrow.cone.renderOrder = 7;
+        arrow.visible = false;
+        currentGroup.add(arrow);
+        flowArrows.push(arrow);
+        progress.push(i / FLOW_COUNT);
+      }
+
       function makeFaradayLabelSprite() {
+        if (typeof document === 'undefined') {
+          return { sprite: new THREE.Group(), update: () => {}, flush: () => {} };
+        }
         const canvas = document.createElement('canvas');
         canvas.width = 512;
         canvas.height = 128;
@@ -1653,9 +1652,13 @@ function createFullStationEquipment(ctx) {
         const areaCenterX = X_END + width / 2;
         areaFluxLabel.sprite.position.set(OFFSET_X + areaCenterX * S, (Y + 1.35) * S, 0);
         areaFluxLabel.update(`\\Phi_B = ${flux >= 0 ? '+' : ''}${flux.toFixed(2)} \\mathrm{Wb}`, B >= 0 ? '#38bdf8' : '#fb923c');
+        if (dt === 0) {
+          rodXLabel.flush();
+          areaFluxLabel.flush();
+        }
         rebuildField(Number(data?.B || 0), data?.showField !== false);
         buildFlow(data?.currentSense || 'none', x);
-        if (flowArrows.length) {
+        if (flowSense !== 'none') {
           const dirSign = flowSense === 'ccw' ? 1 : -1;
           // ~0.55–0.95 rev/s so motion reads immediately while dragging/sliding B.
           const speed = 0.55 * Math.max(0.85, Math.min(1.7, 1 + Math.abs(Number(data?.B || 0)) * 0.08));
@@ -2004,7 +2007,10 @@ function createFullStationEquipment(ctx) {
         opacity: 0,
         linewidth: 4,
         worldUnits: false,
-        resolution: new THREE.Vector2(window.innerWidth, window.innerHeight),
+        resolution: new THREE.Vector2(
+          typeof window !== 'undefined' ? window.innerWidth : 1280,
+          typeof window !== 'undefined' ? window.innerHeight : 720,
+        ),
         depthTest: true,
         toneMapped: false,
       });

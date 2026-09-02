@@ -11,6 +11,7 @@ import {
 import { faradayBFromSliderPick } from '../src/holoScreen.js';
 import { getDeskSliderConfig } from '../src/deskSliderCatalog.js';
 import { STATION_EXPERIMENTS } from '../src/experiments/registry.js';
+import { createStationEquipment as createElectroEquipment } from '../src/scene/stations/electro.js';
 import * as THREE from 'three';
 
 function close(actual, expected, tolerance = 1e-6) {
@@ -287,5 +288,72 @@ test('Faraday conductor rod 3D raycaster drag follows 3D ray directly with 1:1 t
   handlers.endManipulation(rod);
   assert.equal(state.data.dragging, false);
   assert.ok(state.data.lastMotion);
+});
+
+test('Faraday 3D magnetic field arrows update dynamically with sign and strength', () => {
+  const origDoc = globalThis.document;
+  globalThis.document = {
+    createElement: (tag) => {
+      if (tag === 'canvas') {
+        return {
+          width: 512,
+          height: 256,
+          getContext: () => ({
+            clearRect: () => {},
+            fillRect: () => {},
+            strokeRect: () => {},
+            fillText: () => {},
+            strokeText: () => {},
+            measureText: () => ({ width: 10 }),
+            createLinearGradient: () => ({ addColorStop: () => {} }),
+            createRadialGradient: () => ({ addColorStop: () => {} }),
+            beginPath: () => {},
+            closePath: () => {},
+            moveTo: () => {},
+            lineTo: () => {},
+            arc: () => {},
+            arcTo: () => {},
+            ellipse: () => {},
+            fill: () => {},
+            stroke: () => {},
+            save: () => {},
+            restore: () => {},
+            setLineDash: () => {},
+          }),
+        };
+      }
+      return {};
+    },
+  };
+
+  try {
+    const station = createElectroEquipment({
+      THREE,
+      renderer: { compileAsync: async () => {} },
+      camera: new THREE.PerspectiveCamera(),
+      scene: new THREE.Scene(),
+    });
+
+    const runtime = station.equipment.createRuntime('faraday_induction');
+    station.equipment.setMode('faraday');
+
+    // Initial update with B = -1 (downwards orange arrows)
+    station.equipment.updateFaraday({ B: -1, x: 4.5, showField: true }, 0);
+    const faradayGroup = station.root.getObjectByName('faraday-induction-apparatus');
+    assert.ok(faradayGroup, 'Faraday apparatus group must exist in electro station');
+
+    const visibleArrowsDown = faradayGroup.children[0].children.filter((c) => c.visible);
+    assert.ok(visibleArrowsDown.length >= 10, 'Must have active visible B arrows for B = -1');
+    assert.equal(visibleArrowsDown[0].line.material.color.getHexString(), 'f97316', 'B < 0 arrows must be orange/amber');
+
+    // Change to B = +1.5 (upwards cyan arrows)
+    station.equipment.updateFaraday({ B: 1.5, x: 4.5, showField: true }, 0);
+    const visibleArrowsUp = faradayGroup.children[0].children.filter((c) => c.visible);
+    assert.ok(visibleArrowsUp.length >= 10, 'Must have active visible B arrows for B = 1.5');
+    assert.equal(visibleArrowsUp[0].line.material.color.getHexString(), '38bdf8', 'B > 0 arrows must be sky-blue/cyan');
+  } finally {
+    if (origDoc === undefined) delete globalThis.document;
+    else globalThis.document = origDoc;
+  }
 });
 

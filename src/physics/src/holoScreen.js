@@ -89,7 +89,6 @@ const HALL_K = 220; // calibrated representative value, mV·mA⁻¹·T⁻¹
 
 /** Magnetic flux density in mT from standard on-axis field equations. */
 function hallTheoreticalB(data, pos) {
-  if (data.wiring && !data.wiring.energized) return 0;
   const x = Number(pos || 0) / 100;
   const Im = Number(data.Im || 0);
   let bTesla = 0;
@@ -110,7 +109,14 @@ function hallTheoreticalB(data, pos) {
       HALL_MU0 * turns * Im * radius ** 2
       / (2 * Math.pow(radius ** 2 + (x - centreX) ** 2, 1.5))
     );
-    bTesla = fieldAt(fixedX) + fieldAt(movingX);
+    const coilMode = data.coilMode || data.wiring?.coilMode || 'both';
+    if (coilMode === 'fixed') {
+      bTesla = fieldAt(fixedX);
+    } else if (coilMode === 'moving') {
+      bTesla = fieldAt(movingX);
+    } else {
+      bTesla = fieldAt(fixedX) + fieldAt(movingX);
+    }
   }
   return bTesla * 1000 * Number(data.direction || 1);
 }
@@ -1700,9 +1706,12 @@ function drawHallExperiment(ctx, W, _H, cfg) {
     { key: 'Im', label: '励磁电流 Im', value: Number(d.Im || 0), unit: 'A', digits: 2 },
     { key: 'Is', label: '霍尔电流 Is', value: Number(d.Is || 0), unit: 'mA', digits: 1 },
     { key: 'hallK', label: '灵敏度 K', value: Number(d.hallK || HALL_K), unit: 'mV/(mA·T)', digits: 0 },
-    target === 'helmholtz'
-      ? { key: 'rightCoilPos', label: '右线圈位置', value: Number(d.rightCoilPos || 0), unit: 'cm', digits: 1 }
-      : { key: 'turns', label: '螺线管匝数 N', value: Number(d.turns || 0), unit: '匝', digits: 0 },
+    ...(target === 'helmholtz'
+      ? [{ key: 'rightCoilPos', label: '右线圈位置', value: Number(d.rightCoilPos || 0), unit: 'cm', digits: 1 }]
+      : [
+          { key: 'solenoidLength', label: '螺线管长度 L', value: Number(d.solenoidLength || 30), unit: 'cm', digits: 0 },
+          { key: 'turns', label: '螺线管匝数 N', value: Number(d.turns || 1000), unit: '匝', digits: 0 },
+        ]),
   ];
 
   // Divide paramAreaH strictly by params.length to guarantee no footer collisions
@@ -1775,7 +1784,9 @@ function drawHallExperiment(ctx, W, _H, cfg) {
 
   if (d.showCurve) {
     const same = (a, b, eps = 1e-6) => Math.abs(Number(a) - Number(b)) <= eps;
+    const currentCoilMode = d.wiring?.coilMode || d.coilMode || 'both';
     const shown = records.filter((r) => r.target === target
+      && (target !== 'helmholtz' || (r.coilMode || 'both') === currentCoilMode)
       && same(r.Im ?? d.Im, d.Im)
       && Number(r.direction ?? d.direction) === Number(d.direction)
       && (target === 'solenoid'
@@ -1844,6 +1855,31 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       ctx.fillText('X / cm', plotR, plotB + Math.round(14 * scale));
     });
 
+    if (d.showFit) {
+      ctx.save();
+      ctx.beginPath();
+      let first = true;
+      theory.forEach((p) => {
+        if (p.x < xMin || p.x > xMax) return;
+        const cx = px(p.x);
+        const cy = py(p.b);
+        if (first) {
+          ctx.moveTo(cx, cy);
+          first = false;
+        } else {
+          ctx.lineTo(cx, cy);
+        }
+      });
+      ctx.strokeStyle = isLight ? '#0284c7' : '#38bdf8';
+      ctx.lineWidth = Math.max(1.8, Math.round(2.2 * scale));
+      if (!isLight) {
+        ctx.shadowColor = 'rgba(56, 189, 248, 0.45)';
+        ctx.shadowBlur = 4;
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
     measured.forEach((p) => {
       if (p.x < xMin || p.x > xMax) return;
       const cx = px(p.x);
@@ -1863,7 +1899,8 @@ function drawHallExperiment(ctx, W, _H, cfg) {
       ctx.font = `bold ${Math.round(11 * scale)}px "Microsoft YaHei", sans-serif`;
       ctx.textAlign = 'right';
       ctx.textBaseline = 'top';
-      ctx.fillText(`+ 实测 ${shown.length} 组`, plotR, chartY + Math.round(4 * scale));
+      const fitLabel = d.showFit ? '— 拟合曲线   ' : '';
+      ctx.fillText(`${fitLabel}+ 实测 ${shown.length} 组`, plotR, chartY + Math.round(4 * scale));
     });
   } else {
     // Non-overlapping, compact column headers with clear gaps
@@ -1961,8 +1998,14 @@ function drawHallExperiment(ctx, W, _H, cfg) {
 
   // Action bar buttons with pure text labels
   const btnGap = Math.round(10 * scale);
+  const isFitting = d.showCurve && !!d.showFit;
   const labels = [
     { label: d.showCurve ? '返回记录' : '生成曲线', action: 'hall-chart' },
+    {
+      label: isFitting ? '隐藏拟合' : '拟合曲线',
+      action: 'hall-fit',
+      active: isFitting,
+    },
     { label: '导出数据', action: 'hall-export' },
     { label: '清空', action: 'hall-clear' },
   ];
@@ -2079,14 +2122,14 @@ function drawHallDemoExperiment(ctx, _W, _H, cfg) {
   const innerPadX = Math.round(16 * scale);
   const typeW = (w - innerPadX * 2 - btnGap) / 2;
 
-  // 上角标 e^- / h^+
+  // 上角标 e⁻ / h⁺
   drawHallButton(
     ctx, hits, x + innerPadX, btnY, typeW, btnH,
-    'n型电子 (e^{-})', 'hall-demo-type', { nType: true }, accentHex, isNType,
+    'n型·电子 (e⁻)', 'hall-demo-type', { nType: true }, accentHex, isNType,
   );
   drawHallButton(
     ctx, hits, x + innerPadX + typeW + btnGap, btnY, typeW, btnH,
-    'p型·空穴 (h^{+})', 'hall-demo-type', { nType: false }, accentHex, !isNType,
+    'p型·空穴 (h⁺)', 'hall-demo-type', { nType: false }, accentHex, !isNType,
   );
 
   cy += boxH + gap;

@@ -257,6 +257,7 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     arrow.remove(arrow.line);
     arrow.line.geometry?.dispose();
     arrow.line = new THREE.Mesh(shaftGeo, shaftMat);
+    arrow.line.scale.set(1, Math.max(0.001, length - headLength), 1);
     arrow.add(arrow.line);
 
     arrow.cone.material.transparent = true;
@@ -268,7 +269,7 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     return arrow;
   }
 
-  // 1. 磁场 B 矢量箭头组（穿透实验器材，响应磁场 B 大小与方向）
+  // 磁场 B 矢量箭头组（穿透实验器材，响应磁场 B 大小与方向）
   const bFieldGroup = new THREE.Group();
   bFieldGroup.visible = false;
   root.add(bFieldGroup);
@@ -288,50 +289,6 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     });
     bFieldGroup.add(arrow);
     bArrows.push(arrow);
-  }
-
-  // 2. 电流 I 矢量箭头组（沿样品 x 轴方向指示电流流动）
-  const iFieldGroup = new THREE.Group();
-  iFieldGroup.visible = false;
-  root.add(iFieldGroup);
-
-  const iArrows = [];
-  const MAX_I_ARROWS = 10;
-  for (let i = 0; i < MAX_I_ARROWS; i += 1) {
-    const arrow = createCylinderArrow({
-      dir: new THREE.Vector3(1, 0, 0),
-      origin: new THREE.Vector3(0, SAMPLE.W / 2 + 0.28, 0),
-      length: 0.65,
-      color: 0xf59e0b,
-      headLength: 0.15,
-      headWidth: 0.10,
-      shaftRadius: 0.015,
-      renderOrder: 6,
-    });
-    iFieldGroup.add(arrow);
-    iArrows.push(arrow);
-  }
-
-  // 3. 横向霍尔电场 E_H 矢量箭头组（在样品侧面垂直指向，指示霍尔平衡电场）
-  const eFieldGroup = new THREE.Group();
-  eFieldGroup.visible = false;
-  root.add(eFieldGroup);
-
-  const eArrows = [];
-  const MAX_E_ARROWS = 10;
-  for (let i = 0; i < MAX_E_ARROWS; i += 1) {
-    const arrow = createCylinderArrow({
-      dir: new THREE.Vector3(0, -1, 0),
-      origin: new THREE.Vector3(0, 0, 0.08),
-      length: 0.65,
-      color: 0xc084fc,
-      headLength: 0.14,
-      headWidth: 0.10,
-      shaftRadius: 0.015,
-      renderOrder: 6,
-    });
-    eFieldGroup.add(arrow);
-    eArrows.push(arrow);
   }
 
   const positions = new Float32Array(PARTICLE_COUNT * 3);
@@ -681,9 +638,9 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
       posChargeGroup.position.set(0, posPosY, posPosZ);
       negChargeGroup.position.set(0, negPosY, negPosZ);
 
-      // 电荷数量与实际物理霍尔电压 |U_H| 强关联（I 增大增多、B 增大增多、n 增大减少、d 增大减少）
-      const chargeStrength = Math.min(1.0, rawVoltage / 2.5);
-      const count = Math.max(2, Math.min(MAX_SURFACE_CHARGES, Math.round(THREE.MathUtils.lerp(2, MAX_SURFACE_CHARGES, chargeStrength))));
+      // 箭头数量和电荷数量严格一一对应（受 I, B, n, d 共同决定的物理强度驱动）
+      const strength = Math.min(1.0, rawVoltage / 2.5);
+      const count = Math.max(2, Math.min(MAX_SURFACE_CHARGES, Math.round(THREE.MathUtils.lerp(2, MAX_SURFACE_CHARGES, strength))));
 
       for (let i = 0; i < MAX_SURFACE_CHARGES; i += 1) {
         const pNode = posChargeNodes[i];
@@ -700,7 +657,6 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
         }
       }
     }
-
     const absV = Math.min(1, rawVoltage / 2.0);
     const activeGlow = absV > 0.01 ? 0.18 + 0.62 * absV : 0;
 
@@ -711,26 +667,27 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     smoothGlowPos += (targetGlowPos - smoothGlowPos) * glowAlpha;
     smoothGlowNeg += (targetGlowNeg - smoothGlowNeg) * glowAlpha;
 
-    // 1. 磁场 B 矢量箭头组渲染：响应磁场 B 大小、正负方向与疏密
-    const showB = absB > 0.01;
+    // 磁场 B 矢量箭头组渲染：箭头数量与表面电荷数量严格一致对应，响应 I, B, n, d
+    const showB = absB >= 0.01 && absI >= 0.01 && rawVoltage >= 0.01 && pileSide !== 0;
     bFieldGroup.visible = showB;
     if (showB) {
       const bVal = Number(state.B || 0);
       const bSign = bVal >= 0 ? 1 : -1;
       const bColorHex = bVal >= 0 ? 0x38bdf8 : 0xff6b00;
       const bColor = new THREE.Color(bColorHex);
-      const bStrength = Math.min(1, absB / 2.0);
-      const bOpacity = 0.65 + 0.35 * bStrength;
+      const strength = Math.min(1.0, rawVoltage / 2.5);
+      const bOpacity = 0.65 + 0.35 * strength;
       const bDir = new THREE.Vector3(0, 0, bSign);
       const zCenter = 1.15;
       const zStart = zCenter - bSign * 0.75;
-      const bCount = Math.max(3, Math.min(bArrows.length, Math.round(THREE.MathUtils.lerp(3, 13, bStrength))));
 
+      const count = Math.max(2, Math.min(bArrows.length, Math.round(THREE.MathUtils.lerp(2, MAX_SURFACE_CHARGES, strength))));
       for (let i = 0; i < bArrows.length; i += 1) {
         const arrow = bArrows[i];
-        if (i < bCount) {
+        if (i < count) {
           arrow.visible = true;
-          const x = bCount > 1 ? (i / (bCount - 1) - 0.5) * SAMPLE.L * 0.84 : 0;
+          const x = count > 1 ? (i / (count - 1) - 0.5) * SAMPLE.L * 0.88 : 0;
+          arrow.setLength(1.35, 0.18, 0.12);
           arrow.setDirection(bDir);
           arrow.position.set(x, 0, zStart);
           arrow.setColor(bColorHex);
@@ -750,91 +707,6 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
       for (let i = 0; i < bArrows.length; i += 1) bArrows[i].visible = false;
     }
 
-    // 2. 电流 I 矢量箭头组渲染：响应电流 I 大小与正负方向
-    const showI = absI > 0.01;
-    iFieldGroup.visible = showI;
-    if (showI) {
-      const iVal = Number(state.I || 0);
-      const iSign = iVal >= 0 ? 1 : -1;
-      const iColorHex = iVal >= 0 ? 0xf59e0b : 0xec4899;
-      const iColor = new THREE.Color(iColorHex);
-      const iStrength = Math.min(1, absI / 2.0);
-      const iOpacity = 0.65 + 0.35 * iStrength;
-      const iDir = new THREE.Vector3(iSign, 0, 0);
-      const iCount = Math.max(2, Math.min(iArrows.length, Math.round(THREE.MathUtils.lerp(2, iArrows.length, iStrength))));
-      const totalLen = THREE.MathUtils.lerp(0.35, 0.75, iStrength);
-      const headLen = Math.min(0.15, totalLen * 0.35);
-      const headW = 0.10;
-
-      for (let i = 0; i < iArrows.length; i += 1) {
-        const arrow = iArrows[i];
-        if (i < iCount) {
-          arrow.visible = true;
-          const x = iCount > 1 ? (i / (iCount - 1) - 0.5) * SAMPLE.L * 0.75 : 0;
-          arrow.setLength(totalLen, headLen, headW);
-          arrow.setDirection(iDir);
-          arrow.position.set(x, SAMPLE.W / 2 + 0.28, 0);
-          arrow.setColor(iColorHex);
-          if (arrow.line?.material) {
-            arrow.line.material.color.copy(iColor);
-            arrow.line.material.opacity = iOpacity;
-          }
-          if (arrow.cone?.material) {
-            arrow.cone.material.color.copy(iColor);
-            arrow.cone.material.opacity = Math.min(1, iOpacity + 0.15);
-          }
-        } else {
-          arrow.visible = false;
-        }
-      }
-    } else {
-      for (let i = 0; i < iArrows.length; i += 1) iArrows[i].visible = false;
-    }
-
-    // 3. 横向霍尔电场 E_H 矢量箭头组渲染：响应 I, B, n, d 共同决定的霍尔电场与极性
-    const showE = absB >= 0.01 && absI >= 0.01 && rawVoltage >= 0.01 && pileSide !== 0;
-    eFieldGroup.visible = showE;
-    if (showE) {
-      const isPType = state.nType === false;
-      const isPosOnTop = pileSide > 0 ? isPType : !isPType;
-      // 电场方向：从正电荷面指向负电荷面
-      const eSign = isPosOnTop ? -1 : 1;
-      const eDir = new THREE.Vector3(0, eSign, 0);
-      const eStrength = Math.min(1.0, rawVoltage / 2.5);
-      const eOpacity = 0.65 + 0.35 * eStrength;
-      const eColorHex = 0xc084fc;
-      const eColor = new THREE.Color(eColorHex);
-      const eCount = Math.max(2, Math.min(eArrows.length, Math.round(THREE.MathUtils.lerp(2, eArrows.length, eStrength))));
-      const totalLen = THREE.MathUtils.lerp(0.40, SAMPLE.W * 0.76, eStrength);
-      const headLen = Math.min(0.14, totalLen * 0.35);
-      const headW = 0.10;
-      const yStart = isPosOnTop ? (SAMPLE.W / 2 - 0.12) : (-SAMPLE.W / 2 + 0.12);
-
-      for (let i = 0; i < eArrows.length; i += 1) {
-        const arrow = eArrows[i];
-        if (i < eCount) {
-          arrow.visible = true;
-          const x = eCount > 1 ? (i / (eCount - 1) - 0.5) * SAMPLE.L * 0.72 : 0;
-          arrow.setLength(totalLen, headLen, headW);
-          arrow.setDirection(eDir);
-          arrow.position.set(x, yStart, 0.08);
-          arrow.setColor(eColorHex);
-          if (arrow.line?.material) {
-            arrow.line.material.color.copy(eColor);
-            arrow.line.material.opacity = eOpacity;
-          }
-          if (arrow.cone?.material) {
-            arrow.cone.material.color.copy(eColor);
-            arrow.cone.material.opacity = Math.min(1, eOpacity + 0.15);
-          }
-        } else {
-          arrow.visible = false;
-        }
-      }
-    } else {
-      for (let i = 0; i < eArrows.length; i += 1) eArrows[i].visible = false;
-    }
-
     if (tabletop && state.autoCam && dt > 0) root.rotation.y += dt * 0.18;
     // Host SimBackend may own carrier integrate — if so, run smooth extrapolation when dt > 0.
     if (!root.userData._hostParticlesOwned && !state.paused && dt > 0) {
@@ -849,8 +721,6 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     let visiblePosCharges = 0;
     let visibleNegCharges = 0;
     let visibleBArrows = 0;
-    let visibleIArrows = 0;
-    let visibleEArrows = 0;
     for (let i = 0; i < posChargeNodes.length; i += 1) {
       if (posChargeGroup.visible && posChargeNodes[i].visible) visiblePosCharges += 1;
       if (negChargeGroup.visible && negChargeNodes[i].visible) visibleNegCharges += 1;
@@ -858,18 +728,10 @@ export function createHallDemoEquipment({ tabletop = false } = {}) {
     for (let i = 0; i < bArrows.length; i += 1) {
       if (bFieldGroup.visible && bArrows[i].visible) visibleBArrows += 1;
     }
-    for (let i = 0; i < iArrows.length; i += 1) {
-      if (iFieldGroup.visible && iArrows[i].visible) visibleIArrows += 1;
-    }
-    for (let i = 0; i < eArrows.length; i += 1) {
-      if (eFieldGroup.visible && eArrows[i].visible) visibleEArrows += 1;
-    }
     return {
       posCharges: visiblePosCharges,
       negCharges: visibleNegCharges,
       bArrows: visibleBArrows,
-      iArrows: visibleIArrows,
-      eArrows: visibleEArrows,
       drawCount: particleGeometry.drawRange.count,
     };
   };

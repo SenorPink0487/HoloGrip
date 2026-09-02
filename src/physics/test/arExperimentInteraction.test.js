@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import * as THREE from 'three';
 
 import { createHandlers as createMechanicsHandlers, station as mechanicsStation } from '../src/experiments/mechanics.js';
 import { createHandlers as createOpticsHandlers } from '../src/experiments/optics.js';
-import { createHandlers as createElectroHandlers, analyzeHallWiring } from '../src/experiments/electro.js';
+import { createHandlers as createElectroHandlers, analyzeHallWiring, exportHallDataReport } from '../src/experiments/electro.js';
 
 function createContext({ expId, stepId, equipment }) {
   const state = { expId, stepIndex: 0, data: {} };
@@ -314,6 +315,93 @@ test('AR pinch-drag on the Hall data table scrolls like fullscreen drag', () => 
   assert.equal(ctx.state.data.tableScrollDrag, null);
 });
 
+test('Hall curve fitting action toggles showCurve and showFit with validation', () => {
+  const ctx = createContext({
+    expId: 'hall_effect',
+    stepId: 'scan',
+    equipment: {
+      electro: {
+        updateHall: () => {},
+        setHallWiring: () => {},
+      },
+    },
+  });
+  const handlers = createElectroHandlers(ctx);
+  ctx.state.data = handlers.initData('hall_effect');
+
+  // Without enough records, hall-fit and hall-chart refuse with toast
+  assert.equal(handlers.onUiAction('hall-fit'), true);
+  assert.equal(ctx.state.data.showCurve, false);
+
+  assert.equal(ctx.state.data.showFit, false);
+
+  // Seed 2 records
+  ctx.state.data.records = [
+    { target: 'helmholtz', pos: -2, vh: 0.2, b: 0.1, Im: 0.5, Is: 5 },
+    { target: 'helmholtz', pos: 0, vh: 0.5, b: 0.25, Im: 0.5, Is: 5 },
+  ];
+
+  // Clicking hall-chart opens scatter plot with showFit = false by default
+  assert.equal(handlers.onUiAction('hall-chart'), true);
+  assert.equal(ctx.state.data.showCurve, true);
+  assert.equal(ctx.state.data.showFit, false);
+
+  // Clicking hall-fit activates curve fitting
+  assert.equal(handlers.onUiAction('hall-fit'), true);
+  assert.equal(ctx.state.data.showCurve, true);
+  assert.equal(ctx.state.data.showFit, true);
+
+  // Clicking hall-fit again toggles fitting curve off
+  assert.equal(handlers.onUiAction('hall-fit'), true);
+  assert.equal(ctx.state.data.showCurve, true);
+  assert.equal(ctx.state.data.showFit, false);
+
+  // Return to record table via hall-chart
+  assert.equal(handlers.onUiAction('hall-chart'), true);
+  assert.equal(ctx.state.data.showCurve, false);
+});
+
+test('Hall export report places data table before chart and models single-coil correctly', () => {
+  const globalWindow = globalThis.window;
+  let openedHtml = null;
+  globalThis.window = {
+    open: () => ({
+      document: {
+        open: () => {},
+        write: (html) => { openedHtml = html; },
+        close: () => {},
+        querySelector: () => null,
+      },
+    }),
+  };
+
+  try {
+    const data = {
+      target: 'helmholtz',
+      wiring: { energized: true, coilMode: 'fixed' },
+      records: [
+        { target: 'helmholtz', coilMode: 'fixed', pos: -8.1, vh: 0.11, b: 0.102, Im: 0.5, Is: 5.0, hallK: 220 },
+        { target: 'helmholtz', coilMode: 'fixed', pos: -2.5, vh: 1.45, b: 1.319, Im: 0.5, Is: 5.0, hallK: 220 },
+      ],
+    };
+
+    assert.equal(exportHallDataReport(data), true);
+    assert.ok(openedHtml);
+
+    // 1. Table is placed before Chart
+    const tableIndex = openedHtml.indexOf('<div class="section-title">实验数据记录表</div>');
+    const chartIndex = openedHtml.indexOf('<div class="section-title">B–X 磁场分布曲线</div>');
+    assert.ok(tableIndex > 0 && chartIndex > 0);
+    assert.ok(tableIndex < chartIndex, 'Data table section must precede the B-X chart section');
+
+    // 2. Single coil L1 (fixed) condition text is properly displayed
+    assert.ok(openedHtml.includes('固定线圈 L1'));
+    assert.ok(openedHtml.includes('单线圈通电 (固定线圈 L1 中心 X=-2.5cm)'));
+  } finally {
+    globalThis.window = globalWindow;
+  }
+});
+
 test('content-screen Faraday B slider arms drag and follows absolute pick / relative move', () => {
   let lastB = null;
   const ctx = createContext({
@@ -406,6 +494,63 @@ test('Hall probe grab applies continuous camera-drag via updateManipulation', ()
   assert.equal(lastProbe, ctx.state.data.probePos);
   assert.equal(handlers.endManipulation(probe, { dragged: true }), true);
   assert.equal(ctx.state.data.hallDragArmed, false);
+});
+
+test('Hall probe raycast drag maintains grab point on rod without snapping to tip', () => {
+  const hallRoot = new THREE.Group();
+  let lastProbe = null;
+  const ctx = createContext({
+    expId: 'hall_effect',
+    stepId: 'scan',
+    equipment: {
+      electro: {
+        getRuntimeRoot: () => hallRoot,
+        updateHall: (d) => { lastProbe = d.probePos; },
+        setHallWiring: () => {},
+      },
+    },
+  });
+  const handlers = createElectroHandlers(ctx);
+  ctx.state.data = handlers.initData('hall_effect');
+  ctx.state.data.identified = {
+    hall_helmholtz: true,
+    hall_solenoid: true,
+    hall_probe: true,
+    hall_console: true,
+  };
+  ctx.state.data.probePos = 0;
+  ctx.state.stepIndex = 3;
+
+  const probe = { userData: { role: 'hall_probe' } };
+
+  // Grab the probe rod near the handle at x = 0.8m (local probe Y = 0.28, Z = -0.02)
+  const grabRay = new THREE.Raycaster(
+    new THREE.Vector3(0.8, 1.28, -0.02),
+    new THREE.Vector3(0, -1, 0),
+  );
+
+  assert.equal(handlers.beginManipulation(probe, { raycaster: grabRay }), true);
+  assert.equal(ctx.state.data.hallDragArmed, true);
+  // Offset should record: probePos(0) - hitX(0.8) * 25 = -20
+  assert.equal(ctx.state.data.hallDragOffset, -20);
+
+  // Drag begins after accum > 0.08s
+  handlers.updateManipulation(probe, { dt: 0.1, time: 0.1, raycaster: grabRay });
+  // probePos must remain 0 on first drag step (no jump / snap)
+  assert.equal(ctx.state.data.probePos, 0);
+
+  // Move pointer along X by +0.1m (to x = 0.9m, equivalent to +2.5cm on scale)
+  const moveRay = new THREE.Raycaster(
+    new THREE.Vector3(0.9, 1.28, -0.02),
+    new THREE.Vector3(0, -1, 0),
+  );
+  handlers.updateManipulation(probe, { dt: 0.05, time: 0.15, raycaster: moveRay });
+  assert.equal(ctx.state.data.probePos, 2.5);
+  assert.equal(lastProbe, 2.5);
+
+  assert.equal(handlers.endManipulation(probe, { dragged: true }), true);
+  assert.equal(ctx.state.data.hallDragArmed, false);
+  assert.equal(ctx.state.data.hallDragOffset, null);
 });
 
 test('Hall identify requires sequential order and reports correct/wrong picks', () => {

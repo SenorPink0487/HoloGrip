@@ -174,10 +174,11 @@ test('carrier concentration n dynamically scales rendered particle density drawR
 test('Hall demo control panel parameters (I, B, n, d) physically alter arrow counts and charge quantities', () => {
   const root = createHallDemoEquipment({ tabletop: true });
 
-  // 1. Current I controls surface charges
+  // 1. Current I controls arrow count & surface charge accumulation
   root.userData.update({ I: 0, B: 1, n: 1, d: 0.5, nType: true }, 0.016);
   const zeroI = root.userData.getVisualStats();
   assert.equal(zeroI.posCharges, 0, 'I=0 must hide surface charges');
+  assert.equal(zeroI.bArrows, 0, 'I=0 must hide arrows');
 
   root.userData.update({ I: 0.5, B: 1, n: 1, d: 0.5, nType: true }, 0.016);
   const lowI = root.userData.getVisualStats();
@@ -185,9 +186,12 @@ test('Hall demo control panel parameters (I, B, n, d) physically alter arrow cou
   root.userData.update({ I: 2.0, B: 1, n: 1, d: 0.5, nType: true }, 0.016);
   const highI = root.userData.getVisualStats();
 
+  assert.ok(lowI.bArrows < highI.bArrows, 'Higher I must display more arrows');
   assert.ok(lowI.posCharges < highI.posCharges, 'Higher I must accumulate more surface charges');
+  assert.equal(lowI.bArrows, lowI.posCharges, 'Arrow count and charge count must strictly correspond');
+  assert.equal(highI.bArrows, highI.posCharges, 'Arrow count and charge count must strictly correspond');
 
-  // 2. Magnetic field B controls B arrows and surface charges
+  // 2. Magnetic field B controls B arrows and surface charge accumulation
   root.userData.update({ I: 1, B: 0, n: 1, d: 0.5, nType: true }, 0.016);
   const zeroB = root.userData.getVisualStats();
   assert.equal(zeroB.bArrows, 0, 'B=0 must hide B arrows');
@@ -201,6 +205,8 @@ test('Hall demo control panel parameters (I, B, n, d) physically alter arrow cou
 
   assert.ok(lowB.bArrows < highB.bArrows, 'Higher B must display more B arrows');
   assert.ok(lowB.posCharges < highB.posCharges, 'Higher B must accumulate more surface charges');
+  assert.equal(lowB.bArrows, lowB.posCharges, 'Arrow count and charge count must strictly correspond');
+  assert.equal(highB.bArrows, highB.posCharges, 'Arrow count and charge count must strictly correspond');
 
   // 3. Carrier concentration n: higher n decreases Hall voltage U_H (inversely proportional)
   root.userData.update({ I: 1, B: 1, n: 0.4, d: 0.5, nType: true }, 0.016);
@@ -210,6 +216,9 @@ test('Hall demo control panel parameters (I, B, n, d) physically alter arrow cou
   const highN = root.userData.getVisualStats();
 
   assert.ok(lowN.posCharges > highN.posCharges, 'Higher n must decrease surface charges due to smaller U_H');
+  assert.ok(lowN.bArrows > highN.bArrows, 'Higher n must decrease arrows due to smaller U_H');
+  assert.equal(lowN.bArrows, lowN.posCharges, 'Arrow count and charge count must strictly correspond');
+  assert.equal(highN.bArrows, highN.posCharges, 'Arrow count and charge count must strictly correspond');
   assert.ok(lowN.drawCount < highN.drawCount, 'Higher n must increase internal carrier particle count');
 
   // 4. Sample thickness d: thicker sample decreases Hall voltage U_H (inversely proportional)
@@ -220,6 +229,9 @@ test('Hall demo control panel parameters (I, B, n, d) physically alter arrow cou
   const highD = root.userData.getVisualStats();
 
   assert.ok(lowD.posCharges > highD.posCharges, 'Thicker d must decrease surface charges due to smaller U_H');
+  assert.ok(lowD.bArrows > highD.bArrows, 'Thicker d must decrease arrows due to smaller U_H');
+  assert.equal(lowD.bArrows, lowD.posCharges, 'Arrow count and charge count must strictly correspond');
+  assert.equal(highD.bArrows, highD.posCharges, 'Arrow count and charge count must strictly correspond');
 });
 
 test('hologram canvas sizes match dense layout table', () => {
@@ -269,9 +281,9 @@ test('electro station menu hit testing correctly picks each of the 5 cards', () 
   const station = {
     id: 'electro',
     experiments: [
-      { id: 'faraday_induction', name: '法拉第电磁感应' },
-      { id: 'induced_electric_field', name: '感生电场' },
       { id: 'electric_field', name: '静电场探索' },
+      { id: 'induced_electric_field', name: '感生电场' },
+      { id: 'faraday_induction', name: '法拉第电磁感应' },
       { id: 'hall_carrier_demo', name: '霍尔效应原理' },
       { id: 'hall_effect', name: '霍尔效应测磁' },
     ],
@@ -304,9 +316,9 @@ test('electro station menu hit testing correctly picks each of the 5 cards', () 
 
   // Verify each card hit region maps to the expected expId
   const expectedIds = [
-    'faraday_induction',
-    'induced_electric_field',
     'electric_field',
+    'induced_electric_field',
+    'faraday_induction',
     'hall_carrier_demo',
     'hall_effect',
   ];

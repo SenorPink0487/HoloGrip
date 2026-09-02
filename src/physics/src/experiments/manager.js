@@ -504,21 +504,36 @@ export function createExperimentManager({
 
   function dispatchSliderValue(pick, value, live = true) {
     if (!Number.isFinite(value)) return false;
+    const slider = state.data?._uiSlider;
+    // Pointer events and the render-loop can report the same absolute value in
+    // one frame. Avoid routing that no-op through the experiment controller.
+    if (
+      slider
+      && (!slider.action || slider.action === pick.action)
+      && (!slider.key || slider.key === pick.key)
+      && Number.isFinite(slider.lastValue)
+      && Math.abs(Number(slider.lastValue) - Number(value)) <= 1e-4
+    ) {
+      return true;
+    }
+    let handled = false;
     if (pick.action === 'faraday-b-slider') {
-      return !!uiAction('faraday-b-set', { value });
+      handled = !!uiAction('faraday-b-set', { value, live });
+    } else if (pick.action === 'induced-e-slider') {
+      handled = !!uiAction('induced-e-set', { key: pick.key, value, live });
+    } else {
+      // Generic param-slider → experiment setAction
+      if (!pick.setAction) return false;
+      handled = !!uiAction(pick.setAction, {
+        key: pick.key,
+        value,
+        axis: pick.axis,
+        target: pick.target,
+        live,
+      });
     }
-    if (pick.action === 'induced-e-slider') {
-      return !!uiAction('induced-e-set', { key: pick.key, value, live });
-    }
-    // Generic param-slider → experiment setAction
-    if (!pick.setAction) return false;
-    return !!uiAction(pick.setAction, {
-      key: pick.key,
-      value,
-      axis: pick.axis,
-      target: pick.target,
-      live,
-    });
+    if (handled && slider) slider.lastValue = Number(value);
+    return handled;
   }
 
   function armUiSlider(pick, value, hostTarget = null) {
@@ -533,6 +548,9 @@ export function createExperimentManager({
       min: Number.isFinite(min) ? min : 0,
       max: Number.isFinite(max) ? max : 1,
       base: Number.isFinite(value) ? value : null,
+      // Station-specific begin handlers already apply the initial pick. Mark
+      // it as dispatched so the first hold tick does not replay that no-op.
+      lastValue: Number.isFinite(value) ? Number(value) : null,
       originX: mouseDragTotalX(),
       hostTarget: hostTarget || null,
     };
@@ -599,12 +617,12 @@ export function createExperimentManager({
       const activeHost = target || s.hostTarget;
       // Prefer absolute UV pick when the ray still hits the same control.
       if (context.raycaster && activeHost?.userData?.pickFromRay) {
-        const live = activeHost.userData.pickFromRay(context.raycaster);
+        const live = activeHost.userData.pickFromRay(context.raycaster, s.key);
         if (isParamSliderAction(live?.action)
-          && live.action === s.action
+          && (!s.action || live.action === s.action)
           && (!s.key || live.key === s.key)
           && (!s.axis || live.axis === s.axis)
-          && Number.isFinite(live.px)) {
+          && (Number.isFinite(live.px) || Number.isFinite(live.value))) {
           const value = valueFromParamSliderPick(live);
           if (Number.isFinite(value)) {
             if (s.base == null || Math.abs(value - s.base) > 1e-4) {

@@ -31,14 +31,16 @@ export const station = {
   accent: '#ec4899',
   experiments: [
     {
-      id: 'faraday_induction',
-      name: '法拉第电磁感应',
-      goal: '设定 B 或铜棒位置 x 的目标值与变化时长，播放动态过程，观察磁通量变化、感应电动势与楞次定律方向。',
-      theory: '\\Phi_B = BS, S = (x - x_0)L; \\varepsilon_i = n\\Delta\\Phi_B/\\Delta t（方向由楞次定律判定）',
+      id: 'electric_field',
+      name: '静电场探索',
+      goal: '拖动正负点电荷与试探电荷，观察叠加电场、受力与电势的空间分布',
+      theory: 'E=F/q；E=kQ/r^2；F=qE；k=9.0\\times 10^9 N\\cdot m^2/C^2（电荷以 \\mu C 计，位置以 m 计）',
       steps: [
-        { id: 'motion', text: '设定目标 x 并播放，测量动生电动势', hint: '模式选「动生」，设目标位置与时长，点「自动演示」；也可手拖铜棒。' },
-        { id: 'field', text: '设定目标 B 并播放，测量感生电动势', hint: '模式选「感生」，设目标磁场与时长，点「自动演示」；或点「反向变化」快速演示。' },
-        { id: 'conclude', text: '完成法拉第定律验证', hint: '比较 \\varepsilon_i = BL\\Delta x/\\Delta t 与 \\varepsilon_i = S\\cdot\\Delta B/\\Delta t 的结果，并用楞次定律判定方向。' },
+        {
+          id: 'explore',
+          text: '自由探索静电场与试探电荷',
+          hint: '拖动调 X/Y；滚轮或 Shift+拖 调 Z；内容屏可锁轴；电荷量在桌侧滑条。',
+        },
       ],
     },
     {
@@ -54,16 +56,14 @@ export const station = {
       ],
     },
     {
-      id: 'electric_field',
-      name: '静电场探索',
-      goal: '拖动正负点电荷与试探电荷，观察叠加电场、受力与电势的空间分布',
-      theory: 'E=F/q；E=kQ/r^2；F=qE；k=9.0\\times 10^9 N\\cdot m^2/C^2（电荷以 \\mu C 计，位置以 m 计）',
+      id: 'faraday_induction',
+      name: '法拉第电磁感应',
+      goal: '设定 B 或铜棒位置 x 的目标值与变化时长，播放动态过程，观察磁通量变化、感应电动势与楞次定律方向。',
+      theory: '\\Phi_B = BS, S = (x - x_0)L; \\varepsilon_i = n\\Delta\\Phi_B/\\Delta t（方向由楞次定律判定）',
       steps: [
-        {
-          id: 'explore',
-          text: '自由探索静电场与试探电荷',
-          hint: '拖动调 X/Y；滚轮或 Shift+拖 调 Z；内容屏可锁轴；电荷量在桌侧滑条。',
-        },
+        { id: 'motion', text: '设定目标 x 并播放，测量动生电动势', hint: '模式选「动生」，设目标位置与时长，点「自动演示」；也可手拖铜棒。' },
+        { id: 'field', text: '设定目标 B 并播放，测量感生电动势', hint: '模式选「感生」，设目标磁场与时长，点「自动演示」；或点「反向变化」快速演示。' },
+        { id: 'conclude', text: '完成法拉第定律验证', hint: '比较 \\varepsilon_i = BL\\Delta x/\\Delta t 与 \\varepsilon_i = S\\cdot\\Delta B/\\Delta t 的结果，并用楞次定律判定方向。' },
       ],
     },
     {
@@ -316,7 +316,7 @@ const HALL_MU0 = 4 * Math.PI * 1e-7;
 const HALL_K = 220;
 const HALL_COIL_RADIUS_M = 0.05;
 const HALL_COIL_TURNS = 210;
-const HALL_SOLENOID_LENGTH_M = 0.26;
+const HALL_SOLENOID_LENGTH_M = 0.30;
 const HALL_SOLENOID_RADIUS_M = 0.014;
 
 export function hallDemoVoltage(data) {
@@ -794,6 +794,9 @@ export function createHandlers(ctx) {
         completed: false,
         _time: 0,
         _prevX: 4.5,
+        _prevB: -1,
+        _dragDirectionB: 0,
+        _dragReverseDistanceB: 0,
         _hudThrottle: 0,
       };
     }
@@ -804,7 +807,8 @@ export function createHandlers(ctx) {
         Is: 5,
         probePos: 0,
         rightCoilPos: 2.5,
-        turns: 100,
+        solenoidLength: 30,
+        turns: 1000,
         direction: 1,
         zeroOffset: 0,
         wires: [],
@@ -812,6 +816,7 @@ export function createHandlers(ctx) {
         terminalSnapPort: null,
         hallDragArmed: false,
         hallDragging: false,
+        hallDragOffset: null,
         identified: {
           hall_helmholtz: false,
           hall_solenoid: false,
@@ -821,6 +826,7 @@ export function createHandlers(ctx) {
         vh: 0,
         records: [],
         showCurve: false,
+        showFit: false,
         /** First visible row index in the data table (0 = top / oldest). */
         tableScrollTop: 0,
         /** When true, the table sticks to the newest rows after each record. */
@@ -1318,6 +1324,39 @@ export function createHandlers(ctx) {
     return false;
   }
 
+  function getHallRayHitX(raycaster, data) {
+    if (!raycaster?.ray) return null;
+    const root = resolveElectroApparatusRoot('hall');
+    if (!root) return null;
+    if (typeof root.updateMatrixWorld === 'function') root.updateMatrixWorld(true);
+    if (root.matrixWorld) {
+      _invMat.copy(root.matrixWorld).invert();
+      _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
+    } else {
+      _localRay.copy(raycaster.ray);
+    }
+    const targetSolenoid = data?.target === 'solenoid';
+    const probeY = targetSolenoid ? 0.245 : 0.28;
+    const probeZ = targetSolenoid ? -0.24 : -0.02;
+
+    const O = _localRay.origin;
+    const D = _localRay.direction;
+    const denom = D.y * D.y + D.z * D.z;
+    if (denom > 1e-5) {
+      const w0y = O.y - probeY;
+      const w0z = O.z - probeZ;
+      const dotDW0 = D.x * O.x + D.y * w0y + D.z * w0z;
+      const hitX = (O.x - D.x * dotDW0) / denom;
+      if (Number.isFinite(hitX)) return hitX;
+    }
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -probeY);
+    const hit = new THREE.Vector3();
+    if (_localRay.intersectPlane(plane, hit)) {
+      return hit.x;
+    }
+    return null;
+  }
+
   /**
    * Apply screen-space drag deltas to the armed electric-field target.
    * Position only — visuals / E·F / decorations run once per animation frame
@@ -1404,10 +1443,10 @@ export function createHandlers(ctx) {
     if (refresh) pushHud();
   }
 
-  function syncFaraday(data, refresh = true, dt = 0) {
+  function syncFaraday(data, refresh = true, dt = 0, visual = true) {
     data.area = faradayArea(data.x, data.rodLength, data.xEnd);
     data.flux = faradayFlux(data.B, data.x, data.rodLength, data.xEnd);
-    equipment.electro?.updateFaraday?.(data, dt);
+    if (visual) equipment.electro?.updateFaraday?.(data, dt);
     if (refresh) pushHud();
   }
 
@@ -1727,6 +1766,9 @@ export function createHandlers(ctx) {
     data.sliderDragging = true;
     data.measureMode = 'induction';
     data.currentSense = 'none';
+    data._prevB = data.B;
+    data._dragDirectionB = 0;
+    data._dragReverseDistanceB = 0;
     data.sliderStart = {
       B0: data.B,
       t0: data._time,
@@ -1738,9 +1780,12 @@ export function createHandlers(ctx) {
     return true;
   }
 
-  /** Map a faraday-b-slider hit (desk 3D value or content-screen px) → B. */
+  /** Map a faraday-b-slider or desk slider hit (desk 3D value or content-screen px) → B. */
   function faradayBFromPick(pick) {
-    if (!pick || pick.action !== 'faraday-b-slider') return null;
+    if (!pick) return null;
+    if (pick.action !== 'faraday-b-slider' && !(pick.action === 'param-slider' && (pick.key === 'B' || pick.setAction === 'faraday-set'))) {
+      return null;
+    }
     const min = Number(pick.min ?? -3);
     const max = Number(pick.max ?? 3);
     if (Number.isFinite(pick.value)) return clamp(Number(pick.value), min, max);
@@ -1789,6 +1834,9 @@ export function createHandlers(ctx) {
     data.records = data.records.slice(-12);
     data.sliderDragging = false;
     data.sliderStart = null;
+    data._prevB = data.B;
+    data._dragDirectionB = 0;
+    data._dragReverseDistanceB = 0;
     data.measureMode = null;
     data.currentSense = 'none';
     data.lingerSense = 'none';
@@ -1839,10 +1887,17 @@ export function createHandlers(ctx) {
         data.liveEmf = 0;
       }
     } else if (data.sliderDragging && data.sliderStart) {
-      const elapsed = Math.max(step, data._time - data.sliderStart.t0);
-      const dFluxDt = data.sliderStart.area * (data.B - data.sliderStart.B0) / elapsed;
-      data.currentSense = faradaySense(dFluxDt);
-      data.liveEmf = -dFluxDt;
+      const prevB = Number.isFinite(data._prevB) ? data._prevB : data.sliderStart.B0;
+      const dB = data.B - prevB;
+      if (Math.abs(dB) > 1e-6) {
+        updateFaradayBDragCurrent(data, dB, step);
+      } else if (Number(data.currentLinger || 0) > 0 && data.lingerSense !== 'none') {
+        data.currentLinger = Math.max(0, Number(data.currentLinger) - step);
+        data.currentSense = data.lingerSense;
+      } else {
+        data.currentSense = 'none';
+        data.liveEmf = 0;
+      }
     } else {
       data.currentSense = 'none';
       data.liveEmf = 0;
@@ -1851,6 +1906,7 @@ export function createHandlers(ctx) {
       data.lingerSense = 'none';
     }
     data._prevX = data.x;
+    data._prevB = data.B;
     syncFaraday(data, false, step);
     data._hudThrottle += step;
     // Anim / drag needs livelier readout; keep well under full paint every frame.
@@ -1905,6 +1961,40 @@ export function createHandlers(ctx) {
     return data.currentSense !== 'none';
   }
 
+  /**
+   * Convert live B-slider dragging into an induced-current direction with input hysteresis.
+   */
+  function updateFaradayBDragCurrent(data, dB, dt) {
+    const delta = Number(dB || 0);
+    if (Math.abs(delta) <= 1e-6) return false;
+    const movementDirection = Math.sign(delta);
+    let direction = Number(data._dragDirectionB || 0);
+    if (!direction) {
+      direction = movementDirection;
+      data._dragReverseDistanceB = 0;
+    } else if (movementDirection === direction) {
+      data._dragReverseDistanceB = 0;
+    } else {
+      data._dragReverseDistanceB = Number(data._dragReverseDistanceB || 0) + Math.abs(delta);
+      if (data._dragReverseDistanceB < 0.04) {
+        data.currentSense = data.lingerSense || data.currentSense || 'none';
+        data.currentLinger = 0.14;
+        return false;
+      }
+      direction = movementDirection;
+      data._dragReverseDistanceB = 0;
+    }
+    data._dragDirectionB = direction;
+    const seconds = Math.max(Number(dt) || 0, 1 / 60);
+    const area = faradayArea(data.x, data.rodLength, data.xEnd);
+    const dFluxDt = area * (Math.abs(delta) / seconds) * direction;
+    data.currentSense = faradaySense(dFluxDt);
+    data.lingerSense = data.currentSense;
+    data.currentLinger = 0.14;
+    data.liveEmf = -dFluxDt;
+    return data.currentSense !== 'none';
+  }
+
   function calculateHallField(data, pos = data.probePos) {
     if (!data.wiring?.energized || data.wiring.target !== data.target) return 0;
     const x = Number(pos || 0) / 100;
@@ -1926,7 +2016,7 @@ export function createHandlers(ctx) {
       }
     } else {
       const halfLength = HALL_SOLENOID_LENGTH_M / 2;
-      const turnsPerMetre = Number(data.turns || 100) / HALL_SOLENOID_LENGTH_M;
+      const turnsPerMetre = Number(data.turns || 1000) / HALL_SOLENOID_LENGTH_M;
       const endCos = (z) => z / Math.sqrt(z * z + HALL_SOLENOID_RADIUS_M ** 2);
       bTesla = HALL_MU0 * turnsPerMetre * Im * 0.5
         * (endCos(x + halfLength) - endCos(x - halfLength));
@@ -2281,7 +2371,7 @@ export function createHandlers(ctx) {
         if (data.pendingAnim) return true;
         if (!data.sliderDragging && !beginFaradaySlider(data)) return true;
         setFaradaySliderAbsolute(data, payload.value ?? data.B, 0);
-        syncFaraday(data, false);
+        syncFaraday(data, false, 0, payload.live !== true);
         return true;
       }
       if (action === 'faraday-b-slider') {
@@ -2327,6 +2417,7 @@ export function createHandlers(ctx) {
             setFaradaySliderAbsolute(data, next, 0);
           } else {
             data.B = next;
+            data._prevB = next;
           }
         } else if (key === 'x') {
           const next = clamp(value, FARADAY_X_MIN, FARADAY_X_MAX);
@@ -2358,7 +2449,10 @@ export function createHandlers(ctx) {
         else return false;
         // Live drag: light sync; updateFaraday owns sense/E each frame.
         // Release / non-live setup gets a full HUD refresh.
-        syncFaraday(data, !live);
+        // Live pointer samples only mutate state. The fixed/render frame owns
+        // the expensive apparatus update so input frequency cannot cause
+        // duplicate scene work or make B dragging uneven.
+        syncFaraday(data, !live, 0, !live);
         return true;
       }
       if (action === 'faraday-channel') {
@@ -2618,14 +2712,14 @@ export function createHandlers(ctx) {
         if (key === 'Is') data.Is = clamp(value, 0, 10);
         if (key === 'probePos') data.probePos = clamp(value, -25, 25);
         if (key === 'rightCoilPos') data.rightCoilPos = clamp(value, -0.5, 13);
-        if (key === 'turns') data.turns = Math.round(clamp(value, 10, 300) / 10) * 10;
+        if (key === 'turns') data.turns = Math.round(clamp(value, 10, 2000) / 10) * 10;
       } else {
         const delta = Number(payload.delta || 0);
         if (key === 'Im') data.Im = clamp(data.Im + delta, 0, 1);
         if (key === 'Is') data.Is = clamp(data.Is + delta, 0, 10);
         if (key === 'probePos') data.probePos = clamp(data.probePos + delta, -25, 25);
         if (key === 'rightCoilPos') data.rightCoilPos = clamp(data.rightCoilPos + delta, -0.5, 13);
-        if (key === 'turns') data.turns = Math.round(clamp(data.turns + delta, 10, 300) / 10) * 10;
+        if (key === 'turns') data.turns = Math.round(clamp(data.turns + delta, 10, 2000) / 10) * 10;
       }
       if (state.stepIndex <= 2 && data.Im > 0 && data.Is > 0) setStep('scan');
       syncHall(data, payload.live !== true);
@@ -2642,12 +2736,14 @@ export function createHandlers(ctx) {
       data.tableScrollPx = 0;
       data.records.push({
         target: data.target,
+        coilMode: data.wiring?.coilMode || 'both',
         pos: data.probePos,
         vh: data.vh,
         b: calculateHallField(data) * 1000,
         Im: data.Im,
         Is: data.Is,
         rightCoilPos: data.rightCoilPos,
+        solenoidLength: data.solenoidLength || 30,
         turns: data.turns,
         direction: data.direction,
         zeroOffset: data.zeroOffset,
@@ -2662,6 +2758,7 @@ export function createHandlers(ctx) {
     if (action === 'hall-clear') {
       data.records = [];
       data.showCurve = false;
+      data.showFit = false;
       data.tableScrollAuto = true;
       data.tableScrollTop = 0;
       data.tableScrollPx = 0;
@@ -2714,7 +2811,24 @@ export function createHandlers(ctx) {
       }
       data.showCurve = !data.showCurve;
       syncHall(data);
-      toast(data.showCurve ? '已生成符合磁场模型的 B–X 分布曲线' : '已返回实验数据记录');
+      toast(data.showCurve ? '已进入 B–X 磁场分布散点视图' : '已返回实验数据记录');
+      return true;
+    }
+    if (action === 'hall-fit') {
+      if (!data.records || data.records.length < 2) {
+        toast('至少记录 2 组数据后才能进行曲线拟合');
+        return true;
+      }
+      if (!data.showCurve) {
+        data.showCurve = true;
+        data.showFit = true;
+        syncHall(data);
+        toast('已进入曲线视图并拟合 B–X 磁场分布曲线');
+        return true;
+      }
+      data.showFit = !data.showFit;
+      syncHall(data);
+      toast(data.showFit ? '已拟合生成 B–X 磁场理论分布曲线' : '已隐藏拟合曲线');
       return true;
     }
     if (action === 'hall-export') {
@@ -2764,6 +2878,7 @@ export function createHandlers(ctx) {
     data.hallDragMoved = false;
     data.hallHoldAccum = 0;
     data.hallDragKind = kind;
+    data.hallDragOffset = null;
     data.hallDragStartValue = Number(value || 0);
     data.hallDragStartMouseX = Number(equipment.electro?.mouseDrag?.movementX || 0);
   }
@@ -3256,25 +3371,25 @@ export function createHandlers(ctx) {
       if (!data.hallDragging) return;
       const kind = data.hallDragKind;
       if (raycaster && (kind === 'probePos' || kind === 'rightCoilPos')) {
-        const root = resolveElectroApparatusRoot('hall');
-        if (root) {
-          if (typeof root.updateMatrixWorld === 'function') root.updateMatrixWorld(true);
-          if (root.matrixWorld) {
-            _invMat.copy(root.matrixWorld).invert();
-            _localRay.copy(raycaster.ray).applyMatrix4(_invMat);
-          } else {
-            _localRay.copy(raycaster.ray);
+        const hitX = getHallRayHitX(raycaster, data);
+        if (hitX != null) {
+          data.hallDragMoved = true;
+          if (kind === 'probePos') {
+            const hitSimPos = hitX * 25;
+            if (!Number.isFinite(data.hallDragOffset)) {
+              data.hallDragOffset = Number(data.probePos || 0) - hitSimPos;
+            }
+            data.probePos = clamp(hitSimPos + (data.hallDragOffset || 0), -25, 25);
+          } else if (kind === 'rightCoilPos') {
+            const hitCoilPos = ((hitX + 0.06) / 0.34) * 13.5 - 0.5;
+            if (!Number.isFinite(data.hallDragOffset)) {
+              data.hallDragOffset = Number(data.rightCoilPos || 2.5) - hitCoilPos;
+            }
+            data.rightCoilPos = clamp(hitCoilPos + (data.hallDragOffset || 0), -0.5, 13);
           }
-          const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -0.081);
-          const hit = new THREE.Vector3();
-          if (_localRay.intersectPlane(plane, hit)) {
-            data.hallDragMoved = true;
-            if (kind === 'probePos') data.probePos = clamp(hit.x * 25, -25, 25);
-            if (kind === 'rightCoilPos') data.rightCoilPos = clamp(hit.x * 25, -0.5, 13);
-            if (state.stepIndex <= 2 && data.Im > 0 && data.Is > 0) setStep('scan');
-            syncHall(data, false);
-            return;
-          }
+          if (state.stepIndex <= 2 && data.Im > 0 && data.Is > 0) setStep('scan');
+          syncHall(data, false);
+          return;
         }
       }
       const mouseX = Number(equipment.electro?.mouseDrag?.movementX || 0);
@@ -3283,7 +3398,7 @@ export function createHandlers(ctx) {
       if (Math.abs(deltaPx) > 2) data.hallDragMoved = true;
       if (kind === 'probePos') data.probePos = clamp(start + deltaPx * 0.05, -25, 25);
       if (kind === 'rightCoilPos') data.rightCoilPos = clamp(start + deltaPx * 0.02, -0.5, 13);
-      if (kind === 'turns') data.turns = Math.round(clamp(start + deltaPx, 10, 300) / 10) * 10;
+      if (kind === 'turns') data.turns = Math.round(clamp(start + deltaPx, 10, 2000) / 10) * 10;
       if (kind === 'Im') data.Im = clamp(start + deltaPx * 0.0025, 0, 1);
       if (kind === 'Is') data.Is = clamp(start + deltaPx * 0.025, 0, 10);
       if (kind && state.stepIndex <= 2 && data.Im > 0 && data.Is > 0) setStep('scan');
@@ -3296,6 +3411,7 @@ export function createHandlers(ctx) {
       data.hallDragging = false;
       data.hallHoldAccum = 0;
       data.hallDragKind = null;
+      data.hallDragOffset = null;
       syncHall(data);
       const labels = {
         probePos: `探头位置 X = ${data.probePos.toFixed(1)} cm`,
@@ -3422,6 +3538,29 @@ export function createHandlers(ctx) {
         return ok;
       }
     }
+    if (state.expId === 'hall_effect') {
+      if (armTableScrollDrag(target, context.pick || null)) return true;
+      if (context.raycaster && target?.userData?.pickFromRay) {
+        const pick = target.userData.pickFromRay(context.raycaster);
+        if (armTableScrollDrag(target, pick)) return true;
+      }
+      const ok = interact(target, context.time || 0, currentStep());
+      const role = target?.userData?.role;
+      if (ok && context.raycaster && (role === 'hall_probe' || role === 'hall_helmholtz')) {
+        const data = state.data;
+        const hitX = getHallRayHitX(context.raycaster, data);
+        if (hitX != null) {
+          if (role === 'hall_probe') {
+            const hitSimPos = hitX * 25;
+            data.hallDragOffset = Number(data.probePos || 0) - hitSimPos;
+          } else if (role === 'hall_helmholtz') {
+            const hitCoilPos = ((hitX + 0.06) / 0.34) * 13.5 - 0.5;
+            data.hallDragOffset = Number(data.rightCoilPos || 2.5) - hitCoilPos;
+          }
+        }
+      }
+      return ok;
+    }
     if (armTableScrollDrag(target, context.pick || null)) return true;
     // AR / direct ray: resolve table pick from the ray if the caller only
     // supplied the screen host (common when the hand locks the display mesh).
@@ -3494,7 +3633,7 @@ export function createHandlers(ctx) {
         // (AR pinch following the track), then fall back to relative drag.
         // Visuals/HUD are owned by updateFaraday once per animation frame.
         if (context.raycaster && _target?.userData?.pickFromRay) {
-          const live = _target.userData.pickFromRay(context.raycaster);
+          const live = _target.userData.pickFromRay(context.raycaster, 'B');
           const absB = faradayBFromPick(live);
           if (absB != null) {
             setFaradaySliderAbsolute(data, absB, totalX || 0);
@@ -3779,10 +3918,17 @@ export function exportHallDataReport(data) {
         HALL_MU0 * HALL_COIL_TURNS * Im * HALL_COIL_RADIUS_M ** 2
         / (2 * Math.pow(HALL_COIL_RADIUS_M ** 2 + (xM - centreX) ** 2, 1.5))
       );
-      bTesla = fieldAt(fixedX) + fieldAt(movingX);
+      const coilMode = r.coilMode || data.wiring?.coilMode || 'both';
+      if (coilMode === 'fixed') {
+        bTesla = fieldAt(fixedX);
+      } else if (coilMode === 'moving') {
+        bTesla = fieldAt(movingX);
+      } else {
+        bTesla = fieldAt(fixedX) + fieldAt(movingX);
+      }
     } else {
       const halfLength = HALL_SOLENOID_LENGTH_M / 2;
-      const turnsPerMetre = Number(r.turns || 100) / HALL_SOLENOID_LENGTH_M;
+      const turnsPerMetre = Number(r.turns || 1000) / HALL_SOLENOID_LENGTH_M;
       const endCos = (z) => z / Math.sqrt(z * z + HALL_SOLENOID_RADIUS_M ** 2);
       bTesla = HALL_MU0 * turnsPerMetre * Im * 0.5
         * (endCos(xM + halfLength) - endCos(xM - halfLength));
@@ -3856,13 +4002,27 @@ export function exportHallDataReport(data) {
     </circle>`;
   }).join('\n');
 
-  const targetLabel = lastRec.target === 'helmholtz' ? '亥姆霍兹线圈' : '长螺线管';
+  const activeCoilMode = lastRec.coilMode || data.wiring?.coilMode || 'both';
+  const targetLabel = lastRec.target === 'helmholtz'
+    ? (activeCoilMode === 'fixed'
+      ? '亥姆霍兹线圈 (固定线圈 L1)'
+      : activeCoilMode === 'moving'
+        ? '亥姆霍兹线圈 (移动线圈 L2)'
+        : '亥姆霍兹线圈 (双线圈)')
+    : '长螺线管';
+
   const conditionText = lastRec.target === 'solenoid'
-    ? `长 L=26cm 匝数 N=${Number(lastRec.turns || 100)}`
+    ? `长 L=${Number(lastRec.solenoidLength || 30)}cm 匝数 N=${Number(lastRec.turns || 1000)}`
     : (() => {
       const sep = Number(lastRec.rightCoilPos ?? 2.5) + 2.5;
       const isHelm = Math.abs(sep - 5.0) < 0.1;
-      return `线圈间距 d=${sep.toFixed(1)}cm${isHelm ? ' = R (亥姆霍兹状态)' : ''}`;
+      if (activeCoilMode === 'fixed') {
+        return '单线圈通电 (固定线圈 L1 中心 X=-2.5cm)';
+      }
+      if (activeCoilMode === 'moving') {
+        return `单线圈通电 (移动线圈 L2 中心 X=${Number(lastRec.rightCoilPos ?? 2.5).toFixed(1)}cm)`;
+      }
+      return `双线圈间距 d=${sep.toFixed(1)}cm${isHelm ? ' = R (亥姆霍兹状态)' : ''}`;
     })();
 
   const rowsHtml = records.map((r, i) => `
@@ -3964,7 +4124,7 @@ export function exportHallDataReport(data) {
       padding: 16px 8px;
       margin-bottom: 28px;
     }
-    table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: center; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; text-align: center; margin-bottom: 28px; }
     th { background: #f1f5f9; color: #334155; font-weight: 600; padding: 10px; border: 1px solid #cbd5e1; }
     td { padding: 8px 10px; border: 1px solid #e2e8f0; color: #1e293b; }
     tr:nth-child(even) td { background: #f8fafc; }
@@ -4009,6 +4169,23 @@ export function exportHallDataReport(data) {
     </div>
 
     <div class="section-header">
+      <div class="section-title">实验数据记录表</div>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>序号</th>
+          <th>探头位置 X (cm)</th>
+          <th>霍尔电压 V<sub>H</sub> (mV)</th>
+          <th>磁感应强度 B (mT)</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rowsHtml}
+      </tbody>
+    </table>
+
+    <div class="section-header">
       <div class="section-title">B–X 磁场分布曲线</div>
       <div class="chart-legend">
         <div class="legend-item"><span class="legend-line"></span> 理论线 (${conditionText})</div>
@@ -4032,23 +4209,6 @@ export function exportHallDataReport(data) {
         ${dotsHtml}
       </svg>
     </div>
-
-    <div class="section-header">
-      <div class="section-title">实验数据记录表</div>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>序号</th>
-          <th>探头位置 X (cm)</th>
-          <th>霍尔电压 V<sub>H</sub> (mV)</th>
-          <th>磁感应强度 B (mT)</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${rowsHtml}
-      </tbody>
-    </table>
   </div>
 
   <script>

@@ -33,9 +33,9 @@ export const LAB_CATALOG = Object.freeze({
     { id: 'multi_slit_diffraction', name: '单缝衍射 · 多缝干涉', goal: '调节波长、缝宽、缝距、缝数和屏距，用对照表与标注曲线归纳条纹规律' },
   ]),
   electro: station('electro', '电磁学实验台', [
-    { id: 'faraday_induction', name: '法拉第电磁感应', goal: '设定 B 或铜棒位置 x 的目标值与变化时长，播放动态过程，观察磁通量变化、感应电动势与楞次定律方向。' },
-    { id: 'induced_electric_field', name: '感生电场', goal: '手动调节 B 与 dB/dt，观察涡旋感生电场：面内 E∝r，面外 E∝1/r，方向由楞次定律判定。' },
     { id: 'electric_field', name: '静电场探索', goal: '拖动正负点电荷与试探电荷，观察叠加电场、受力与电势的空间分布' },
+    { id: 'induced_electric_field', name: '感生电场', goal: '手动调节 B 与 dB/dt，观察涡旋感生电场：面内 E∝r，面外 E∝1/r，方向由楞次定律判定。' },
+    { id: 'faraday_induction', name: '法拉第电磁感应', goal: '设定 B 或铜棒位置 x 的目标值与变化时长，播放动态过程，观察磁通量变化、感应电动势与楞次定律方向。' },
     { id: 'hall_carrier_demo', name: '霍尔效应原理', goal: '观察电流、磁场、载流子浓度、样品厚度与载流子类型如何共同改变载流子的三维运动和霍尔电压极性。' },
     { id: 'hall_effect', name: '霍尔效应测磁', goal: '调节励磁与霍尔电流，扫描探头位置并比较亥姆霍兹线圈和长螺线管的磁场分布' },
   ]),

@@ -53,9 +53,7 @@ function makeCanvasForMesh(meshW, meshH, pxH = TEX_PX_H) {
 const DESK_TEXT = '#0f172a';
 const DESK_TEXT_MUTED = '#1e293b';
 
-function makeHeaderTexture(label, valueText, _accent = '#ec4899') {
-  const c = makeCanvasForMesh(HEADER_MESH_W, HEADER_MESH_H);
-  const ctx = c.getContext('2d');
+function renderHeaderCanvas(c, ctx, label, valueText, _accent = '#ec4899') {
   ctx.clearRect(0, 0, c.width, c.height);
   ctx.textBaseline = 'middle';
 
@@ -73,7 +71,12 @@ function makeHeaderTexture(label, valueText, _accent = '#ec4899') {
   ctx.fillStyle = DESK_TEXT;
   ctx.font = `bold ${Math.round(fontPx * 1.06)}px "Microsoft YaHei", sans-serif`;
   ctx.fillText(String(valueText || '—'), c.width - Math.round(c.width * 0.02), c.height * 0.52);
+}
 
+function makeHeaderTexture(label, valueText, accent = '#ec4899') {
+  const c = makeCanvasForMesh(HEADER_MESH_W, HEADER_MESH_H);
+  const ctx = c.getContext('2d');
+  renderHeaderCanvas(c, ctx, label, valueText, accent);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -81,12 +84,7 @@ function makeHeaderTexture(label, valueText, _accent = '#ec4899') {
   return tex;
 }
 
-/** Full-width or multi-button action chip texture for discrete desk controls. */
-function makeActionGroupTexture(buttons, accentHex = '#ec4899') {
-  const meshW = CARD_W - PANEL_PAD_X * 1.2;
-  const meshH = ROW_H * 0.72;
-  const c = makeCanvasForMesh(meshW, meshH, 180);
-  const ctx = c.getContext('2d');
+function renderActionGroupCanvas(c, ctx, buttons, accentHex = '#ec4899') {
   ctx.clearRect(0, 0, c.width, c.height);
 
   const list = Array.isArray(buttons) ? buttons : [];
@@ -137,7 +135,15 @@ function makeActionGroupTexture(buttons, accentHex = '#ec4899') {
     }
     ctx.fillText(labelText, x + btnW / 2, y + h * 0.52);
   });
+}
 
+/** Full-width or multi-button action chip texture for discrete desk controls. */
+function makeActionGroupTexture(buttons, accentHex = '#ec4899') {
+  const meshW = CARD_W - PANEL_PAD_X * 1.2;
+  const meshH = ROW_H * 0.72;
+  const c = makeCanvasForMesh(meshW, meshH, 180);
+  const ctx = c.getContext('2d');
+  renderActionGroupCanvas(c, ctx, buttons, accentHex);
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
@@ -335,11 +341,19 @@ export function createDeskSliderPanel({
     row.visible = false;
 
     // Header: label left + value right (one plane, full card width)
-    // Plane aspect matches makeHeaderTexture canvas — avoids squashed glyphs.
+    // Canvas & CanvasTexture created once per slot and reused across value updates
+    const headerCanvas = makeCanvasForMesh(HEADER_MESH_W, HEADER_MESH_H);
+    const headerCtx = headerCanvas.getContext('2d');
+    renderHeaderCanvas(headerCanvas, headerCtx, '—', '—', accentHex);
+    const headerTex = new THREE.CanvasTexture(headerCanvas);
+    headerTex.colorSpace = THREE.SRGBColorSpace;
+    headerTex.anisotropy = 4;
+    headerTex.needsUpdate = true;
+
     const headerPlane = new THREE.Mesh(
       new THREE.PlaneGeometry(HEADER_MESH_W, HEADER_MESH_H),
       new THREE.MeshBasicMaterial({
-        map: makeHeaderTexture('—', '—', accentHex),
+        map: headerTex,
         transparent: true,
         depthWrite: false,
       }),
@@ -352,10 +366,18 @@ export function createDeskSliderPanel({
     // Discrete action chip (hidden for range rows)
     const actionMeshW = CARD_W - PANEL_PAD_X * 1.2;
     const actionMeshH = ROW_H * 0.72;
+    const actionCanvas = makeCanvasForMesh(actionMeshW, actionMeshH, 180);
+    const actionCtx = actionCanvas.getContext('2d');
+    renderActionGroupCanvas(actionCanvas, actionCtx, [{ label: '—', action: '', active: false }], accentHex);
+    const actionTex = new THREE.CanvasTexture(actionCanvas);
+    actionTex.colorSpace = THREE.SRGBColorSpace;
+    actionTex.anisotropy = 4;
+    actionTex.needsUpdate = true;
+
     const actionPlane = new THREE.Mesh(
       new THREE.PlaneGeometry(actionMeshW, actionMeshH),
       new THREE.MeshBasicMaterial({
-        map: makeActionButtonTexture('—', accentHex).tex,
+        map: actionTex,
         transparent: true,
         depthWrite: false,
       }),
@@ -458,7 +480,13 @@ export function createDeskSliderPanel({
     slots.push({
       row,
       headerPlane,
+      headerCanvas,
+      headerCtx,
+      headerTex,
       actionPlane,
+      actionCanvas,
+      actionCtx,
+      actionTex,
       track,
       fill,
       thumb,
@@ -534,21 +562,8 @@ export function createDeskSliderPanel({
       const headerKey = `action|` + buttons.map((b) => `${b.label}:${b.action}:${!!b.active}`).join(';');
       if (slot._headerKey !== headerKey) {
         slot._headerKey = headerKey;
-        const { tex, meshW, meshH } = makeActionGroupTexture(buttons, accentHex);
-        const old = slot.actionPlane.material.map;
-        slot.actionPlane.material.map = tex;
-        old?.dispose?.();
-        slot.actionPlane.material.needsUpdate = true;
-        // Keep plane aspect matched to texture so glyphs are not squashed.
-        if (
-          Math.abs(meshW - slot.actionMeshW) > 1e-4
-          || Math.abs(meshH - slot.actionMeshH) > 1e-4
-        ) {
-          slot.actionPlane.geometry.dispose();
-          slot.actionPlane.geometry = new THREE.PlaneGeometry(meshW, meshH);
-          slot.actionMeshW = meshW;
-          slot.actionMeshH = meshH;
-        }
+        renderActionGroupCanvas(slot.actionCanvas, slot.actionCtx, buttons, accentHex);
+        slot.actionTex.needsUpdate = true;
       }
       return;
     }
@@ -584,10 +599,8 @@ export function createDeskSliderPanel({
     const headerKey = `${labelText}|${valueText}`;
     if (slot._headerKey !== headerKey) {
       slot._headerKey = headerKey;
-      const old = slot.headerPlane.material.map;
-      slot.headerPlane.material.map = makeHeaderTexture(labelText, valueText, accentHex);
-      old?.dispose?.();
-      slot.headerPlane.material.needsUpdate = true;
+      renderHeaderCanvas(slot.headerCanvas, slot.headerCtx, labelText, valueText, accentHex);
+      slot.headerTex.needsUpdate = true;
     }
   }
 
@@ -707,20 +720,25 @@ export function createDeskSliderPanel({
     return best;
   }
 
-  function pickFromRay(raycaster) {
+  function pickFromRay(raycaster, lockedKey = null) {
     if (!root.userData.present || !root.visible || activeCount <= 0) return null;
-    const hits = raycaster.intersectObject(root, true);
-    if (!hits.length) return null;
-
-    // Prefer plane projection; fall back to first hit local coords if the ray
-    // is nearly parallel to the desk (rare for the seated camera).
     let local = projectRayToPickPlane(raycaster);
     if (!local) {
-      root.worldToLocal(_local.copy(hits[0].point));
-      local = _local;
+      const hits = raycaster.intersectObject(root, true);
+      if (hits.length) {
+        root.worldToLocal(_local.copy(hits[0].point));
+        local = _local;
+      }
     }
+    if (!local) return null;
 
-    const slot = slotAtLocal(local);
+    let slot = null;
+    if (lockedKey) {
+      slot = slots.find((s) => s.spec && (s.spec.key === lockedKey || s.spec.axis === lockedKey)) || null;
+    }
+    if (!slot) {
+      slot = slotAtLocal(local);
+    }
     if (!slot) return null;
 
     const spec = slot.spec;
